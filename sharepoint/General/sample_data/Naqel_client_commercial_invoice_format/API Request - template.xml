@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="http://schemas.xmlsoap.org/soap/envelope/">
+    <Header/>
+    <Body>
+        <CreateWaybill xmlns="http://tempuri.org/">
+            <_ManifestShipmentDetails>
+                <ClientInfo>
+                    <ClientAddress>
+                        <PhoneNumber>9200-17440</PhoneNumber>
+                        <FirstAddress>Riyadh, 11314</FirstAddress>
+                        <Location>Riyad</Location>
+                        <CountryCode>KSA</CountryCode>
+                        <CityCode>RUH</CityCode>
+                    </ClientAddress>
+                    <ClientContact>
+                        <Name>EZOrder</Name>
+                        <Email>info@ezorder.com.sa</Email>
+                        <PhoneNumber>9200-17440</PhoneNumber>
+                    </ClientContact>
+                    <ClientID>9020077</ClientID>
+                    <Password>API@Test</Password>
+                    <Version>9.0</Version>
+                </ClientInfo>
+                <ConsigneeInfo>
+                    <ConsigneeName>Nahdi Medical Company</ConsigneeName>
+                    <Mobile></Mobile>
+                    <PhoneNumber>05xxxxxxx</PhoneNumber>
+                    <Address>6110 | Southern - Bisha - Riyadh Street - 0532301198</Address>
+                    <CountryCode>AE</CountryCode>
+                    <CityCode>DXB</CityCode>
+                    <NationalAddress></NationalAddress>
+                </ConsigneeInfo>
+                <_CommercialInvoice>
+                    <CommercialInvoiceDetailList>
+                        <CommercialInvoiceDetail>
+                            <Quantity>1</Quantity>
+                            <UnitType>Piece</UnitType>
+                            <CountryofManufacture>AE</CountryofManufacture>
+                            <Description>ENGINE MOUNT</Description>
+                            <UnitCost>252</UnitCost>
+                            <CustomsCommodityCode>8708946000</CustomsCommodityCode>
+                            <Currency>USD</Currency>
+                        </CommercialInvoiceDetail>
+                    </CommercialInvoiceDetailList>
+                    <RefNo>020091313384</RefNo>
+                    <InvoiceNo>020091313384</InvoiceNo>
+                    <InvoiceDate>2026-03-23</InvoiceDate>
+                    <Consignee>ALMANJI</Consignee>
+                    <ConsigneeAddress>MUSCAT INTERNATIONAL AIRPORT  ZIP CODE121</ConsigneeAddress>
+                    <ConsigneeEmail>MUNTHARNASIR@GMAIL.COM</ConsigneeEmail>
+                    <MobileNo>+968 95295749</MobileNo>
+                    <Phone>+968 95295749</Phone>
+                    <TotalCost>252</TotalCost>
+                    <CurrencyCode>USD</CurrencyCode>
+                </_CommercialInvoice>
+                <CurrenyID>1</CurrenyID>
+                <BillingType>1</BillingType>
+                <PicesCount>1</PicesCount>
+                <Weight>1</Weight>
+                <DeliveryInstruction></DeliveryInstruction>
+                <CODCharge>0</CODCharge>
+                <CreateBooking>false</CreateBooking>
+                <isRTO>false</isRTO>
+                <DeclareValue>20</DeclareValue>
+                <GeneratePiecesBarCodes>false</GeneratePiecesBarCodes>
+                <LoadTypeID>34</LoadTypeID>
+                <GoodDesc></GoodDesc>
+                <RefNo>test101010</RefNo>
+                <InsuredValue>0</InsuredValue>
+                <IsInsurance>false</IsInsurance>
+                <GoodsVATAmount>0</GoodsVATAmount>
+                <IsCustomDutyPayByConsignee>false</IsCustomDutyPayByConsignee>
+            </_ManifestShipmentDetails>
+        </CreateWaybill>
+    </Body>
+</Envelope>

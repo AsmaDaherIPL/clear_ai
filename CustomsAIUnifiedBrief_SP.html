@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Customs AI Combined Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,900;1,400&family=IBM+Plex+Mono:wght@300;400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg:        #f7f8fc;
+  --surface:   #eef0f8;
+  --card:      #ffffff;
+  --border:    #dde1f0;
+  --gold:      #b06800;
+  --gold-dim:  #c9880a;
+  --gold-glow: rgba(176,104,0,.10);
+  --amber:     #924f00;
+  --text:      #141728;
+  --muted:     #5a607e;
+  --dim:       #c2c6dc;
+  --green:     #0a7a52;
+  --red:       #c0392b;
+  --blue:      #1d4ed8;
+  --purple:    #6d28d9;
+  --orange:    #c2440e;
+  --serif:    'Playfair Display', Georgia, serif;
+  --mono:     'IBM Plex Mono', monospace;
+  --sans:     'DM Sans', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.7; overflow-x: hidden; }
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 9999; opacity: .08;
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 2px; }
+
+/* ─── PROGRESS ─── */
+#progress-bar { position: fixed; top: 0; left: 0; height: 2px; background: linear-gradient(90deg, var(--gold), var(--amber)); width: 0%; z-index: 1000; box-shadow: 0 0 8px var(--gold); transition: width .1s linear; }
+
+/* ─── NAV ─── */
+nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 0 3rem; height: 56px; background: rgba(247,248,252,.92); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); box-shadow: 0 1px 12px rgba(0,0,0,.06); }
+.nav-logo { font-family: var(--mono); font-size: .72rem; color: var(--gold); letter-spacing: .12em; text-transform: uppercase; }
+.nav-links { display: flex; gap: 2rem; list-style: none; }
+.nav-links a { font-family: var(--mono); font-size: .68rem; color: var(--muted); text-decoration: none; letter-spacing: .08em; text-transform: uppercase; transition: color .2s; }
+.nav-links a:hover { color: var(--gold); }
+
+/* ─── HERO ─── */
+#clear-hero, #naqel-hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 120px 6rem 80px; position: relative; overflow: hidden; }
+.hero-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 60% at 60% 40%, rgba(176,104,0,.06) 0%, transparent 65%), radial-gradient(ellipse 40% 40% at 20% 70%, rgba(29,78,216,.04) 0%, transparent 60%), linear-gradient(180deg, var(--bg) 0%, var(--surface) 100%); }
+.hero-grid { position: absolute; inset: 0; background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 60px 60px; opacity: .25; mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 80%); }
+.hero-eyebrow { font-family: var(--mono); font-size: .68rem; color: var(--gold); letter-spacing: .2em; text-transform: uppercase; margin-bottom: 1.5rem; position: relative; display: flex; align-items: center; gap: .75rem; }
+.hero-eyebrow::before { content: ''; display: inline-block; width: 28px; height: 1px; background: var(--gold); }
+.hero-title { font-family: var(--serif); font-size: clamp(2.8rem, 5.5vw, 5.5rem); font-weight: 900; line-height: 1.05; letter-spacing: -.02em; position: relative; max-width: 860px; }
+.hero-title em { font-style: italic; color: var(--gold); }
+.hero-sub { font-family: var(--sans); font-size: 1rem; color: var(--muted); max-width: 580px; margin-top: 1.75rem; position: relative; line-height: 1.8; }
+.hero-stats { display: flex; gap: 3rem; margin-top: 3.5rem; position: relative; flex-wrap: wrap; }
+.stat { border-left: 2px solid var(--gold-dim); padding-left: 1.25rem; }
+.stat-num { font-family: var(--mono); font-size: 1.7rem; color: var(--gold); font-weight: 600; display: block; }
+.stat-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-family: var(--mono); }
+.hero-scroll { position: absolute; bottom: 3rem; left: 6rem; display: flex; align-items: center; gap: .75rem; font-family: var(--mono); font-size: .62rem; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; animation: bounce 2s ease-in-out infinite; }
+@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+.hero-scroll::after { content: '↓'; font-size: 1rem; color: var(--gold); }
+
+/* ─── CALLOUT BANNER ─── */
+.callout { background: rgba(240,165,0,.07); border: 1px solid var(--gold-dim); border-radius: 12px; padding: 1.25rem 1.5rem; font-size: .85rem; color: var(--text); line-height: 1.7; display: flex; gap: 1rem; align-items: flex-start; }
+.callout-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: .1rem; }
+.callout.warn { background: rgba(248,113,113,.06); border-color: rgba(248,113,113,.3); }
+.callout.info { background: rgba(96,165,250,.06); border-color: rgba(96,165,250,.2); }
+.callout.note { background: rgba(167,139,250,.06); border-color: rgba(167,139,250,.2); }
+.callout strong { color: var(--gold); }
+.callout.warn strong { color: var(--red); }
+.callout.info strong { color: var(--blue); }
+.callout.note strong { color: var(--purple); }
+
+/* ─── SECTIONS ─── */
+.section { padding: 100px 6rem; position: relative; }
+.section-inner { max-width: 1160px; margin: 0 auto; }
+.section-label { font-family: var(--mono); font-size: .62rem; color: var(--gold); letter-spacing: .2em; text-transform: uppercase; display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; }
+.section-label::before { content: attr(data-num); background: var(--gold); color: var(--bg); width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .58rem; font-weight: 700; flex-shrink: 0; }
+.section-title { font-family: var(--serif); font-size: clamp(1.9rem, 3.5vw, 3.2rem); font-weight: 700; line-height: 1.1; letter-spacing: -.02em; max-width: 680px; margin-bottom: .9rem; }
+.section-title em { font-style: italic; color: var(--gold); }
+.section-desc { color: var(--muted); max-width: 640px; font-size: .92rem; line-height: 1.85; margin-bottom: 3.5rem; }
+.divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); margin: 0 6rem; }
+
+/* ─── PIPELINE ─── */
+.pipeline { display: flex; align-items: stretch; gap: 0; margin-top: .5rem; overflow-x: auto; padding-bottom: 1.5rem; }
+.pipe-node { flex: 1; min-width: 120px; display: flex; flex-direction: column; align-items: center; position: relative; opacity: 0; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease; }
+.pipe-node.visible { opacity: 1; transform: translateY(0); }
+.pipe-icon-wrap { width: 68px; height: 68px; border-radius: 14px; display: grid; place-items: center; font-size: 1.5rem; position: relative; z-index: 2; border: 1px solid var(--border); background: var(--card); transition: all .3s ease; cursor: default; }
+.pipe-node:hover .pipe-icon-wrap { border-color: var(--gold); background: var(--gold-glow); box-shadow: 0 0 20px var(--gold-glow); transform: translateY(-3px); }
+.pipe-node-num { font-family: var(--mono); font-size: .58rem; color: var(--gold); margin-top: .65rem; letter-spacing: .1em; }
+.pipe-node-name { font-family: var(--sans); font-size: .78rem; font-weight: 600; text-align: center; margin-top: .2rem; color: var(--text); }
+.pipe-node-desc { font-size: .67rem; color: var(--muted); text-align: center; margin-top: .35rem; padding: 0 .5rem; line-height: 1.5; }
+.pipe-connector { flex-shrink: 0; width: 36px; display: flex; align-items: flex-start; padding-top: 24px; }
+.pipe-line { width: 100%; height: 2px; background: linear-gradient(90deg, var(--dim), var(--gold-dim), var(--dim)); position: relative; overflow: hidden; }
+.pipe-line::after { content: ''; position: absolute; top: -1px; left: -100%; width: 40%; height: 4px; background: linear-gradient(90deg, transparent, var(--gold), transparent); animation: flow-right 2.5s linear infinite; }
+.pipe-arrow { width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 7px solid var(--gold-dim); flex-shrink: 0; }
+@keyframes flow-right { 0% { left: -100%; } 100% { left: 200%; } }
+@keyframes flow-down { 0% { top: -40%; } 100% { top: 140%; } }
+
+/* ─── HV / LV SPLIT ─── */
+.hvlv-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+.hvlv-card { border-radius: 16px; padding: 2rem; border: 1px solid; position: relative; overflow: hidden; opacity: 0; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease; }
+.hvlv-card.visible { opacity: 1; transform: translateY(0); }
+.hv-card { background: linear-gradient(135deg, rgba(240,165,0,.08) 0%, var(--card) 60%); border-color: var(--gold-dim); }
+.lv-card { background: linear-gradient(135deg, rgba(52,211,153,.06) 0%, var(--card) 60%); border-color: rgba(52,211,153,.25); }
+.hvlv-badge { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; padding: .25rem .7rem; border-radius: 6px; margin-bottom: 1rem; }
+.hv-badge { background: rgba(240,165,0,.12); color: var(--gold); border: 1px solid var(--gold-dim); }
+.lv-badge { background: rgba(52,211,153,.1); color: var(--green); border: 1px solid rgba(52,211,153,.25); }
+.hvlv-threshold { font-family: var(--mono); font-size: 1.8rem; font-weight: 700; margin-bottom: .2rem; }
+.hv-card .hvlv-threshold { color: var(--gold); }
+.lv-card .hvlv-threshold { color: var(--green); }
+.hvlv-sub { font-size: .8rem; color: var(--muted); margin-bottom: 1.25rem; }
+.hvlv-rules { display: flex; flex-direction: column; gap: .55rem; }
+.hvlv-rule { display: flex; gap: .75rem; font-size: .8rem; line-height: 1.5; }
+.rule-icon { flex-shrink: 0; margin-top: .1rem; }
+.rule-text { color: var(--muted); }
+.rule-text strong { color: var(--text); }
+.rule-code { font-family: var(--mono); font-size: .72rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .15rem .4rem; color: var(--green); }
+
+/* ─── CHANNELS ─── */
+.channels-wrap { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: start; margin-bottom: 2rem; }
+.channel-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; opacity: 0; transform: translateX(-20px); transition: opacity .6s ease, transform .6s ease, border-color .3s; }
+.channel-card.right-card { transform: translateX(20px); }
+.channel-card.visible { opacity: 1; transform: translateX(0); }
+.channel-card:hover { border-color: var(--gold); }
+.channel-badge { display: inline-flex; align-items: center; gap: .5rem; background: var(--gold-glow); border: 1px solid var(--gold-dim); border-radius: 6px; padding: .3rem .75rem; font-family: var(--mono); font-size: .62rem; color: var(--gold); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 1rem; }
+.channel-title { font-family: var(--serif); font-size: 1.3rem; font-weight: 700; margin-bottom: .5rem; }
+.channel-desc { font-size: .82rem; color: var(--muted); line-height: 1.7; }
+.channel-fields { margin-top: 1.25rem; display: flex; flex-direction: column; gap: .4rem; }
+.field-row { display: flex; align-items: baseline; gap: .5rem; font-family: var(--mono); font-size: .68rem; }
+.field-name { color: var(--blue); flex-shrink: 0; }
+.field-val { color: var(--muted); flex: 1; }
+.field-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--dim); flex-shrink: 0; margin-top: .35rem; }
+.field-req { color: var(--gold); font-size: .58rem; flex-shrink: 0; }
+.field-miss { color: var(--red); font-size: .58rem; flex-shrink: 0; }
+
+.merge-node { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 2.5rem; gap: 0; opacity: 0; transition: opacity .6s ease .3s; }
+.merge-node.visible { opacity: 1; }
+.merge-line { width: 2px; height: 44px; background: linear-gradient(180deg, var(--dim), var(--gold-dim)); position: relative; overflow: hidden; }
+.merge-line::after { content: ''; position: absolute; left: -1px; top: -40%; width: 4px; height: 40%; background: linear-gradient(180deg, transparent, var(--gold), transparent); animation: flow-down 2s linear infinite; }
+.merge-center { width: 48px; height: 48px; background: var(--card); border: 2px solid var(--gold); border-radius: 50%; display: grid; place-items: center; font-size: 1.1rem; box-shadow: 0 0 18px var(--gold-glow); position: relative; z-index: 2; }
+.data-parity-note { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem; margin-top: 2rem; }
+.data-parity-note h4 { font-family: var(--mono); font-size: .65rem; color: var(--orange); letter-spacing: .12em; text-transform: uppercase; margin-bottom: .75rem; display: flex; align-items: center; gap: .5rem; }
+.parity-row { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: .5rem; font-family: var(--mono); font-size: .7rem; padding: .4rem 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+.parity-row.header { color: var(--muted); font-size: .62rem; text-transform: uppercase; letter-spacing: .08em; border-bottom-color: var(--border); padding-bottom: .6rem; margin-bottom: .2rem; }
+.parity-yes { color: var(--green); }
+.parity-no { color: var(--red); }
+.parity-part { color: var(--orange); }
+
+/* ─── ENGINE ─── */
+.engine-box { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 2.5rem; margin-top: 2rem; position: relative; overflow: hidden; }
+.engine-box::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--gold), var(--amber), var(--gold)); background-size: 200% 100%; animation: shimmer 3s linear infinite; }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.engine-title { font-family: var(--mono); font-size: 1rem; color: var(--gold); letter-spacing: .15em; text-transform: uppercase; margin-bottom: 1.75rem; display: flex; align-items: center; gap: .75rem; }
+.engine-title::before { content: '⚙'; font-size: .9rem; }
+.engine-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; }
+.engine-step { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: center; opacity: 0; transform: translateY(12px); transition: opacity .4s ease, transform .4s ease, border-color .3s, background .3s; }
+.engine-step.visible { opacity: 1; transform: translateY(0); }
+.engine-step:hover { border-color: var(--gold); background: var(--gold-glow); }
+.engine-step-num { font-family: var(--mono); font-size: 1.4rem; color: var(--dim); font-weight: 700; margin-bottom: .4rem; }
+.engine-step-name { font-size: .75rem; font-weight: 600; color: var(--text); margin-bottom: .35rem; }
+.engine-step-desc { font-size: .67rem; color: var(--muted); line-height: 1.5; }
+
+/* ─── HS ALGO ─── */
+.algo-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: start; }
+.algo-steps { display: flex; flex-direction: column; gap: 0; }
+.algo-step { display: flex; gap: 1.5rem; padding: 1.5rem 0; border-left: 2px solid var(--border); padding-left: 2rem; position: relative; opacity: 0; transform: translateX(-14px); transition: opacity .5s ease, transform .5s ease; }
+.algo-step.visible { opacity: 1; transform: translateX(0); }
+.algo-step:last-child { border-left-color: transparent; }
+.algo-step::before { content: attr(data-step); position: absolute; left: -16px; top: 1.5rem; width: 30px; height: 30px; background: var(--card); border: 2px solid var(--border); border-radius: 50%; display: grid; place-items: center; font-family: var(--mono); font-size: .68rem; color: var(--gold); font-weight: 600; transition: all .3s; }
+.algo-step:hover::before { background: var(--gold); color: var(--bg); border-color: var(--gold); box-shadow: 0 0 14px var(--gold-glow); }
+.algo-step-title { font-family: var(--sans); font-size: .88rem; font-weight: 600; margin-bottom: .35rem; color: var(--text); }
+.algo-step-desc { font-size: .78rem; color: var(--muted); line-height: 1.6; margin-bottom: .7rem; }
+.code-transform { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.code-pill { font-family: var(--mono); font-size: .7rem; padding: .22rem .55rem; border-radius: 5px; background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+.code-pill.from { border-color: var(--blue); color: var(--blue); }
+.code-pill.to { border-color: var(--green); color: var(--green); }
+.code-pill.selected { border-color: var(--gold); color: var(--gold); background: var(--gold-glow); }
+.code-pill.warn { border-color: var(--red); color: var(--red); background: rgba(248,113,113,.08); }
+.code-arrow { color: var(--muted); font-size: .75rem; }
+.algo-example { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; position: sticky; top: 80px; opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+.algo-example.visible { opacity: 1; transform: translateY(0); }
+.example-label { font-family: var(--mono); font-size: .62rem; color: var(--gold); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 1.5rem; display: flex; align-items: center; gap: .5rem; }
+.example-label::before { content: '▶'; font-size: .52rem; }
+.example-row { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1.25rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.example-row:last-child { border-bottom: none; margin-bottom: 0; }
+.ex-step-num { font-family: var(--mono); font-size: .58rem; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; }
+.ex-code { font-family: var(--mono); font-size: .82rem; color: var(--text); padding: .5rem .75rem; background: var(--surface); border-radius: 7px; border: 1px solid var(--border); }
+.ex-code span { color: var(--gold); }
+.ex-code span.g { color: var(--green); }
+.ex-note { font-size: .7rem; color: var(--muted); font-style: italic; }
+.ex-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: .67rem; margin-top: .5rem; }
+.ex-table th { text-align: left; color: var(--muted); padding: .35rem .5rem; border-bottom: 1px solid var(--border); font-weight: 500; }
+.ex-table td { padding: .35rem .5rem; color: var(--text); border-bottom: 1px solid rgba(0,0,0,.06); }
+.ex-table tr.winner td { color: var(--green); }
+.ex-table tr.winner td:first-child::before { content: '▶ '; }
+.tag-green { background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3); color: var(--green); border-radius: 4px; padding: .12rem .4rem; font-size: .6rem; }
+.tag-red { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.3); color: var(--red); border-radius: 4px; padding: .12rem .4rem; font-size: .6rem; }
+
+/* ─── XML STRUCTURE ─── */
+.legend { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2rem; }
+.legend-item { display: flex; align-items: center; gap: .5rem; font-size: .7rem; color: var(--muted); font-family: var(--mono); }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+.xml-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.xml-section { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.5rem; transition: border-color .3s; opacity: 0; transform: translateY(14px); transition: opacity .4s ease, transform .4s ease, border-color .3s; cursor: default; }
+.xml-section.visible { opacity: 1; transform: translateY(0); }
+.xml-section:hover { border-color: var(--gold); }
+.xml-section-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border); }
+.xml-section-name { font-family: var(--mono); font-size: .73rem; color: var(--gold); font-weight: 600; }
+.xml-section-tag { font-family: var(--mono); font-size: .58rem; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .18rem .45rem; }
+.xml-field-list { display: flex; flex-direction: column; gap: .5rem; }
+.xml-field { display: flex; align-items: baseline; gap: .75rem; font-family: var(--mono); font-size: .68rem; }
+.xml-field-name { color: var(--blue); flex-shrink: 0; min-width: 140px; }
+.xml-field-value { color: var(--text); flex: 1; }
+.xml-field-source { font-size: .58rem; border-radius: 4px; padding: .12rem .38rem; white-space: nowrap; flex-shrink: 0; }
+.src-client { background: rgba(96,165,250,.1); color: var(--blue); border: 1px solid rgba(96,165,250,.25); }
+.src-derived { background: rgba(167,139,250,.1); color: var(--purple); border: 1px solid rgba(167,139,250,.25); }
+.src-fixed { background: rgba(107,113,144,.15); color: var(--muted); border: 1px solid var(--border); }
+.src-mapped { background: rgba(240,165,0,.1); color: var(--gold); border: 1px solid var(--gold-dim); }
+
+/* ─── RISK CARDS ─── */
+.risk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+.risk-card { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.6rem; opacity: 0; transform: translateY(14px); transition: opacity .4s ease, transform .4s ease, border-color .3s; }
+.risk-card.visible { opacity: 1; transform: translateY(0); }
+.risk-card:hover { border-color: var(--gold); }
+.risk-severity { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .6rem; letter-spacing: .1em; text-transform: uppercase; padding: .22rem .55rem; border-radius: 6px; margin-bottom: 1rem; }
+.sev-high { background: rgba(248,113,113,.1); color: var(--red); border: 1px solid rgba(248,113,113,.25); }
+.sev-med { background: rgba(251,146,60,.1); color: var(--orange); border: 1px solid rgba(251,146,60,.25); }
+.sev-low { background: rgba(52,211,153,.1); color: var(--green); border: 1px solid rgba(52,211,153,.25); }
+.sev-unknown { background: rgba(167,139,250,.1); color: var(--purple); border: 1px solid rgba(167,139,250,.25); }
+.risk-title { font-family: var(--sans); font-size: .92rem; font-weight: 600; margin-bottom: .45rem; color: var(--text); }
+.risk-rate { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin-bottom: .6rem; }
+.risk-rate span { color: var(--orange); }
+.risk-trigger { font-size: .77rem; color: var(--muted); margin-bottom: .75rem; line-height: 1.6; }
+.risk-handling { font-size: .74rem; color: var(--text); padding: .75rem; background: var(--surface); border-radius: 8px; border-left: 2px solid var(--gold-dim); line-height: 1.6; }
+.risk-handling strong { color: var(--gold); }
+.risk-handling .warn { color: var(--red); }
+
+/* ─── E2E FLOW ─── */
+.e2e-flow { max-width: 680px; margin: 0 auto; font-family: var(--mono); }
+.e2e-row { display: flex; gap: 1rem; align-items: center; opacity: 0; transform: translateY(8px); transition: opacity .4s ease, transform .4s ease; }
+.e2e-row.visible { opacity: 1; transform: translateY(0); }
+.e2e-box { flex: 1; padding: .9rem 1.2rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: .76rem; line-height: 1.55; }
+.e2e-box strong { color: var(--gold); display: block; margin-bottom: .18rem; font-size: .68rem; letter-spacing: .05em; text-transform: uppercase; }
+.e2e-box.highlight { border-color: var(--gold); background: var(--gold-glow); }
+.e2e-box.ok { border-color: rgba(52,211,153,.3); }
+.e2e-connector { width: 100%; display: flex; justify-content: center; padding: .25rem 0; opacity: 0; transition: opacity .4s ease; }
+.e2e-connector.visible { opacity: 1; }
+.e2e-connector-line { width: 2px; height: 26px; background: linear-gradient(180deg, var(--border), var(--gold-dim)); position: relative; overflow: hidden; }
+.e2e-connector-line::after { content: ''; position: absolute; left: -1px; top: -40%; width: 4px; height: 40%; background: linear-gradient(180deg, transparent, var(--gold), transparent); animation: flow-down 1.5s linear infinite; }
+
+/* ─── REVEAL ─── */
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* ─── MOBILE ─── */
+@media (max-width: 900px) {
+  .section, #clear-hero, #naqel-hero { padding: 80px 1.5rem; }
+  nav { padding: 0 1.5rem; }
+  .nav-links { display: none; }
+  .algo-layout, .xml-layout, .channels-wrap, .hvlv-wrap { grid-template-columns: 1fr; }
+  .engine-steps { grid-template-columns: repeat(2, 1fr); }
+  .risk-grid { grid-template-columns: 1fr; }
+  .algo-example { position: static; }
+  .hero-stats { flex-wrap: wrap; gap: 1.5rem; }
+  .divider { margin: 0 1.5rem; }
+}
+footer { padding: 2.5rem 6rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: .62rem; color: var(--muted); flex-wrap: wrap; gap: 1rem; }
+
+:root {
+  --bg:        #f7f8fc;
+  --surface:   #eef0f8;
+  --card:      #ffffff;
+  --border:    #dde1f0;
+  --gold:      #b06800;
+  --gold-dim:  #c9880a;
+  --gold-glow: rgba(176,104,0,.10);
+  --amber:     #924f00;
+  --text:      #141728;
+  --muted:     #5a607e;
+  --dim:       #c2c6dc;
+  --green:     #0a7a52;
+  --red:       #c0392b;
+  --blue:      #1d4ed8;
+  --purple:    #6d28d9;
+  --orange:    #c2440e;
+  --serif:    'Playfair Display', Georgia, serif;
+  --mono:     'IBM Plex Mono', monospace;
+  --sans:     'DM Sans', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.7; overflow-x: hidden; }
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 9999; opacity: .08;
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 2px; }
+
+/* ─── PROGRESS ─── */
+#progress-bar { position: fixed; top: 0; left: 0; height: 2px; background: linear-gradient(90deg, var(--gold), var(--amber)); width: 0%; z-index: 1000; box-shadow: 0 0 8px var(--gold); transition: width .1s linear; }
+
+/* ─── NAV ─── */
+nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 0 3rem; height: 56px; background: rgba(247,248,252,.92); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); box-shadow: 0 1px 12px rgba(0,0,0,.06); }
+.nav-logo { font-family: var(--mono); font-size: .72rem; color: var(--gold); letter-spacing: .12em; text-transform: uppercase; }
+.nav-links { display: flex; gap: 2rem; list-style: none; }
+.nav-links a { font-family: var(--mono); font-size: .65rem; color: var(--muted); text-decoration: none; letter-spacing: .08em; text-transform: uppercase; transition: color .2s; }
+.nav-links a:hover { color: var(--gold); }
+.nav-right { display: flex; align-items: center; gap: .75rem; }
+.nav-badge { font-family: var(--mono); font-size: .6rem; padding: .2rem .65rem; border-radius: 4px; letter-spacing: .1em; text-transform: uppercase; }
+.badge-prd  { background: var(--gold-glow); border: 1px solid var(--gold-dim); color: var(--gold); }
+.badge-mvp  { background: rgba(10,122,82,.08); border: 1px solid rgba(10,122,82,.25); color: var(--green); }
+
+/* ─── HERO ─── */
+#clear-hero, #naqel-hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 120px 6rem 80px; position: relative; overflow: hidden; }
+.hero-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 60% at 60% 40%, rgba(176,104,0,.06) 0%, transparent 65%), radial-gradient(ellipse 40% 40% at 20% 70%, rgba(29,78,216,.04) 0%, transparent 60%), linear-gradient(180deg, var(--bg) 0%, var(--surface) 100%); }
+.hero-grid { position: absolute; inset: 0; background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 60px 60px; opacity: .25; mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 80%); }
+.hero-eyebrow { font-family: var(--mono); font-size: .68rem; color: var(--gold); letter-spacing: .2em; text-transform: uppercase; margin-bottom: 1.5rem; position: relative; display: flex; align-items: center; gap: .75rem; }
+.hero-eyebrow::before { content: ''; display: inline-block; width: 28px; height: 1px; background: var(--gold); }
+.hero-title { font-family: var(--serif); font-size: clamp(2.8rem, 5.5vw, 5.5rem); font-weight: 900; line-height: 1.05; letter-spacing: -.02em; position: relative; max-width: 860px; }
+.hero-title em { font-style: italic; color: var(--gold); }
+.hero-sub { font-family: var(--sans); font-size: 1rem; color: var(--muted); max-width: 580px; margin-top: 1.75rem; position: relative; line-height: 1.8; }
+.hero-meta { display: flex; gap: 3rem; margin-top: 3rem; position: relative; flex-wrap: wrap; }
+.meta-item { border-left: 2px solid var(--gold-dim); padding-left: 1.25rem; }
+.meta-val { font-family: var(--mono); font-size: .8rem; color: var(--gold); font-weight: 600; display: block; letter-spacing: .05em; }
+.meta-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-family: var(--mono); }
+.hero-scroll { position: absolute; bottom: 3rem; left: 6rem; display: flex; align-items: center; gap: .75rem; font-family: var(--mono); font-size: .62rem; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; animation: bounce 2s ease-in-out infinite; }
+@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+.hero-scroll::after { content: '↓'; font-size: 1rem; color: var(--gold); }
+
+/* ─── SHARED ─── */
+.section { padding: 100px 6rem; position: relative; }
+.section-inner { max-width: 1160px; margin: 0 auto; }
+.section-label { font-family: var(--mono); font-size: .62rem; color: var(--gold); letter-spacing: .2em; text-transform: uppercase; display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; }
+.section-label::before { content: attr(data-num); background: var(--gold); color: var(--bg); width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .58rem; font-weight: 700; flex-shrink: 0; }
+.section-title { font-family: var(--serif); font-size: clamp(1.9rem, 3.5vw, 3.2rem); font-weight: 700; line-height: 1.1; letter-spacing: -.02em; max-width: 680px; margin-bottom: .9rem; }
+.section-title em { font-style: italic; color: var(--gold); }
+.section-desc { color: var(--muted); max-width: 680px; font-size: .92rem; line-height: 1.85; margin-bottom: 3rem; }
+.divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); margin: 0 6rem; }
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* ─── CALLOUT ─── */
+.callout { border-radius: 12px; padding: 1.1rem 1.4rem; font-size: .85rem; color: var(--text); line-height: 1.7; display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 2rem; }
+.callout-icon { font-size: 1rem; flex-shrink: 0; margin-top: .15rem; }
+.callout.gold  { background: rgba(176,104,0,.07);  border: 1px solid var(--gold-dim); }
+.callout.gold strong  { color: var(--gold); }
+.callout.red   { background: rgba(192,57,43,.06);   border: 1px solid rgba(192,57,43,.25); }
+.callout.red strong   { color: var(--red); }
+.callout.blue  { background: rgba(29,78,216,.06);   border: 1px solid rgba(29,78,216,.2); }
+.callout.blue strong  { color: var(--blue); }
+.callout.green { background: rgba(10,122,82,.06);   border: 1px solid rgba(10,122,82,.22); }
+.callout.green strong { color: var(--green); }
+
+/* ─── PROBLEM STATEMENT ─── */
+.problem-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media(max-width:780px){ .problem-grid { grid-template-columns: 1fr; } }
+.problem-card { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.6rem; opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, border-color .3s; }
+.problem-card.visible { opacity: 1; transform: translateY(0); }
+.problem-card:hover { border-color: var(--gold); }
+.prob-label { font-family: var(--mono); font-size: .58rem; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; margin-bottom: .6rem; }
+.prob-title { font-family: var(--sans); font-size: .95rem; font-weight: 600; color: var(--text); margin-bottom: .4rem; }
+.prob-body { font-size: .82rem; color: var(--muted); line-height: 1.7; }
+
+/* ─── GOALS ─── */
+.goals-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media(max-width:780px){ .goals-grid { grid-template-columns: 1fr; } }
+.goal-card { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.6rem; position: relative; overflow: hidden; transition: border-color .3s; }
+.goal-card:hover { border-color: var(--gold); }
+.goal-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+.goal-card.user::before  { background: linear-gradient(90deg, var(--gold), var(--amber)); }
+.goal-card.biz::before   { background: linear-gradient(90deg, var(--blue), var(--purple)); }
+.goal-type { font-family: var(--mono); font-size: .58rem; letter-spacing: .14em; text-transform: uppercase; margin-bottom: .5rem; display: flex; align-items: center; gap: .4rem; }
+.goal-card.user .goal-type { color: var(--gold); }
+.goal-card.biz  .goal-type { color: var(--blue); }
+.goal-list { list-style: none; display: flex; flex-direction: column; gap: .55rem; margin-top: .5rem; }
+.goal-list li { font-size: .85rem; color: var(--text); line-height: 1.55; display: flex; gap: .65rem; align-items: flex-start; }
+.goal-list li::before { content: '—'; font-family: var(--mono); font-size: .72rem; color: var(--gold-dim); flex-shrink: 0; margin-top: .05rem; }
+
+/* ─── PERSONAS ─── */
+.personas-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media(max-width:780px){ .personas-grid { grid-template-columns: 1fr; } }
+.persona-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, border-color .3s; }
+.persona-card.visible { opacity: 1; transform: translateY(0); }
+.persona-card:hover { border-color: var(--gold); }
+.p-head { padding: 1.4rem 1.75rem 1.2rem; border-bottom: 1px solid var(--border); background: linear-gradient(135deg, rgba(176,104,0,.04) 0%, var(--card) 70%); }
+.p-num { font-family: var(--mono); font-size: .58rem; color: var(--muted); letter-spacing: .16em; text-transform: uppercase; margin-bottom: .25rem; }
+.p-name { font-family: var(--serif); font-size: 1.25rem; font-weight: 700; color: var(--text); line-height: 1.2; margin-bottom: .2rem; }
+.p-role { font-family: var(--mono); font-size: .66rem; color: var(--muted); }
+.p-body { padding: 1.4rem 1.75rem; }
+.p-sub { font-family: var(--mono); font-size: .58rem; color: var(--gold); letter-spacing: .14em; text-transform: uppercase; margin-bottom: .6rem; display: flex; align-items: center; gap: .4rem; }
+.p-sub::before { content: '▶'; font-size: .42rem; }
+.p-list { list-style: none; margin-bottom: 1.2rem; }
+.p-list li { font-size: .82rem; color: var(--text); line-height: 1.55; padding: .25rem 0; display: flex; gap: .6rem; }
+.p-list li::before { content: '—'; font-family: var(--mono); color: var(--gold-dim); font-size: .72rem; flex-shrink: 0; }
+.p-how { font-size: .82rem; color: var(--muted); line-height: 1.65; }
+.p-badge { display: inline-flex; align-items: center; gap: .35rem; font-family: var(--mono); font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; padding: .22rem .6rem; border-radius: 4px; margin-top: .9rem; }
+.badge-api  { background: rgba(29,78,216,.07);  color: var(--blue);  border: 1px solid rgba(29,78,216,.2); }
+.badge-ui   { background: var(--gold-glow);      color: var(--gold);  border: 1px solid var(--gold-dim); }
+.badge-both { background: rgba(107,114,144,.1);  color: var(--muted); border: 1px solid var(--border); }
+
+/* ─── FEATURES TABLE ─── */
+.ftable { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--card); }
+.frow { display: grid; grid-template-columns: 2.4fr 3.8fr 1.3fr; border-bottom: 1px solid var(--border); transition: background .15s; }
+.frow:last-child { border-bottom: none; }
+.frow:not(.hdr):hover { background: var(--surface); }
+.frow.hdr { background: var(--surface); }
+.fcell { padding: 1.15rem 1.5rem; border-right: 1px solid var(--border); }
+.fcell:last-child { border-right: none; }
+.col-lbl { font-family: var(--mono); font-size: .6rem; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; }
+.fname { font-size: .87rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: .5rem; }
+.fdesc { font-size: .81rem; color: var(--muted); line-height: 1.65; }
+.ftag { display: inline-flex; font-family: var(--mono); font-size: .57rem; letter-spacing: .1em; text-transform: uppercase; padding: .2rem .58rem; border-radius: 4px; }
+.p0    { background: var(--gold-glow); color: var(--gold); border: 1px solid var(--gold-dim); }
+.p1    { background: rgba(29,78,216,.07); color: var(--blue); border: 1px solid rgba(29,78,216,.2); }
+.p2    { background: rgba(107,114,144,.08); color: var(--muted); border: 1px solid var(--border); }
+@media(max-width:680px){
+  .frow { grid-template-columns: 1fr; }
+  .fcell { border-right: none; padding: .85rem 1rem; }
+  .frow.hdr { display: none; }
+}
+
+/* ─── NON-GOALS ─── */
+.nongoal-list { display: flex; flex-direction: column; gap: .7rem; }
+.nongoal-item { display: flex; align-items: flex-start; gap: 1rem; padding: 1rem 1.25rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+.nongoal-x { font-family: var(--mono); font-size: .75rem; color: var(--red); background: rgba(192,57,43,.08); border: 1px solid rgba(192,57,43,.2); width: 24px; height: 24px; border-radius: 4px; display: grid; place-items: center; flex-shrink: 0; margin-top: .05rem; }
+.nongoal-text h4 { font-size: .88rem; font-weight: 600; color: var(--text); margin-bottom: .15rem; }
+.nongoal-text p { font-size: .79rem; color: var(--muted); line-height: 1.6; }
+
+/* ─── METRICS ─── */
+.metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+@media(max-width:780px){ .metrics-grid { grid-template-columns: 1fr; } }
+.metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.5rem; transition: border-color .3s; }
+.metric-card:hover { border-color: var(--gold); }
+.metric-cat { font-family: var(--mono); font-size: .58rem; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; margin-bottom: .6rem; }
+.metric-title { font-family: var(--sans); font-size: .9rem; font-weight: 600; color: var(--text); margin-bottom: .4rem; }
+.metric-target { font-family: var(--mono); font-size: .78rem; color: var(--gold); margin-bottom: .5rem; }
+.metric-note { font-size: .78rem; color: var(--muted); line-height: 1.6; }
+
+/* ─── OPEN QUESTIONS ─── */
+.oq-list { display: flex; flex-direction: column; gap: .7rem; }
+.oq-item { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: start; padding: 1.1rem 1.4rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; transition: border-color .2s; }
+.oq-item:hover { border-color: var(--gold); }
+.oq-q { font-size: .87rem; color: var(--text); line-height: 1.55; }
+.oq-q span { color: var(--muted); font-size: .78rem; display: block; margin-top: .2rem; }
+.oq-owner { font-family: var(--mono); font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; padding: .2rem .6rem; border-radius: 4px; white-space: nowrap; align-self: start; margin-top: .1rem; }
+.owner-eng  { background: rgba(29,78,216,.07);  color: var(--blue);   border: 1px solid rgba(29,78,216,.2); }
+.owner-prod { background: var(--gold-glow);      color: var(--gold);   border: 1px solid var(--gold-dim); }
+.owner-biz  { background: rgba(10,122,82,.07);   color: var(--green);  border: 1px solid rgba(10,122,82,.22); }
+.owner-legal{ background: rgba(192,57,43,.06);   color: var(--red);    border: 1px solid rgba(192,57,43,.2); }
+
+/* ─── ROADMAP ─── */
+.road-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+@media(max-width:800px){ .road-grid { grid-template-columns: 1fr; } }
+.rcol { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.75rem; opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, border-color .3s; }
+.rcol.visible { opacity: 1; transform: translateY(0); }
+.rcol:hover { border-color: var(--gold); }
+.rcol.now  { border-top: 3px solid var(--gold); }
+.rcol.next { border-top: 3px solid var(--blue); }
+.rcol.later{ border-top: 3px solid var(--dim); }
+.rlbl { font-family: var(--mono); font-size: .6rem; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 1.1rem; display: flex; align-items: center; gap: .5rem; }
+.rcol.now  .rlbl { color: var(--gold); }
+.rcol.next .rlbl { color: var(--blue); }
+.rcol.later .rlbl { color: var(--muted); }
+.ritem { display: flex; gap: .6rem; align-items: flex-start; font-size: .82rem; color: var(--text); line-height: 1.6; margin-bottom: .55rem; }
+.ritem::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; margin-top: .48rem; }
+.rcol.now  .ritem::before { background: var(--gold); }
+.rcol.next .ritem::before { background: var(--blue); opacity: .5; }
+.rcol.later .ritem::before { background: var(--dim); }
+
+/* ─── TECH ─── */
+.tech-placeholder { border: 2px dashed var(--border); border-radius: 14px; padding: 3.5rem 2rem; text-align: center; background: var(--card); }
+.tech-placeholder p { font-family: var(--mono); font-size: .75rem; color: var(--muted); line-height: 2; letter-spacing: .03em; }
+.tech-placeholder strong { color: var(--text); }
+.constraint-chips { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: center; margin-top: 1.5rem; }
+.chip { font-family: var(--mono); font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; padding: .26rem .68rem; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+
+/* ─── MOBILE ─── */
+@media (max-width: 900px) {
+  .section, #clear-hero, #naqel-hero { padding: 80px 1.5rem; }
+  nav { padding: 0 1.5rem; }
+  .nav-links { display: none; }
+  .divider { margin: 0 1.5rem; }
+  .hero-scroll { left: 1.5rem; }
+}
+footer { padding: 2.5rem 6rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: .62rem; color: var(--muted); flex-wrap: wrap; gap: 1rem; }
+@media(max-width:900px){ footer { padding: 2rem 1.5rem; } }
+
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+[id] { scroll-margin-top: 28px; }
+.app-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 100vh;
+}
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 1.5rem 1.2rem 1.8rem;
+  border-right: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.78) 0%, rgba(238,240,248,.96) 100%),
+    radial-gradient(circle at top left, rgba(176,104,0,.08), transparent 42%);
+  backdrop-filter: blur(14px);
+  overflow-y: auto;
+  z-index: 50;
+}
+.sidebar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.28), transparent 20%, transparent 80%, rgba(255,255,255,.18));
+}
+.sidebar-inner {
+  position: relative;
+  z-index: 1;
+}
+.side-kicker {
+  font-family: var(--mono);
+  font-size: .62rem;
+  color: var(--gold);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  margin-bottom: .9rem;
+}
+.side-title {
+  font-family: var(--serif);
+  font-size: 1.6rem;
+  line-height: 1.05;
+  letter-spacing: -.03em;
+  margin-bottom: .8rem;
+}
+.side-copy {
+  font-size: .82rem;
+  color: var(--muted);
+  line-height: 1.75;
+  margin-bottom: 1.5rem;
+}
+.side-group {
+  margin-bottom: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(20, 23, 40, .08);
+}
+.side-group:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+.side-group-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: .58rem;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .7rem;
+}
+.side-links {
+  display: flex;
+  flex-direction: column;
+  gap: .22rem;
+}
+.side-link {
+  display: block;
+  padding: .55rem .72rem;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.35;
+  transition: background .18s ease, color .18s ease, transform .18s ease;
+}
+.side-link:hover,
+.side-link.active {
+  background: rgba(176,104,0,.08);
+  color: var(--text);
+  transform: translateX(2px);
+}
+.side-link.active {
+  box-shadow: inset 2px 0 0 var(--gold);
+}
+.side-link strong {
+  display: block;
+  font-family: var(--mono);
+  font-size: .6rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--gold);
+  margin-bottom: .14rem;
+}
+.main-content {
+  min-width: 0;
+}
+.page-intro {
+  padding: 4.5rem 6rem 2.5rem;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at top right, rgba(176,104,0,.08), transparent 36%),
+    linear-gradient(180deg, rgba(255,255,255,.65) 0%, rgba(238,240,248,.55) 100%);
+}
+.page-intro-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.page-title {
+  font-family: var(--serif);
+  font-size: clamp(2.2rem, 4vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: -.03em;
+  max-width: 760px;
+}
+.page-title em {
+  color: var(--gold);
+  font-style: italic;
+}
+.page-sub {
+  max-width: 760px;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: .95rem;
+  line-height: 1.8;
+}
+.page-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-top: 1.4rem;
+}
+.page-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .34rem .7rem;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: .62rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.72);
+  color: var(--muted);
+}
+.doc-anchor {
+  padding-top: 1.5rem;
+}
+.chapter-banner {
+  padding: 3.5rem 6rem 2rem;
+  background:
+    radial-gradient(circle at top right, rgba(176,104,0,.08), transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,.62) 0%, rgba(238,240,248,.42) 100%);
+  border-bottom: 1px solid var(--border);
+}
+.chapter-banner-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.chapter-kicker {
+  font-family: var(--mono);
+  font-size: .62rem;
+  color: var(--gold);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  margin-bottom: .75rem;
+}
+.chapter-title {
+  font-family: var(--serif);
+  font-size: clamp(1.9rem, 3.5vw, 3.4rem);
+  line-height: 1.03;
+  letter-spacing: -.03em;
+  max-width: 760px;
+}
+.chapter-title em {
+  color: var(--gold);
+  font-style: italic;
+}
+.chapter-copy {
+  max-width: 760px;
+  margin-top: .9rem;
+  color: var(--muted);
+  font-size: .92rem;
+  line-height: 1.8;
+}
+.empty-placeholder {
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  padding: 2rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .78rem;
+  line-height: 1.8;
+}
+.doc-divider {
+  height: 1px;
+  margin: 0 6rem;
+  background: linear-gradient(90deg, transparent, rgba(20,23,40,.12), transparent);
+}
+@media (max-width: 1100px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+  }
+  .side-links {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .35rem;
+  }
+  }
+  @media (max-width: 780px) {
+  .page-intro,
+  .chapter-banner,
+  .section,
+  #clear-hero,
+  #naqel-hero {
+    padding-left: 1.4rem;
+    padding-right: 1.4rem;
+  }
+  .divider,
+  .doc-divider {
+    margin: 0 1.4rem;
+  }
+  .sidebar {
+    padding: 1rem;
+  }
+  .side-links {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ═══ SHAREPOINT COMPATIBILITY OVERRIDES ═══ */
+/* Force all reveal/animated elements to be visible without JS */
+.reveal,
+.pipe-node,
+.channel-card,
+.channel-card.right-card,
+.merge-node,
+.engine-step,
+.algo-step,
+.algo-example,
+.xml-section,
+.risk-card,
+.e2e-row,
+.e2e-connector,
+.hvlv-card,
+.persona-card,
+.problem-card,
+.rcol {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* Remove animations that won't play without JS */
+.pipe-line::after,
+.merge-line::after,
+.e2e-connector-line::after {
+  animation: none !important;
+}
+
+/* Remove backdrop-filter (not supported in SP iframe) */
+nav, .sidebar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+nav {
+  background: rgba(247,248,252,1) !important;
+}
+.sidebar {
+  background: linear-gradient(180deg, #fff 0%, #eef0f8 100%) !important;
+}
+
+/* Remove the body::before noise overlay (uses SVG filter, unreliable in SP) */
+body::before {
+  display: none !important;
+}
+
+/* Remove hero scroll bounce (cosmetic, needs attention anyway) */
+.hero-scroll {
+  animation: none !important;
+}
+
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+      <div class="side-kicker">Customs AI</div>
+      <h1 class="side-title">Unified<br/><em style="color:var(--gold);font-style:italic;">working brief</em></h1>
+       <div class="side-group">
+        <span class="side-group-label">01 Product Definition</span>
+        <div class="side-links">
+          <a class="side-link" href="#problem" data-section="problem">Problem</a>
+          <a class="side-link" href="#goals" data-section="goals">Goals</a>
+          <a class="side-link" href="#personas" data-section="personas">Personas</a>
+          <a class="side-link" href="#features" data-section="features">Features</a>
+          <a class="side-link" href="#metrics" data-section="metrics">Metrics</a>
+          <a class="side-link" href="#roadmap" data-section="roadmap">Roadmap</a>
+          <a class="side-link" href="#clear-openq" data-section="clear-openq">Open Questions</a>
+        </div>
+      </div>
+      <div class="side-group">
+        <span class="side-group-label">02 Current Naqel Process</span>
+        <div class="side-links">
+          <a class="side-link" href="#big-picture" data-section="big-picture">Process Overview</a>
+          <a class="side-link" href="#hvlv" data-section="hvlv">HV / LV Split</a>
+          <a class="side-link" href="#intake" data-section="intake">Data Intake</a>
+          <a class="side-link" href="#hscode" data-section="hscode">HS Codes</a>
+          <a class="side-link" href="#zatca" data-section="zatca">ZATCA XML</a>
+          <a class="side-link" href="#risks" data-section="risks">Edge Cases</a>
+        </div>
+      </div>
+      <div class="side-group">
+        <span class="side-group-label">03 Implementation Blueprint</span>
+        <div class="side-links">
+          <a class="side-link" href="#tech" data-section="tech">Azure Placeholder</a>
+        </div>
+      </div>
+    </div>
+  </aside>
+  <main class="main-content" id="top">
+    <section class="chapter-banner">
+      <div class="chapter-banner-inner">
+        <div class="chapter-kicker">Chapter 01</div>
+        <h2 class="chapter-title">Product definition<br/><em>for Clear AI</em></h2>
+        <p class="chapter-copy">Scope, user needs, feature direction, success measures, and commercial rollout sequencing for the product we want to build.</p>
+      </div>
+    </section>
+    <div class="doc-anchor" id="clear-doc"></div>
+<!-- ─── 1. PROBLEM STATEMENT ─── -->
+<section id="problem" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="1">Problem Statement</div>
+    <h2 class="section-title reveal">Why this<br/><em>needs to exist</em></h2>
+    <p class="section-desc reveal">Saudi customs clearance is largely manual, error-prone, and locked inside carrier-specific tools. Agents and carriers spend significant time on classification tasks that AI can handle — and when they get it wrong, shipments are delayed.</p>
+
+    <div class="problem-grid">
+      <div class="problem-card">
+        <div class="prob-label">Pain 01</div>
+        <div class="prob-title">Incomplete product data stalls classification</div>
+        <p class="prob-body">Importers rarely provide complete product descriptions. Agents must manually research HS codes for vague inputs — a slow, error-prone process that directly delays clearance at Saudi borders.</p>
+      </div>
+      <div class="problem-card">
+        <div class="prob-label">Pain 02</div>
+        <div class="prob-title">Manual classification is a bottleneck at scale</div>
+        <p class="prob-body">Carriers processing high shipment volumes have no scalable way to classify goods automatically. Every item requires human effort, creating a linear relationship between volume and cost.</p>
+      </div>
+      <div class="problem-card">
+        <div class="prob-label">Pain 03</div>
+        <div class="prob-title">Existing tools are siloed to single carriers</div>
+        <p class="prob-body">Automation tools that do exist are internal to specific logistics providers. Independent clearance agents — who serve multiple carriers and importers — have no access to intelligent tooling.</p>
+      </div>
+      <div class="problem-card">
+        <div class="prob-label">Pain 04</div>
+        <div class="prob-title">ZATCA compliance adds layers of complexity</div>
+        <p class="prob-body">Saudi-specific requirements — Arabic descriptions, ZATCA XML format, and additional regulatory certificates — are not handled by generic global classification tools, forcing manual compliance work on every shipment.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 2. GOALS ─── -->
+<section id="goals" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="2">Goals</div>
+    <h2 class="section-title reveal">What success<br/><em>looks like</em></h2>
+    <p class="section-desc reveal">Goals are split between what users gain and what the product needs to prove at MVP. Each goal is measurable — not a direction, but an outcome.</p>
+
+    <div class="goals-grid">
+      <div class="goal-card user reveal">
+        <div class="goal-type">User Goals</div>
+        <ul class="goal-list">
+          <li>Clearance agents can classify a product and generate a ZATCA-ready draft in under 30 seconds</li>
+          <li>Carriers can submit bulk manifests and receive classified outputs without manual intervention per item</li>
+          <li>Low-confidence results are surfaced clearly so human review effort goes only where it's needed</li>
+          <li>Any user — carrier or independent agent — can access the same capability without carrier lock-in</li>
+        </ul>
+      </div>
+      <div class="goal-card biz reveal" style="transition-delay:.15s">
+        <div class="goal-type">Product Goals</div>
+        <ul class="goal-list">
+          <li>Demonstrate that AI classification meets or exceeds manual accuracy on a real Saudi shipment dataset</li>
+          <li>Ship a working API that a carrier integration can go live on within the MVP window</li>
+          <li>Cover all P0 features — including bulk processing and declaration generation — in V1</li>
+          <li>Establish ZATCA direct submission as a validated path for V2, not an assumption</li>
+        </ul>
+      </div>
+    </div>
+
+    <br/>
+
+    <div class="callout gold reveal">
+      <div class="callout-icon">📌</div>
+      <div><strong>Non-Goals (V1):</strong> Clear AI will not handle duty payment, broker licensing, physical customs inspection coordination, or outbound export declarations in this release.</div>
+    </div>
+
+    <div class="nongoal-list reveal">
+      <div class="nongoal-item">
+        <div class="nongoal-x">✕</div>
+        <div class="nongoal-text">
+          <h4>Duty payment processing</h4>
+          <p>Clear AI provides duty rate references, not payment facilitation. Payment flows through existing banking or carrier systems.</p>
+        </div>
+      </div>
+      <div class="nongoal-item">
+        <div class="nongoal-x">✕</div>
+        <div class="nongoal-text">
+          <h4>Broker licensing or agent credentialing</h4>
+          <p>The platform does not verify or manage the legal status of clearance agents. That is an identity and compliance concern outside MVP scope.</p>
+        </div>
+      </div>
+      <div class="nongoal-item">
+        <div class="nongoal-x">✕</div>
+        <div class="nongoal-text">
+          <h4>Export declarations</h4>
+          <p>V1 covers import clearance only. Outbound export flows are architecturally supported but not in scope.</p>
+        </div>
+      </div>
+      <div class="nongoal-item">
+        <div class="nongoal-x">✕</div>
+        <div class="nongoal-text">
+          <h4>GCC cross-border expansion</h4>
+          <p>Saudi customs rules only. Each GCC country has meaningfully different requirements — expansion is a later initiative.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 3. PERSONAS ─── -->
+<section id="personas" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="3">Personas</div>
+    <h2 class="section-title reveal">Who uses<br/><em>Clear AI</em></h2>
+    <p class="section-desc reveal">Same backend, different entry points. The API and web UI serve distinct personas — each with their own definition of "done."</p>
+
+    <div class="personas-grid">
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Persona 01</div>
+          <div class="p-name">Carrier Integration Engineer</div>
+          <div class="p-role">IT / Dev at a logistics company or freight forwarder</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">Needs</div>
+          <ul class="p-list">
+            <li>Submit shipment batches from existing TMS without workflow change</li>
+            <li>Get HS codes and declaration drafts in a single API response</li>
+            <li>Receive webhooks when async bulk jobs complete</li>
+          </ul>
+          <div class="p-sub">Access path</div>
+          <p class="p-how">REST API with machine-to-machine auth. Never touches the UI. Cares about latency, uptime, and schema stability.</p>
+          <span class="p-badge badge-api">API</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Persona 02</div>
+          <div class="p-name">Carrier Ops Manager</div>
+          <div class="p-role">Operations / customs team lead at a carrier or forwarder</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">Needs</div>
+          <ul class="p-list">
+            <li>See all low-confidence results that need a human decision</li>
+            <li>Upload a manifest and classify an entire shipment in one pass</li>
+            <li>Track accuracy trends and review queue backlog over time</li>
+          </ul>
+          <div class="p-sub">Access path</div>
+          <p class="p-how">Web dashboard. Manages the review queue, downloads declaration batches, monitors classification health.</p>
+          <span class="p-badge badge-ui">Web UI</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Persona 03</div>
+          <div class="p-name">Independent Clearance Agent</div>
+          <div class="p-role">Licensed customs broker serving multiple clients</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">Needs</div>
+          <ul class="p-list">
+            <li>Classify a product and get a ZATCA draft without carrier lock-in</li>
+            <li>Handle incomplete data from importer clients using enrichment</li>
+            <li>Maintain per-client submission history for audit purposes</li>
+          </ul>
+          <div class="p-sub">Access path</div>
+          <p class="p-how">Web UI. Pastes product info, reviews output, downloads draft. No technical setup required.</p>
+          <span class="p-badge badge-ui">Web UI</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Persona 04</div>
+          <div class="p-name">Importer / Shipper</div>
+          <div class="p-role">Business owner or procurement team shipping goods into KSA</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">Needs</div>
+          <ul class="p-list">
+            <li>Know HS code and applicable duty before committing to a shipment</li>
+            <li>Understand which regulatory certificates are required for their shipment</li>
+            <li>Share or hand off output directly to their clearance agent</li>
+          </ul>
+          <div class="p-sub">Access path</div>
+          <p class="p-how">Simplified web UI. Future path: their carrier embeds Clear AI so classification happens invisibly at booking time.</p>
+          <span class="p-badge badge-both">Web UI · Embedded</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 4. FEATURES ─── -->
+<section id="features" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="4">Features & Requirements</div>
+    <h2 class="section-title reveal">What we're<br/><em>building</em></h2>
+    <p class="section-desc reveal">P0 ships in V1. P1 follows post-launch. P2 items are documented now to ensure architecture supports them — they are not commitments.</p>
+
+    <div class="callout blue reveal">
+      <div class="callout-icon">🔗</div>
+      <div><strong>API-first principle:</strong> The web UI is a client of the same REST API. Every feature accessible in the UI is also accessible programmatically. No capability is UI-only.</div>
+    </div>
+
+    <div class="ftable reveal">
+      <div class="frow hdr">
+        <div class="fcell"><span class="col-lbl">Feature</span></div>
+        <div class="fcell"><span class="col-lbl">Description</span></div>
+        <div class="fcell"><span class="col-lbl">Priority</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">🏷️ HS Code Classification</div></div>
+        <div class="fcell"><div class="fdesc">Accepts product name and/or description, returns a valid HS code with confidence score. Works with minimal input.</div></div>
+        <div class="fcell"><span class="ftag p0">P0 · V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">🔍 Classify Boost</div></div>
+        <div class="fcell"><div class="fdesc">Enriches sparse product data via AI-powered search before classification runs, ensuring accuracy even with vague inputs.</div></div>
+        <div class="fcell"><span class="ftag p0">P0 · V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">📄 Declaration Generator</div></div>
+        <div class="fcell"><div class="fdesc">Produces ZATCA-compliant declaration drafts in Arabic and English. Includes HS code, description, and duty rate reference.</div></div>
+        <div class="fcell"><span class="ftag p0">P0 · V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">🚦 Confidence Flagging</div></div>
+        <div class="fcell"><div class="fdesc">Every result carries a confidence score. Below a configurable threshold, items are routed to a human review queue automatically.</div></div>
+        <div class="fcell"><span class="ftag p0">P0 · V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">📋 Bulk Processing</div></div>
+        <div class="fcell"><div class="fdesc">Submit a CSV or Excel manifest to classify a full shipment in one pass. Results returned as a downloadable file with flagged rows highlighted.</div></div>
+        <div class="fcell"><span class="ftag p0">P0 · V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">🔗 REST API + Webhooks</div></div>
+        <div class="fcell"><div class="fdesc">Documented API for carrier and TMS integration. Async bulk jobs notify via webhook on completion.</div></div>
+        <div class="fcell"><span class="ftag p0">P0 · V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">🖥️ Agent Web UI</div></div>
+        <div class="fcell"><div class="fdesc">Browser interface for clearance agents and ops teams. Submit, review, manage the review queue, download declarations, full history.</div></div>
+        <div class="fcell"><span class="ftag p0">P0 · V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">🌐 Direct ZATCA Submission</div></div>
+        <div class="fcell"><div class="fdesc">With ZATCA credentials configured, Clear AI submits the declaration on behalf of the caller and returns the acknowledgement reference.</div></div>
+        <div class="fcell"><span class="ftag p1">P1 · V2</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">📸 Image Classification</div></div>
+        <div class="fcell"><div class="fdesc">Upload a product photo — AI extracts material, form factor, and use-case attributes to classify with no text input.</div></div>
+        <div class="fcell"><span class="ftag p1">P1 · V2</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">📑 Invoice / Packing List OCR</div></div>
+        <div class="fcell"><div class="fdesc">Parse commercial invoices or packing lists automatically to extract product data for classification without manual entry.</div></div>
+        <div class="fcell"><span class="ftag p1">P1 · V2</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">📊 Ops Dashboard</div></div>
+        <div class="fcell"><div class="fdesc">Live view of throughput, confidence distribution, review queue backlog, and correction rates across all shipments.</div></div>
+        <div class="fcell"><span class="ftag p1">P1 · V2</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">💰 Duty Estimation Engine</div></div>
+        <div class="fcell"><div class="fdesc">Full landed cost estimate per shipment including duty, VAT, and applicable fees — beyond the duty rate reference included in V1.</div></div>
+        <div class="fcell"><span class="ftag p2">P2 · Later</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">⚠️ Predictive Risk Scoring</div></div>
+        <div class="fcell"><div class="fdesc">Predict likelihood of customs query or rejection per shipment based on historical patterns, enabling proactive remediation.</div></div>
+        <div class="fcell"><span class="ftag p2">P2 · Later</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 5. SUCCESS METRICS ─── -->
+<section id="metrics" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="5">Success Metrics</div>
+    <h2 class="section-title reveal">How we know<br/><em>it's working</em></h2>
+    <p class="section-desc reveal">Leading indicators measurable within weeks of launch. Lagging indicators tracked at 90 days.</p>
+
+    <div class="metrics-grid">
+      <div class="metric-card reveal">
+        <div class="metric-cat">Classification Quality</div>
+        <div class="metric-title">HS Code Accuracy Rate</div>
+        <div class="metric-target">Target → ≥ 92% on a held-out Saudi shipment dataset</div>
+        <p class="metric-note">Measured against expert-verified classifications. Baseline established during validation before launch.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.1s">
+        <div class="metric-cat">Efficiency</div>
+        <div class="metric-title">Time to Classification</div>
+        <div class="metric-target">Target → &lt; 1s per item (API), &lt; 10 min per bulk batch (500 items)</div>
+        <p class="metric-note">Measured at p95 under expected load. Bulk jobs run async — clock starts at submission, ends at webhook delivery.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.2s">
+        <div class="metric-cat">Review Load</div>
+        <div class="metric-title">Human Review Rate</div>
+        <div class="metric-target">Target → &lt; 15% of items flagged for review</div>
+        <p class="metric-note">High-confidence classifications should handle the majority. Tracks model confidence calibration over time.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.3s">
+        <div class="metric-cat">Adoption</div>
+        <div class="metric-title">API Integration Rate</div>
+        <div class="metric-target">Target → ≥ 1 live carrier integration within 60 days of launch</div>
+        <p class="metric-note">Primary B2B adoption signal. Tracked by first real production call from a non-test API key.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.4s">
+        <div class="metric-cat">Compliance</div>
+        <div class="metric-title">Declaration Acceptance Rate</div>
+        <div class="metric-target">Target → ≥ 95% of generated declarations accepted by ZATCA without re-submission</div>
+        <p class="metric-note">Lagging indicator. Requires carriers to share ZATCA outcome data. Tracked at 90 days post-launch.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.5s">
+        <div class="metric-cat">Retention</div>
+        <div class="metric-title">Agent Weekly Active Use</div>
+        <div class="metric-target">Target → ≥ 60% of registered agents active in week 4</div>
+        <p class="metric-note">Indicates Clear AI has replaced — not supplemented — the agent's current workflow for routine classifications.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 7. ROADMAP ─── -->
+<section id="roadmap" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="7">Roadmap</div>
+    <h2 class="section-title reveal">What ships,<br/><em>when</em></h2>
+    <p class="section-desc reveal">V1 ships a focused, high-impact core. V2 adds depth and direct ZATCA integration. Later items are documented for architectural awareness only.</p>
+
+    <div class="road-grid">
+      <div class="rcol now reveal">
+        <span class="rlbl">Now · V1 MVP</span>
+        <div class="ritem">HS code classification (text)</div>
+        <div class="ritem">Classify Boost enrichment</div>
+        <div class="ritem">Bulk CSV / Excel processing</div>
+        <div class="ritem">ZATCA declaration generator (AR + EN)</div>
+        <div class="ritem">Confidence scoring + review queue</div>
+        <div class="ritem">REST API + webhooks</div>
+        <div class="ritem">Agent web UI + submission history</div>
+        <div class="ritem">Multi-tenant auth</div>
+      </div>
+      <div class="rcol next reveal" style="transition-delay:.15s">
+        <span class="rlbl">Next · V2</span>
+        <div class="ritem">Direct ZATCA submission mode</div>
+        <div class="ritem">ZATCA status tracking + webhooks</div>
+        <div class="ritem">Image-based classification</div>
+        <div class="ritem">Invoice / packing list OCR</div>
+        <div class="ritem">Ops dashboard</div>
+        <div class="ritem">Per-tenant confidence thresholds</div>
+      </div>
+      <div class="rcol later reveal" style="transition-delay:.3s">
+        <span class="rlbl">Later</span>
+        <div class="ritem">Duty & tax estimation engine</div>
+        <div class="ritem">Predictive risk scoring</div>
+        <div class="ritem">Mobile agent app</div>
+        <div class="ritem">GCC cross-border expansion</div>
+        <div class="ritem">Customs broker marketplace</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 8. OPEN QUESTIONS ─── -->
+<section id="clear-openq" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="8">Open Questions</div>
+    <h2 class="section-title reveal">Open question<br/><em>parking lot</em></h2>
+    <div class="empty-placeholder reveal">Reserved for unresolved product, commercial, and operational questions.</div>
+  </div>
+</section>
+
+    <div class="doc-divider"></div>
+    <div class="doc-anchor" id="naqel-doc"></div>
+    <section class="chapter-banner">
+      <div class="chapter-banner-inner">
+        <div class="chapter-kicker">Chapter 02</div>
+        <h2 class="chapter-title">Current Naqel customs<br/><em>operating model</em></h2>
+        <p class="chapter-copy">A working view of the live clearance flow today, including handoffs, data inputs, HS code handling, XML submission structure, and operational risks.</p>
+      </div>
+    </section>
+<!-- ─── SECTION 1: BIG PICTURE ─────────────────────────── -->
+<section id="big-picture" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="1">Level 1 — The Big Picture</div>
+    <h2 class="section-title reveal">The full flow,<br/><em>in one view</em></h2>
+    <p class="section-desc reveal">Merchant ships a parcel → sends manifest and commercial invoice to Naqel → Naqel submits manifest to ZATCA first → on acceptance, builds and submits the declaration → ZATCA issues a <strong style="color:var(--text)">Bayan number</strong> (the clearance document).</p>
+
+    <!-- Vertical swim lane with crossing arrows -->
+    <style>
+    .vflow-wrap { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-top: .5rem; }
+
+    /* Column headers */
+    .vflow-heads { display: grid; grid-template-columns: 1fr 72px 1fr 72px 1fr; border-bottom: 2px solid var(--border); }
+    .vfh { display: flex; flex-direction: column; align-items: center; gap: .3rem; padding: 1rem .75rem; text-align: center; }
+    .vfh-icon { font-size: 1.3rem; }
+    .vfh-title { font-size: .78rem; font-weight: 700; color: var(--text); font-family: var(--sans); }
+    .vfh-sub { font-family: var(--mono); font-size: .54rem; color: var(--muted); letter-spacing: .06em; }
+    .vfh-m   { background: rgba(29,78,216,.04);  border-right: 1px solid var(--border); }
+    .vfh-gap { background: var(--bg);             border-right: 1px solid var(--border); }
+    .vfh-n   { background: rgba(176,104,0,.04);   border-right: 1px solid var(--border); }
+    .vfh-z   { background: rgba(10,122,82,.04); }
+
+    /* Main grid */
+    .vflow-main { display: grid; grid-template-columns: 1fr 72px 1fr 72px 1fr; }
+
+    /* Lane column backgrounds */
+    .vcol-m   { background: rgba(29,78,216,.015);  min-height: 16px; }
+    .vcol-gap { background: var(--bg); border-left: 1px solid var(--border); border-right: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+    .vcol-n   { background: rgba(176,104,0,.01);   min-height: 16px; }
+    .vcol-z   { background: rgba(10,122,82,.015);  min-height: 16px; }
+
+    /* Step cards — shadow lifted, ghost number, no border accents */
+    .vflow-main { counter-reset: step; }
+    .vs {
+      margin: .55rem .65rem;
+      background: #fff;
+      border-radius: 11px;
+      padding: .95rem 1rem .9rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 12px rgba(0,0,0,.06);
+      transition: box-shadow .2s ease, transform .2s ease;
+      cursor: default;
+      position: relative;
+      overflow: hidden;
+      counter-increment: step;
+    }
+    .vs:hover {
+      box-shadow: 0 4px 20px rgba(0,0,0,.11), 0 1px 4px rgba(0,0,0,.06);
+      transform: translateY(-2px);
+    }
+    /* Ghost step number watermark */
+    .vs::before {
+      content: counter(step, decimal-leading-zero);
+      position: absolute;
+      right: .5rem;
+      bottom: -.55rem;
+      font-family: var(--mono);
+      font-size: 3.8rem;
+      font-weight: 700;
+      color: var(--dim);
+      opacity: .35;
+      pointer-events: none;
+      line-height: 1;
+      letter-spacing: -.04em;
+    }
+    .vs.gate { background: rgba(10,122,82,.05); box-shadow: 0 1px 2px rgba(10,122,82,.06), 0 2px 12px rgba(10,122,82,.08); }
+    .vs.gate:hover { box-shadow: 0 4px 20px rgba(10,122,82,.14), 0 1px 4px rgba(10,122,82,.08); }
+    .vs.ok   { background: rgba(10,122,82,.03); }
+    .vs-num  { font-family: var(--mono); font-size: .54rem; letter-spacing: .14em; margin-bottom: .28rem; color: var(--muted); opacity: .65; }
+    .vs-name { font-size: .81rem; font-weight: 700; color: var(--text); margin-bottom: .28rem; letter-spacing: -.01em; }
+    .vs-desc { font-size: .67rem; color: var(--muted); line-height: 1.55; }
+
+    /* Cross-lane handoff arrows in the gap columns */
+    .vf-cross { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem; padding: .5rem .2rem; min-height: 72px; }
+    .vf-cross-line { width: 100%; height: 2px; position: relative; overflow: hidden; border-radius: 2px; }
+    .vf-cross-lbl { font-family: var(--mono); font-size: .52rem; color: var(--muted); text-align: center; letter-spacing: .04em; white-space: nowrap; }
+    /* → right (submission) */
+    .vf-r .vf-cross-line { background: linear-gradient(90deg, var(--dim), var(--gold-dim)); }
+    .vf-r .vf-cross-line::after { content:''; position:absolute; top:-1px; left:-100%; width:40%; height:4px; background:linear-gradient(90deg,transparent,var(--gold),transparent); animation:flow-right 1.8s linear infinite; }
+    .vf-r .vf-cross-lbl::after { content: ' →'; }
+    /* ← left (acceptance / response) */
+    .vf-l .vf-cross-line { background: linear-gradient(270deg, var(--dim), rgba(10,122,82,.6)); }
+    .vf-l .vf-cross-line::after { content:''; position:absolute; top:-1px; right:-100%; width:40%; height:4px; background:linear-gradient(270deg,transparent,var(--green),transparent); animation:flow-left 1.8s linear infinite; }
+    .vf-l .vf-cross-lbl::before { content: '← '; }
+    @keyframes flow-left { 0%{right:-100%} 100%{right:200%} }
+    </style>
+
+    <div class="vflow-wrap reveal">
+
+      <!-- Column headers -->
+      <div class="vflow-heads">
+        <div class="vfh vfh-m"><div class="vfh-icon">🏪</div><div class="vfh-title">Merchant</div><div class="vfh-sub">Outside / Origin</div></div>
+        <div class="vfh-gap"></div>
+        <div class="vfh vfh-n"><div class="vfh-icon">⚙️</div><div class="vfh-title">Naqel / SPL</div><div class="vfh-sub">Logistics Service Provider</div></div>
+        <div class="vfh-gap"></div>
+        <div class="vfh vfh-z"><div class="vfh-icon">🏛️</div><div class="vfh-title">ZATCA</div><div class="vfh-sub">Saudi Customs Authority</div></div>
+      </div>
+
+      <!-- Flow grid: 5 columns (M | gap | N | gap | Z), 8 step-rows -->
+      <div class="vflow-main">
+
+        <!-- ROW 1 ── Ships Parcel (Merchant) -->
+        <div class="vcol-m"><div class="vs m"><div class="vs-num">01</div><div class="vs-name">Ships Parcel</div><div class="vs-desc">Sends package to Saudi Arabia</div></div></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-n"></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-z"></div>
+
+        <!-- ROW 2 ── Submits Manifest & Invoice → Naqel -->
+        <div class="vcol-m"><div class="vs m"><div class="vs-num">02</div><div class="vs-name">Submits Manifest & Invoice</div><div class="vs-desc">Manifest + commercial invoice sent to Naqel via API or XLSX</div></div></div>
+        <div class="vcol-gap"><div class="vf-cross vf-r"><div class="vf-cross-line"></div><div class="vf-cross-lbl">to Naqel</div></div></div>
+        <div class="vcol-n"></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-z"></div>
+
+        <!-- ROW 3 ── Infotrack → Manifest (Naqel) -->
+        <div class="vcol-m"></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-n"><div class="vs n"><div class="vs-num">03</div><div class="vs-name">Build & Submit Manifest</div><div class="vs-desc">Invoice data structured into a Manifest and submitted to ZATCA. Process pauses until ZATCA responds</div></div></div>
+        <div class="vcol-gap"><div class="vf-cross vf-r"><div class="vf-cross-line"></div><div class="vf-cross-lbl">manifest</div></div></div>
+        <div class="vcol-z"></div>
+
+        <!-- ROW 5 ── ZATCA Accepts + acceptance ← back to Naqel -->
+        <div class="vcol-m"></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-n"></div>
+        <div class="vcol-gap"><div class="vf-cross vf-l"><div class="vf-cross-line"></div><div class="vf-cross-lbl">accepted</div></div></div>
+        <div class="vcol-z"><div class="vs z gate"><div class="vs-num">04</div><div class="vs-name">✅ Accepts Manifest</div><div class="vs-desc">Validates manifest and returns acceptance — Naqel now proceeds to declaration</div></div></div>
+
+        <!-- ROW 6 ── Build Declaration (Naqel) -->
+        <div class="vcol-m"></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-n"><div class="vs n"><div class="vs-num">05</div><div class="vs-name">Build Declaration</div><div class="vs-desc">HV/LV split applied, HS codes resolved, ZATCA XML assembled</div></div></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-z"></div>
+
+        <!-- ROW 7 ── Submit Declaration → ZATCA -->
+        <div class="vcol-m"></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-n"><div class="vs n"><div class="vs-num">06</div><div class="vs-name">Submit Declaration</div><div class="vs-desc">ZATCA XML declaration sent</div></div></div>
+        <div class="vcol-gap"><div class="vf-cross vf-r"><div class="vf-cross-line"></div><div class="vf-cross-lbl">declaration</div></div></div>
+        <div class="vcol-z"></div>
+
+        <!-- ROW 8 ── Issues Bayan (ZATCA) -->
+        <div class="vcol-m"></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-n"></div>
+        <div class="vcol-gap"></div>
+        <div class="vcol-z"><div class="vs z ok"><div class="vs-num">07</div><div class="vs-name">Issues Bayan</div><div class="vs-desc">Clearance number + PDF issued — package released for delivery</div></div></div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── SECTION 2: HV / LV SPLIT ───────────────────────── -->
+<section id="hvlv" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="2">Level 2 — High Value vs. Low Value</div>
+    <h2 class="section-title reveal">The 1,000 SAR<br/><em>split</em></h2>
+    <p class="section-desc reveal">Declared value determines the customs pathway — affecting batching and declaration structure. HS code and Arabic description are required for both paths; LV has a fallback when none is provided.</p>
+
+    <div class="hvlv-wrap">
+      <div class="hvlv-card hv-card reveal">
+        <div class="hvlv-badge hv-badge">⬆ High Value</div>
+        <div class="hvlv-threshold">≥ 1,000 SAR</div>
+        <div class="hvlv-sub">Per shipment declared value</div>
+        <div class="hvlv-rules">
+          <div class="hvlv-rule">
+            <div class="rule-icon">📋</div>
+            <div class="rule-text"><strong>1 declaration per shipment</strong> — no batching</div>
+          </div>
+          <div class="hvlv-rule">
+            <div class="rule-icon">🏷️</div>
+            <div class="rule-text"><strong>12-digit HS code required</strong> per line item</div>
+          </div>
+          <div class="hvlv-rule">
+            <div class="rule-icon">📝</div>
+            <div class="rule-text"><strong>Arabic description required</strong> — sourced from HS code master</div>
+          </div>
+          <div class="hvlv-rule">
+            <div class="rule-icon">⚖️</div>
+            <div class="rule-text"><strong>Customs duty applies</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hvlv-card lv-card reveal" style="transition-delay:.1s">
+        <div class="hvlv-badge lv-badge">⬇ Low Value</div>
+        <div class="hvlv-threshold">< 1,000 SAR</div>
+        <div class="hvlv-sub">Per shipment declared value</div>
+        <div class="hvlv-rules">
+          <div class="hvlv-rule">
+            <div class="rule-icon">📦</div>
+            <div class="rule-text"><strong>Multiple shipments batched</strong> per declaration — each must be &lt; 1,000 SAR</div>
+          </div>
+          <div class="hvlv-rule">
+            <div class="rule-icon">🏷️</div>
+            <div class="rule-text"><strong>12-digit HS code required</strong> — if client provides one it is used; fallback <span class="rule-code">980300000001</span> when none is provided</div>
+          </div>
+          <div class="hvlv-rule">
+            <div class="rule-icon">📝</div>
+            <div class="rule-text"><strong>Arabic description required</strong> — from HS master, or fixed fallback: "سلع قيمتها أقل من 1000 ريال منقولة بواسطة النقل السريع"</div>
+          </div>
+          <div class="hvlv-rule">
+            <div class="rule-icon">⚡</div>
+            <div class="rule-text"><strong>Simplified clearance pathway</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout warn reveal">
+      <div class="callout-icon">⚠️</div>
+      <div><strong>AI implication:</strong> HS classification is relevant for both HV and LV — since LV shipments can also carry client-provided HS codes. The 2.5% of items with no code at all (91% of which are LV) skip classification and use the fallback. The 1,000 SAR threshold drives batching logic, not whether classification is needed.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── SECTION 3: DATA INTAKE ──────────────────────────── -->
+<section id="intake" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="3">Level 2 — Data Intake</div>
+    <h2 class="section-title reveal">Naqel has two ways to ingest commercial invoices</h2>
+    <p class="section-desc reveal">API (SOAP/XML) and XLSX both feed the same engine</p>
+
+    <div class="channels-wrap">
+      <div class="channel-card reveal">
+        <div class="channel-badge">🔌 API — SOAP/XML</div>
+        <div class="channel-title">Programmatic API</div>
+        <div class="channel-desc">Enterprise clients integrate directly. The client sends a SOAP <code style="font-family:var(--mono);font-size:.72rem;color:var(--blue)">CreateWaybill</code> envelope containing shipment + consignee + invoice line items.</div>
+        <div class="channel-fields">
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">WaybillNo / RefNo</span><span class="field-val">tracking + reference</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">ConsigneeName</span><span class="field-val">recipient name</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">ConsigneeAddress / City</span><span class="field-val">full delivery address</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">MobileNo / Email</span><span class="field-val">consignee contact</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">Description</span><span class="field-val">English item description</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">CustomsCommodityCode</span><span class="field-val">client HS code (may be incomplete)</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">UnitCost / Currency</span><span class="field-val">item value + currency</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">DeclareValue</span><span class="field-val">total declared customs value</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">Weight</span><span class="field-val">shipment weight</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">CODCharge / GoodsVATAmount</span><span class="field-val">operational flags</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">IsCustomDutyPayByConsignee</span><span class="field-val">duty payment instruction</span><span class="field-req">✓</span></div>
+        </div>
+      </div>
+
+      <div class="merge-node reveal" style="transition-delay:.3s">
+        <div class="merge-line"></div>
+        <div class="merge-center">⚙</div>
+        <div class="merge-line"></div>
+        <div style="font-family:var(--mono);font-size:.58rem;color:var(--gold);letter-spacing:.1em;text-transform:uppercase;margin-top:.65rem;text-align:center">Infotrack<br/>Engine</div>
+      </div>
+
+      <div class="channel-card right-card reveal" style="transition-delay:.15s">
+        <div class="channel-badge">📊 Excel Upload — XLSX</div>
+        <div class="channel-title">Web Portal Upload</div>
+        <div class="channel-desc">Smaller clients upload a standardised spreadsheet. The template only captures commercial invoice line-item data — it is a <em>subset</em> of what the API carries.</div>
+        <div class="channel-fields">
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">WaybillNo</span><span class="field-val">tracking number</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">ConsigneeName</span><span class="field-val">— </span><span class="field-miss">✗ absent</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">ConsigneeAddress</span><span class="field-val">—</span><span class="field-miss">✗ absent</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">MobileNo / Email</span><span class="field-val">—</span><span class="field-miss">✗ absent</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">Description</span><span class="field-val">English item description</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">CustomsCommodityCode</span><span class="field-val">client HS code</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">UnitCost / CurrencyCode</span><span class="field-val">item value</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">DeclaredValue</span><span class="field-val">total value</span><span class="field-req">✓</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">Weight</span><span class="field-val">—</span><span class="field-miss">✗ absent</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">CODCharge / VAT flags</span><span class="field-val">—</span><span class="field-miss">✗ absent</span></div>
+          <div class="field-row"><div class="field-dot"></div><span class="field-name">SKU / CPC</span><span class="field-val">optional reference fields</span><span class="field-req">opt</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data parity comparison -->
+    <div class="data-parity-note reveal">
+      <h4>📊 Do both channels give us the same data? No — here's the gap</h4>
+      <div style="margin-top:.75rem;font-size:.75rem;color:var(--muted)">The XLSX template carries only the commercial invoice line data. Consignee identity, weight, and operational fields are absent — where the system sources them for XLSX submissions is an open question. See Open Questions section.</div>
+    </div>
+
+    <!-- Engine -->
+    <div class="engine-box reveal" style="transition-delay:.2s">
+      <div class="engine-title">What happens inside Naqel's processing engine</div>
+      <div class="engine-steps">
+        <div class="engine-step">
+          <div class="engine-step-num">01</div>
+          <div class="engine-step-name">HV/LV Classify</div>
+          <div class="engine-step-desc">Apply 1,000 SAR threshold — route to generic code or full HS resolution</div>
+        </div>
+        <div class="engine-step" style="transition-delay:.07s">
+          <div class="engine-step-num">02</div>
+          <div class="engine-step-name">Resolve HS Code</div>
+          <div class="engine-step-desc">Normalize format, complete to 12 digits via lookup table + algorithm</div>
+        </div>
+        <div class="engine-step" style="transition-delay:.14s">
+          <div class="engine-step-num">03</div>
+          <div class="engine-step-name">Map Lookups</div>
+          <div class="engine-step-desc">Currency ISO → ZATCA system ID. Station → ZATCA city code + Arabic name.</div>
+        </div>
+        <div class="engine-step" style="transition-delay:.21s">
+          <div class="engine-step-num">04</div>
+          <div class="engine-step-name">Arabic Description</div>
+          <div class="engine-step-desc">Pull Arabic goods description from HS master. Append words to avoid exact ZATCA match rejection.</div>
+        </div>
+        <div class="engine-step" style="transition-delay:.28s">
+          <div class="engine-step-num">05</div>
+          <div class="engine-step-name">Build & Submit XML</div>
+          <div class="engine-step-desc">Assemble ZATCA XML, submit to ZATCA system via H2H interface, receive Bayan number</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── SECTION 4: HS CODE ALGORITHM ──────────────────── -->
+<section id="hscode" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="4">Level 3 — HS Code Resolution (High Value only)</div>
+    <h2 class="section-title reveal">How Naqel resolves the HS codes</h2>
+    <p class="section-desc reveal">Each item needs a valid 12-digit ZATCA tariff code. Clients submit codes of varying quality — findings below are based on analysis of <strong style="color:var(--text)">353,623 line items</strong> across <strong style="color:var(--text)">31,017 waybills</strong> <span style="font-family:var(--mono);font-size:.8em;color:var(--muted)">[date range not recorded — confirm with Naqel team]</span>.</p>
+
+    <!-- Error rate summary -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:3rem" class="reveal">
+      <div style="background:var(--card);border:1px solid rgba(52,211,153,.2);border-radius:12px;padding:1.25rem;text-align:center">
+        <div style="font-family:var(--mono);font-size:1.5rem;color:var(--green);font-weight:700;margin-bottom:.25rem">83.9%</div>
+        <div style="font-size:.72rem;color:var(--muted)">Complete 12-digit code — no resolution needed</div>
+        <div style="font-family:var(--mono);font-size:.58rem;color:var(--dim);margin-top:.4rem">measured · 353k items</div>
+      </div>
+      <div style="background:var(--card);border:1px solid rgba(251,146,60,.2);border-radius:12px;padding:1.25rem;text-align:center">
+        <div style="font-family:var(--mono);font-size:1.5rem;color:var(--orange);font-weight:700;margin-bottom:.25rem">13.6%</div>
+        <div style="font-size:.72rem;color:var(--muted)">Short code (6–11 digits) — auto-completed via algorithm. 80% from one client.</div>
+        <div style="font-family:var(--mono);font-size:.58rem;color:var(--dim);margin-top:.4rem">measured · was est. 5–10%</div>
+      </div>
+      <div style="background:var(--card);border:1px solid rgba(248,113,113,.2);border-radius:12px;padding:1.25rem;text-align:center">
+        <div style="font-family:var(--mono);font-size:1.5rem;color:var(--red);font-weight:700;margin-bottom:.25rem">~1.8%</div>
+        <div style="font-size:.72rem;color:var(--muted)">No HS code on HV shipment — gateway portal bypass</div>
+        <div style="font-family:var(--mono);font-size:.58rem;color:var(--dim);margin-top:.4rem">measured · was est. 1–2%</div>
+      </div>
+      <div style="background:var(--card);border:1px solid rgba(167,139,250,.2);border-radius:12px;padding:1.25rem;text-align:center">
+        <div style="font-family:var(--mono);font-size:1.5rem;color:var(--purple);font-weight:700;margin-bottom:.25rem">?%</div>
+        <div style="font-size:.72rem;color:var(--muted)">Wrong code (valid format) — not detectable from this data</div>
+        <div style="font-family:var(--mono);font-size:.58rem;color:var(--dim);margin-top:.4rem">unmeasurable without ground truth</div>
+      </div>
+    </div>
+
+    <div class="algo-layout">
+      <div class="algo-steps">
+
+        <div class="algo-step reveal" data-step="1">
+          <div class="algo-step-content">
+            <div class="algo-step-title">Clean the code</div>
+            <div class="algo-step-desc">Remove dots, spaces, and any non-numeric characters. Some merchants send codes like <span style="font-family:var(--mono);font-size:.78rem">610.821.00</span> — these become <span style="font-family:var(--mono);font-size:.78rem">61082100</span>.</div>
+          </div>
+        </div>
+
+        <div class="algo-step reveal" data-step="2" style="transition-delay:.08s">
+          <div class="algo-step-content">
+            <div class="algo-step-title">If shorter than 12 digits, build search keys</div>
+            <div class="algo-step-desc">Strip one digit from the right, repeatedly, down to 4 digits. Each shorter version becomes a candidate key to search against the master list.</div>
+            <div class="code-transform" style="flex-wrap:wrap;margin-top:.6rem">
+              <span class="code-pill from">61082100</span>
+              <span class="code-arrow">→</span>
+              <span class="code-pill">6108210</span>
+              <span class="code-pill">610821</span>
+              <span class="code-pill">61082</span>
+              <span class="code-pill">6108</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="algo-step reveal" data-step="3" style="transition-delay:.16s">
+          <div class="algo-step-content">
+            <div class="algo-step-title">Look up each candidate in the ZATCA master list</div>
+            <div class="algo-step-desc">The system searches the HSCodeMaster table for each candidate key. It returns all 12-digit ZATCA codes that match, along with their Arabic description, duty rate, and a flag for how unit cost should be calculated.</div>
+          </div>
+        </div>
+
+        <div class="algo-step reveal" data-step="4" style="transition-delay:.24s">
+          <div class="algo-step-content">
+            <div class="algo-step-title">Pick the best match</div>
+            <div class="algo-step-desc">From all results, prefer the one that matched the longest candidate key — meaning the client's original code was the most specific. If two results match equally, prefer the shorter ZATCA code (more general category).</div>
+          </div>
+        </div>
+
+        <div class="algo-step reveal" data-step="5" style="transition-delay:.32s">
+          <div class="algo-step-content">
+            <div class="algo-step-title">Use the top result</div>
+            <div class="algo-step-desc">The winning 12-digit code becomes the tariff code sent to ZATCA. Its Arabic name becomes the goods description. Non-Arabic characters are stripped from the description before submission.</div>
+          </div>
+        </div>
+
+        <div style="padding-top:1.5rem" class="reveal">
+          <div class="callout warn">
+            <div class="callout-icon">⚠️</div>
+            <div><strong>Arabic description rule:</strong> ZATCA rejects descriptions that word-for-word match the official tariff text. Workaround: extra words are appended manually before submission.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Example panel -->
+      <div class="algo-example reveal" style="transition-delay:.2s">
+        <div class="example-label">Worked example — clothing item (from HS Code Mapping Logic file)</div>
+
+        <div class="example-row">
+          <div class="ex-step-num">Client sends</div>
+          <div class="ex-code">CustomsCommodityCode: <span>610.821.00</span></div>
+          <div class="ex-note">Dot-formatted, 8 digits — incomplete</div>
+        </div>
+
+        <div class="example-row">
+          <div class="ex-step-num">Step 1 — Clean</div>
+          <div class="ex-code"><span>610.821.00</span> → <span class="g">61082100</span> (dots removed)</div>
+        </div>
+
+        <div class="example-row">
+          <div class="ex-step-num">Step 2 — Search keys</div>
+          <div class="ex-code" style="line-height:2.1"><span>61082100</span> · <span>6108210</span> · <span>610821</span> · <span>61082</span> · <span>6108</span></div>
+        </div>
+
+        <div class="example-row">
+          <div class="ex-step-num">Steps 3 & 4 — Lookup & pick best</div>
+          <table class="ex-table">
+            <thead><tr><th>ZATCA 12-digit code</th><th>Arabic description</th><th>Duty</th><th>Matched key</th></tr></thead>
+            <tbody>
+              <tr class="winner"><td>610821000000</td><td>ـ ـ من قطن</td><td>5%</td><td>61082100 ←</td></tr>
+            </tbody>
+          </table>
+          <div class="ex-note" style="margin-top:.5rem">Only one match — no ambiguity. Longest matching key wins automatically.</div>
+        </div>
+
+        <div class="example-row">
+          <div class="ex-step-num">Result</div>
+          <div class="ex-code">tariffCode: <span class="g">610821000000</span></div>
+          <div class="ex-code" style="margin-top:.35rem">goodsDescription: <span>ـ ـ من قطن</span></div>
+          <span class="tag-green">✓ Clean resolution — one candidate, unambiguous</span>
+        </div>
+
+        <div style="background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2);border-radius:10px;padding:1rem;margin-top:1.25rem">
+          <div style="font-family:var(--mono);font-size:.6rem;color:var(--red);letter-spacing:.1em;text-transform:uppercase;margin-bottom:.5rem">⚠ When multiple candidates exist</div>
+          <div style="font-size:.73rem;color:var(--muted);line-height:1.65">If the client had sent <strong style="color:var(--text)">62046200</strong>, the lookup returns <strong style="color:var(--text)">5 valid ZATCA codes</strong> — casual trousers, trousers with vest, overalls, leggings, short pants — all under the same prefix, all 5% duty. The system picks the first one in table order. It has no way to know which is correct without reading the item description.</div>
+        </div>
+
+        <div style="background:rgba(96,165,250,.05);border:1px solid rgba(96,165,250,.2);border-radius:10px;padding:1rem;margin-top:1rem">
+          <div style="font-family:var(--mono);font-size:.6rem;color:var(--blue);letter-spacing:.1em;text-transform:uppercase;margin-bottom:.4rem">✓ Complete code — no algorithm needed</div>
+          <div style="font-size:.73rem;color:var(--muted);line-height:1.65">If the client sends a full 12-digit code like <strong style="color:var(--text)">851713000000</strong> (smartphones, exempted), the system uses it directly. Step 1 only runs to strip any dots — no search needed.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Current vs AI opportunity boxes -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:3rem" class="reveal">
+
+      <!-- Current behaviour -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1.75rem">
+        <div style="font-family:var(--mono);font-size:.6rem;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem">
+          <span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:.15rem .5rem">Current system</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.85rem;font-size:.82rem;color:var(--text);line-height:1.65">
+          <div style="display:flex;gap:.75rem;align-items:flex-start">
+            <span style="font-family:var(--mono);font-size:.7rem;color:var(--green);flex-shrink:0;margin-top:.15rem">①</span>
+            <span><strong>Complete code (83.9%)</strong> — normalised, passed through as-is. No validation against item description.</span>
+          </div>
+          <div style="display:flex;gap:.75rem;align-items:flex-start">
+            <span style="font-family:var(--mono);font-size:.7rem;color:var(--orange);flex-shrink:0;margin-top:.15rem">②</span>
+            <span><strong>Short/incomplete code (13.6%)</strong> — prefix algorithm finds candidates in HSCodeMaster, picks the first match by table order. Item description is ignored. If 5 valid leaf codes share the same prefix, the algorithm always picks the first — regardless of what the item actually is.</span>
+          </div>
+          <div style="display:flex;gap:.75rem;align-items:flex-start">
+            <span style="font-family:var(--mono);font-size:.7rem;color:var(--red);flex-shrink:0;margin-top:.15rem">③</span>
+            <span><strong>Missing code (~1.8% HV)</strong> — gateway team manually derives a code and submits via ZATCA web portal. Corrected code is never written back upstream.</span>
+          </div>
+          <div style="margin-top:.25rem;padding:.85rem;background:var(--surface);border-radius:8px;font-size:.76rem;color:var(--muted)">
+            In all three cases the system has <strong style="color:var(--text)">no way to verify</strong> whether the resolved code actually matches what the item description says.
+          </div>
+        </div>
+      </div>
+
+      <!-- AI opportunity -->
+      <div style="background:rgba(176,104,0,.04);border:1px solid var(--gold-dim);border-radius:14px;padding:1.75rem">
+        <div style="font-family:var(--mono);font-size:.6rem;color:var(--gold);letter-spacing:.14em;text-transform:uppercase;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem">
+          <span style="background:rgba(176,104,0,.1);border:1px solid var(--gold-dim);border-radius:4px;padding:.15rem .5rem">Where AI fits</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.85rem;font-size:.82rem;color:var(--text);line-height:1.65">
+          <div style="display:flex;gap:.75rem;align-items:flex-start">
+            <span style="font-family:var(--mono);font-size:.7rem;color:var(--gold);flex-shrink:0;margin-top:.15rem">①</span>
+            <div><strong>Disambiguation</strong> — client sends <code style="font-family:var(--mono);font-size:.75rem;color:var(--blue)">62046200</code>, system finds 5 leaf codes (trousers, shorts, overalls, leggings…). AI reads the item description and selects the correct one instead of defaulting to table order.</div>
+          </div>
+          <div style="display:flex;gap:.75rem;align-items:flex-start">
+            <span style="font-family:var(--mono);font-size:.7rem;color:var(--gold);flex-shrink:0;margin-top:.15rem">②</span>
+            <div><strong>Classification from scratch</strong> — no HS code provided at all. AI classifies the item using its description and category, eliminating the manual gateway portal workaround entirely.</div>
+          </div>
+          <div style="display:flex;gap:.75rem;align-items:flex-start">
+            <span style="font-family:var(--mono);font-size:.7rem;color:var(--gold);flex-shrink:0;margin-top:.15rem">③</span>
+            <div><strong>Pre-submission validation</strong> — client provides a complete, valid-format code. AI cross-checks it against the item description and flags mismatches <em>before</em> ZATCA submission — catching the silent errors the current system cannot detect.</div>
+          </div>
+          <div style="margin-top:.25rem;padding:.85rem;background:rgba(176,104,0,.06);border-radius:8px;font-size:.76rem;color:var(--muted)">
+            Layers ② and ③ are <strong style="color:var(--text)">entirely unaddressed</strong> by the current rule-based system. Layer ① is partially addressed but description-blind.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── SECTION 5: ZATCA XML ───────────────────────────── -->
+<section id="zatca" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="5">Level 3 — ZATCA XML Structure</div>
+    <h2 class="section-title reveal">What gets sent<br/><em>to Saudi Customs</em></h2>
+    <p class="section-desc reveal">XML declaration. 7 sections — fields come from the client, system derivation, lookup tables, or hardcoded constants.</p>
+
+    <div class="legend reveal">
+      <div class="legend-item"><div class="legend-dot" style="background:rgba(96,165,250,.5)"></div>From client</div>
+      <div class="legend-item"><div class="legend-dot" style="background:rgba(167,139,250,.5)"></div>System-derived</div>
+      <div class="legend-item"><div class="legend-dot" style="background:rgba(240,165,0,.5)"></div>Lookup-mapped</div>
+      <div class="legend-item"><div class="legend-dot" style="background:rgba(107,113,144,.4)"></div>Hardcoded constant</div>
+    </div>
+
+    <div class="xml-layout">
+      <div class="xml-section reveal">
+        <div class="xml-section-header">
+          <div class="xml-section-name">① Reference</div>
+          <div class="xml-section-tag">&lt;decsub:reference&gt;</div>
+        </div>
+        <div class="xml-field-list">
+          <div class="xml-field"><span class="xml-field-name">docRefNo</span><span class="xml-field-value">Naqel waybill number</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">userid / acctId</span><span class="xml-field-value">Broker credentials</span><span class="xml-field-source src-fixed">fixed</span></div>
+          <div class="xml-field"><span class="xml-field-name">regPort</span><span class="xml-field-value">Port code — looked up per shipment (e.g. 23 = Dubai air gateway)</span><span class="xml-field-source src-mapped">mapped</span></div>
+          <div class="xml-field" style="background:rgba(167,139,250,.04);border-left:2px solid rgba(167,139,250,.25);padding-left:.6rem;font-size:.76rem;color:var(--muted);border-radius:0 4px 4px 0;"><span style="color:var(--purple)">ℹ</span> Port 23 (Dubai) is not hardcoded — it is a per-shipment lookup. The sample data analysed only covers imports through Dubai. Other ports will have different codes.</div>
+        </div>
+      </div>
+
+      <div class="xml-section reveal" style="transition-delay:.07s">
+        <div class="xml-section-header">
+          <div class="xml-section-name">② Declaration Header</div>
+          <div class="xml-section-tag">&lt;decsub:declarationHeader&gt;</div>
+        </div>
+        <div class="xml-field-list">
+          <div class="xml-field"><span class="xml-field-name">declarationType</span><span class="xml-field-value">2 = Import</span><span class="xml-field-source src-fixed">fixed</span></div>
+          <div class="xml-field"><span class="xml-field-name">finalCountry</span><span class="xml-field-value">SA</span><span class="xml-field-source src-fixed">fixed</span></div>
+          <div class="xml-field"><span class="xml-field-name">totalNoOfInvoice</span><span class="xml-field-value">Count of invoices</span><span class="xml-field-source src-derived">derived</span></div>
+        </div>
+      </div>
+
+      <div class="xml-section reveal" style="transition-delay:.14s">
+        <div class="xml-section-header">
+          <div class="xml-section-name">③ Invoice</div>
+          <div class="xml-section-tag">&lt;decsub:invoices&gt;</div>
+        </div>
+        <div class="xml-field-list">
+          <div class="xml-field"><span class="xml-field-name">invoiceNo</span><span class="xml-field-value">Air waybill number</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">invoiceCost</span><span class="xml-field-value">DeclaredValue</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">invoiceCurrency</span><span class="xml-field-value">SAR=100, AED=120, USD=410… (mapped to numeric ID)</span><span class="xml-field-source src-mapped">mapped</span></div>
+          <div class="xml-field" style="background:rgba(167,139,250,.04);border-left:2px solid rgba(167,139,250,.25);padding-left:.6rem;font-size:.76rem;color:var(--muted);border-radius:0 4px 4px 0;"><span style="color:var(--purple)">ℹ</span> Currency is <strong style="color:var(--text)">not always SAR</strong>. Sample of 353k line items: SAR 97.5%, USD 1.4%, AED 0.9%, others &lt;0.1%. The mapping table supports multiple currencies — do not hardcode SAR.</div>
+          <div class="xml-field"><span class="xml-field-name">totalGrossWeight</span><span class="xml-field-value">Waybill weight (kg)</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">sourceCompanyName/No</span><span class="xml-field-value">Looked up by port code (not ClientID)</span><span class="xml-field-source src-mapped">mapped</span></div>
+        </div>
+      </div>
+
+      <div class="xml-section reveal" style="transition-delay:.21s">
+        <div class="xml-section-header">
+          <div class="xml-section-name">④ Invoice Item (HV only)</div>
+          <div class="xml-section-tag">&lt;decsub:items&gt;</div>
+        </div>
+        <div class="xml-field-list">
+          <div class="xml-field"><span class="xml-field-name">tariffCode</span><span class="xml-field-value">12-digit resolved HS code</span><span class="xml-field-source src-derived">derived</span></div>
+          <div class="xml-field"><span class="xml-field-name">goodsDescription</span><span class="xml-field-value">Arabic from HS master (+ appended words)</span><span class="xml-field-source src-derived">derived</span></div>
+          <div class="xml-field"><span class="xml-field-name">countryOfOrigin</span><span class="xml-field-value">Client or per-ClientID default</span><span class="xml-field-source src-mapped">mapped</span></div>
+          <div class="xml-field"><span class="xml-field-name">itemCost</span><span class="xml-field-value">Item amount from invoice</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">unitInvoiceCost</span><span class="xml-field-value">Only if UnitPerPrice = 1</span><span class="xml-field-source src-derived">derived</span></div>
+          <div class="xml-field"><span class="xml-field-name">grossWeight / netWeight</span><span class="xml-field-value">Total weight ÷ item count</span><span class="xml-field-source src-derived">derived</span></div>
+        </div>
+      </div>
+
+      <div class="xml-section reveal" style="transition-delay:.28s">
+        <div class="xml-section-header">
+          <div class="xml-section-name">⑤ Air Waybill</div>
+          <div class="xml-section-tag">&lt;decsub:exportAirBL&gt;</div>
+        </div>
+        <div class="xml-field-list">
+          <div class="xml-field"><span class="xml-field-name">airBLNo</span><span class="xml-field-value">Air waybill number</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">carrierPrefix</span><span class="xml-field-value">First 3 digits of AWB</span><span class="xml-field-source src-derived">derived</span></div>
+          <div class="xml-field"><span class="xml-field-name">airBLDate</span><span class="xml-field-value">Invoice / shipment date</span><span class="xml-field-source src-client">client</span></div>
+        </div>
+      </div>
+
+      <div class="xml-section reveal" style="transition-delay:.35s">
+        <div class="xml-section-header">
+          <div class="xml-section-name">⑥ Express Mail Info</div>
+          <div class="xml-section-tag">&lt;decsub:expressMailInfomation&gt;</div>
+        </div>
+        <div class="xml-field-list">
+          <div class="xml-field"><span class="xml-field-name">transportID</span><span class="xml-field-value">Consignee national ID</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">transportIDType</span><span class="xml-field-value">5 if ID starts with 1, else 3</span><span class="xml-field-source src-derived">derived</span></div>
+          <div class="xml-field"><span class="xml-field-name">name</span><span class="xml-field-value">Consignee name</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">city</span><span class="xml-field-value">CITY_CD from ZATCA system lookup</span><span class="xml-field-source src-mapped">mapped</span></div>
+          <div class="xml-field"><span class="xml-field-name">address</span><span class="xml-field-value">Arabic city name (ZATCA system)</span><span class="xml-field-source src-mapped">mapped</span></div>
+          <div class="xml-field"><span class="xml-field-name">zipCode / poBox</span><span class="xml-field-value">1111 / 11 — placeholders ⚠</span><span class="xml-field-source src-fixed">fixed</span></div>
+        </div>
+      </div>
+
+      <div class="xml-section reveal" style="transition-delay:.42s;grid-column:1/-1">
+        <div class="xml-section-header">
+          <div class="xml-section-name">⑦ Declaration Documents</div>
+          <div class="xml-section-tag">&lt;decsub:declarationDocuments&gt;</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem 2rem">
+          <div class="xml-field"><span class="xml-field-name">documentType</span><span class="xml-field-value">3 = commercial invoice</span><span class="xml-field-source src-fixed">fixed</span></div>
+          <div class="xml-field"><span class="xml-field-name">documentNo</span><span class="xml-field-value">Air waybill number</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">documentDate</span><span class="xml-field-value">Invoice date</span><span class="xml-field-source src-client">client</span></div>
+          <div class="xml-field"><span class="xml-field-name">documentSeqNo</span><span class="xml-field-value">Sequential (1)</span><span class="xml-field-source src-derived">derived</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── SECTION 6: EDGE CASES ──────────────────────────── -->
+<section id="risks" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="6">Known Issues & Edge Cases</div>
+    <h2 class="section-title reveal">Where the process<br/><em>can break down</em></h2>
+    <p class="section-desc reveal">Six confirmed issues, sourced from the March 8 and March 30 meeting notes and sample analysis. The most operationally significant is the missing-HS workaround — which creates a data split between the system and what's actually in ZATCA.</p>
+
+    <div class="risk-grid">
+      <div class="risk-card reveal">
+        <div class="risk-severity sev-high">🔴 Critical — Data Gap</div>
+        <div class="risk-title">Missing HS Code — ZATCA Portal Bypass</div>
+        <div class="risk-rate">Estimated rate: <span>~1–2%</span> of HV shipments</div>
+        <div class="risk-trigger">A shipment arrives with no HS code. The gateway team manually derives a code from the goods description and submits it directly through the ZATCA web portal — bypassing the standard Infotrack system flow entirely.</div>
+        <div class="risk-handling"><strong>Actual handling (from 30 Mar meeting):</strong> The "corrected" HS code lives in ZATCA/Bayan only — it is <span class="warn">not written back upstream</span> into Infotrack or the data pipeline. This means your training data will have a systematic gap: the cases that needed correction are exactly the hardest cases, and they're missing from the upstream record.</div>
+      </div>
+
+      <div class="risk-card reveal" style="transition-delay:.08s">
+        <div class="risk-severity sev-unknown">🟣 Blind Spot</div>
+        <div class="risk-title">Wrong HS Code (Valid Format)</div>
+        <div class="risk-rate">Estimated rate: <span>unknown — not measured today</span></div>
+        <div class="risk-trigger">Client submits a 12-digit code that is syntactically correct but categorises the wrong product (e.g. phone code submitted for clothing).</div>
+        <div class="risk-handling"><strong>Current handling:</strong> <span class="warn">Not detected.</span> The system accepts any valid-format code. No cross-validation against item description exists. This is the highest-value AI automation opportunity — and the hardest to baseline without labelled ground truth.</div>
+      </div>
+
+      <div class="risk-card reveal" style="transition-delay:.16s">
+        <div class="risk-severity sev-med">🟠 Medium Risk</div>
+        <div class="risk-title">Description vs. HS Code Mismatch</div>
+        <div class="risk-rate">Frequency: <span>visible in sample data</span></div>
+        <div class="risk-trigger">The resolved Arabic description doesn't match what the client actually shipped (e.g. "Dresses" mapped to Trousers). Also seen in sample data: many descriptions are generic like "غيرها" (other/misc).</div>
+        <div class="risk-handling"><strong>Current handling:</strong> ZATCA does not auto-reject. Customs staff may manually flag — higher risk on HV shipments. No automated description validation exists today.</div>
+      </div>
+
+      <div class="risk-card reveal" style="transition-delay:.24s">
+        <div class="risk-severity sev-med">🟠 Medium Risk</div>
+        <div class="risk-title">ZATCA Exact-Match Description Rejection</div>
+        <div class="risk-rate">Trigger: <span>when description = HS tariff text verbatim</span></div>
+        <div class="risk-trigger">ZATCA actively rejects item descriptions that are an exact string match to the HS code's official tariff text.</div>
+        <div class="risk-handling"><strong>Current workaround:</strong> Extra words are manually appended to the Arabic description before submission. This is a convention, not a system rule — it can silently break if whoever maintains the process changes.</div>
+      </div>
+
+      <div class="risk-card reveal" style="transition-delay:.32s">
+        <div class="risk-severity sev-low">🟢 Auto-Handled</div>
+        <div class="risk-title">Incomplete HS Code (&lt;6 digits)</div>
+        <div class="risk-rate">Estimated rate: <span>~5–10%</span> of HV shipments</div>
+        <div class="risk-trigger">Client submits a code shorter than 6 digits (or with formatting like dots). Common with certain Chinese merchant categories.</div>
+        <div class="risk-handling"><strong>Current handling:</strong> Automatically resolved via the 5-step prefix-traversal algorithm + HSCodeMaster lookup. Chinese merchants sending full 12-digit codes is common — so the true problem volume may be concentrated in a few merchant segments.</div>
+      </div>
+
+      <div class="risk-card reveal" style="transition-delay:.40s">
+        <div class="risk-severity sev-low">🟢 Low Risk Today</div>
+        <div class="risk-title">Hardcoded ZIP & PO Box Placeholders</div>
+        <div class="risk-rate">Affects: <span>all submissions</span></div>
+        <div class="risk-trigger">All declarations use placeholder values: <code style="font-family:var(--mono);font-size:.72rem">zipCode=1111</code>, <code style="font-family:var(--mono);font-size:.72rem">poBox=11</code>. These are not real addresses.</div>
+        <div class="risk-handling"><strong>Current handling:</strong> ZATCA does not currently validate these fields strictly. Low risk today — but a latent fragility. If ZATCA tightens validation, all submissions fail until real values are implemented system-wide.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="chapter-banner">
+  <div class="chapter-banner-inner">
+    <div class="chapter-kicker">Chapter 03</div>
+    <h2 class="chapter-title">Implementation and Azure<br/><em>placeholder</em></h2>
+    <p class="chapter-copy">Reserved for future technical design, system decomposition, Azure service mapping, security controls, and deployment architecture.</p>
+  </div>
+</section>
+
+<section id="tech" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="1">Implementation Placeholder</div>
+    <h2 class="section-title reveal">Technical architecture<br/><em>to be defined</em></h2>
+    <div class="tech-placeholder reveal">
+      <p><strong>Placeholder only.</strong><br/><br/>
+      Azure architecture, service choices, data flows, environments, and implementation sequencing will be added here later.</p>
+      <div class="constraint-chips">
+        <span class="chip">Azure</span>
+        <span class="chip">KSA data residency</span>
+        <span class="chip">PDPL compliant</span>
+        <span class="chip">Multi-tenant isolation</span>
+        <span class="chip">API-first</span>
+        <span class="chip">Arabic language support</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<footer>
+  <div>Customs AI Combined Guide · Clear AI PRD + Naqel / SPL Process Documentation · April 2026</div>
+  <div style="color:var(--dim)">Sources: Clear AI brief, Naqel customs process guide, meeting notes, HS mapping logic, field details, and XML samples</div>
+</footer>
+  </main>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Product Definition — Clear AI Wiki</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,900;1,400&family=IBM+Plex+Mono:wght@300;400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+
+:root {
+  --bg:        #f8f9fc;
+  --surface:   #eef1f7;
+  --card:      #ffffff;
+  --border:    #d8dce8;
+  --accent:    #1e3a5f;
+  --accent-dim:#2d5a8e;
+  --accent-glow:rgba(14,23,41,.07);
+  --accent-dark:#0E1729;
+  --text:      #0E1729;
+  --muted:     #546178;
+  --dim:       #b8c0d0;
+  --green:     #0a7a52;
+  --red:       #c0392b;
+  --blue:      #1d4ed8;
+  --purple:    #6d28d9;
+  --orange:    #c2440e;
+  --gold:      var(--accent);
+  --gold-dim:  var(--accent-dim);
+  --gold-glow: var(--accent-glow);
+  --amber:     var(--accent-dark);
+  --serif:    'Playfair Display', Georgia, serif;
+  --mono:     'IBM Plex Mono', monospace;
+  --sans:     'DM Sans', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.7; overflow-x: hidden; }
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 9999; opacity: .06;
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--accent-dim); border-radius: 2px; }
+
+/* ─── PROGRESS ─── */
+#progress-bar { position: fixed; top: 0; left: 0; height: 2px; background: linear-gradient(90deg, var(--accent), var(--accent-dark)); width: 0%; z-index: 1000; box-shadow: 0 0 8px rgba(14,23,41,.25); transition: width .1s linear; }
+
+/* ─── NAV ─── */
+nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 0 3rem; height: 56px; background: rgba(248,249,252,.92); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); box-shadow: 0 1px 12px rgba(0,0,0,.06); }
+.nav-logo { font-family: var(--mono); font-size: .72rem; color: var(--accent); letter-spacing: .12em; text-transform: uppercase; }
+.nav-links { display: flex; gap: 2rem; list-style: none; }
+.nav-links a { font-family: var(--mono); font-size: .68rem; color: var(--muted); text-decoration: none; letter-spacing: .08em; text-transform: uppercase; transition: color .2s; }
+.nav-links a:hover { color: var(--accent); }
+
+/* ─── HERO ─── */
+#clear-hero, #naqel-hero { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 120px 6rem 80px; position: relative; overflow: hidden; }
+.hero-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 60% at 60% 40%, rgba(14,23,41,.05) 0%, transparent 65%), radial-gradient(ellipse 40% 40% at 20% 70%, rgba(29,78,216,.04) 0%, transparent 60%), linear-gradient(180deg, var(--bg) 0%, var(--surface) 100%); }
+.hero-grid { position: absolute; inset: 0; background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 60px 60px; opacity: .25; mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 80%); }
+.hero-eyebrow { font-family: var(--mono); font-size: .68rem; color: var(--accent); letter-spacing: .2em; text-transform: uppercase; margin-bottom: 1.5rem; position: relative; display: flex; align-items: center; gap: .75rem; }
+.hero-eyebrow::before { content: ''; display: inline-block; width: 28px; height: 1px; background: var(--accent); }
+.hero-title { font-family: var(--serif); font-size: clamp(2.8rem, 5.5vw, 5.5rem); font-weight: 900; line-height: 1.05; letter-spacing: -.02em; position: relative; max-width: 860px; }
+.hero-title em { font-style: italic; color: var(--accent); }
+.hero-sub { font-family: var(--sans); font-size: 1rem; color: var(--muted); max-width: 580px; margin-top: 1.75rem; position: relative; line-height: 1.8; }
+.hero-stats { display: flex; gap: 3rem; margin-top: 3.5rem; position: relative; flex-wrap: wrap; }
+.stat { padding-left: 1.25rem; position: relative; }
+.stat::before { content: ''; position: absolute; left: 0; top: .25rem; bottom: .25rem; width: 1px; background: linear-gradient(180deg, transparent, var(--dim), transparent); }
+.stat-num { font-family: var(--mono); font-size: 1.7rem; color: var(--accent); font-weight: 600; display: block; }
+.stat-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-family: var(--mono); }
+.hero-scroll { position: absolute; bottom: 3rem; left: 6rem; display: flex; align-items: center; gap: .75rem; font-family: var(--mono); font-size: .62rem; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; animation: bounce 2s ease-in-out infinite; }
+@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+.hero-scroll::after { content: '↓'; font-size: 1rem; color: var(--accent); }
+
+/* ─── CALLOUT BANNER ─── */
+.callout { background: rgba(14,23,41,.04); border: 1px solid rgba(30,58,95,.2); border-radius: 12px; padding: 1.25rem 1.5rem; font-size: .85rem; color: var(--text); line-height: 1.7; display: flex; gap: 1rem; align-items: flex-start; }
+.callout-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: .1rem; }
+.callout.warn { background: rgba(248,113,113,.06); border-color: rgba(248,113,113,.3); }
+.callout.info { background: rgba(96,165,250,.06); border-color: rgba(96,165,250,.2); }
+.callout.note { background: rgba(167,139,250,.06); border-color: rgba(167,139,250,.2); }
+.callout strong { color: var(--accent); }
+.callout.warn strong { color: var(--red); }
+.callout.info strong { color: var(--blue); }
+.callout.note strong { color: var(--purple); }
+
+/* ─── SECTIONS ─── */
+.section { padding: 56px 6rem; position: relative; }
+.section-inner { max-width: 1160px; margin: 0 auto; }
+.section-label { font-family: var(--mono); font-size: .62rem; color: var(--accent); letter-spacing: .2em; text-transform: uppercase; display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; }
+.section-label::before { content: attr(data-num); background: var(--accent); color: var(--bg); width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .58rem; font-weight: 700; flex-shrink: 0; }
+.section-title { font-family: var(--serif); font-size: clamp(1.9rem, 3.5vw, 3.2rem); font-weight: 700; line-height: 1.1; letter-spacing: -.02em; max-width: 680px; margin-bottom: .9rem; }
+.section-title em { font-style: italic; color: var(--accent); }
+.section-desc { color: var(--muted); max-width: 640px; font-size: .92rem; line-height: 1.85; margin-bottom: 2rem; }
+.divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); margin: 0 6rem; }
+
+/* ─── PIPELINE ─── */
+.pipeline { display: flex; align-items: stretch; gap: 0; margin-top: .5rem; overflow-x: auto; padding-bottom: 1.5rem; }
+.pipe-node { flex: 1; min-width: 120px; display: flex; flex-direction: column; align-items: center; position: relative; opacity: 0; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease; }
+.pipe-node.visible { opacity: 1; transform: translateY(0); }
+.pipe-icon-wrap { width: 68px; height: 68px; border-radius: 14px; display: grid; place-items: center; font-size: 1.5rem; position: relative; z-index: 2; border: 1px solid var(--border); background: var(--card); transition: all .3s ease; cursor: default; }
+.pipe-node:hover .pipe-icon-wrap { border-color: var(--accent); background: var(--accent-glow); box-shadow: 0 0 20px var(--accent-glow); transform: translateY(-3px); }
+.pipe-node-num { font-family: var(--mono); font-size: .58rem; color: var(--gold); margin-top: .65rem; letter-spacing: .1em; }
+.pipe-node-name { font-family: var(--sans); font-size: .78rem; font-weight: 600; text-align: center; margin-top: .2rem; color: var(--text); }
+.pipe-node-desc { font-size: .67rem; color: var(--muted); text-align: center; margin-top: .35rem; padding: 0 .5rem; line-height: 1.5; }
+.pipe-connector { flex-shrink: 0; width: 36px; display: flex; align-items: flex-start; padding-top: 24px; }
+.pipe-line { width: 100%; height: 1px; background: var(--dim); position: relative; overflow: hidden; }
+.pipe-line::after { content: ''; position: absolute; top: -1px; left: -100%; width: 40%; height: 3px; background: linear-gradient(90deg, transparent, var(--accent-dim), transparent); animation: flow-right 3s linear infinite; opacity: .5; }
+.pipe-arrow { width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 7px solid var(--gold-dim); flex-shrink: 0; }
+@keyframes flow-right { 0% { left: -100%; } 100% { left: 200%; } }
+@keyframes flow-down { 0% { top: -40%; } 100% { top: 140%; } }
+
+/* ─── HV / LV SPLIT ─── */
+.hvlv-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+.hvlv-card { border-radius: 16px; padding: 2rem; border: 1px solid; position: relative; overflow: hidden; opacity: 0; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease; }
+.hvlv-card.visible { opacity: 1; transform: translateY(0); }
+.hv-card { background: linear-gradient(135deg, rgba(14,23,41,.05) 0%, var(--card) 60%); border-color: rgba(30,58,95,.2); }
+.lv-card { background: linear-gradient(135deg, rgba(52,211,153,.06) 0%, var(--card) 60%); border-color: rgba(52,211,153,.25); }
+.hvlv-badge { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; padding: .25rem .7rem; border-radius: 6px; margin-bottom: 1rem; }
+.hv-badge { background: rgba(14,23,41,.06); color: var(--accent); border: 1px solid rgba(30,58,95,.2); }
+.lv-badge { background: rgba(52,211,153,.1); color: var(--green); border: 1px solid rgba(52,211,153,.25); }
+.hvlv-threshold { font-family: var(--mono); font-size: 1.8rem; font-weight: 700; margin-bottom: .2rem; }
+.hv-card .hvlv-threshold { color: var(--gold); }
+.lv-card .hvlv-threshold { color: var(--green); }
+.hvlv-sub { font-size: .8rem; color: var(--muted); margin-bottom: 1.25rem; }
+.hvlv-rules { display: flex; flex-direction: column; gap: .55rem; }
+.hvlv-rule { display: flex; gap: .75rem; font-size: .8rem; line-height: 1.5; }
+.rule-icon { flex-shrink: 0; margin-top: .1rem; }
+.rule-text { color: var(--muted); }
+.rule-text strong { color: var(--text); }
+.rule-code { font-family: var(--mono); font-size: .72rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .15rem .4rem; color: var(--green); }
+
+/* ─── CHANNELS ─── */
+.channels-wrap { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: start; margin-bottom: 2rem; }
+.channel-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; opacity: 0; transform: translateX(-20px); transition: opacity .6s ease, transform .6s ease, border-color .3s; }
+.channel-card.right-card { transform: translateX(20px); }
+.channel-card.visible { opacity: 1; transform: translateX(0); }
+.channel-card:hover { border-color: var(--accent); }
+.channel-badge { display: inline-flex; align-items: center; gap: .5rem; background: var(--gold-glow); border: 1px solid var(--gold-dim); border-radius: 6px; padding: .3rem .75rem; font-family: var(--mono); font-size: .62rem; color: var(--gold); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 1rem; }
+.channel-title { font-family: var(--serif); font-size: 1.3rem; font-weight: 700; margin-bottom: .5rem; }
+.channel-desc { font-size: .82rem; color: var(--muted); line-height: 1.7; }
+.channel-fields { margin-top: 1.25rem; display: flex; flex-direction: column; gap: .4rem; }
+.field-row { display: flex; align-items: baseline; gap: .5rem; font-family: var(--mono); font-size: .68rem; }
+.field-name { color: var(--blue); flex-shrink: 0; }
+.field-val { color: var(--muted); flex: 1; }
+.field-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--dim); flex-shrink: 0; margin-top: .35rem; }
+.field-req { color: var(--gold); font-size: .58rem; flex-shrink: 0; }
+.field-miss { color: var(--red); font-size: .58rem; flex-shrink: 0; }
+
+.merge-node { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 2.5rem; gap: 0; opacity: 0; transition: opacity .6s ease .3s; }
+.merge-node.visible { opacity: 1; }
+.merge-line { width: 2px; height: 44px; background: linear-gradient(180deg, var(--dim), var(--gold-dim)); position: relative; overflow: hidden; }
+.merge-line::after { content: ''; position: absolute; left: -1px; top: -40%; width: 4px; height: 40%; background: linear-gradient(180deg, transparent, var(--gold), transparent); animation: flow-down 2s linear infinite; }
+.merge-center { width: 48px; height: 48px; background: var(--card); border: 2px solid var(--accent); border-radius: 50%; display: grid; place-items: center; font-size: 1.1rem; box-shadow: 0 0 18px var(--accent-glow); position: relative; z-index: 2; }
+.data-parity-note { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem; margin-top: 2rem; }
+.data-parity-note h4 { font-family: var(--mono); font-size: .65rem; color: var(--orange); letter-spacing: .12em; text-transform: uppercase; margin-bottom: .75rem; display: flex; align-items: center; gap: .5rem; }
+.parity-row { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: .5rem; font-family: var(--mono); font-size: .7rem; padding: .4rem 0; border-bottom: 1px solid rgba(0,0,0,.06); }
+.parity-row.header { color: var(--muted); font-size: .62rem; text-transform: uppercase; letter-spacing: .08em; border-bottom-color: var(--border); padding-bottom: .6rem; margin-bottom: .2rem; }
+.parity-yes { color: var(--green); }
+.parity-no { color: var(--red); }
+.parity-part { color: var(--orange); }
+
+/* ─── ENGINE ─── */
+.engine-box { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 2.5rem; margin-top: 2rem; position: relative; overflow: hidden; }
+.engine-box::before { display: none; }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.engine-title { font-family: var(--mono); font-size: 1rem; color: var(--gold); letter-spacing: .15em; text-transform: uppercase; margin-bottom: 1.75rem; display: flex; align-items: center; gap: .75rem; }
+.engine-title::before { content: '⚙'; font-size: .9rem; }
+.engine-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; }
+.engine-step { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1rem; text-align: center; opacity: 0; transform: translateY(12px); transition: opacity .4s ease, transform .4s ease, border-color .3s, background .3s; }
+.engine-step.visible { opacity: 1; transform: translateY(0); }
+.engine-step:hover { border-color: var(--accent); background: var(--accent-glow); }
+.engine-step-num { font-family: var(--mono); font-size: 1.4rem; color: var(--dim); font-weight: 700; margin-bottom: .4rem; }
+.engine-step-name { font-size: .75rem; font-weight: 600; color: var(--text); margin-bottom: .35rem; }
+.engine-step-desc { font-size: .67rem; color: var(--muted); line-height: 1.5; }
+
+/* ─── HS ALGO ─── */
+.algo-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: start; }
+.algo-steps { display: flex; flex-direction: column; gap: 0; }
+.algo-step { display: flex; gap: 1.5rem; padding: 1.5rem 0; border-left: 1px dashed var(--dim); padding-left: 2rem; position: relative; opacity: 0; transform: translateX(-14px); transition: opacity .5s ease, transform .5s ease; }
+.algo-step.visible { opacity: 1; transform: translateX(0); }
+.algo-step:last-child { border-left-color: transparent; }
+.algo-step::before { content: attr(data-step); position: absolute; left: -16px; top: 1.5rem; width: 30px; height: 30px; background: var(--card); border: 2px solid var(--border); border-radius: 50%; display: grid; place-items: center; font-family: var(--mono); font-size: .68rem; color: var(--gold); font-weight: 600; transition: all .3s; }
+.algo-step:hover::before { background: var(--accent); color: var(--bg); border-color: var(--accent); box-shadow: 0 0 14px var(--accent-glow); }
+.algo-step-title { font-family: var(--sans); font-size: .88rem; font-weight: 600; margin-bottom: .35rem; color: var(--text); }
+.algo-step-desc { font-size: .78rem; color: var(--muted); line-height: 1.6; margin-bottom: .7rem; }
+.code-transform { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.code-pill { font-family: var(--mono); font-size: .7rem; padding: .22rem .55rem; border-radius: 5px; background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+.code-pill.from { border-color: var(--blue); color: var(--blue); }
+.code-pill.to { border-color: var(--green); color: var(--green); }
+.code-pill.selected { border-color: var(--gold); color: var(--gold); background: var(--gold-glow); }
+.code-pill.warn { border-color: var(--red); color: var(--red); background: rgba(248,113,113,.08); }
+.code-arrow { color: var(--muted); font-size: .75rem; }
+.algo-example { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; position: sticky; top: 80px; opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+.algo-example.visible { opacity: 1; transform: translateY(0); }
+.example-label { font-family: var(--mono); font-size: .62rem; color: var(--gold); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 1.5rem; display: flex; align-items: center; gap: .5rem; }
+.example-label::before { content: '▶'; font-size: .52rem; }
+.example-row { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1.25rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+.example-row:last-child { border-bottom: none; margin-bottom: 0; }
+.ex-step-num { font-family: var(--mono); font-size: .58rem; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; }
+.ex-code { font-family: var(--mono); font-size: .82rem; color: var(--text); padding: .5rem .75rem; background: var(--surface); border-radius: 7px; border: 1px solid var(--border); }
+.ex-code span { color: var(--gold); }
+.ex-code span.g { color: var(--green); }
+.ex-note { font-size: .7rem; color: var(--muted); font-style: italic; }
+.ex-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: .67rem; margin-top: .5rem; }
+.ex-table th { text-align: left; color: var(--muted); padding: .35rem .5rem; border-bottom: 1px solid var(--border); font-weight: 500; }
+.ex-table td { padding: .35rem .5rem; color: var(--text); border-bottom: 1px solid rgba(0,0,0,.06); }
+.ex-table tr.winner td { color: var(--green); }
+.ex-table tr.winner td:first-child::before { content: '▶ '; }
+.ex-table tr.alt-match td { color: var(--muted); opacity: .55; }
+.ex-table tr.alt-match td:first-child::before { content: '  '; }
+.tag-green { background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3); color: var(--green); border-radius: 4px; padding: .12rem .4rem; font-size: .6rem; }
+.tag-red { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.3); color: var(--red); border-radius: 4px; padding: .12rem .4rem; font-size: .6rem; }
+
+/* ─── XML STRUCTURE ─── */
+.legend { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2rem; }
+.legend-item { display: flex; align-items: center; gap: .5rem; font-size: .7rem; color: var(--muted); font-family: var(--mono); }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+.xml-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.xml-section { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.5rem; transition: border-color .3s; opacity: 0; transform: translateY(14px); transition: opacity .4s ease, transform .4s ease, border-color .3s; cursor: default; }
+.xml-section.visible { opacity: 1; transform: translateY(0); }
+.xml-section:hover { border-color: var(--accent); }
+.xml-section-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border); }
+.xml-section-name { font-family: var(--mono); font-size: .73rem; color: var(--gold); font-weight: 600; }
+.xml-section-tag { font-family: var(--mono); font-size: .58rem; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .18rem .45rem; }
+.xml-field-list { display: flex; flex-direction: column; gap: .5rem; }
+.xml-field { display: flex; align-items: baseline; gap: .75rem; font-family: var(--mono); font-size: .68rem; }
+.xml-field-name { color: var(--blue); flex-shrink: 0; min-width: 140px; }
+.xml-field-value { color: var(--text); flex: 1; }
+.xml-field-source { font-size: .58rem; border-radius: 4px; padding: .12rem .38rem; white-space: nowrap; flex-shrink: 0; }
+.src-client { background: rgba(96,165,250,.1); color: var(--blue); border: 1px solid rgba(96,165,250,.25); }
+.src-derived { background: rgba(167,139,250,.1); color: var(--purple); border: 1px solid rgba(167,139,250,.25); }
+.src-fixed { background: rgba(107,113,144,.15); color: var(--muted); border: 1px solid var(--border); }
+.src-mapped { background: rgba(14,23,41,.06); color: var(--gold); border: 1px solid var(--gold-dim); }
+
+/* ─── RISK CARDS ─── */
+.risk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+.risk-card { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.6rem; opacity: 0; transform: translateY(14px); transition: opacity .4s ease, transform .4s ease, border-color .3s; }
+.risk-card.visible { opacity: 1; transform: translateY(0); }
+.risk-card:hover { border-color: var(--accent); }
+.risk-severity { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .6rem; letter-spacing: .1em; text-transform: uppercase; padding: .22rem .55rem; border-radius: 6px; margin-bottom: 1rem; }
+.sev-high { background: rgba(248,113,113,.1); color: var(--red); border: 1px solid rgba(248,113,113,.25); }
+.sev-med { background: rgba(251,146,60,.1); color: var(--orange); border: 1px solid rgba(251,146,60,.25); }
+.sev-low { background: rgba(52,211,153,.1); color: var(--green); border: 1px solid rgba(52,211,153,.25); }
+.sev-unknown { background: rgba(167,139,250,.1); color: var(--purple); border: 1px solid rgba(167,139,250,.25); }
+.risk-title { font-family: var(--sans); font-size: .92rem; font-weight: 600; margin-bottom: .45rem; color: var(--text); }
+.risk-rate { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin-bottom: .6rem; }
+.risk-rate span { color: var(--orange); }
+.risk-trigger { font-size: .77rem; color: var(--muted); margin-bottom: .75rem; line-height: 1.6; }
+.risk-handling { font-size: .74rem; color: var(--text); padding: .75rem 1rem; background: var(--surface); border-radius: 8px; line-height: 1.6; }
+.risk-handling strong { color: var(--gold); }
+.risk-handling .warn { color: var(--red); }
+
+/* ─── E2E FLOW ─── */
+.e2e-flow { max-width: 680px; margin: 0 auto; font-family: var(--mono); }
+.e2e-row { display: flex; gap: 1rem; align-items: center; opacity: 0; transform: translateY(8px); transition: opacity .4s ease, transform .4s ease; }
+.e2e-row.visible { opacity: 1; transform: translateY(0); }
+.e2e-box { flex: 1; padding: .9rem 1.2rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: .76rem; line-height: 1.55; }
+.e2e-box strong { color: var(--gold); display: block; margin-bottom: .18rem; font-size: .68rem; letter-spacing: .05em; text-transform: uppercase; }
+.e2e-box.highlight { border-color: var(--gold); background: var(--gold-glow); }
+.e2e-box.ok { border-color: rgba(52,211,153,.3); }
+.e2e-connector { width: 100%; display: flex; justify-content: center; padding: .25rem 0; opacity: 0; transition: opacity .4s ease; }
+.e2e-connector.visible { opacity: 1; }
+.e2e-connector-line { width: 2px; height: 26px; background: linear-gradient(180deg, var(--border), var(--gold-dim)); position: relative; overflow: hidden; }
+.e2e-connector-line::after { content: ''; position: absolute; left: -1px; top: -40%; width: 4px; height: 40%; background: linear-gradient(180deg, transparent, var(--gold), transparent); animation: flow-down 1.5s linear infinite; }
+
+/* ─── REVEAL ─── */
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* ─── MOBILE ─── */
+@media (max-width: 900px) {
+  .section, #clear-hero, #naqel-hero { padding: 48px 1.5rem; }
+  nav { padding: 0 1.5rem; }
+  .nav-links { display: none; }
+  .algo-layout, .xml-layout, .channels-wrap, .hvlv-wrap { grid-template-columns: 1fr; }
+  .engine-steps { grid-template-columns: repeat(2, 1fr); }
+  .risk-grid { grid-template-columns: 1fr; }
+  .algo-example { position: static; }
+  .hero-stats { flex-wrap: wrap; gap: 1.5rem; }
+  .divider { margin: 0 1.5rem; }
+}
+footer { padding: 2.5rem 6rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: .62rem; color: var(--muted); flex-wrap: wrap; gap: 1rem; }
+
+/* ─── ADDITIONAL COMPONENTS ─── */
+.nav-right { display: flex; align-items: center; gap: .75rem; }
+.nav-badge { font-family: var(--mono); font-size: .6rem; padding: .2rem .65rem; border-radius: 4px; letter-spacing: .1em; text-transform: uppercase; }
+.badge-prd  { background: var(--accent-glow); border: 1px solid rgba(30,58,95,.2); color: var(--accent); }
+.badge-mvp  { background: rgba(10,122,82,.08); border: 1px solid rgba(10,122,82,.25); color: var(--green); }
+.hero-meta { display: flex; gap: 3rem; margin-top: 3rem; position: relative; flex-wrap: wrap; }
+.meta-item { padding-left: 1.25rem; position: relative; }
+.meta-item::before { content: ''; position: absolute; left: 0; top: .25rem; bottom: .25rem; width: 1px; background: linear-gradient(180deg, transparent, var(--dim), transparent); }
+.meta-val { font-family: var(--mono); font-size: .8rem; color: var(--accent); font-weight: 600; display: block; letter-spacing: .05em; }
+.meta-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-family: var(--mono); }
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* ─── CALLOUT VARIANTS ─── */
+.callout.gold  { background: rgba(14,23,41,.04);  border: 1px solid rgba(30,58,95,.2); }
+.callout.gold strong  { color: var(--accent); }
+.callout.red   { background: rgba(192,57,43,.06);   border: 1px solid rgba(192,57,43,.25); }
+.callout.red strong   { color: var(--red); }
+.callout.blue  { background: rgba(29,78,216,.06);   border: 1px solid rgba(29,78,216,.2); }
+.callout.blue strong  { color: var(--blue); }
+.callout.green { background: rgba(10,122,82,.06);   border: 1px solid rgba(10,122,82,.22); }
+.callout.green strong { color: var(--green); }
+
+/* ─── PROBLEM STATEMENT ─── */
+.problem-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media(max-width:780px){ .problem-grid { grid-template-columns: 1fr; } }
+.problem-card { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.6rem; opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, border-color .3s; }
+.problem-card.visible { opacity: 1; transform: translateY(0); }
+.problem-card:hover { border-color: var(--accent); }
+.prob-label { font-family: var(--mono); font-size: .58rem; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; margin-bottom: .6rem; }
+.prob-title { font-family: var(--sans); font-size: .95rem; font-weight: 600; color: var(--text); margin-bottom: .4rem; }
+.prob-body { font-size: .82rem; color: var(--muted); line-height: 1.7; }
+
+/* ─── GOALS ─── */
+.goals-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media(max-width:780px){ .goals-grid { grid-template-columns: 1fr; } }
+.goal-card { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.6rem; position: relative; overflow: hidden; transition: border-color .3s; }
+.goal-card:hover { border-color: var(--accent); }
+.goal-card::before { display: none; }
+.goal-type { font-family: var(--mono); font-size: .58rem; letter-spacing: .14em; text-transform: uppercase; margin-bottom: .5rem; display: flex; align-items: center; gap: .4rem; }
+.goal-card.user .goal-type { color: var(--gold); }
+.goal-card.biz  .goal-type { color: var(--blue); }
+.goal-list { list-style: none; display: flex; flex-direction: column; gap: .55rem; margin-top: .5rem; }
+.goal-list li { font-size: .85rem; color: var(--text); line-height: 1.55; display: flex; gap: .65rem; align-items: flex-start; }
+.goal-list li::before { content: '—'; font-family: var(--mono); font-size: .72rem; color: var(--gold-dim); flex-shrink: 0; margin-top: .05rem; }
+
+/* ─── PERSONAS ─── */
+.personas-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media(max-width:780px){ .personas-grid { grid-template-columns: 1fr; } }
+.persona-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, border-color .3s; }
+.persona-card.visible { opacity: 1; transform: translateY(0); }
+.persona-card:hover { border-color: var(--accent); }
+.p-head { padding: 1.4rem 1.75rem 1.2rem; border-bottom: 1px solid var(--border); background: linear-gradient(135deg, rgba(14,23,41,.03) 0%, var(--card) 70%); }
+.p-num { font-family: var(--mono); font-size: .58rem; color: var(--muted); letter-spacing: .16em; text-transform: uppercase; margin-bottom: .25rem; }
+.p-name { font-family: var(--serif); font-size: 1.25rem; font-weight: 700; color: var(--text); line-height: 1.2; margin-bottom: .2rem; }
+.p-role { font-family: var(--mono); font-size: .66rem; color: var(--muted); }
+.p-body { padding: 1.4rem 1.75rem; }
+.p-sub { font-family: var(--mono); font-size: .58rem; color: var(--gold); letter-spacing: .14em; text-transform: uppercase; margin-bottom: .6rem; display: flex; align-items: center; gap: .4rem; }
+.p-sub::before { content: '▶'; font-size: .42rem; }
+.p-list { list-style: none; margin-bottom: 1.2rem; }
+.p-list li { font-size: .82rem; color: var(--text); line-height: 1.55; padding: .25rem 0; display: flex; gap: .6rem; }
+.p-list li::before { content: '—'; font-family: var(--mono); color: var(--gold-dim); font-size: .72rem; flex-shrink: 0; }
+.p-how { font-size: .82rem; color: var(--muted); line-height: 1.65; }
+.p-badge { display: inline-flex; align-items: center; gap: .35rem; font-family: var(--mono); font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; padding: .22rem .6rem; border-radius: 4px; margin-top: .9rem; }
+.badge-api  { background: rgba(29,78,216,.07);  color: var(--blue);  border: 1px solid rgba(29,78,216,.2); }
+.badge-ui   { background: var(--gold-glow);      color: var(--gold);  border: 1px solid var(--gold-dim); }
+.badge-both { background: rgba(107,114,144,.1);  color: var(--muted); border: 1px solid var(--border); }
+
+/* ─── FEATURES TABLE ─── */
+.ftable { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--card); }
+.frow { display: grid; grid-template-columns: 2.4fr 3.8fr 1.3fr; border-bottom: 1px solid var(--border); transition: background .15s; }
+.frow:last-child { border-bottom: none; }
+.frow:not(.hdr):hover { background: var(--surface); }
+.frow.hdr { background: var(--surface); }
+.fcell { padding: 1.15rem 1.5rem; border-right: 1px solid var(--border); }
+.fcell:last-child { border-right: none; }
+.col-lbl { font-family: var(--mono); font-size: .6rem; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; }
+.fname { font-size: .87rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: .5rem; }
+.fdesc { font-size: .81rem; color: var(--muted); line-height: 1.65; }
+.ftag { display: inline-flex; font-family: var(--mono); font-size: .57rem; letter-spacing: .1em; text-transform: uppercase; padding: .2rem .58rem; border-radius: 4px; }
+.p0    { background: var(--gold-glow); color: var(--gold); border: 1px solid var(--gold-dim); }
+.p1    { background: rgba(29,78,216,.07); color: var(--blue); border: 1px solid rgba(29,78,216,.2); }
+.p2    { background: rgba(107,114,144,.08); color: var(--muted); border: 1px solid var(--border); }
+@media(max-width:680px){
+  .frow { grid-template-columns: 1fr; }
+  .fcell { border-right: none; padding: .85rem 1rem; }
+  .frow.hdr { display: none; }
+}
+
+/* ─── NON-GOALS ─── */
+.nongoal-list { display: flex; flex-direction: column; gap: .7rem; }
+.nongoal-item { display: flex; align-items: flex-start; gap: 1rem; padding: 1rem 1.25rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+.nongoal-x { font-family: var(--mono); font-size: .75rem; color: var(--red); background: rgba(192,57,43,.08); border: 1px solid rgba(192,57,43,.2); width: 24px; height: 24px; border-radius: 4px; display: grid; place-items: center; flex-shrink: 0; margin-top: .05rem; }
+.nongoal-text h4 { font-size: .88rem; font-weight: 600; color: var(--text); margin-bottom: .15rem; }
+.nongoal-text p { font-size: .79rem; color: var(--muted); line-height: 1.6; }
+
+/* ─── METRICS ─── */
+.metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+@media(max-width:780px){ .metrics-grid { grid-template-columns: 1fr; } }
+.metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.5rem; transition: border-color .3s; }
+.metric-card:hover { border-color: var(--accent); }
+.metric-cat { font-family: var(--mono); font-size: .58rem; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; margin-bottom: .6rem; }
+.metric-title { font-family: var(--sans); font-size: .9rem; font-weight: 600; color: var(--text); margin-bottom: .4rem; }
+.metric-target { font-family: var(--mono); font-size: .78rem; color: var(--gold); margin-bottom: .5rem; }
+.metric-note { font-size: .78rem; color: var(--muted); line-height: 1.6; }
+
+/* ─── OPEN QUESTIONS ─── */
+.oq-list { display: flex; flex-direction: column; gap: .7rem; }
+.oq-item { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: start; padding: 1.1rem 1.4rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; transition: border-color .2s; }
+.oq-item:hover { border-color: var(--accent); }
+.oq-q { font-size: .87rem; color: var(--text); line-height: 1.55; }
+.oq-q span { color: var(--muted); font-size: .78rem; display: block; margin-top: .2rem; }
+.oq-owner { font-family: var(--mono); font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; padding: .2rem .6rem; border-radius: 4px; white-space: nowrap; align-self: start; margin-top: .1rem; }
+.owner-eng  { background: rgba(29,78,216,.07);  color: var(--blue);   border: 1px solid rgba(29,78,216,.2); }
+.owner-prod { background: var(--gold-glow);      color: var(--gold);   border: 1px solid var(--gold-dim); }
+.owner-biz  { background: rgba(10,122,82,.07);   color: var(--green);  border: 1px solid rgba(10,122,82,.22); }
+.owner-legal{ background: rgba(192,57,43,.06);   color: var(--red);    border: 1px solid rgba(192,57,43,.2); }
+
+/* ─── ROADMAP ─── */
+.road-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+@media(max-width:800px){ .road-grid { grid-template-columns: 1fr; } }
+.rcol { background: var(--card); border: 1px solid var(--border); border-radius: 13px; padding: 1.75rem; opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease, border-color .3s; }
+.rcol.visible { opacity: 1; transform: translateY(0); }
+.rcol:hover { border-color: var(--accent); }
+.rcol.now  { background: linear-gradient(180deg, rgba(14,23,41,.03) 0%, var(--card) 12%); }
+.rcol.next { background: linear-gradient(180deg, rgba(29,78,216,.03) 0%, var(--card) 12%); }
+.rcol.later{ background: linear-gradient(180deg, rgba(184,192,208,.06) 0%, var(--card) 12%); }
+.rlbl { font-family: var(--mono); font-size: .6rem; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 1.1rem; display: flex; align-items: center; gap: .5rem; }
+.rcol.now  .rlbl { color: var(--gold); }
+.rcol.next .rlbl { color: var(--blue); }
+.rcol.later .rlbl { color: var(--muted); }
+.ritem { display: flex; gap: .6rem; align-items: flex-start; font-size: .82rem; color: var(--text); line-height: 1.6; margin-bottom: .55rem; }
+.ritem::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; margin-top: .48rem; }
+.rcol.now  .ritem::before { background: var(--gold); }
+.rcol.next .ritem::before { background: var(--blue); opacity: .5; }
+.rcol.later .ritem::before { background: var(--dim); }
+
+/* ─── TECH ─── */
+.tech-placeholder { border: 2px dashed var(--border); border-radius: 14px; padding: 3.5rem 2rem; text-align: center; background: var(--card); }
+.tech-placeholder p { font-family: var(--mono); font-size: .75rem; color: var(--muted); line-height: 2; letter-spacing: .03em; }
+.tech-placeholder strong { color: var(--text); }
+.constraint-chips { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: center; margin-top: 1.5rem; }
+.chip { font-family: var(--mono); font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; padding: .26rem .68rem; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+
+/* ─── MOBILE ─── */
+@media (max-width: 900px) {
+  .section, #clear-hero, #naqel-hero { padding: 48px 1.5rem; }
+  nav { padding: 0 1.5rem; }
+  .nav-links { display: none; }
+  .divider { margin: 0 1.5rem; }
+  .hero-scroll { left: 1.5rem; }
+}
+footer { padding: 2.5rem 6rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: .62rem; color: var(--muted); flex-wrap: wrap; gap: 1rem; }
+@media(max-width:900px){ footer { padding: 2rem 1.5rem; } }
+
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+[id] { scroll-margin-top: 28px; }
+.app-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 100vh;
+}
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 1.5rem 1.2rem 1.8rem;
+  border-right: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.78) 0%, rgba(238,240,248,.96) 100%),
+    radial-gradient(circle at top left, rgba(14,23,41,.06), transparent 42%);
+  backdrop-filter: blur(14px);
+  overflow-y: auto;
+  z-index: 50;
+}
+.sidebar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.28), transparent 20%, transparent 80%, rgba(255,255,255,.18));
+}
+.sidebar-inner {
+  position: relative;
+  z-index: 1;
+}
+.side-kicker {
+  font-family: var(--mono);
+  font-size: .62rem;
+  color: var(--gold);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  margin-bottom: .9rem;
+}
+.side-title {
+  font-family: var(--serif);
+  font-size: 1.6rem;
+  line-height: 1.05;
+  letter-spacing: -.03em;
+  margin-bottom: .8rem;
+}
+.side-copy {
+  font-size: .82rem;
+  color: var(--muted);
+  line-height: 1.75;
+  margin-bottom: 1.5rem;
+}
+.side-group {
+  margin-bottom: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(20, 23, 40, .08);
+}
+.side-group:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+.side-group-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: .58rem;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .7rem;
+}
+.side-links {
+  display: flex;
+  flex-direction: column;
+  gap: .22rem;
+}
+.side-link {
+  display: block;
+  padding: .55rem .72rem;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.35;
+  transition: background .18s ease, color .18s ease, transform .18s ease;
+}
+.side-link:hover {
+  background: rgba(14,23,41,.04);
+  color: var(--text);
+}
+.side-link.active {
+  background: rgba(14,23,41,.07);
+  color: var(--text);
+  font-weight: 600;
+}
+.side-link strong {
+  display: block;
+  font-family: var(--mono);
+  font-size: .6rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--gold);
+  margin-bottom: .14rem;
+}
+.main-content {
+  min-width: 0;
+}
+.page-intro {
+  padding: 4.5rem 6rem 2.5rem;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at top right, rgba(14,23,41,.06), transparent 36%),
+    linear-gradient(180deg, rgba(255,255,255,.65) 0%, rgba(238,240,248,.55) 100%);
+}
+.page-intro-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.page-title {
+  font-family: var(--serif);
+  font-size: clamp(2.2rem, 4vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: -.03em;
+  max-width: 760px;
+}
+.page-title em {
+  color: var(--gold);
+  font-style: italic;
+}
+.page-sub {
+  max-width: 760px;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: .95rem;
+  line-height: 1.8;
+}
+.page-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-top: 1.4rem;
+}
+.page-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .34rem .7rem;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: .62rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.72);
+  color: var(--muted);
+}
+.doc-anchor {
+  padding-top: 1.5rem;
+}
+.chapter-banner {
+  padding: 3.5rem 6rem 2rem;
+  background:
+    radial-gradient(circle at top right, rgba(14,23,41,.06), transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,.62) 0%, rgba(238,240,248,.42) 100%);
+  border-bottom: 1px solid var(--border);
+}
+.chapter-banner-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.chapter-kicker {
+  font-family: var(--mono);
+  font-size: .62rem;
+  color: var(--gold);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  margin-bottom: .75rem;
+}
+.chapter-title {
+  font-family: var(--serif);
+  font-size: clamp(1.9rem, 3.5vw, 3.4rem);
+  line-height: 1.03;
+  letter-spacing: -.03em;
+  max-width: 760px;
+}
+.chapter-title em {
+  color: var(--gold);
+  font-style: italic;
+}
+.chapter-copy {
+  max-width: 760px;
+  margin-top: .9rem;
+  color: var(--muted);
+  font-size: .92rem;
+  line-height: 1.8;
+}
+.empty-placeholder {
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  padding: 2rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .78rem;
+  line-height: 1.8;
+}
+.doc-divider {
+  height: 1px;
+  margin: 0 6rem;
+  background: linear-gradient(90deg, transparent, rgba(20,23,40,.12), transparent);
+}
+@media (max-width: 1100px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+  }
+  .side-links {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .35rem;
+  }
+  }
+  @media (max-width: 780px) {
+  .page-intro,
+  .chapter-banner,
+  .section,
+  #clear-hero,
+  #naqel-hero {
+    padding-left: 1.4rem;
+    padding-right: 1.4rem;
+  }
+  .divider,
+  .doc-divider {
+    margin: 0 1.4rem;
+  }
+  .sidebar {
+    padding: 1rem;
+  }
+  .side-links {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+
+/* ─── MULTI-PAGE SITE OVERRIDES ─── */
+.app-shell { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+.sidebar { position: fixed; top:0; left:0; bottom:0; width: 280px; background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; z-index: 50; }
+.sidebar-inner { padding: 2rem 1.5rem; }
+.side-kicker { font-family: var(--mono); font-size: .62rem; color: var(--muted); letter-spacing: .2em; text-transform: uppercase; margin-bottom: .75rem; }
+.side-title { font-family: var(--serif); font-size: 1.4rem; font-weight: 700; line-height: 1.15; margin-bottom: 2rem; color: var(--text); }
+.side-title em { font-style: italic; color: var(--accent); }
+.side-group { margin-bottom: 1.75rem; }
+.side-group-label { display: block; font-family: var(--mono); font-size: .58rem; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; margin-bottom: .6rem; padding-left: .25rem; }
+.side-links { display: flex; flex-direction: column; gap: 1px; }
+.side-link { display: block; padding: .42rem .75rem; font-size: .78rem; color: var(--muted); text-decoration: none; border-radius: 6px; transition: all .15s; border-left: 2px solid transparent; }
+.side-link:hover { color: var(--text); background: rgba(14,23,41,.04); }
+.side-link.active { color: var(--accent); background: rgba(14,23,41,.06); border-left-color: var(--accent); font-weight: 600; }
+.side-page { display: block; padding: .55rem .75rem; font-family: var(--sans); font-size: .85rem; font-weight: 600; color: var(--text); text-decoration: none; border-radius: 6px; margin-bottom: .35rem; display: flex; align-items: center; gap: .6rem; transition: background .15s; }
+.side-page:hover { background: rgba(14,23,41,.05); }
+.side-page.active { background: var(--accent); color: var(--bg); }
+.side-page-num { font-family: var(--mono); font-size: .62rem; opacity: .7; }
+.side-page.active .side-page-num { opacity: .9; }
+.side-divider { height: 1px; background: var(--border); margin: 1.25rem 0; }
+
+.main-content { grid-column: 2; padding: 0; max-width: none; }
+.page-hero { padding: 5rem 5rem 3rem; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--bg) 0%, var(--surface) 100%); position: relative; overflow: hidden; }
+.page-hero::before { content: ''; position: absolute; inset: 0; background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 48px 48px; opacity: .2; mask-image: radial-gradient(ellipse 60% 80% at 80% 20%, black 10%, transparent 70%); }
+.page-hero-inner { position: relative; max-width: 1160px; margin: 0 auto; }
+.page-kicker { font-family: var(--mono); font-size: .68rem; color: var(--accent); letter-spacing: .18em; text-transform: uppercase; margin-bottom: 1rem; display: flex; align-items: center; gap: .75rem; }
+.page-kicker::before { content: ''; display: inline-block; width: 28px; height: 1px; background: var(--accent); }
+.page-title { font-family: var(--serif); font-size: clamp(2.2rem, 4vw, 3.6rem); font-weight: 800; line-height: 1.1; letter-spacing: -.02em; max-width: 820px; margin-bottom: 1rem; }
+.page-title em { font-style: italic; color: var(--accent); }
+.page-lede { font-size: 1.02rem; color: var(--muted); max-width: 680px; line-height: 1.75; }
+
+.section { padding: 48px 5rem; }
+.section-inner { max-width: 1160px; margin: 0 auto; }
+.divider { margin: 0 5rem; }
+footer.site-footer { padding: 2rem 5rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: .62rem; color: var(--muted); flex-wrap: wrap; gap: 1rem; }
+footer.site-footer .foot-links { display: flex; gap: 1.5rem; }
+footer.site-footer .foot-links a { color: var(--muted); text-decoration: none; transition: color .15s; }
+footer.site-footer .foot-links a:hover { color: var(--accent); }
+
+.topbar { position: sticky; top: 0; background: rgba(248,249,252,.92); backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); padding: .75rem 5rem; z-index: 40; display: flex; align-items: center; justify-content: space-between; }
+.topbar-crumb { font-family: var(--mono); font-size: .7rem; color: var(--muted); letter-spacing: .08em; }
+.topbar-crumb .sep { color: var(--dim); margin: 0 .5rem; }
+.topbar-crumb .current { color: var(--accent); font-weight: 600; }
+.topbar-nav { display: flex; gap: 1.25rem; }
+.topbar-nav a { font-family: var(--mono); font-size: .66rem; color: var(--muted); text-decoration: none; letter-spacing: .1em; text-transform: uppercase; }
+.topbar-nav a:hover { color: var(--accent); }
+
+/* Version tabs (v1/v2) */
+.vtabs { display: inline-flex; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 2rem; gap: 2px; }
+.vtab { padding: .5rem 1.25rem; font-family: var(--mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); background: transparent; border: none; border-radius: 7px; cursor: pointer; transition: all .2s; }
+.vtab:hover { color: var(--text); }
+.vtab.active { background: var(--accent); color: var(--bg); box-shadow: 0 2px 8px rgba(14,23,41,.15); }
+.vpanel { display: none; }
+.vpanel.active { display: block; }
+
+/* Next / prev page card */
+.pagenav { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 3rem 0 1rem; }
+.pagenav-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.4rem; text-decoration: none; transition: all .2s; display: block; }
+.pagenav-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 16px rgba(14,23,41,.05); }
+.pagenav-dir { font-family: var(--mono); font-size: .6rem; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; margin-bottom: .35rem; }
+.pagenav-title { font-family: var(--serif); font-size: 1rem; color: var(--text); font-weight: 600; }
+.pagenav-card.next { text-align: right; }
+.pagenav-card.prev-placeholder, .pagenav-card.next-placeholder { opacity: 0; pointer-events: none; }
+
+/* V2 placeholder */
+.v2-placeholder { background: linear-gradient(135deg, rgba(167,139,250,.05), rgba(96,165,250,.04)); border: 1px dashed rgba(109,40,217,.3); border-radius: 16px; padding: 3rem 2.5rem; text-align: center; }
+.v2-badge { display: inline-block; font-family: var(--mono); font-size: .62rem; color: var(--purple); background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.3); padding: .25rem .7rem; border-radius: 6px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 1rem; }
+.v2-title { font-family: var(--serif); font-size: 1.6rem; font-weight: 700; margin-bottom: .75rem; color: var(--text); }
+.v2-body { color: var(--muted); max-width: 620px; margin: 0 auto 1.5rem; line-height: 1.75; font-size: .9rem; }
+.v2-scope { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; max-width: 820px; margin: 1.5rem auto 0; text-align: left; }
+.v2-scope-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; }
+.v2-scope-card h4 { font-family: var(--mono); font-size: .6rem; color: var(--purple); letter-spacing: .12em; text-transform: uppercase; margin-bottom: .4rem; }
+.v2-scope-card p { font-size: .78rem; color: var(--muted); line-height: 1.6; }
+
+@media (max-width: 1000px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { position: static; width: 100%; height: auto; }
+  .main-content { grid-column: 1; }
+  .page-hero, .section, .topbar, footer.site-footer, .divider { padding-left: 1.5rem; padding-right: 1.5rem; }
+  .divider { margin: 0 1.5rem; }
+}
+
+
+/* ─── BRAND BLOCK OVERRIDES ─── */
+.brand-block { display: flex; align-items: center; gap: .7rem; margin-bottom: .35rem; }
+.brand-mark { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%); color: #fff; display: grid; place-items: center; font-family: var(--serif); font-weight: 800; font-size: 1.05rem; letter-spacing: -.03em; box-shadow: 0 2px 10px rgba(14,23,41,.2); flex-shrink: 0; }
+.brand-mark::after { content: ''; position: absolute; }
+.brand-wordmark { font-family: var(--serif); font-size: 1.55rem; font-weight: 800; color: var(--text); letter-spacing: -.015em; line-height: 1; }
+.brand-wordmark em { font-style: italic; color: var(--accent); }
+.brand-tagline { font-family: var(--mono); font-size: .6rem; color: var(--muted); letter-spacing: .18em; text-transform: uppercase; margin: .55rem 0 1.85rem; padding-left: calc(34px + .7rem); }
+
+/* Topbar brand */
+.topbar-brand { display: flex; align-items: center; gap: .55rem; font-family: var(--serif); font-size: 1rem; font-weight: 800; color: var(--text); letter-spacing: -.01em; text-decoration: none; }
+.topbar-brand .tb-mark { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), var(--accent-dark)); color: #fff; display: grid; place-items: center; font-size: .72rem; font-weight: 800; }
+.topbar-brand em { font-style: italic; color: var(--accent); }
+.topbar-brand .tb-sep { color: var(--dim); margin: 0 .5rem; font-weight: 400; }
+.topbar-crumb-chapter { font-family: var(--mono); font-size: .68rem; color: var(--muted); letter-spacing: .08em; }
+.topbar-crumb-chapter .current { color: var(--accent); font-weight: 600; }
+
+
+/* ─── SIMPLIFICATION PASS — docs.anthropic.com-like ─── */
+/* Kill italic + serif in titles; use sans throughout headings */
+.page-title, .section-title, .chapter-title { font-family: var(--sans); font-weight: 700; letter-spacing: -.015em; }
+.page-title em, .section-title em, .chapter-title em { font-style: normal; color: var(--text); font-weight: 700; }
+.hero-title em { font-style: normal; color: var(--text); font-weight: inherit; }
+
+/* Bump small label sizes so they read at a glance */
+.section-label { font-size: .8rem; letter-spacing: .12em; }
+.section-label::before { width: 24px; height: 24px; font-size: .7rem; }
+.page-kicker { font-size: .78rem; letter-spacing: .14em; }
+.chapter-kicker { font-size: .78rem; letter-spacing: .14em; }
+.goal-type { font-size: .74rem; letter-spacing: .1em; }
+.p-num { font-size: .74rem; letter-spacing: .12em; }
+.prob-label { font-size: .72rem; letter-spacing: .1em; }
+.metric-cat { font-size: .72rem; letter-spacing: .1em; }
+.channel-badge { font-size: .72rem; letter-spacing: .08em; }
+.hvlv-badge { font-size: .72rem; letter-spacing: .08em; }
+.engine-title { font-size: .92rem; letter-spacing: .1em; }
+.engine-step-num { font-size: 1.1rem; }
+.engine-step-name { font-size: .85rem; }
+.engine-step-desc { font-size: .74rem; }
+.risk-severity { font-size: .7rem; }
+.rlbl { font-size: .75rem !important; letter-spacing: .1em !important; }
+.p-sub { font-size: .72rem; letter-spacing: .1em; }
+.example-label { font-size: .74rem; letter-spacing: .12em; }
+.ex-step-num { font-size: .7rem; letter-spacing: .1em; }
+.xml-section-name { font-size: .82rem; }
+.xml-section-tag { font-size: .68rem; }
+.xml-field-name { font-size: .74rem; }
+.xml-field-value { font-size: .74rem; }
+.xml-field-source { font-size: .64rem; }
+.legend-item { font-size: .78rem; }
+.callout { font-size: .92rem; }
+.side-group-label { font-size: .68rem; letter-spacing: .12em; }
+.side-link { font-size: .82rem; }
+.side-page { font-size: .88rem; }
+.side-page-num { font-size: .7rem; }
+.brand-tagline { font-size: .68rem; letter-spacing: .15em; }
+
+/* Goal list / persona list body copy */
+.goal-list li { font-size: .92rem; }
+.p-list li { font-size: .88rem; }
+.p-how { font-size: .88rem; }
+.prob-body { font-size: .9rem; }
+.metric-title { font-size: 1.05rem; }
+.metric-target { font-size: .85rem; }
+.metric-note { font-size: .82rem; }
+.risk-title { font-size: 1rem; }
+.risk-trigger { font-size: .85rem; }
+.risk-handling { font-size: .82rem; }
+
+/* Channel + persona name sizes */
+.channel-title, .p-name { font-family: var(--sans); font-weight: 700; font-style: normal; }
+.p-name { font-size: 1.15rem; }
+.channel-title { font-size: 1.15rem; }
+
+/* Cleaner section title sizing */
+.section-title { font-size: clamp(1.55rem, 2.6vw, 2.2rem); line-height: 1.2; }
+.page-title { font-size: clamp(2rem, 3.2vw, 2.8rem); line-height: 1.15; }
+.chapter-title { font-size: clamp(1.8rem, 3vw, 2.4rem); line-height: 1.2; }
+
+/* section descriptions slightly larger */
+.section-desc { font-size: .98rem; }
+.page-lede { font-size: 1.05rem; }
+
+</style>
+</head>
+<body>
+<div id="progress-bar"></div>
+<div class="app-shell">
+<aside class="sidebar"><div class="sidebar-inner">
+<div class="brand-block">
+  <div class="brand-mark">C</div>
+  <div class="brand-wordmark">Clear<em>AI</em></div>
+</div>
+<div class="brand-tagline">Project wiki</div>
+<a class="side-page active" href="index.html"><span class="side-page-num">01</span><span>Product Definition</span></a>
+<div class="side-links" style="margin:.25rem 0 .75rem 1.5rem;">
+<a class="side-link" href="#problem">Problem</a>
+<a class="side-link" href="#goals">Goals</a>
+<a class="side-link" href="#V1-scope">V1 Scope</a>
+<a class="side-link" href="#target-market">Target Market</a>
+<a class="side-link" href="#features">Features</a>
+<a class="side-link" href="#metrics">Metrics</a>
+<a class="side-link" href="#roadmap">Roadmap — V1 → V2</a>
+<a class="side-link" href="#v2-detail">V2 Detail</a>
+<a class="side-link" href="#clear-openq">Open Questions</a>
+</div>
+<a class="side-page" href="process.html"><span class="side-page-num">02</span><span>Current Naqel Process</span></a>
+<a class="side-page" href="architecture.html"><span class="side-page-num">03</span><span>Technical Architecture</span></a>
+<a class="side-page" href="reference.html"><span class="side-page-num">04</span><span>Reference Material</span></a>
+</div></aside>
+<main class="main-content" id="top">
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:1rem;">
+    <a class="topbar-brand" href="index.html"><span class="tb-mark">C</span><span>Clear<em>AI</em></span></a>
+    <span class="tb-sep" style="color:var(--dim)">/</span>
+    <div class="topbar-crumb-chapter">Chapter 01 · <span class="current">Product Definition</span></div>
+  </div>
+  <div class="topbar-nav">
+    <a href="index.html">Business</a>
+    <a href="process.html">Process</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="reference.html">Reference</a>
+  </div>
+</div>
+<section class="page-hero">
+  <div class="page-hero-inner">
+    <div class="page-kicker">Chapter 01 · Business</div>
+    <h1 class="page-title">Product definition <em>for Clear AI</em></h1>
+    <p class="page-lede">Why this product needs to exist, who it serves, what ships in V1, and what V2 unlocks. The working brief for product, engineering, and go-to-market alignment.</p>
+  </div>
+</section>
+<section id="problem" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="1">Problem Statement</div>
+    <h2 class="section-title reveal">Why this <em>needs to exist</em></h2>
+
+    <div class="problem-grid">
+      <div class="problem-card">
+        <div class="prob-label">Pain 01</div>
+        <div class="prob-title">Incomplete product data stalls classification</div>
+        <p class="prob-body">Importers rarely provide complete product descriptions. Agents must manually research HS codes for vague inputs — a slow, error-prone process that directly delays clearance at Saudi borders.</p>
+      </div>
+      <div class="problem-card">
+        <div class="prob-label">Pain 02</div>
+        <div class="prob-title">Manual classification is a bottleneck at scale</div>
+        <p class="prob-body">Carriers processing high shipment volumes have no scalable way to classify goods automatically. Every item requires human effort, creating a linear relationship between volume and cost.</p>
+      </div>
+      <div class="problem-card">
+        <div class="prob-label">Pain 03</div>
+        <div class="prob-title">Existing tools are siloed to single carriers</div>
+        <p class="prob-body">Automation tools that do exist are internal to specific logistics providers. Independent clearance agents — who serve multiple carriers and importers — have no access to intelligent tooling.</p>
+      </div>
+      <div class="problem-card">
+        <div class="prob-label">Pain 04</div>
+        <div class="prob-title">ZATCA compliance adds layers of complexity</div>
+        <p class="prob-body">Saudi-specific requirements — Arabic descriptions, ZATCA XML format, and additional regulatory certificates — are not handled by generic global classification tools, forcing manual compliance work on every shipment.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 2. GOALS ─── -->
+<section id="goals" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="2">Goals</div>
+    <h2 class="section-title reveal">What success <em>looks like</em></h2>
+    <p class="section-desc reveal">Goals are split between what users gain and what the product needs to prove at MVP. Each goal is measurable — not a direction, but an outcome.</p>
+
+    <div class="goals-grid">
+      <div class="goal-card user reveal">
+        <div class="goal-type">User Goals</div>
+        <ul class="goal-list">
+          <li>Clearance agents can classify a product and generate a ZATCA-ready draft in under 30 seconds</li>
+          <li>Carriers can submit bulk manifests and receive classified outputs without manual intervention per item</li>
+          <li>Low-confidence results are surfaced clearly so human review effort goes only where it's needed</li>
+          <li>Any user — carrier or independent agent — can access the same capability without carrier lock-in</li>
+        </ul>
+      </div>
+      <div class="goal-card biz reveal" style="transition-delay:.15s">
+        <div class="goal-type">Product Goals</div>
+        <ul class="goal-list">
+          <li>Demonstrate that AI classification meets or exceeds manual accuracy on a real Saudi shipment dataset</li>
+          <li>Ship a working API that a carrier integration can go live on within the MVP window</li>
+          <li>Cover all P0 features — including bulk processing and declaration generation — in V1</li>
+          <li>Establish ZATCA direct submission as a validated path for V2, not an assumption</li>
+        </ul>
+      </div>
+    </div>
+
+    <br/>
+
+    <div class="callout gold reveal">
+      <div class="callout-icon">📌</div>
+      <div><strong>Non-Goals (V1):</strong> Clear AI will not handle duty payment, broker licensing, physical customs inspection coordination, or outbound export declarations in this release.</div>
+    </div>
+
+    
+  </div>
+</section>
+
+<div class="divider"></div>
+
+
+<!-- ─── 3. V1 SCOPE & INPUTS ─── -->
+<section id="V1-scope" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="3">V1 Scope &amp; Inputs</div>
+    <h2 class="section-title reveal">V1 Scope</em></h2>
+    <p class="section-desc reveal">V1 is a classification and review product, not a full customs automation engine. It supports one workflow: take a product description, suggest an HS code, show the reasoning, and let a human accept or override it.</p>
+
+    <div class="goals-grid">
+      <div class="goal-card user reveal">
+        <div class="goal-type">V1 Does</div>
+        <ul class="goal-list">
+          <li>Classify single items from text input</li>
+          <li>Return top HS candidates with a confidence score</li>
+          <li>Explain the decision using HS headings, notes, and rules</li>
+          <li>Flag low-confidence or ambiguous cases for human review</li>
+          <li>Produce a clearance-ready draft output for downstream use</li>
+        </ul>
+      </div>
+      <div class="goal-card biz reveal" style="transition-delay:.1s">
+        <div class="goal-type">V1 Does Not</div>
+        <ul class="goal-list">
+          <li>Submit directly to ZATCA</li>
+          <li>Handle duty payment or broker licensing</li>
+          <li>Manage export declarations</li>
+          <li>Replace human review on uncertain items</li>
+          <li>Depend on OCR — text input only unless file intake is added later</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout gold reveal" style="margin-top:2rem;">
+      <div class="callout-icon">📌</div>
+      <div><strong>Product intent:</strong> Clear AI does not try to replace customs expertise. It helps humans move faster, reduces obvious errors, and makes the hard cases easier to review.</div>
+    </div>
+
+    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:2.5rem 0 1.25rem;">
+      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Supported Inputs in V1
+    </h3>
+
+    <div class="hvlv-wrap reveal">
+      <div class="hvlv-card hv-card">
+        <div class="hvlv-badge hv-badge">✓ &nbsp;Accepted</div>
+        <ul class="goal-list" style="margin-top:.25rem;">
+          <li>Product name</li>
+          <li>Product description</li>
+          <li>Material</li>
+          <li>Brand / model</li>
+          <li>Existing client-provided HS code</li>
+          <li>Item category</li>
+          <li>Optional Arabic text if available</li>
+        </ul>
+        <p style="font-size:.78rem;color:var(--muted);margin-top:1rem;line-height:1.65;">All input is user-entered text. The system is designed to work with whatever the user has — not require a complete data set.</p>
+      </div>
+      <div class="hvlv-card lv-card">
+        <div class="hvlv-badge lv-badge">✕ &nbsp;Not in V1</div>
+        <ul class="goal-list" style="margin-top:.25rem;">
+          <li>OCR from scanned invoices or packing lists</li>
+          <li>Image extraction or photo upload</li>
+          <li>Automatic PDF parsing</li>
+          <li>Full document ingestion pipeline</li>
+        </ul>
+        <p style="font-size:.78rem;color:var(--muted);margin-top:1rem;line-height:1.65;">If file-based input is added later, OCR and document extraction become useful. For V1, text input is sufficient and simpler to validate.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 4. PERSONAS ─── -->
+<section id="target-market" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="4">Target Market</div>
+    <h2 class="section-title reveal">Who we <em>sell to</em></h2>
+    <p class="section-desc reveal">Three addressable segments in the KSA customs value chain — distinct economics, deal shapes, and GTM motions. Same backend, differentiated packaging per segment. V1 lands in Segment A (beachhead) and opens the door to B and C via the same API.</p>
+
+    <div class="personas-grid">
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Segment A · Beachhead</div>
+          <div class="p-name">Carriers &amp; 3PLs</div>
+          <div class="p-role">Logistics companies, freight forwarders, and integrators clearing shipments into KSA at volume</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">Why this segment first</div>
+          <ul class="p-list">
+            <li>Highest shipment volume per account — classification cost scales linearly today</li>
+            <li>Existing TMS integrations mean API adoption path is well understood</li>
+            <li>Naqel is the design-partner anchor — proves scale before broader launch</li>
+          </ul>
+          <div class="p-sub">Value drivers</div>
+          <ul class="p-list">
+            <li>Cost-per-classification reduction vs. manual agent effort</li>
+            <li>Clearance SLA improvement — faster ZATCA acceptance</li>
+            <li>Compliance risk reduction on HV declarations</li>
+          </ul>
+          <div class="p-sub">GTM motion</div>
+          <p class="p-how">Enterprise sales. API + admin console. Annual contract, volume-tiered pricing per classified line item. Design-partner discount for V1 anchors.</p>
+          <span class="p-badge badge-both">API · Web Console</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Segment B · Expansion</div>
+          <div class="p-name">Independent Clearance Agents</div>
+          <div class="p-role">Licensed customs brokers serving multiple importer clients — SMB segment, carrier-agnostic</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">Why this segment</div>
+          <ul class="p-list">
+            <li>Underserved — carrier-internal tools don't reach them</li>
+            <li>Fragmented market; low-touch self-serve acquisition is viable</li>
+            <li>Low CAC unlocks healthy unit economics at SMB price points</li>
+          </ul>
+          <div class="p-sub">Value drivers</div>
+          <ul class="p-list">
+            <li>Competitive parity with carrier-embedded tooling</li>
+            <li>Per-client submission history for audit and retention</li>
+            <li>Faster turnaround → more clients served per agent</li>
+          </ul>
+          <div class="p-sub">GTM motion</div>
+          <p class="p-how">Product-led / self-serve. Web UI subscription. Flat monthly tier with usage allowance + overage. Content + broker-association partnerships as top-of-funnel.</p>
+          <span class="p-badge badge-ui">Web UI · Self-serve</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Segment C · Long-term</div>
+          <div class="p-name">Importers &amp; Shippers</div>
+          <div class="p-role">Businesses shipping goods into KSA — procurement, e-commerce, and enterprise import teams</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">Why this segment</div>
+          <ul class="p-list">
+            <li>Largest in headcount, smallest in per-account value</li>
+            <li>Best reached embedded in carrier workflow, not direct</li>
+            <li>Provides distribution leverage for Segment A carrier deals</li>
+          </ul>
+          <div class="p-sub">Value drivers</div>
+          <ul class="p-list">
+            <li>Landed-cost visibility pre-booking reduces clearance surprises</li>
+            <li>Lower-friction classification = higher carrier conversion</li>
+            <li>Handoff-ready output for their clearance agent</li>
+          </ul>
+          <div class="p-sub">GTM motion</div>
+          <p class="p-how">Indirect. Lightweight self-serve estimator for awareness; primary monetisation via carrier-embedded classification at booking. Not a V1 direct-sales target.</p>
+          <span class="p-badge badge-both">Embedded · Self-serve</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout blue reveal" style="margin-top:2rem;">
+      <div class="callout-icon">📈</div>
+      <div><strong>Sequencing rationale:</strong> Segment A gives us reference logos, real-world accuracy data, and the revenue base to underwrite R&amp;D. Segment B opens a lower-ACV but higher-margin self-serve motion on the same infrastructure. Segment C is a distribution play, not a standalone revenue line in V1–V2.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 4. FEATURES ─── -->
+<section id="features" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="5">Features &amp; Requirements</div>
+    <h2 class="section-title reveal">What we're <em>building</em></h2>
+    <p class="section-desc reveal">V1 ships the core classify-to-declaration pipeline. Everything else is documented for architectural awareness — not a delivery commitment.</p>
+
+    <div class="callout blue reveal">
+      <div class="callout-icon">🔗</div>
+      <div><strong>API-first principle:</strong> The web UI is a client of the same REST API. Every feature accessible in the UI is also accessible programmatically. No capability is UI-only.</div>
+    </div>
+
+    <div class="ftable reveal">
+      <div class="frow hdr">
+        <div class="fcell"><span class="col-lbl">Feature</span></div>
+        <div class="fcell"><span class="col-lbl">Description</span></div>
+        <div class="fcell"><span class="col-lbl">Release</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">HS Code Classification</div></div>
+        <div class="fcell"><div class="fdesc">Accepts product name and/or description, returns a Saudi 12-digit HS code with confidence score. Works with minimal input.</div></div>
+        <div class="fcell"><span class="ftag p0">V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">Classify Boost</div></div>
+        <div class="fcell"><div class="fdesc">Enriches sparse product data via AI-powered search before classification runs, ensuring accuracy even with vague inputs.</div></div>
+        <div class="fcell"><span class="ftag p0">V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">Declaration Generator</div></div>
+        <div class="fcell"><div class="fdesc">Produces ZATCA-compliant Bayan declaration drafts in Arabic and English. Includes HS code, description, and duty rate reference.</div></div>
+        <div class="fcell"><span class="ftag p0">V1</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname"> Confidence Flagging</div></div>
+        <div class="fcell"><div class="fdesc">Every result carries a confidence score. Below a configurable threshold, items are automatically routed to a human review queue.</div></div>
+        <div class="fcell"><span class="ftag p0">V1</span></div>
+      </div>
+      <!-- <div class="frow">
+        <div class="fcell"><div class="fname">Bulk Processing</div></div>
+        <div class="fcell"><div class="fdesc">Submit a CSV or Excel manifest to classify a full shipment in one pass. Results returned as a downloadable file with flagged rows highlighted.</div></div>
+        <div class="fcell"><span class="ftag p2">Later</span></div>
+      </div> -->
+      <div class="frow">
+        <div class="fcell"><div class="fname">REST API + Webhooks</div></div>
+        <div class="fcell"><div class="fdesc">Documented API for carrier and TMS integration. Async bulk jobs notify via webhook on completion.</div></div>
+        <div class="fcell"><span class="ftag p2">Later</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">Direct ZATCA Submission</div></div>
+        <div class="fcell"><div class="fdesc">With ZATCA credentials configured, Clear AI submits the declaration on behalf of the caller and returns the acknowledgement reference.</div></div>
+        <div class="fcell"><span class="ftag p2">Later</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">Invoice / Packing List OCR</div></div>
+        <div class="fcell"><div class="fdesc">Parse commercial invoices or packing lists automatically to extract product data for classification without manual entry.</div></div>
+        <div class="fcell"><span class="ftag p2">Later</span></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><div class="fname">Duty Estimation Engine</div></div>
+        <div class="fcell"><div class="fdesc">Full landed cost estimate per shipment including duty, VAT, and applicable fees.</div></div>
+        <div class="fcell"><span class="ftag p2">Later</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 5. SUCCESS METRICS ─── -->
+<section id="metrics" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="6">Success Metrics</div>
+    <h2 class="section-title reveal">How we know <em>it's working</em></h2>
+    <p class="section-desc reveal">Leading indicators measurable within weeks of launch. Lagging indicators tracked at 90 days.</p>
+
+    <div class="metrics-grid">
+      <div class="metric-card reveal">
+        <div class="metric-cat">Classification Quality</div>
+        <div class="metric-title">HS Code Accuracy Rate</div>
+        <div class="metric-target">Target → ≥ 92% on a held-out Saudi shipment dataset</div>
+        <p class="metric-note">Measured against expert-verified classifications. Baseline established during validation before launch.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.1s">
+        <div class="metric-cat">Efficiency</div>
+        <div class="metric-title">Time to Classification</div>
+        <div class="metric-target">Target → &lt; 1s per item (API), &lt; 10 min per bulk batch (500 items)</div>
+        <p class="metric-note">Measured at p95 under expected load. Bulk jobs run async — clock starts at submission, ends at webhook delivery.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.2s">
+        <div class="metric-cat">Review Load</div>
+        <div class="metric-title">Human Review Rate</div>
+        <div class="metric-target">Target → &lt; 15% of items flagged for review</div>
+        <p class="metric-note">High-confidence classifications should handle the majority. Tracks model confidence calibration over time.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.3s">
+        <div class="metric-cat">Adoption</div>
+        <div class="metric-title">API Integration Rate</div>
+        <div class="metric-target">Target → ≥ 1 live carrier integration within 60 days of launch</div>
+        <p class="metric-note">Primary B2B adoption signal. Tracked by first real production call from a non-test API key.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.4s">
+        <div class="metric-cat">Compliance</div>
+        <div class="metric-title">Declaration Acceptance Rate</div>
+        <div class="metric-target">Target → ≥ 95% of generated declarations accepted by ZATCA without re-submission</div>
+        <p class="metric-note">Lagging indicator. Requires carriers to share ZATCA outcome data. Tracked at 90 days post-launch.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.5s">
+        <div class="metric-cat">Retention</div>
+        <div class="metric-title">Agent Weekly Active Use</div>
+        <div class="metric-target">Target → ≥ 60% of registered agents active in week 4</div>
+        <p class="metric-note">Indicates Clear AI has replaced — not supplemented — the agent's current workflow for routine classifications.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 7. ROADMAP ─── -->
+<section id="roadmap" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="7">Roadmap</div>
+    <h2 class="section-title reveal">What ships, <em>when</em></h2>
+    <p class="section-desc reveal">V1 ships a focused, high-impact core. V2 adds depth and direct ZATCA integration. Later items are documented for architectural awareness only.</p>
+
+    <div class="road-grid">
+      <div class="rcol now reveal">
+        <span class="rlbl">Now · V1 MVP</span>
+        <div class="ritem">HS code classification (text)</div>
+        <div class="ritem">Classify Boost enrichment</div>
+        <div class="ritem">Bulk CSV / Excel processing</div>
+        <div class="ritem">ZATCA declaration generator (AR + EN)</div>
+        <div class="ritem">Confidence scoring + review queue</div>
+        <div class="ritem">REST API + webhooks</div>
+        <div class="ritem">Agent web UI + submission history</div>
+      </div>
+      <div class="rcol next reveal" style="transition-delay:.15s">
+        <span class="rlbl">Next · V2</span>
+       <div class="ritem">Multi-tenant auth</div>
+        <div class="ritem">Direct ZATCA submission mode</div>
+        <div class="ritem">ZATCA status tracking + webhooks</div>
+        <!-- <div class="ritem">Image-based classification</div> -->
+        <div class="ritem">Invoice / packing list OCR</div>
+        <div class="ritem">Ops dashboard</div>
+        <!-- <div class="ritem">Per-tenant confidence thresholds</div> -->
+      </div>
+      <div class="rcol later reveal" style="transition-delay:.3s">
+        <span class="rlbl">Later</span>
+        <div class="ritem">Duty & tax estimation engine</div>
+        <!-- <div class="ritem">Predictive risk scoring</div> -->
+        <!-- <div class="ritem">Mobile agent app</div> -->
+        <!-- <div class="ritem">GCC cross-border expansion</div> -->
+        <!-- <div class="ritem">Customs broker marketplace</div> -->
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 8. OPEN QUESTIONS ─── -->
+<section id="clear-openq" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="8">Open Questions</div>
+    <h2 class="section-title reveal">Open question <em>parking lot</em></h2>
+    <div class="empty-placeholder reveal">Reserved for unresolved product, commercial, and operational questions.</div>
+  </div>
+</section>
+
+<div class="divider"></div>
+<section id="v2-detail" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="V2">Version 2</div>
+    <h2 class="section-title reveal">What V2 <em>unlocks</em></h2>
+    <p class="section-desc reveal">V2 closes the loop from classification to submission, expands input modalities, and introduces multi-tenant access.</p>
+
+    <div class="goals-grid" style="margin-top:1rem;">
+      <div class="goal-card user reveal">
+        <div class="goal-type">V2 Adds</div>
+        <ul class="goal-list">
+          <li>Direct ZATCA submission with acknowledgement return</li>
+          <li>ZATCA status tracking + webhooks</li>
+          <li>Multi-tenant authentication and tenant-scoped history</li>
+          <li>Invoice / packing list OCR — auto-extract product data</li>
+          <li>Operations dashboard for review queue + accuracy trends</li>
+        </ul>
+      </div>
+      <div class="goal-card biz reveal" style="transition-delay:.1s">
+        <div class="goal-type">V2 Still Does Not</div>
+        <ul class="goal-list">
+          <li>Handle duty payment or broker licensing</li>
+          <li>Manage outbound export declarations</li>
+          <li>Replace human review on low-confidence items</li>
+          <li>Offer mobile-native agent apps</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout note reveal" style="margin-top:2rem;">
+      <div class="callout-icon">🧭</div>
+      <div><strong>V2 intent:</strong> Move Clear AI from a classification assistant to a closed-loop submission engine — with audited outcomes flowing back into accuracy tracking.</div>
+    </div>
+  </div>
+</section>
+
+<div class="section"><div class="section-inner">
+<div class="pagenav">
+<div class="pagenav-card prev-placeholder"></div>
+<a class="pagenav-card next" href="process.html"><div class="pagenav-dir">Next →</div><div class="pagenav-title">Current Naqel Process</div></a>
+</div>
+</div></div>
+<footer class="site-footer">
+  <div><strong style="font-family:var(--serif);font-size:.95rem;color:var(--text);font-weight:800;">Clear<em style="color:var(--accent)">AI</em></strong> <span style="margin:0 .5rem;color:var(--dim)">·</span> Project wiki <span style="margin:0 .5rem;color:var(--dim)">·</span> <span style="color:var(--accent)">Working draft</span></div>
+  <div class="foot-links">
+    <a href="index.html">Business</a>
+    <a href="process.html">Process</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="reference.html">Reference</a>
+  </div>
+</footer>
+</main>
+</div>
+<script>
+// Reveal on scroll
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+}, { threshold: 0.1 });
+document.querySelectorAll('.reveal, .pipe-node, .hvlv-card, .channel-card, .merge-node, .engine-step, .algo-step, .algo-example, .xml-section, .risk-card, .problem-card, .persona-card, .metric-card').forEach(el => io.observe(el));
+// Progress bar
+const bar = document.getElementById('progress-bar');
+if (bar) document.addEventListener('scroll', () => {
+  const h = document.documentElement;
+  const pct = (h.scrollTop / (h.scrollHeight - h.clientHeight)) * 100;
+  bar.style.width = pct + '%';
+});
+// Version tabs
+document.querySelectorAll('.vtabs').forEach(group => {
+  group.addEventListener('click', e => {
+    const btn = e.target.closest('.vtab');
+    if (!btn) return;
+    const target = btn.dataset.panel;
+    group.querySelectorAll('.vtab').forEach(b => b.classList.toggle('active', b === btn));
+    const container = group.closest('[data-vgroup]') || document;
+    container.querySelectorAll('.vpanel').forEach(p => p.classList.toggle('active', p.id === target));
+  });
+});
+// Active side-link on scroll
+const links = document.querySelectorAll('.side-link');
+const sections = Array.from(links).map(l => document.querySelector(l.getAttribute('href'))).filter(Boolean);
+document.addEventListener('scroll', () => {
+  let active = null;
+  const y = window.scrollY + 120;
+  sections.forEach(s => { if (s.offsetTop <= y) active = s; });
+  links.forEach(l => l.classList.toggle('active', active && l.getAttribute('href') === '#'+active.id));
+});
+</script>
+</body></html>

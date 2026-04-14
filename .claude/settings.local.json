@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:zonos.com)",
+      "Bash(gh auth status:*)",
+      "Bash(cd:*)"
+    ]
+  }
+}
