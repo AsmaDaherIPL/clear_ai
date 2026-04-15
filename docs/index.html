@@ -867,13 +867,11 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 <a class="side-page active" href="index.html"><span class="side-page-num">01</span><span>Product Definition</span></a>
 <div class="side-links" style="margin:.25rem 0 .75rem 1.5rem;">
 <a class="side-link" href="#problem">Problem</a>
-<a class="side-link" href="#goals">Goals</a>
-<a class="side-link" href="#V1-scope">V1 Scope</a>
-<a class="side-link" href="#target-market">Target Market</a>
-<a class="side-link" href="#features">Features</a>
-<a class="side-link" href="#metrics">Metrics</a>
-<a class="side-link" href="#roadmap">Roadmap — V1 → V2</a>
-<a class="side-link" href="#v2-detail">V2 Detail</a>
+<a class="side-link" href="#solution">Solution Overview</a>
+<a class="side-link" href="#target-market">Target Customer</a>
+<a class="side-link" href="#features">Features by Mode</a>
+<a class="side-link" href="#metrics">Metrics by Mode</a>
+<a class="side-link" href="#roadmap">Roadmap</a>
 <a class="side-link" href="#clear-openq">Open Questions</a>
 </div>
 <a class="side-page" href="process.html"><span class="side-page-num">02</span><span>Current Naqel Process</span></a>
@@ -897,8 +895,8 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 <section class="page-hero">
   <div class="page-hero-inner">
     <div class="page-kicker">Chapter 01 · Business</div>
-    <h1 class="page-title">Product definition <em>for Clear AI</em></h1>
-    <p class="page-lede">Why this product needs to exist, who it serves, what ships in V1, and what V2 unlocks. The working brief for product, engineering, and go-to-market alignment.</p>
+    <h1 class="page-title">An intelligent platform <em>for customs clearance</em></h1>
+    <p class="page-lede">An intelligent platform that improves accuracy before clearance, reduces manual effort, and supports faster, more consistent customs processing. It helps teams work with greater confidence, lower the risk of errors, and move shipments through the clearance process more smoothly.</p>
   </div>
 </section>
 <section id="problem" class="section">
@@ -906,26 +904,23 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
     <div class="section-label reveal" data-num="1">Problem Statement</div>
     <h2 class="section-title reveal">Why this <em>needs to exist</em></h2>
 
+    <p class="section-desc reveal">Businesses lose time and face compliance risk because product classification is manual, inconsistent, and often incomplete before customs submission. Existing tools are often siloed by carrier, shipper, or workflow, making it difficult to manage classification consistently across the business.</p>
+
     <div class="problem-grid">
       <div class="problem-card">
-        <div class="prob-label">Pain 01</div>
-        <div class="prob-title">Incomplete product data stalls classification</div>
-        <p class="prob-body">Importers rarely provide complete product descriptions. Agents must manually research HS codes for vague inputs — a slow, error-prone process that directly delays clearance at Saudi borders.</p>
+        <div class="prob-label">Issue 01</div>
+        <div class="prob-title">Slow clearance</div>
+        <p class="prob-body">Manual review and back-and-forth between shippers, agents, and customs holds shipments at the border. Every vague description or missing field triggers another round trip.</p>
       </div>
       <div class="problem-card">
-        <div class="prob-label">Pain 02</div>
-        <div class="prob-title">Manual classification is a bottleneck at scale</div>
-        <p class="prob-body">Carriers processing high shipment volumes have no scalable way to classify goods automatically. Every item requires human effort, creating a linear relationship between volume and cost.</p>
+        <div class="prob-label">Issue 02</div>
+        <div class="prob-title">Higher compliance risk</div>
+        <p class="prob-body">Inaccurate or incomplete HS code data exposes businesses to penalties, reclassification, and rejected declarations — with costs that compound across shipments.</p>
       </div>
       <div class="problem-card">
-        <div class="prob-label">Pain 03</div>
-        <div class="prob-title">Existing tools are siloed to single carriers</div>
-        <p class="prob-body">Automation tools that do exist are internal to specific logistics providers. Independent clearance agents — who serve multiple carriers and importers — have no access to intelligent tooling.</p>
-      </div>
-      <div class="problem-card">
-        <div class="prob-label">Pain 04</div>
-        <div class="prob-title">ZATCA compliance adds layers of complexity</div>
-        <p class="prob-body">Saudi-specific requirements — Arabic descriptions, ZATCA XML format, and additional regulatory certificates — are not handled by generic global classification tools, forcing manual compliance work on every shipment.</p>
+        <div class="prob-label">Issue 03</div>
+        <div class="prob-title">Fragmented workflows</div>
+        <p class="prob-body">Classification tools are siloed by carrier, shipper, or workflow. Teams can't scale a consistent classification practice across clients, channels, and business units.</p>
       </div>
     </div>
   </div>
@@ -933,204 +928,157 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 
 <div class="divider"></div>
 
-<!-- ─── 2. GOALS ─── -->
-<section id="goals" class="section">
+<!-- ─── 2. TARGET CUSTOMER ─── -->
+<section id="target-market" class="section">
   <div class="section-inner">
-    <div class="section-label reveal" data-num="2">Goals</div>
-    <h2 class="section-title reveal">What success <em>looks like</em></h2>
-    <p class="section-desc reveal">Goals are split between what users gain and what the product needs to prove at MVP. Each goal is measurable — not a direction, but an outcome.</p>
+    <div class="section-label reveal" data-num="2">Target Customer</div>
+    <h2 class="section-title reveal">Who we <em>serve</em></h2>
+    <p class="section-desc reveal">The product serves three segments across the customs value chain. Each has a different operating model, a different urgency, and a different mix of product modes — so packaging and go-to-market adapt to the segment while the backend stays shared.</p>
 
-    <div class="goals-grid">
-      <div class="goal-card user reveal">
-        <div class="goal-type">User Goals</div>
-        <ul class="goal-list">
-          <li>Clearance agents can classify a product and generate a ZATCA-ready draft in under 30 seconds</li>
-          <li>Carriers can submit bulk manifests and receive classified outputs without manual intervention per item</li>
-          <li>Low-confidence results are surfaced clearly so human review effort goes only where it's needed</li>
-          <li>Any user — carrier or independent agent — can access the same capability without carrier lock-in</li>
-        </ul>
+    <div class="personas-grid">
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Segment A</div>
+          <div class="p-name">Supply chain &amp; logistics companies</div>
+          <div class="p-role">Teams handling high shipment volumes that need faster, more consistent classification and customs documentation across many orders</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">What they care about</div>
+          <ul class="p-list">
+            <li>Operational efficiency and repeatability at scale</li>
+            <li>Visibility across shipments and teams</li>
+            <li>Keeping unit cost flat as shipment volume grows</li>
+          </ul>
+          <div class="p-sub">Primary modes</div>
+          <ul class="p-list">
+            <li>Boost — refine partial or supplier-provided codes</li>
+            <li>Validate — catch mismatches before Bayan submission</li>
+          </ul>
+          <span class="p-badge badge-both">Boost · Validate</span>
+        </div>
       </div>
-      <div class="goal-card biz reveal" style="transition-delay:.15s">
-        <div class="goal-type">Product Goals</div>
-        <ul class="goal-list">
-          <li>Demonstrate that AI classification meets or exceeds manual accuracy on a real Saudi shipment dataset</li>
-          <li>Ship a working API that a carrier integration can go live on within the MVP window</li>
-          <li>Cover all P0 features — including bulk processing and declaration generation — in V1</li>
-          <li>Establish ZATCA direct submission as a validated path for V2, not an assumption</li>
-        </ul>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Segment B</div>
+          <div class="p-name">Ecommerce businesses</div>
+          <div class="p-role">Businesses shipping cross-border into KSA that need scalable classification at checkout or order processing to reduce clearance delays</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">What they care about</div>
+          <ul class="p-list">
+            <li>Automation at scale across large catalogs</li>
+            <li>Product data that is customs-ready from day one</li>
+            <li>Fewer clearance surprises for the end customer</li>
+          </ul>
+          <div class="p-sub">Primary modes</div>
+          <ul class="p-list">
+            <li>Generate — create classifications from sparse product data</li>
+            <li>Boost — improve existing catalog codes over time</li>
+          </ul>
+          <span class="p-badge badge-both">Generate · Boost</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Segment C</div>
+          <div class="p-name">Independent clearance agents</div>
+          <div class="p-role">Agents managing customs filings for multiple clients who need fast, accurate, and repeatable HS classification with less manual effort</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">What they care about</div>
+          <ul class="p-list">
+            <li>Moving quickly across many client inputs</li>
+            <li>Defensible classifications with clear rationale</li>
+            <li>Handling variable data quality from different clients</li>
+          </ul>
+          <div class="p-sub">Primary modes</div>
+          <ul class="p-list">
+            <li>All three — Generate, Boost, Validate depending on client data</li>
+          </ul>
+          <span class="p-badge badge-ui">Generate · Boost · Validate</span>
+        </div>
       </div>
     </div>
 
-    <br/>
-
-    <div class="callout gold reveal">
-      <div class="callout-icon">📌</div>
-      <div><strong>Non-Goals (V1):</strong> Clear AI will not handle duty payment, broker licensing, physical customs inspection coordination, or outbound export declarations in this release.</div>
+    <div class="callout note reveal" style="margin-top:2rem;">
+      <div class="callout-icon">🧭</div>
+      <div><strong>Note:</strong> Not every segment uses every mode equally. Some will rely mostly on Validate, others on Generate and Boost — depending on the quality of input data and where they sit in the workflow.</div>
     </div>
-
-    
   </div>
 </section>
 
 <div class="divider"></div>
 
-
-<!-- ─── 3. V1 SCOPE & INPUTS ─── -->
-<section id="V1-scope" class="section">
+<!-- ─── 3. SOLUTION OVERVIEW + PRODUCT MODES ─── -->
+<section id="solution" class="section">
   <div class="section-inner">
-    <div class="section-label reveal" data-num="3">V1 Scope &amp; Inputs</div>
-    <h2 class="section-title reveal">V1 Scope</em></h2>
-    <p class="section-desc reveal">V1 is a classification and review product, not a full customs automation engine. It supports one workflow: take a product description, suggest an HS code, show the reasoning, and let a human accept or override it.</p>
+    <div class="section-label reveal" data-num="3">Solution Overview</div>
+    <h2 class="section-title reveal">An AI platform for <em>faster ZATCA clearance</em></h2>
+    <p class="section-desc reveal">Clear AI is an AI-powered customs classification platform built to help businesses pass ZATCA clearance faster by generating, improving, and validating HS code data before submission. It solves the classification workflow in three ways — <strong>create</strong> compliant classifications from scratch, <strong>improve</strong> classifications that are close but not optimal, and <strong>check</strong> whether code, description, and value make sense together before filing.</p>
 
-    <div class="goals-grid">
-      <div class="goal-card user reveal">
-        <div class="goal-type">V1 Does</div>
-        <ul class="goal-list">
-          <li>Classify single items from text input</li>
-          <li>Return top HS candidates with a confidence score</li>
-          <li>Explain the decision using HS headings, notes, and rules</li>
-          <li>Flag low-confidence or ambiguous cases for human review</li>
-          <li>Produce a clearance-ready draft output for downstream use</li>
-        </ul>
+    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:2rem 0 1.25rem;">
+      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Three product modes
+    </h3>
+    <p class="section-desc reveal" style="margin-bottom:1.5rem;">The product works in three modes depending on the quality of the input data and the stage of the workflow. This keeps it modular and practical rather than one-size-fits-all — users engage with the mode that matches what they have in hand.</p>
+
+    <div class="personas-grid">
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Mode 01 · Create</div>
+          <div class="p-name">Generate</div>
+          <div class="p-role">Use when there is no usable classification. The system creates a ZATCA-ready HS code and compliant description from product data.</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">When to use</div>
+          <ul class="p-list">
+            <li>New SKUs with only a product name or short description</li>
+            <li>Sparse catalog data from suppliers or marketplaces</li>
+            <li>First-time classification for a client or product line</li>
+          </ul>
+          <span class="p-badge badge-both">From scratch</span>
+        </div>
       </div>
-      <div class="goal-card biz reveal" style="transition-delay:.1s">
-        <div class="goal-type">V1 Does Not</div>
-        <ul class="goal-list">
-          <li>Submit directly to ZATCA</li>
-          <li>Handle duty payment or broker licensing</li>
-          <li>Manage export declarations</li>
-          <li>Replace human review on uncertain items</li>
-          <li>Depend on OCR — text input only unless file intake is added later</li>
-        </ul>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Mode 02 · Improve</div>
+          <div class="p-name">Boost</div>
+          <div class="p-role">Use when a code already exists but could be more accurate. The system suggests a better classification and improves over time through AI learning.</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">When to use</div>
+          <ul class="p-list">
+            <li>Supplier-provided codes that look approximate</li>
+            <li>Legacy catalogs needing refinement at scale</li>
+            <li>Reclassification after ruling or regulation changes</li>
+          </ul>
+          <span class="p-badge badge-ui">Improve existing</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Mode 03 · Check</div>
+          <div class="p-name">Validate</div>
+          <div class="p-role">Use when the code must be checked before submission. The system verifies whether HS code, description, and declared value are consistent and flags mismatches.</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">When to use</div>
+          <ul class="p-list">
+            <li>Final pre-submission check before Bayan</li>
+            <li>Screening declarations for suspicious combinations</li>
+            <li>Audit trail of why a classification was accepted</li>
+          </ul>
+          <span class="p-badge badge-both">Pre-submission check</span>
+        </div>
       </div>
     </div>
 
     <div class="callout gold reveal" style="margin-top:2rem;">
       <div class="callout-icon">📌</div>
-      <div><strong>Product intent:</strong> Clear AI does not try to replace customs expertise. It helps humans move faster, reduces obvious errors, and makes the hard cases easier to review.</div>
-    </div>
-
-    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:2.5rem 0 1.25rem;">
-      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Supported Inputs in V1
-    </h3>
-
-    <div class="hvlv-wrap reveal">
-      <div class="hvlv-card hv-card">
-        <div class="hvlv-badge hv-badge">✓ &nbsp;Accepted</div>
-        <ul class="goal-list" style="margin-top:.25rem;">
-          <li>Product name</li>
-          <li>Product description</li>
-          <li>Material</li>
-          <li>Brand / model</li>
-          <li>Existing client-provided HS code</li>
-          <li>Item category</li>
-          <li>Optional Arabic text if available</li>
-        </ul>
-        <p style="font-size:.78rem;color:var(--muted);margin-top:1rem;line-height:1.65;">All input is user-entered text. The system is designed to work with whatever the user has — not require a complete data set.</p>
-      </div>
-      <div class="hvlv-card lv-card">
-        <div class="hvlv-badge lv-badge">✕ &nbsp;Not in V1</div>
-        <ul class="goal-list" style="margin-top:.25rem;">
-          <li>OCR from scanned invoices or packing lists</li>
-          <li>Image extraction or photo upload</li>
-          <li>Automatic PDF parsing</li>
-          <li>Full document ingestion pipeline</li>
-        </ul>
-        <p style="font-size:.78rem;color:var(--muted);margin-top:1rem;line-height:1.65;">If file-based input is added later, OCR and document extraction become useful. For V1, text input is sufficient and simpler to validate.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<div class="divider"></div>
-
-<!-- ─── 4. PERSONAS ─── -->
-<section id="target-market" class="section">
-  <div class="section-inner">
-    <div class="section-label reveal" data-num="4">Target Market</div>
-    <h2 class="section-title reveal">Who we <em>sell to</em></h2>
-    <p class="section-desc reveal">Three addressable segments in the KSA customs value chain — distinct economics, deal shapes, and GTM motions. Same backend, differentiated packaging per segment. V1 lands in Segment A (beachhead) and opens the door to B and C via the same API.</p>
-
-    <div class="personas-grid">
-      <div class="persona-card">
-        <div class="p-head">
-          <div class="p-num">Segment A · Beachhead</div>
-          <div class="p-name">Carriers &amp; 3PLs</div>
-          <div class="p-role">Logistics companies, freight forwarders, and integrators clearing shipments into KSA at volume</div>
-        </div>
-        <div class="p-body">
-          <div class="p-sub">Why this segment first</div>
-          <ul class="p-list">
-            <li>Highest shipment volume per account — classification cost scales linearly today</li>
-            <li>Existing TMS integrations mean API adoption path is well understood</li>
-            <li>Naqel is the design-partner anchor — proves scale before broader launch</li>
-          </ul>
-          <div class="p-sub">Value drivers</div>
-          <ul class="p-list">
-            <li>Cost-per-classification reduction vs. manual agent effort</li>
-            <li>Clearance SLA improvement — faster ZATCA acceptance</li>
-            <li>Compliance risk reduction on HV declarations</li>
-          </ul>
-          <div class="p-sub">GTM motion</div>
-          <p class="p-how">Enterprise sales. API + admin console. Annual contract, volume-tiered pricing per classified line item. Design-partner discount for V1 anchors.</p>
-          <span class="p-badge badge-both">API · Web Console</span>
-        </div>
-      </div>
-
-      <div class="persona-card">
-        <div class="p-head">
-          <div class="p-num">Segment B · Expansion</div>
-          <div class="p-name">Independent Clearance Agents</div>
-          <div class="p-role">Licensed customs brokers serving multiple importer clients — SMB segment, carrier-agnostic</div>
-        </div>
-        <div class="p-body">
-          <div class="p-sub">Why this segment</div>
-          <ul class="p-list">
-            <li>Underserved — carrier-internal tools don't reach them</li>
-            <li>Fragmented market; low-touch self-serve acquisition is viable</li>
-            <li>Low CAC unlocks healthy unit economics at SMB price points</li>
-          </ul>
-          <div class="p-sub">Value drivers</div>
-          <ul class="p-list">
-            <li>Competitive parity with carrier-embedded tooling</li>
-            <li>Per-client submission history for audit and retention</li>
-            <li>Faster turnaround → more clients served per agent</li>
-          </ul>
-          <div class="p-sub">GTM motion</div>
-          <p class="p-how">Product-led / self-serve. Web UI subscription. Flat monthly tier with usage allowance + overage. Content + broker-association partnerships as top-of-funnel.</p>
-          <span class="p-badge badge-ui">Web UI · Self-serve</span>
-        </div>
-      </div>
-
-      <div class="persona-card">
-        <div class="p-head">
-          <div class="p-num">Segment C · Long-term</div>
-          <div class="p-name">Importers &amp; Shippers</div>
-          <div class="p-role">Businesses shipping goods into KSA — procurement, e-commerce, and enterprise import teams</div>
-        </div>
-        <div class="p-body">
-          <div class="p-sub">Why this segment</div>
-          <ul class="p-list">
-            <li>Largest in headcount, smallest in per-account value</li>
-            <li>Best reached embedded in carrier workflow, not direct</li>
-            <li>Provides distribution leverage for Segment A carrier deals</li>
-          </ul>
-          <div class="p-sub">Value drivers</div>
-          <ul class="p-list">
-            <li>Landed-cost visibility pre-booking reduces clearance surprises</li>
-            <li>Lower-friction classification = higher carrier conversion</li>
-            <li>Handoff-ready output for their clearance agent</li>
-          </ul>
-          <div class="p-sub">GTM motion</div>
-          <p class="p-how">Indirect. Lightweight self-serve estimator for awareness; primary monetisation via carrier-embedded classification at booking. Not a V1 direct-sales target.</p>
-          <span class="p-badge badge-both">Embedded · Self-serve</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="callout blue reveal" style="margin-top:2rem;">
-      <div class="callout-icon">📈</div>
-      <div><strong>Sequencing rationale:</strong> Segment A gives us reference logos, real-world accuracy data, and the revenue base to underwrite R&amp;D. Segment B opens a lower-ACV but higher-margin self-serve motion on the same infrastructure. Segment C is a distribution play, not a standalone revenue line in V1–V2.</div>
+      <div><strong>Outcome-first framing:</strong> The business outcome — faster ZATCA clearance with lower compliance risk — is the headline. The product mechanics (Generate, Boost, Validate) are the support structure underneath.</div>
     </div>
   </div>
 </section>
@@ -1140,65 +1088,94 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 <!-- ─── 4. FEATURES ─── -->
 <section id="features" class="section">
   <div class="section-inner">
-    <div class="section-label reveal" data-num="5">Features &amp; Requirements</div>
-    <h2 class="section-title reveal">What we're <em>building</em></h2>
-    <p class="section-desc reveal">V1 ships the core classify-to-declaration pipeline. Everything else is documented for architectural awareness — not a delivery commitment.</p>
+    <div class="section-label reveal" data-num="4">Features by Mode</div>
+    <h2 class="section-title reveal">What each mode <em>does</em></h2>
+    <p class="section-desc reveal">Features are organised by product mode so it is clear what each mode delivers on its own. This structure can be expanded into detailed requirements per mode when we move into build planning.</p>
 
-    <div class="callout blue reveal">
-      <div class="callout-icon">🔗</div>
-      <div><strong>API-first principle:</strong> The web UI is a client of the same REST API. Every feature accessible in the UI is also accessible programmatically. No capability is UI-only.</div>
-    </div>
-
-    <div class="ftable reveal">
+    <div class="ftable reveal" style="--col1:1fr;--col2:2fr;--col3:4fr;">
+      <style>#features .frow{grid-template-columns:1fr 2fr 4fr;}</style>
       <div class="frow hdr">
+        <div class="fcell"><span class="col-lbl">Mode</span></div>
         <div class="fcell"><span class="col-lbl">Feature</span></div>
-        <div class="fcell"><span class="col-lbl">Description</span></div>
-        <div class="fcell"><span class="col-lbl">Release</span></div>
+        <div class="fcell"><span class="col-lbl">What it does</span></div>
+      </div>
+
+      <div class="frow">
+        <div class="fcell"><span class="ftag p0">Generate</span></div>
+        <div class="fcell"><div class="fname">Flexible input</div></div>
+        <div class="fcell"><div class="fdesc">Accepts input from description, image, or product attributes — works with whatever data the user has.</div></div>
       </div>
       <div class="frow">
-        <div class="fcell"><div class="fname">HS Code Classification</div></div>
-        <div class="fcell"><div class="fdesc">Accepts product name and/or description, returns a Saudi 12-digit HS code with confidence score. Works with minimal input.</div></div>
-        <div class="fcell"><span class="ftag p0">V1</span></div>
+        <div class="fcell"><span class="ftag p0">Generate</span></div>
+        <div class="fcell"><div class="fname">Full 12-digit HS code</div></div>
+        <div class="fcell"><div class="fdesc">Outputs a complete Saudi 12-digit HS code, not just a heading or chapter-level guess.</div></div>
       </div>
       <div class="frow">
-        <div class="fcell"><div class="fname">Classify Boost</div></div>
-        <div class="fcell"><div class="fdesc">Enriches sparse product data via AI-powered search before classification runs, ensuring accuracy even with vague inputs.</div></div>
-        <div class="fcell"><span class="ftag p0">V1</span></div>
+        <div class="fcell"><span class="ftag p0">Generate</span></div>
+        <div class="fcell"><div class="fname">Compliant product description</div></div>
+        <div class="fcell"><div class="fdesc">Generates a compliant product description suitable for customs documentation alongside the code.</div></div>
       </div>
       <div class="frow">
-        <div class="fcell"><div class="fname">Declaration Generator</div></div>
-        <div class="fcell"><div class="fdesc">Produces ZATCA-compliant Bayan declaration drafts in Arabic and English. Includes HS code, description, and duty rate reference.</div></div>
-        <div class="fcell"><span class="ftag p0">V1</span></div>
+        <div class="fcell"><span class="ftag p0">Generate</span></div>
+        <div class="fcell"><div class="fname">ZATCA-ready formatting</div></div>
+        <div class="fcell"><div class="fdesc">Structures output to match ZATCA submission format so it flows downstream without reformatting.</div></div>
       </div>
       <div class="frow">
-        <div class="fcell"><div class="fname"> Confidence Flagging</div></div>
-        <div class="fcell"><div class="fdesc">Every result carries a confidence score. Below a configurable threshold, items are automatically routed to a human review queue.</div></div>
-        <div class="fcell"><span class="ftag p0">V1</span></div>
+        <div class="fcell"><span class="ftag p0">Generate</span></div>
+        <div class="fcell"><div class="fname">Confidence &amp; rationale</div></div>
+        <div class="fcell"><div class="fdesc">Every result shows a confidence score and the reasoning behind the chosen classification.</div></div>
       </div>
-      <!-- <div class="frow">
-        <div class="fcell"><div class="fname">Bulk Processing</div></div>
-        <div class="fcell"><div class="fdesc">Submit a CSV or Excel manifest to classify a full shipment in one pass. Results returned as a downloadable file with flagged rows highlighted.</div></div>
-        <div class="fcell"><span class="ftag p2">Later</span></div>
-      </div> -->
+
       <div class="frow">
-        <div class="fcell"><div class="fname">REST API + Webhooks</div></div>
-        <div class="fcell"><div class="fdesc">Documented API for carrier and TMS integration. Async bulk jobs notify via webhook on completion.</div></div>
-        <div class="fcell"><span class="ftag p2">Later</span></div>
+        <div class="fcell"><span class="ftag p1">Boost</span></div>
+        <div class="fcell"><div class="fname">Review existing codes</div></div>
+        <div class="fcell"><div class="fdesc">Takes existing or partial HS codes as input and evaluates whether they are appropriate.</div></div>
       </div>
       <div class="frow">
-        <div class="fcell"><div class="fname">Direct ZATCA Submission</div></div>
-        <div class="fcell"><div class="fdesc">With ZATCA credentials configured, Clear AI submits the declaration on behalf of the caller and returns the acknowledgement reference.</div></div>
-        <div class="fcell"><span class="ftag p2">Later</span></div>
+        <div class="fcell"><span class="ftag p1">Boost</span></div>
+        <div class="fcell"><div class="fname">Suggest better alternatives</div></div>
+        <div class="fcell"><div class="fdesc">Recommends a more accurate classification when the current code is close but not optimal.</div></div>
       </div>
       <div class="frow">
-        <div class="fcell"><div class="fname">Invoice / Packing List OCR</div></div>
-        <div class="fcell"><div class="fdesc">Parse commercial invoices or packing lists automatically to extract product data for classification without manual entry.</div></div>
-        <div class="fcell"><span class="ftag p2">Later</span></div>
+        <div class="fcell"><span class="ftag p1">Boost</span></div>
+        <div class="fcell"><div class="fname">Current vs recommended</div></div>
+        <div class="fcell"><div class="fdesc">Shows current code next to the recommended code so the user can compare and decide.</div></div>
       </div>
       <div class="frow">
-        <div class="fcell"><div class="fname">Duty Estimation Engine</div></div>
-        <div class="fcell"><div class="fdesc">Full landed cost estimate per shipment including duty, VAT, and applicable fees.</div></div>
-        <div class="fcell"><span class="ftag p2">Later</span></div>
+        <div class="fcell"><span class="ftag p1">Boost</span></div>
+        <div class="fcell"><div class="fname">Learns from decisions</div></div>
+        <div class="fcell"><div class="fdesc">Improves recommendations over time using historical acceptance and override decisions.</div></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><span class="ftag p1">Boost</span></div>
+        <div class="fcell"><div class="fname">Bulk refinement</div></div>
+        <div class="fcell"><div class="fdesc">Supports bulk refinement for large catalogs so ecommerce and 3PL teams can upgrade classifications in batches.</div></div>
+      </div>
+
+      <div class="frow">
+        <div class="fcell"><span class="ftag p2">Validate</span></div>
+        <div class="fcell"><div class="fname">Consistency check</div></div>
+        <div class="fcell"><div class="fdesc">Verifies that HS code, description, and declared value are internally consistent before submission.</div></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><span class="ftag p2">Validate</span></div>
+        <div class="fcell"><div class="fname">Mismatch flagging</div></div>
+        <div class="fcell"><div class="fdesc">Flags suspicious mismatches that are likely to be rejected or trigger manual customs review.</div></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><span class="ftag p2">Validate</span></div>
+        <div class="fcell"><div class="fname">Unlikely combinations</div></div>
+        <div class="fcell"><div class="fdesc">Detects unlikely combinations, such as premium brands declared at unusually low values.</div></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><span class="ftag p2">Validate</span></div>
+        <div class="fcell"><div class="fname">Risk level &amp; reason</div></div>
+        <div class="fcell"><div class="fdesc">Every flag includes a risk level and a human-readable reason so reviewers can act quickly.</div></div>
+      </div>
+      <div class="frow">
+        <div class="fcell"><span class="ftag p2">Validate</span></div>
+        <div class="fcell"><div class="fname">Human review queue</div></div>
+        <div class="fcell"><div class="fdesc">Provides a review queue for flagged items so human approval sits at the edge of the workflow, not the middle.</div></div>
       </div>
     </div>
   </div>
@@ -1209,46 +1186,103 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 <!-- ─── 5. SUCCESS METRICS ─── -->
 <section id="metrics" class="section">
   <div class="section-inner">
-    <div class="section-label reveal" data-num="6">Success Metrics</div>
+    <div class="section-label reveal" data-num="5">Success Metrics by Mode</div>
     <h2 class="section-title reveal">How we know <em>it's working</em></h2>
-    <p class="section-desc reveal">Leading indicators measurable within weeks of launch. Lagging indicators tracked at 90 days.</p>
+    <p class="section-desc reveal">Each product mode is measured against a small set of focused metrics, plus three overall product metrics that track business outcome.</p>
 
+    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:1.5rem 0 1.25rem;">
+      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Generate
+    </h3>
     <div class="metrics-grid">
       <div class="metric-card reveal">
-        <div class="metric-cat">Classification Quality</div>
-        <div class="metric-title">HS Code Accuracy Rate</div>
-        <div class="metric-target">Target → ≥ 92% on a held-out Saudi shipment dataset</div>
-        <p class="metric-note">Measured against expert-verified classifications. Baseline established during validation before launch.</p>
+        <div class="metric-cat">Quality</div>
+        <div class="metric-title">Accepted without correction</div>
+        <div class="metric-target">Target → % of generated classifications accepted without manual correction</div>
+        <p class="metric-note">Measures whether Generate output is trusted end-to-end, not just directionally useful.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.1s">
+        <div class="metric-cat">Speed</div>
+        <div class="metric-title">Time to first valid HS code</div>
+        <div class="metric-target">Target → average time from input to first valid HS code output</div>
+        <p class="metric-note">Covers latency plus any required input enrichment to reach a usable code.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.2s">
+        <div class="metric-cat">Compliance</div>
+        <div class="metric-title">ZATCA-ready output rate</div>
+        <div class="metric-target">Target → % of Generate outputs formatted and structured for ZATCA without rework</div>
+        <p class="metric-note">Measures whether Generate output flows straight into downstream submission.</p>
+      </div>
+    </div>
+
+    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:2.5rem 0 1.25rem;">
+      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Boost
+    </h3>
+    <div class="metrics-grid">
+      <div class="metric-card reveal">
+        <div class="metric-cat">Lift</div>
+        <div class="metric-title">Improved over baseline</div>
+        <div class="metric-target">Target → % of classifications improved compared to the input code</div>
+        <p class="metric-note">Measures whether Boost is actually adding classification value beyond what the user had.</p>
       </div>
       <div class="metric-card reveal" style="transition-delay:.1s">
         <div class="metric-cat">Efficiency</div>
-        <div class="metric-title">Time to Classification</div>
-        <div class="metric-target">Target → &lt; 1s per item (API), &lt; 10 min per bulk batch (500 items)</div>
-        <p class="metric-note">Measured at p95 under expected load. Bulk jobs run async — clock starts at submission, ends at webhook delivery.</p>
+        <div class="metric-title">Reduction in manual reclassification</div>
+        <div class="metric-target">Target → time saved vs manual reclassification effort</div>
+        <p class="metric-note">Tracks Boost’s ability to replace slow, manual review cycles in large catalogs.</p>
       </div>
       <div class="metric-card reveal" style="transition-delay:.2s">
-        <div class="metric-cat">Review Load</div>
-        <div class="metric-title">Human Review Rate</div>
-        <div class="metric-target">Target → &lt; 15% of items flagged for review</div>
-        <p class="metric-note">High-confidence classifications should handle the majority. Tracks model confidence calibration over time.</p>
+        <div class="metric-cat">Accuracy</div>
+        <div class="metric-title">Accuracy uplift over existing codes</div>
+        <div class="metric-target">Target → measured uplift in classification accuracy vs existing codes</div>
+        <p class="metric-note">Validates that “improved” codes are actually more correct, not just different.</p>
       </div>
-      <div class="metric-card reveal" style="transition-delay:.3s">
-        <div class="metric-cat">Adoption</div>
-        <div class="metric-title">API Integration Rate</div>
-        <div class="metric-target">Target → ≥ 1 live carrier integration within 60 days of launch</div>
-        <p class="metric-note">Primary B2B adoption signal. Tracked by first real production call from a non-test API key.</p>
+    </div>
+
+    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:2.5rem 0 1.25rem;">
+      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Validate
+    </h3>
+    <div class="metrics-grid">
+      <div class="metric-card reveal">
+        <div class="metric-cat">Detection</div>
+        <div class="metric-title">Invalid entries flagged</div>
+        <div class="metric-target">Target → % of invalid or suspicious entries flagged before submission</div>
+        <p class="metric-note">Measures whether Validate catches the problems it is supposed to catch.</p>
       </div>
-      <div class="metric-card reveal" style="transition-delay:.4s">
+      <div class="metric-card reveal" style="transition-delay:.1s">
+        <div class="metric-cat">Outcome</div>
+        <div class="metric-title">Reduction in clearance issues</div>
+        <div class="metric-target">Target → drop in clearance issues caused by inconsistent data</div>
+        <p class="metric-note">Links Validate output directly to real ZATCA clearance outcomes.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.2s">
+        <div class="metric-cat">Workflow</div>
+        <div class="metric-title">Review resolution time</div>
+        <div class="metric-target">Target → median time to resolve flagged items in the review queue</div>
+        <p class="metric-note">Tracks whether flags are actionable and reviewable at operational speed.</p>
+      </div>
+    </div>
+
+    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:2.5rem 0 1.25rem;">
+      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Overall product success
+    </h3>
+    <div class="metrics-grid">
+      <div class="metric-card reveal">
+        <div class="metric-cat">Clearance</div>
+        <div class="metric-title">Faster customs clearance cycles</div>
+        <div class="metric-target">Target → shorter end-to-end clearance cycle time</div>
+        <p class="metric-note">The product’s headline outcome — the reason customers care.</p>
+      </div>
+      <div class="metric-card reveal" style="transition-delay:.1s">
         <div class="metric-cat">Compliance</div>
-        <div class="metric-title">Declaration Acceptance Rate</div>
-        <div class="metric-target">Target → ≥ 95% of generated declarations accepted by ZATCA without re-submission</div>
-        <p class="metric-note">Lagging indicator. Requires carriers to share ZATCA outcome data. Tracked at 90 days post-launch.</p>
+        <div class="metric-title">Lower compliance error rate</div>
+        <div class="metric-target">Target → fewer ZATCA rejections, reclassifications, and penalties</div>
+        <p class="metric-note">Tracks risk reduction across the full classification workflow.</p>
       </div>
-      <div class="metric-card reveal" style="transition-delay:.5s">
-        <div class="metric-cat">Retention</div>
-        <div class="metric-title">Agent Weekly Active Use</div>
-        <div class="metric-target">Target → ≥ 60% of registered agents active in week 4</div>
-        <p class="metric-note">Indicates Clear AI has replaced — not supplemented — the agent's current workflow for routine classifications.</p>
+      <div class="metric-card reveal" style="transition-delay:.2s">
+        <div class="metric-cat">Consistency</div>
+        <div class="metric-title">Higher classification consistency</div>
+        <div class="metric-target">Target → lower variance in classifications across teams and clients</div>
+        <p class="metric-note">Proves the product is scaling a consistent classification practice, not just helping individuals.</p>
       </div>
     </div>
   </div>
@@ -1259,38 +1293,32 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 <!-- ─── 7. ROADMAP ─── -->
 <section id="roadmap" class="section">
   <div class="section-inner">
-    <div class="section-label reveal" data-num="7">Roadmap</div>
+    <div class="section-label reveal" data-num="6">Roadmap</div>
     <h2 class="section-title reveal">What ships, <em>when</em></h2>
-    <p class="section-desc reveal">V1 ships a focused, high-impact core. V2 adds depth and direct ZATCA integration. Later items are documented for architectural awareness only.</p>
+    <p class="section-desc reveal">The roadmap reflects the three-mode structure. Generate and Boost land first, Validate completes the core, then direct ZATCA submission closes the loop. Later items are documented for architectural awareness only.</p>
 
     <div class="road-grid">
       <div class="rcol now reveal">
-        <span class="rlbl">Now · V1 MVP</span>
-        <div class="ritem">HS code classification (text)</div>
-        <div class="ritem">Classify Boost enrichment</div>
-        <div class="ritem">Bulk CSV / Excel processing</div>
-        <div class="ritem">ZATCA declaration generator (AR + EN)</div>
-        <div class="ritem">Confidence scoring + review queue</div>
-        <div class="ritem">REST API + webhooks</div>
-        <div class="ritem">Agent web UI + submission history</div>
+        <span class="rlbl">Now · MVP</span>
+        <div class="ritem">Generate — full HS code + compliant description</div>
+        <div class="ritem">Boost — suggest better alternatives</div>
+        <div class="ritem">ZATCA-ready output formatting</div>
+        <div class="ritem">Confidence scoring + rationale</div>
+        <div class="ritem">Bulk refinement for catalogs</div>
       </div>
       <div class="rcol next reveal" style="transition-delay:.15s">
-        <span class="rlbl">Next · V2</span>
-       <div class="ritem">Multi-tenant auth</div>
-        <div class="ritem">Direct ZATCA submission mode</div>
+        <span class="rlbl">Next</span>
+        <div class="ritem">Validate — consistency &amp; mismatch detection</div>
+        <div class="ritem">Review queue for flagged items</div>
+        <div class="ritem">Direct ZATCA submission</div>
         <div class="ritem">ZATCA status tracking + webhooks</div>
-        <!-- <div class="ritem">Image-based classification</div> -->
         <div class="ritem">Invoice / packing list OCR</div>
         <div class="ritem">Ops dashboard</div>
-        <!-- <div class="ritem">Per-tenant confidence thresholds</div> -->
       </div>
       <div class="rcol later reveal" style="transition-delay:.3s">
         <span class="rlbl">Later</span>
-        <div class="ritem">Duty & tax estimation engine</div>
-        <!-- <div class="ritem">Predictive risk scoring</div> -->
-        <!-- <div class="ritem">Mobile agent app</div> -->
-        <!-- <div class="ritem">GCC cross-border expansion</div> -->
-        <!-- <div class="ritem">Customs broker marketplace</div> -->
+        <div class="ritem">Duty &amp; tax estimation engine</div>
+        <div class="ritem">Learning loop from historical decisions across tenants</div>
       </div>
     </div>
   </div>
@@ -1301,45 +1329,9 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 <!-- ─── 8. OPEN QUESTIONS ─── -->
 <section id="clear-openq" class="section">
   <div class="section-inner">
-    <div class="section-label reveal" data-num="8">Open Questions</div>
+    <div class="section-label reveal" data-num="7">Open Questions</div>
     <h2 class="section-title reveal">Open question <em>parking lot</em></h2>
     <div class="empty-placeholder reveal">Reserved for unresolved product, commercial, and operational questions.</div>
-  </div>
-</section>
-
-<div class="divider"></div>
-<section id="v2-detail" class="section">
-  <div class="section-inner">
-    <div class="section-label reveal" data-num="V2">Version 2</div>
-    <h2 class="section-title reveal">What V2 <em>unlocks</em></h2>
-    <p class="section-desc reveal">V2 closes the loop from classification to submission, expands input modalities, and introduces multi-tenant access.</p>
-
-    <div class="goals-grid" style="margin-top:1rem;">
-      <div class="goal-card user reveal">
-        <div class="goal-type">V2 Adds</div>
-        <ul class="goal-list">
-          <li>Direct ZATCA submission with acknowledgement return</li>
-          <li>ZATCA status tracking + webhooks</li>
-          <li>Multi-tenant authentication and tenant-scoped history</li>
-          <li>Invoice / packing list OCR — auto-extract product data</li>
-          <li>Operations dashboard for review queue + accuracy trends</li>
-        </ul>
-      </div>
-      <div class="goal-card biz reveal" style="transition-delay:.1s">
-        <div class="goal-type">V2 Still Does Not</div>
-        <ul class="goal-list">
-          <li>Handle duty payment or broker licensing</li>
-          <li>Manage outbound export declarations</li>
-          <li>Replace human review on low-confidence items</li>
-          <li>Offer mobile-native agent apps</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="callout note reveal" style="margin-top:2rem;">
-      <div class="callout-icon">🧭</div>
-      <div><strong>V2 intent:</strong> Move Clear AI from a classification assistant to a closed-loop submission engine — with audited outcomes flowing back into accuracy tracking.</div>
-    </div>
   </div>
 </section>
 
