@@ -92,7 +92,7 @@ nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; a
 .section-label::before { content: attr(data-num); background: var(--accent); color: var(--bg); width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .58rem; font-weight: 700; flex-shrink: 0; }
 .section-title { font-family: var(--serif); font-size: clamp(1.9rem, 3.5vw, 3.2rem); font-weight: 700; line-height: 1.1; letter-spacing: -.02em; max-width: 680px; margin-bottom: .9rem; }
 .section-title em { font-style: italic; color: var(--accent); }
-.section-desc { color: var(--muted); max-width: 640px; font-size: .92rem; line-height: 1.85; margin-bottom: 2rem; }
+.section-desc { color: var(--muted); max-width: 100%; font-size: .95rem; line-height: 1.8; margin-bottom: 2rem; }
 .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); margin: 0 6rem; }
 
 /* ─── PIPELINE ─── */
@@ -928,10 +928,79 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 
 <div class="divider"></div>
 
-<!-- ─── 2. TARGET CUSTOMER ─── -->
+<!-- ─── 2. SOLUTION OVERVIEW + PRODUCT MODES ─── -->
+<section id="solution" class="section">
+  <div class="section-inner">
+    <div class="section-label reveal" data-num="2">Solution Overview</div>
+    <h2 class="section-title reveal">An AI platform for <em>faster ZATCA clearance</em></h2>
+    <p class="section-desc reveal">Clear AI helps businesses pass ZATCA clearance faster by generating, improving, and validating HS code data before submission. It solves the classification workflow in three ways — <strong>create</strong> compliant classifications from scratch, <strong>improve</strong> classifications that are close but not optimal, and <strong>check</strong> whether code, description, and value make sense together before filing.</p>
+
+    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:2rem 0 1.25rem;">
+      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Three product modes
+    </h3>
+    <p class="section-desc reveal" style="margin-bottom:1.5rem;">The product works in three modes depending on the quality of the input data and the stage of the workflow. This keeps it modular and practical rather than one-size-fits-all — users engage with the mode that matches what they have in hand.</p>
+
+    <div class="personas-grid">
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Mode 01 · Create</div>
+          <div class="p-name">Generate</div>
+          <div class="p-role">Use when there is no usable classification. The system creates a ZATCA-ready HS code and compliant description from product data.</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">When to use</div>
+          <ul class="p-list">
+            <li>New SKUs with only a product name or short description</li>
+            <li>Sparse catalog data from suppliers or marketplaces</li>
+            <li>First-time classification for a client or product line</li>
+          </ul>
+          <span class="p-badge badge-both">From scratch</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Mode 02 · Improve</div>
+          <div class="p-name">Boost</div>
+          <div class="p-role">Use when a code already exists but could be more accurate. The system suggests a better classification and improves over time through AI learning.</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">When to use</div>
+          <ul class="p-list">
+            <li>Supplier-provided codes that look approximate</li>
+            <li>Legacy catalogs needing refinement at scale</li>
+            <li>Reclassification after ruling or regulation changes</li>
+          </ul>
+          <span class="p-badge badge-ui">Improve existing</span>
+        </div>
+      </div>
+
+      <div class="persona-card">
+        <div class="p-head">
+          <div class="p-num">Mode 03 · Check</div>
+          <div class="p-name">Validate</div>
+          <div class="p-role">Use when the code must be checked before submission. The system verifies whether HS code, description, and declared value are consistent and flags mismatches.</div>
+        </div>
+        <div class="p-body">
+          <div class="p-sub">When to use</div>
+          <ul class="p-list">
+            <li>Final pre-submission check before Bayan</li>
+            <li>Screening declarations for suspicious combinations</li>
+            <li>Audit trail of why a classification was accepted</li>
+          </ul>
+          <span class="p-badge badge-both">Pre-submission check</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ─── 3. TARGET CUSTOMER ─── -->
 <section id="target-market" class="section">
   <div class="section-inner">
-    <div class="section-label reveal" data-num="2">Target Customer</div>
+    <div class="section-label reveal" data-num="3">Target Customer</div>
     <h2 class="section-title reveal">Who we <em>serve</em></h2>
     <p class="section-desc reveal">The product serves three segments across the customs value chain. Each has a different operating model, a different urgency, and a different mix of product modes — so packaging and go-to-market adapt to the segment while the backend stays shared.</p>
 
@@ -1011,80 +1080,6 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
 
 <div class="divider"></div>
 
-<!-- ─── 3. SOLUTION OVERVIEW + PRODUCT MODES ─── -->
-<section id="solution" class="section">
-  <div class="section-inner">
-    <div class="section-label reveal" data-num="3">Solution Overview</div>
-    <h2 class="section-title reveal">An AI platform for <em>faster ZATCA clearance</em></h2>
-    <p class="section-desc reveal">Clear AI is an AI-powered customs classification platform built to help businesses pass ZATCA clearance faster by generating, improving, and validating HS code data before submission. It solves the classification workflow in three ways — <strong>create</strong> compliant classifications from scratch, <strong>improve</strong> classifications that are close but not optimal, and <strong>check</strong> whether code, description, and value make sense together before filing.</p>
-
-    <h3 style="font-family:var(--mono);font-size:.62rem;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;display:flex;align-items:center;gap:.6rem;margin:2rem 0 1.25rem;">
-      <span style="display:inline-block;width:16px;height:1px;background:var(--gold-dim);"></span>Three product modes
-    </h3>
-    <p class="section-desc reveal" style="margin-bottom:1.5rem;">The product works in three modes depending on the quality of the input data and the stage of the workflow. This keeps it modular and practical rather than one-size-fits-all — users engage with the mode that matches what they have in hand.</p>
-
-    <div class="personas-grid">
-      <div class="persona-card">
-        <div class="p-head">
-          <div class="p-num">Mode 01 · Create</div>
-          <div class="p-name">Generate</div>
-          <div class="p-role">Use when there is no usable classification. The system creates a ZATCA-ready HS code and compliant description from product data.</div>
-        </div>
-        <div class="p-body">
-          <div class="p-sub">When to use</div>
-          <ul class="p-list">
-            <li>New SKUs with only a product name or short description</li>
-            <li>Sparse catalog data from suppliers or marketplaces</li>
-            <li>First-time classification for a client or product line</li>
-          </ul>
-          <span class="p-badge badge-both">From scratch</span>
-        </div>
-      </div>
-
-      <div class="persona-card">
-        <div class="p-head">
-          <div class="p-num">Mode 02 · Improve</div>
-          <div class="p-name">Boost</div>
-          <div class="p-role">Use when a code already exists but could be more accurate. The system suggests a better classification and improves over time through AI learning.</div>
-        </div>
-        <div class="p-body">
-          <div class="p-sub">When to use</div>
-          <ul class="p-list">
-            <li>Supplier-provided codes that look approximate</li>
-            <li>Legacy catalogs needing refinement at scale</li>
-            <li>Reclassification after ruling or regulation changes</li>
-          </ul>
-          <span class="p-badge badge-ui">Improve existing</span>
-        </div>
-      </div>
-
-      <div class="persona-card">
-        <div class="p-head">
-          <div class="p-num">Mode 03 · Check</div>
-          <div class="p-name">Validate</div>
-          <div class="p-role">Use when the code must be checked before submission. The system verifies whether HS code, description, and declared value are consistent and flags mismatches.</div>
-        </div>
-        <div class="p-body">
-          <div class="p-sub">When to use</div>
-          <ul class="p-list">
-            <li>Final pre-submission check before Bayan</li>
-            <li>Screening declarations for suspicious combinations</li>
-            <li>Audit trail of why a classification was accepted</li>
-          </ul>
-          <span class="p-badge badge-both">Pre-submission check</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="callout gold reveal" style="margin-top:2rem;">
-      <div class="callout-icon">📌</div>
-      <div><strong>Outcome-first framing:</strong> The business outcome — faster ZATCA clearance with lower compliance risk — is the headline. The product mechanics (Generate, Boost, Validate) are the support structure underneath.</div>
-    </div>
-  </div>
-</section>
-
-<div class="divider"></div>
-
 <!-- ─── 4. FEATURES ─── -->
 <section id="features" class="section">
   <div class="section-inner">
@@ -1112,13 +1107,8 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
       </div>
       <div class="frow">
         <div class="fcell"><span class="ftag p0">Generate</span></div>
-        <div class="fcell"><div class="fname">Compliant product description</div></div>
-        <div class="fcell"><div class="fdesc">Generates a compliant product description suitable for customs documentation alongside the code.</div></div>
-      </div>
-      <div class="frow">
-        <div class="fcell"><span class="ftag p0">Generate</span></div>
-        <div class="fcell"><div class="fname">ZATCA-ready formatting</div></div>
-        <div class="fcell"><div class="fdesc">Structures output to match ZATCA submission format so it flows downstream without reformatting.</div></div>
+        <div class="fcell"><div class="fname">ZATCA-ready description</div></div>
+        <div class="fcell"><div class="fdesc">Generates a compliant product description alongside the code, structured to match ZATCA submission format so it flows downstream without reformatting.</div></div>
       </div>
       <div class="frow">
         <div class="fcell"><span class="ftag p0">Generate</span></div>
@@ -1142,17 +1132,6 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
         <div class="fcell"><div class="fdesc">Shows current code next to the recommended code so the user can compare and decide.</div></div>
       </div>
       <div class="frow">
-        <div class="fcell"><span class="ftag p1">Boost</span></div>
-        <div class="fcell"><div class="fname">Learns from decisions</div></div>
-        <div class="fcell"><div class="fdesc">Improves recommendations over time using historical acceptance and override decisions.</div></div>
-      </div>
-      <div class="frow">
-        <div class="fcell"><span class="ftag p1">Boost</span></div>
-        <div class="fcell"><div class="fname">Bulk refinement</div></div>
-        <div class="fcell"><div class="fdesc">Supports bulk refinement for large catalogs so ecommerce and 3PL teams can upgrade classifications in batches.</div></div>
-      </div>
-
-      <div class="frow">
         <div class="fcell"><span class="ftag p2">Validate</span></div>
         <div class="fcell"><div class="fname">Consistency check</div></div>
         <div class="fcell"><div class="fdesc">Verifies that HS code, description, and declared value are internally consistent before submission.</div></div>
@@ -1171,11 +1150,6 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
         <div class="fcell"><span class="ftag p2">Validate</span></div>
         <div class="fcell"><div class="fname">Risk level &amp; reason</div></div>
         <div class="fcell"><div class="fdesc">Every flag includes a risk level and a human-readable reason so reviewers can act quickly.</div></div>
-      </div>
-      <div class="frow">
-        <div class="fcell"><span class="ftag p2">Validate</span></div>
-        <div class="fcell"><div class="fname">Human review queue</div></div>
-        <div class="fcell"><div class="fdesc">Provides a review queue for flagged items so human approval sits at the edge of the workflow, not the middle.</div></div>
       </div>
     </div>
   </div>
@@ -1295,32 +1269,7 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
   <div class="section-inner">
     <div class="section-label reveal" data-num="6">Roadmap</div>
     <h2 class="section-title reveal">What ships, <em>when</em></h2>
-    <p class="section-desc reveal">The roadmap reflects the three-mode structure. Generate and Boost land first, Validate completes the core, then direct ZATCA submission closes the loop. Later items are documented for architectural awareness only.</p>
-
-    <div class="road-grid">
-      <div class="rcol now reveal">
-        <span class="rlbl">Now · MVP</span>
-        <div class="ritem">Generate — full HS code + compliant description</div>
-        <div class="ritem">Boost — suggest better alternatives</div>
-        <div class="ritem">ZATCA-ready output formatting</div>
-        <div class="ritem">Confidence scoring + rationale</div>
-        <div class="ritem">Bulk refinement for catalogs</div>
-      </div>
-      <div class="rcol next reveal" style="transition-delay:.15s">
-        <span class="rlbl">Next</span>
-        <div class="ritem">Validate — consistency &amp; mismatch detection</div>
-        <div class="ritem">Review queue for flagged items</div>
-        <div class="ritem">Direct ZATCA submission</div>
-        <div class="ritem">ZATCA status tracking + webhooks</div>
-        <div class="ritem">Invoice / packing list OCR</div>
-        <div class="ritem">Ops dashboard</div>
-      </div>
-      <div class="rcol later reveal" style="transition-delay:.3s">
-        <span class="rlbl">Later</span>
-        <div class="ritem">Duty &amp; tax estimation engine</div>
-        <div class="ritem">Learning loop from historical decisions across tenants</div>
-      </div>
-    </div>
+    <div class="empty-placeholder reveal">Reserved for phased delivery plan across Generate, Boost, and Validate.</div>
   </div>
 </section>
 
