@@ -908,92 +908,10 @@ footer.site-footer .foot-links a:hover { color: var(--accent); }
       </div>
 
       <div class="vpanel active" id="v1-panel">
-        <section id="tech" class="section">
-  <div class="section-inner">
-    <div class="section-label reveal" data-num="1">V0 Architecture Shape</div>
-    <h2 class="section-title reveal">How services <em>are deployed</em></h2>
-    <p class="section-desc reveal">The infrastructure topology — what Azure services run the system, how they connect, and where the sync/async split happens. Frontend and API Management handle ingress, the classification engine and async workers handle processing, and PostgreSQL persists everything.</p>
-
-    <div class="reveal" style="margin-top: 2rem; background: #ffffff; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 24px; overflow: auto;">
-      <img src="diagrams/v1-architecture-diagram.svg" alt="V0 Architecture — Customs AI on Azure" style="width: 100%; height: auto; display: block;" />
-    </div>
-  </div>
-</section>
-
-<div class="divider"></div>
-
-<!-- ─── SECTION 2: AI FLOW ─── -->
-<section id="ai-flow" class="section">
-  <div class="section-inner">
-    <div class="section-label reveal" data-num="2">AI Flow</div>
-    <h2 class="section-title reveal">Rule-driven, <em>not magic</em></h2>
-    <p class="section-desc reveal">The 7-step classification pipeline inside the engine. Normalize input, boost sparse descriptions, retrieve from HSCodeMaster, rank candidates using HS interpretation rules, score confidence, generate the Arabic description, and persist with a full audit trail.</p>
-
-    <div class="reveal" style="margin-top: 2rem;">
-      <img src="diagrams/v1-ai-flow-diagram.excalidraw.svg" alt="V1 AI Flow — 7-step classification pipeline" style="width:100%;height:auto;display:block;border-radius:14px;border:1px solid var(--border);background:#ffffff;padding:24px;" />
-    </div>
-  </div>
-</section>
+        <!-- V1 content placeholder -->
       </div>
       <div class="vpanel" id="v2-panel">
-        
-<section id="v2-arch-shape" class="section">
-  <div class="section-inner">
-    <div class="section-label reveal" data-num="1">V2 Architecture Shape</div>
-    <h2 class="section-title reveal">Closed-loop <em>submission engine</em></h2>
-    <p class="section-desc reveal">V2 extends the V1 topology with direct ZATCA submission, status webhooks, multi-tenant isolation, and OCR intake. Architecture diagram in progress.</p>
-
-    <div class="v2-placeholder">
-      <span class="v2-badge">Draft · V2 scope</span>
-      <h3 class="v2-title">What changes from V1 to V2</h3>
-      <p class="v2-body">V1 produces declaration drafts for downstream systems. V2 submits directly to ZATCA, tracks the Bayan outcome, and writes it back into the accuracy pipeline — closing the feedback loop the V1 design was built for.</p>
-
-      <div class="v2-scope">
-        <div class="v2-scope-card">
-          <h4>Submission</h4>
-          <p>New ZATCA H2H submission service with retry, idempotency, and ack parsing. Outcome writes back to declaration record.</p>
-        </div>
-        <div class="v2-scope-card">
-          <h4>Status &amp; Webhooks</h4>
-          <p>Durable webhook delivery for ZATCA status events per tenant. Re-drives on failure; verifiable signatures.</p>
-        </div>
-        <div class="v2-scope-card">
-          <h4>Multi-tenant Auth</h4>
-          <p>Tenant-scoped API keys + per-tenant rate limits. Row-level tenant isolation in PostgreSQL.</p>
-        </div>
-        <div class="v2-scope-card">
-          <h4>OCR Intake</h4>
-          <p>Document Intelligence pipeline for invoice / packing-list ingestion. Extracts product lines before classification.</p>
-        </div>
-        <div class="v2-scope-card">
-          <h4>Ops Dashboard</h4>
-          <p>Per-tenant accuracy, review backlog, and ZATCA acceptance trend dashboards. Shared with carrier customers.</p>
-        </div>
-        <div class="v2-scope-card">
-          <h4>Accuracy Feedback</h4>
-          <p>Submission outcomes (accepted / rejected / re-submitted) feed back into confidence calibration and HS disambiguation.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<div class="divider"></div>
-
-<section id="v2-ai-flow" class="section">
-  <div class="section-inner">
-    <div class="section-label reveal" data-num="2">V2 AI Flow</div>
-    <h2 class="section-title reveal">Closed-loop <em>learning</em></h2>
-    <p class="section-desc reveal">The V1 classification pipeline plus ZATCA outcome feedback, OCR-sourced inputs, and per-tenant calibration. Detailed diagram pending.</p>
-
-    <div class="v2-placeholder">
-      <span class="v2-badge">Placeholder</span>
-      <h3 class="v2-title">V2 flow diagram coming</h3>
-      <p class="v2-body">Will extend the 7-step V1 pipeline with: OCR pre-step for document inputs, ZATCA submission step, status-ingest callback, and a feedback loop into the ranking/confidence model.</p>
-    </div>
-  </div>
-</section>
-
+        <!-- V2 content placeholder -->
       </div>
     </div>
   </div>
