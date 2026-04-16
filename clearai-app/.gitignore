@@ -1,0 +1,41 @@
+# ---- Secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- Source data (never commit — sensitive customer data) ----
+data/*.xlsx
+data/*.xls
+data/*.csv
+data/*.xml
+data/*.XML
+data/Baseline XML output/
+!data/README.md
+!data/.gitkeep
+
+# ---- Generated artifacts ----
+output/
+*.db
+*.db-journal
+hs_master_faiss.index
+hs_codes.json
+*.log
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+
+# ---- OS / Editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

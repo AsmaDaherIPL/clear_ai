@@ -278,27 +278,77 @@ function Topbar({
 // ── Footer ───────────────────────────────────────────────
 function Footer() {
   return (
-    <footer className="flex items-center justify-between flex-wrap gap-4 px-4 sm:px-8 lg:px-12 py-8 border-t border-border font-mono text-[.62rem] text-muted">
-      <div>
-        <strong className="font-serif text-[.95rem] text-text font-black">
-          Clear<em className="not-italic text-accent">AI</em>
-        </strong>
-        <span className="mx-2 text-dim">·</span>
-        Project wiki
-        <span className="mx-2 text-dim">·</span>
-        <span className="text-accent">Working draft</span>
-      </div>
-      <div className="flex gap-6">
-        {NAV_LINKS.map((l) => (
-          <NavLink
-            key={l.to}
-            to={l.to}
-            end={l.to === '/'}
-            className="text-muted no-underline hover:text-accent transition-colors"
-          >
-            {l.label}
-          </NavLink>
-        ))}
+    <footer className="border-t border-border bg-surface/50">
+      <div className="px-4 sm:px-8 lg:px-12 py-10">
+        {/* Main footer content */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+          {/* Brand + Status */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-[28px] h-[28px] rounded-[7px] grid place-items-center text-white font-serif font-black text-[.85rem] shrink-0"
+                style={{ background: 'linear-gradient(135deg, #1e3a5f, #0E1729)' }}
+              >
+                C
+              </div>
+              <span className="font-serif font-black text-[1.15rem] tracking-[-0.01em] text-text">
+                Clear<em className="not-italic text-accent">AI</em>
+              </span>
+              <span className="hidden sm:inline-flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                <span className="font-mono text-[.58rem] text-accent tracking-wide uppercase">Working Draft</span>
+              </span>
+            </div>
+            <p className="font-mono text-[.65rem] text-muted tracking-[.04em] max-w-[320px] leading-relaxed">
+              Internal project wiki for customs classification intelligence platform.
+            </p>
+          </div>
+
+          {/* Nav links */}
+          <nav className="flex flex-wrap gap-x-6 gap-y-2">
+            {NAV_LINKS.map((l) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                end={l.to === '/'}
+                className={({ isActive }) =>
+                  [
+                    'font-mono text-[.62rem] tracking-[.08em] uppercase no-underline transition-colors duration-150',
+                    isActive ? 'text-accent' : 'text-muted hover:text-accent',
+                  ].join(' ')
+                }
+              >
+                {l.label}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+
+        {/* Divider */}
+        <div className="h-px bg-border my-6" />
+
+        {/* Bottom bar */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 font-mono text-[.58rem] text-dim">
+          <div className="flex items-center gap-2">
+            <span className="text-muted">Editor</span>
+            <span className="text-dim">—</span>
+            <span className="text-text font-medium">Asma Daher</span>
+            <span className="text-dim hidden sm:inline">·</span>
+            <span className="hidden sm:inline">Infinite PL</span>
+            <span className="text-dim hidden sm:inline">·</span>
+            <a
+              href="mailto:asmad@infinitepl.com"
+              className="hidden sm:inline text-accent hover:underline transition-colors"
+            >
+              asmad@infinitepl.com
+            </a>
+          </div>
+          <div className="flex items-center gap-2 text-dim">
+            <span>© {new Date().getFullYear()}</span>
+            <span>·</span>
+            <span>All rights reserved</span>
+          </div>
+        </div>
       </div>
     </footer>
   );
@@ -333,8 +383,8 @@ export function PageHero({
           {kicker}
         </div>
         <h1
-          className="font-sans font-bold tracking-[-0.02em] max-w-[820px] mb-4"
-          style={{ fontSize: 'clamp(1.8rem, 4vw, 3.6rem)', lineHeight: 1.1 }}
+          className="font-display font-normal tracking-[-0.02em] max-w-[820px] mb-4 text-text"
+          style={{ fontSize: 'clamp(2rem, 4vw, 52px)', lineHeight: 1.15 }}
         >
           {title}
         </h1>

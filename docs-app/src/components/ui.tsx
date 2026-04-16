@@ -63,7 +63,7 @@ export function SectionTitle({ children, className = '' }: { children: ReactNode
   return (
     <Reveal>
       <h2
-        className={`font-sans font-bold tracking-[-0.015em] text-text mb-4 ${className}`}
+        className={`font-display font-normal tracking-[-0.015em] text-text mb-4 ${className}`}
         style={{ fontSize: 'clamp(1.55rem, 2.6vw, 2.2rem)', lineHeight: 1.2 }}
       >
         {children}
