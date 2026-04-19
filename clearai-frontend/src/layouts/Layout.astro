@@ -1,0 +1,54 @@
+---
+/**
+ * Root layout. Imports Tailwind + design tokens once.
+ * All pages extend this so fonts preload, the parchment canvas shows
+ * globally, and meta stays consistent.
+ */
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+}
+const { title = 'ClearAI — Saudi HS Classification' } = Astro.props;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content="Resolve merchant invoice lines into precise 12-digit Saudi ZATCA HS codes with WCO-grounded justifications." />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  </head>
+  <body>
+    <div class="app-shell mx-auto max-w-5xl px-6 py-10 md:py-14">
+      <header class="mb-10 flex items-end justify-between gap-4">
+        <div>
+          <p class="text-xs uppercase tracking-[0.25em] text-parchment-500">
+            Saudi Customs &middot; ZATCA 12-digit
+          </p>
+          <h1 class="font-display text-4xl md:text-5xl font-600 text-parchment-900 leading-none mt-2">
+            Clear<span class="italic text-najdi-600">AI</span>
+          </h1>
+        </div>
+        <nav class="text-sm text-parchment-700 font-mono">
+          <a href="https://clearai.pages.dev" class="hover:text-najdi-600 transition-colors">wiki &rarr;</a>
+        </nav>
+      </header>
+
+      <div class="rule mb-10"></div>
+
+      <main>
+        <slot />
+      </main>
+
+      <footer class="mt-20 pt-6 border-t border-parchment-200 text-xs text-parchment-500 font-mono flex justify-between">
+        <span>v0.1.0 &middot; hexagonal / FAISS / Anthropic</span>
+        <span>built in Riyadh</span>
+      </footer>
+    </div>
+  </body>
+</html>

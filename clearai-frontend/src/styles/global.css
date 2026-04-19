@@ -1,0 +1,124 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+/* ============================================================
+   ClearAI design system.
+
+   Aesthetic brief: Saudi customs is paperwork-heavy, bureaucratic,
+   and high-stakes. The UI should feel like a precision instrument —
+   warm parchment surfaces (nodding to customs forms, stamps, bonded
+   warehouses) offset by a deep Najdi-green accent and a sharp amber
+   highlight for the classified HS code itself.
+
+   Typography pairs:
+     - Fraunces (display, serif, optical sizes) — headings & HS code
+     - JetBrains Mono (mono) — codes, evidence, payloads
+     - IBM Plex Sans Arabic (Arabic) — customs descriptions
+
+   We avoid Inter/Roboto/Space Grotesk per global aesthetic rules.
+   ============================================================ */
+
+@theme {
+  /* Parchment palette — warm neutrals with a dusty undertone. */
+  --color-parchment-50:  #faf7f0;
+  --color-parchment-100: #f3ede0;
+  --color-parchment-200: #e8ddc4;
+  --color-parchment-300: #d8c79e;
+  --color-parchment-400: #b9a775;
+  --color-parchment-500: #8a7a4f;
+  --color-parchment-700: #4a4129;
+  --color-parchment-900: #1f1a0e;
+
+  /* Najdi green — Saudi Arabian flag green, muted for UI use. */
+  --color-najdi-500: #1f6b4a;
+  --color-najdi-600: #175539;
+  --color-najdi-700: #0f3f29;
+
+  /* Amber stamp — the "approved" seal color for the HS code pill. */
+  --color-stamp-500: #c8851c;
+  --color-stamp-600: #a86d11;
+
+  /* Crimson — failures, review flags. */
+  --color-crimson-500: #a3342e;
+  --color-crimson-600: #7d2521;
+
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-arabic: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  --font-sans: 'Fraunces', ui-serif, Georgia, serif;
+}
+
+/* Global canvas — layered parchment + faint grid, no flat fills. */
+html, body {
+  background:
+    /* subtle vignette */
+    radial-gradient(ellipse at 50% 0%, rgba(31, 107, 74, 0.08), transparent 60%),
+    /* warm parchment wash */
+    linear-gradient(180deg, #faf7f0 0%, #f3ede0 100%);
+  background-attachment: fixed;
+  color: var(--color-parchment-900);
+  font-family: var(--font-display);
+  font-feature-settings: "ss01", "ss02";
+  min-height: 100dvh;
+}
+
+/* Hairline grid overlay — like customs forms. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(74, 65, 41, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(74, 65, 41, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+  z-index: 0;
+}
+
+/* Ensure real content sits above the grid. */
+#__root, main, .app-shell { position: relative; z-index: 1; }
+
+/* Stamp-style HS code pill — impressed ink feel. */
+.hs-stamp {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  border: 2px solid var(--color-stamp-600);
+  color: var(--color-stamp-600);
+  background: rgba(200, 133, 28, 0.08);
+  padding: 0.35rem 0.9rem;
+  border-radius: 2px;
+  transform: rotate(-0.5deg);
+  display: inline-block;
+  text-shadow: 0 0 1px rgba(168, 109, 17, 0.3);
+}
+
+/* Card surfaces. */
+.paper {
+  background: linear-gradient(180deg, #faf7f0 0%, #f3ede0 100%);
+  border: 1px solid rgba(74, 65, 41, 0.12);
+  border-radius: 6px;
+  box-shadow:
+    0 1px 0 rgba(74, 65, 41, 0.06),
+    0 12px 30px -18px rgba(74, 65, 41, 0.35);
+}
+
+/* Section divider — hand-inked. */
+.rule {
+  height: 1px;
+  background:
+    linear-gradient(to right, transparent, rgba(74, 65, 41, 0.25), transparent);
+}
+
+/* Focus ring, consistent across the app. */
+*:focus-visible {
+  outline: 2px solid var(--color-najdi-500);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* RTL Arabic text helper. */
+[dir="rtl"], .arabic {
+  font-family: var(--font-arabic);
+  direction: rtl;
+}

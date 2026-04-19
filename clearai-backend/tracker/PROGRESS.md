@@ -11,12 +11,12 @@
 |-------|--------|----------|
 | Phase 1 — Foundation & Data Layer | ✅ Complete | 5/5 done |
 | Phase 2 — Resolution Engine | ✅ Complete | 5/5 done |
-| Migration V1 (UI split + FastAPI + Frontend) | 🔄 In progress | 7/10 M-phases |
+| Migration V1 (UI split + FastAPI + Frontend) | 🔄 In progress | 8/10 M-phases |
 | Phase 3 — Output & CLI (XML + batch) | ⚪ Not started | 0/5 |
 | Phase 4 — Testing & Hardening | ⚪ Not started | 0/4 |
 | **Overall** | | **17/29 tasks complete (59%)** |
 
-**Next up:** Migration V1 Phase M8 — scaffold `clearai-frontend/` (Astro + React island) targeting Cloudflare Pages.
+**Next up:** Migration V1 Phase M9 — flesh out `ClassifyApp` with dedicated components (`ResultPanel`, `JustificationSection`, `EvidenceDetails`, `HSCodePill`).
 
 **Migration V1 (2026-04-19):** Split the repo into `clearai-backend/` (hexagonal,
 FastAPI) + `clearai-wiki/` (docs site) + `clearai-frontend/` (Astro + React)
@@ -30,7 +30,7 @@ Progress as of this update:
 - ✅ **M5** — Fresh `.venv` on Python 3.13 + editable install + smoke test (Path 1 passes against live DB, Path 3 blocked only by Anthropic credit balance — not a code issue)
 - ✅ **M6** — ADR-008 written + `.importlinter` 4-contract enforcement passing (commit `339528a`)
 - ✅ **M7** — FastAPI surface live: `GET /api/health`, `POST /api/resolve`, `HSReasoner.build_justification` port method, Foundry `ANTHROPIC_BASE_URL` routing; tested end-to-end against Path 1 with live FAISS evidence trail
-- ⚪ **M8** — Scaffold `clearai-frontend/` (Astro + React island, Cloudflare-Pages-ready)
+- ✅ **M8** — `clearai-frontend/` scaffolded: Astro 6 + React 19 island + Tailwind 4, design system (parchment/Najdi green/amber stamp, Fraunces + JetBrains Mono + IBM Plex Sans Arabic), typed API client (`src/lib/api.ts`), `ClassifyApp` island wired end-to-end to `POST /api/resolve`, dev server bound to `:3000` to match backend CORS allowlist, Cloudflare-Pages-ready static build (`npm run build` passes clean)
 - ⚪ **M9** — Form + result panel components (`ClassifyForm`, `ResultPanel`, `JustificationSection`, `EvidenceDetails`, `HSCodePill`)
 - ⚪ **M10** — Acceptance test: Case 001 (comic book) renders end-to-end
 
