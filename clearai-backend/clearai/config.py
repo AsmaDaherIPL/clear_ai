@@ -65,6 +65,12 @@ def _get_path(key: str, default: str) -> Path:
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY: str = _get("ANTHROPIC_API_KEY", required=True)
 
+# Optional. When set, the Anthropic SDK client will POST to this URL instead of
+# api.anthropic.com. Used to route traffic through Azure AI Foundry (Claude
+# models hosted in Saudi data-residency region) without changing any code.
+# Empty string → use the SDK default.
+ANTHROPIC_BASE_URL: str = _get("ANTHROPIC_BASE_URL", "")
+
 # Three-tier model split — pick the smallest model that does each task well.
 # RANKER      — narrow comparison task: pick best candidate from a prefix shortlist
 # TRANSLATION — very narrow task: Arabic description translation fallback
@@ -155,9 +161,11 @@ BAYAN_NAMESPACES: dict[str, str] = {
 def describe() -> str:
     """Return a human-readable summary of the loaded config. Excludes secrets."""
     api_key_status = "set" if ANTHROPIC_API_KEY else "missing"
+    base_url_status = ANTHROPIC_BASE_URL or "(default: api.anthropic.com)"
     return (
         f"ClearAI config:\n"
         f"  ANTHROPIC_API_KEY    = {api_key_status}\n"
+        f"  ANTHROPIC_BASE_URL   = {base_url_status}\n"
         f"  TRANSLATION_MODEL    = {TRANSLATION_MODEL}\n"
         f"  RANKER_MODEL         = {RANKER_MODEL}\n"
         f"  REASONER_MODEL       = {REASONER_MODEL}\n"

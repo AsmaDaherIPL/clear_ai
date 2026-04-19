@@ -11,11 +11,31 @@
 |-------|--------|----------|
 | Phase 1 — Foundation & Data Layer | ✅ Complete | 5/5 done |
 | Phase 2 — Resolution Engine | ✅ Complete | 5/5 done |
-| Phase 3 — Output & CLI | ⚪ Not started | 0/5 |
+| Migration V1 (UI split + FastAPI + Frontend) | 🔄 In progress | 7/10 M-phases |
+| Phase 3 — Output & CLI (XML + batch) | ⚪ Not started | 0/5 |
 | Phase 4 — Testing & Hardening | ⚪ Not started | 0/4 |
-| **Overall** | | **10/19 tasks complete (53%)** |
+| **Overall** | | **17/29 tasks complete (59%)** |
 
-**Next up:** Phase 3.1 — `templates/declaration.xml.j2` (ZATCA/SaudiEDI XML template).
+**Next up:** Migration V1 Phase M8 — scaffold `clearai-frontend/` (Astro + React island) targeting Cloudflare Pages.
+
+**Migration V1 (2026-04-19):** Split the repo into `clearai-backend/` (hexagonal,
+FastAPI) + `clearai-wiki/` (docs site) + `clearai-frontend/` (Astro + React)
+so the resolver can be demoed end-to-end before Phase 3's XML builder lands.
+Progress as of this update:
+
+- ✅ **M1** — Repo state audit (clean working tree before moves)
+- ✅ **M2** — `git mv clearai-app → clearai-backend`, `docs-app → clearai-wiki` (commit `c921b14`)
+- ✅ **M3** — Hexagonal reshape: `clearai/{domain,ports,adapters,services,parsing,rendering,data_setup}`, plus `api/`, `cli/`, layered `tests/` (commit `79d5bcb`)
+- ✅ **M4** — All imports rewritten; `pyproject.toml` switched to `setuptools.packages.find` (folded into M3 commit)
+- ✅ **M5** — Fresh `.venv` on Python 3.13 + editable install + smoke test (Path 1 passes against live DB, Path 3 blocked only by Anthropic credit balance — not a code issue)
+- ✅ **M6** — ADR-008 written + `.importlinter` 4-contract enforcement passing (commit `339528a`)
+- ✅ **M7** — FastAPI surface live: `GET /api/health`, `POST /api/resolve`, `HSReasoner.build_justification` port method, Foundry `ANTHROPIC_BASE_URL` routing; tested end-to-end against Path 1 with live FAISS evidence trail
+- ⚪ **M8** — Scaffold `clearai-frontend/` (Astro + React island, Cloudflare-Pages-ready)
+- ⚪ **M9** — Form + result panel components (`ClassifyForm`, `ResultPanel`, `JustificationSection`, `EvidenceDetails`, `HSCodePill`)
+- ⚪ **M10** — Acceptance test: Case 001 (comic book) renders end-to-end
+
+See `tracker/ARCHITECTURE.md` ADR-008 for the hexagonal rules enforced by
+import-linter in M6.
 
 **V1 scope note (2026-04-19):** V1 is API-only (Anthropic). The earlier planned
 local/Ollama backend has been cut — see ADR-004 and LESSONS.md entry

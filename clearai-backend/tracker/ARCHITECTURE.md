@@ -141,8 +141,11 @@ clearai-backend/
 │   ├── config.py
 │   ├── domain/                     pure types (reserved)
 │   ├── ports/                      abstract interfaces
-│   │   └── reasoner.py             HSReasoner, Candidate, RankerInput,
-│   │                               ReasonerInput, ReasonerResult, ReasonerError
+│   │   └── reasoner.py             HSReasoner (4 tasks: translate, rank,
+│   │                               infer, justify) + Candidate, RankerInput,
+│   │                               ReasonerInput, ReasonerResult,
+│   │                               JustificationInput, JustificationResult,
+│   │                               ReasonerError
 │   ├── adapters/                   concrete implementations of ports
 │   │   └── anthropic_reasoner.py   AnthropicReasoner (V1 only impl)
 │   ├── services/                   orchestration over ports + DB + FAISS

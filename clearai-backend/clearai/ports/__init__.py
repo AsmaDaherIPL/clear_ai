@@ -7,6 +7,8 @@ adapters.
 from clearai.ports.reasoner import (
     Candidate,
     HSReasoner,
+    JustificationInput,
+    JustificationResult,
     RankerInput,
     ReasonerError,
     ReasonerInput,
@@ -16,6 +18,8 @@ from clearai.ports.reasoner import (
 __all__ = [
     "Candidate",
     "HSReasoner",
+    "JustificationInput",
+    "JustificationResult",
     "RankerInput",
     "ReasonerError",
     "ReasonerInput",

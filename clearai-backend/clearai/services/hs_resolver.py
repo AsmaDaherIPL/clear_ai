@@ -150,7 +150,12 @@ class HSResolver:
         )
         self._faiss_top_k = faiss_top_k
 
-        self._conn = sqlite3.connect(str(self._db_path))
+        # check_same_thread=False so FastAPI's threadpool workers can hit
+        # the connection. Safe because ClearAI is read-dominant (master +
+        # ledger); writes only happen during batch CLI runs that own their
+        # own resolver instance. If concurrent writes ever appear, add a
+        # threading.Lock around write paths rather than reverting this.
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
 
         # FAISS + embedder are lazy — the first Reasoner call pays the load cost.
@@ -423,6 +428,34 @@ class HSResolver:
         )
 
     # ---- FAISS --------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Public evidence accessors — used by the API to render the Case 001
+    # "Evidence trail" table without re-implementing FAISS retrieval.
+    # ------------------------------------------------------------------
+    def faiss_evidence(self, text: str, *, k: int = FAISS_TOP_K) -> tuple[Candidate, ...]:
+        """Return the top-K FAISS candidates for `text` without routing through
+        the Reasoner. Read-only; safe to call independently of resolve()."""
+        return self._faiss_top_candidates(text, k=k)
+
+    def master_row(self, hs_code: str) -> dict[str, Any] | None:
+        """Fetch a single master row as a plain dict. Used by the API to
+        surface the customs description for a resolved code."""
+        cur = self._conn.execute(
+            "SELECT hs_code, description_en, arabic_name, duty_rate_pct "
+            "FROM hs_code_master WHERE hs_code = ?",
+            (hs_code,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "hs_code": row["hs_code"],
+            "description_en": row["description_en"] or "",
+            "arabic_name": row["arabic_name"] or "",
+            "duty_rate_pct": row["duty_rate_pct"],
+        }
+
+    # ---- internal ----------------------------------------------------
     def _faiss_top_candidates(self, text: str, *, k: int) -> tuple[Candidate, ...]:
         """Embed the description, retrieve top-K from the FAISS index,
         and hydrate each with master metadata."""

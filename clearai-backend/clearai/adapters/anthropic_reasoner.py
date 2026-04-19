@@ -28,6 +28,8 @@ from clearai import config
 from clearai.ports.reasoner import (
     Candidate,
     HSReasoner,
+    JustificationInput,
+    JustificationResult,
     RankerInput,
     ReasonerError,
     ReasonerInput,
@@ -55,6 +57,55 @@ _SYSTEM_TRANSLATOR = (
     "in valid JSON, no prose before or after the JSON object."
 )
 
+_SYSTEM_JUSTIFIER = (
+    "You are an expert Saudi customs HS classifier. You write structured "
+    "classification justifications following ClearAI's 7-section test-case format. "
+    "You cite WCO GRI 1–6 by number and reference heading exclusions explicitly. "
+    "You respond in valid JSON — no prose before or after the JSON object."
+)
+
+_JUSTIFY_USER_TEMPLATE = """\
+You are writing a structured classification justification for a resolved HS code.
+
+Resolved code: {hs_code}
+Customs description (EN): {customs_en}
+Customs description (AR): {customs_ar}
+Duty rate (%): {duty_rate}
+
+Merchant description: "{description}"
+Origin: {origin}
+Destination: {destination}
+Declared value: {value} {currency}
+
+FAISS evidence (top-K semantic neighbours from the ZATCA master):
+{evidence_block}
+
+Return a JSON object with exactly these keys:
+
+{{
+  "product_name": "<short noun phrase naming the product>",
+  "understanding_the_product": "<1-3 sentences describing the product and commercial context>",
+  "relevant_tariff_headings": [
+    "<bulleted item: Chapter/Heading/Subheading — description>",
+    "..."
+  ],
+  "exclusions_of_other_subheadings": [
+    "<bulleted item: heading — one-sentence reason for exclusion>",
+    "..."
+  ],
+  "wco_hs_explanatory_notes": "<paragraph citing the Explanatory Notes that disambiguate the chosen heading from its nearest competitors>",
+  "correct_classification": "<paragraph applying GRI 1 through 6 explicitly by number, ending at the national 12-digit line>",
+  "conclusion": "<1-2 sentences restating the final code + duty rate + Arabic description, followed by the evidence trail (FAISS/prefix candidates + scores)>"
+}}
+
+Rules:
+- "relevant_tariff_headings" has 2-5 entries.
+- "exclusions_of_other_subheadings" has 2-5 entries.
+- Each list entry is a single string, pre-formatted with markdown-style inline markers (e.g. "**Chapter 49** — ...").
+- Do not add fields. Do not nest.
+- All fields are required and non-empty.
+"""
+
 # 12-digit Saudi HS code — digits only, no separators
 _HS_CODE_PATTERN = re.compile(r"^\d{12}$")
 
@@ -62,6 +113,7 @@ _HS_CODE_PATTERN = re.compile(r"^\d{12}$")
 _MAX_TOKENS_TRANSLATION = 256
 _MAX_TOKENS_RANK = 512
 _MAX_TOKENS_REASON = 1024
+_MAX_TOKENS_JUSTIFY = 2048  # 7 sections of prose; longer budget than resolution
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +123,20 @@ class AnthropicReasoner(HSReasoner):
     """Anthropic-backed reasoner. Lazy client; one instance per run."""
 
     def __init__(self, client: Anthropic | None = None) -> None:
-        self._client = client or Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        if client is not None:
+            self._client = client
+        else:
+            client_kwargs: dict[str, str] = {"api_key": config.ANTHROPIC_API_KEY}
+            # Route through Azure AI Foundry (or any Anthropic-compatible
+            # proxy) only when ANTHROPIC_BASE_URL is explicitly set. Empty
+            # string → SDK default → api.anthropic.com.
+            if config.ANTHROPIC_BASE_URL:
+                client_kwargs["base_url"] = config.ANTHROPIC_BASE_URL
+                logger.info(
+                    "AnthropicReasoner: using custom base_url=%s",
+                    config.ANTHROPIC_BASE_URL,
+                )
+            self._client = Anthropic(**client_kwargs)
 
     # -- Task 1: Arabic translation (TRANSLATION_MODEL / Haiku) --------------
     def translate_to_arabic(self, description_en: str) -> ReasonerResult:
@@ -214,6 +279,72 @@ class AnthropicReasoner(HSReasoner):
             agrees_with_naqel=agrees,
             model_used=config.REASONER_MODEL,
         )
+
+    # -- Task 4: 7-section justification (REASONER_MODEL / Opus) -------------
+    def build_justification(
+        self, payload: JustificationInput
+    ) -> JustificationResult | None:
+        """Produce the Case 001 7-section justification. Returns None on any
+        failure (API error, malformed JSON, missing required keys).
+
+        This method is deliberately lenient — justification is UI candy; if
+        it fails, the API still returns the resolved code. The resolver's
+        three tasks, by contrast, raise ReasonerError because they gate on
+        confidence and the caller must know when output is unreliable.
+        """
+        if not payload.hs_code:
+            return None
+
+        user_prompt = _JUSTIFY_USER_TEMPLATE.format(
+            hs_code=payload.hs_code,
+            customs_en=payload.customs_description_en or "(not in master)",
+            customs_ar=payload.customs_description_ar or "(not in master)",
+            duty_rate=(
+                f"{payload.duty_rate_pct}" if payload.duty_rate_pct is not None else "(unknown)"
+            ),
+            description=payload.description_en or "(none provided)",
+            origin=payload.origin or "(unknown)",
+            destination=payload.destination or "(unknown)",
+            value=f"{payload.value}" if payload.value is not None else "(unknown)",
+            currency=payload.currency or "",
+            evidence_block=_format_candidates(payload.faiss_candidates) or "(no FAISS candidates)",
+        )
+
+        try:
+            data = self._call_json(
+                model=config.REASONER_MODEL,
+                system=_SYSTEM_JUSTIFIER,
+                user=user_prompt,
+                max_tokens=_MAX_TOKENS_JUSTIFY,
+            )
+        except ReasonerError as e:
+            logger.warning("build_justification: failed for %s: %s", payload.hs_code, e)
+            return None
+
+        try:
+            return JustificationResult(
+                product_name=str(data["product_name"]).strip(),
+                understanding_the_product=str(data["understanding_the_product"]).strip(),
+                relevant_tariff_headings=tuple(
+                    str(x).strip()
+                    for x in data["relevant_tariff_headings"]
+                    if str(x).strip()
+                ),
+                exclusions_of_other_subheadings=tuple(
+                    str(x).strip()
+                    for x in data["exclusions_of_other_subheadings"]
+                    if str(x).strip()
+                ),
+                wco_hs_explanatory_notes=str(data["wco_hs_explanatory_notes"]).strip(),
+                correct_classification=str(data["correct_classification"]).strip(),
+                conclusion=str(data["conclusion"]).strip(),
+                model_used=config.REASONER_MODEL,
+            )
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning(
+                "build_justification: malformed JSON for %s: %s", payload.hs_code, e
+            )
+            return None
 
     # -- Internal: API call + JSON parse -------------------------------------
     def _call_json(

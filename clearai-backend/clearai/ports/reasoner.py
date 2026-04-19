@@ -92,8 +92,8 @@ class ReasonerInput:
 
 @dataclass(frozen=True)
 class ReasonerResult:
-    """Output of any of the three tasks. Shape is uniform on purpose — the
-    resolver treats all three as evidence producers gated by confidence."""
+    """Output of the three classification tasks. Shape is uniform on purpose —
+    the resolver treats all three as evidence producers gated by confidence."""
 
     hs_code: str                 # for translate_to_arabic, this is echoed / empty
     confidence: float            # in [0.0, 1.0]
@@ -103,15 +103,54 @@ class ReasonerResult:
     model_used: str = ""                     # which tier ran this call
 
 
+@dataclass(frozen=True)
+class JustificationInput:
+    """Bundle of everything a justifier needs to produce a 7-section
+    classification rationale (TEST_CASES.md Case 001 format).
+
+    Passed as a single object (not many positional args) so adding fields
+    later — e.g. customs-broker notes, duty exemptions — doesn't churn
+    every caller.
+    """
+
+    hs_code: str
+    description_en: str
+    customs_description_en: str = ""
+    customs_description_ar: str = ""
+    duty_rate_pct: float | None = None
+    origin: str = ""
+    destination: str = ""
+    value: float | None = None
+    currency: str = ""
+    faiss_candidates: Sequence[Candidate] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class JustificationResult:
+    """Structured 7-section output. Fields mirror the Case 001 output spec in
+    tracker/TEST_CASES.md. Each list field has 2-5 entries in practice
+    (prompt-enforced, not schema-enforced)."""
+
+    product_name: str
+    understanding_the_product: str
+    relevant_tariff_headings: tuple[str, ...]
+    exclusions_of_other_subheadings: tuple[str, ...]
+    wco_hs_explanatory_notes: str
+    correct_classification: str
+    conclusion: str
+    model_used: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Interface
 # ---------------------------------------------------------------------------
 class HSReasoner(ABC):
-    """Abstract base for any LLM provider backing ClearAI's three tasks.
+    """Abstract base for any LLM provider backing ClearAI's four LLM-touching
+    tasks: translate, rank, infer, justify.
 
     Implementations must route each method to its declared model tier and must
-    return ReasonerResult — never raw provider responses. All JSON parsing,
-    validation, and retry logic lives inside the implementation.
+    return typed result dataclasses — never raw provider responses. All JSON
+    parsing, validation, and retry logic lives inside the implementation.
     """
 
     @abstractmethod
@@ -154,5 +193,21 @@ class HSReasoner(ABC):
 
         Returns ReasonerResult with `hs_code`, `confidence`, `rationale`, and
         `agrees_with_naqel` populated.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def build_justification(
+        self, payload: "JustificationInput"
+    ) -> "JustificationResult | None":
+        """Produce a 7-section structured classification rationale.
+
+        Called after a code has already been resolved (by any path) and the
+        caller wants the Case 001 justification format — typically the web UI
+        or a review report. Not called during batch CLI runs which only need
+        code + confidence.
+
+        Routes to REASONER_MODEL (the top tier). Returns None on any failure;
+        callers must tolerate absence (the code is still valid without it).
         """
         raise NotImplementedError
