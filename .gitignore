@@ -29,3 +29,12 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.temp
+
+# Claude Code
+.claude/
+
+# Wrangler cache
+.wrangler/
+
+# Local docs
+BUILD.md
