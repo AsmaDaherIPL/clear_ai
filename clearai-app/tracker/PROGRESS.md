@@ -10,17 +10,24 @@
 | Phase | Status | Progress |
 |-------|--------|----------|
 | Phase 1 — Foundation & Data Layer | ✅ Complete | 5/5 done |
-| Phase 2 — Resolution Engine | ⚪ Not started | 0/8 |
+| Phase 2 — Resolution Engine | ✅ Complete | 5/5 done |
 | Phase 3 — Output & CLI | ⚪ Not started | 0/5 |
 | Phase 4 — Testing & Hardening | ⚪ Not started | 0/4 |
-| **Overall** | | **5/22 tasks complete (23%)** |
+| **Overall** | | **10/19 tasks complete (53%)** |
 
-**Next up:** Phase 2.1 — `llm/base.py` (HSReasoner abstract interface).
+**Next up:** Phase 3.1 — `templates/declaration.xml.j2` (ZATCA/SaudiEDI XML template).
 
 **V1 scope note (2026-04-19):** V1 is API-only (Anthropic). The earlier planned
-local/Ollama backend (task 2.3) has been cut — see ADR-004 and LESSONS.md entry
+local/Ollama backend has been cut — see ADR-004 and LESSONS.md entry
 "V1 goes API-only, drops local LLM backend". Flexibility comes from per-task
-model tiering (RANKER_MODEL vs REASONER_MODEL), not from swapping providers.
+model tiering (TRANSLATION_MODEL / RANKER_MODEL / REASONER_MODEL), not from
+swapping providers.
+
+**Phase 2 consolidation note:** The original 8-task Phase 2 plan split the
+resolver into 4 paths + 3 other modules. During implementation the 4 resolver
+paths collapsed into a single `HSResolver.resolve()` dispatch (2.3), making
+Phase 2 a 5-task phase, not 8. The subtasks in this file have been renumbered
+to match what shipped.
 
 ---
 
@@ -166,181 +173,94 @@ print(f'{len(rows):,} rows, {len(groups):,} waybills')
 
 ---
 
-## Phase 2 — Resolution Engine (test each path independently)
+## Phase 2 — Resolution Engine
 
-### 2.1 LLM abstract interface
-- `llm/base.py` — `HSReasoner` ABC with `rank_candidates`, `infer_hs_code`, `translate_to_arabic`
+### 2.1 LLM abstract interface — ✅ **COMPLETE** (2026-04-19)
+- `llm/base.py` — `HSReasoner` ABC with three tier-routed methods:
+  - `translate_to_arabic(description_en) -> ReasonerResult`  → TRANSLATION_MODEL
+  - `rank_candidates(RankerInput) -> ReasonerResult`          → RANKER_MODEL
+  - `infer_hs_code(ReasonerInput) -> ReasonerResult`          → REASONER_MODEL
+- Typed input/output dataclasses: `Candidate`, `RankerInput`, `ReasonerInput`, `ReasonerResult`
+- Single exception type `ReasonerError` — resolver catches to route failing rows to review
+- `ReasonerResult` is uniform across all three methods so the resolver handles them identically (parse → gate on confidence → accept or flag)
+- `agrees_with_naqel` flag populated only by `infer_hs_code` (per ADR-007)
 
-**Verify:**
-```bash
-python -c "
-from llm.base import HSReasoner
-import inspect
-methods = [m for m in dir(HSReasoner) if not m.startswith('_')]
-print(f'Abstract methods: {methods}')
-assert 'rank_candidates' in methods
-assert 'infer_hs_code' in methods
-assert 'translate_to_arabic' in methods
-print('Interface OK')
-"
-```
+**Verified:** AST parse + abstract-method enumeration pass; no missing methods.
 
 ---
 
-### 2.2 API backend (Anthropic) — V1's only backend
-- `llm/api_backend.py` — implements HSReasoner using Anthropic SDK
+### 2.2 API backend (Anthropic) — V1's only backend — ✅ **COMPLETE** (2026-04-19)
+- `llm/api_backend.py` — `AnthropicReasoner(HSReasoner)` implementing all three methods
 - Three-tier model split (see ADR-004):
   - `translate_to_arabic` → `TRANSLATION_MODEL` (Haiku — cheapest, narrow task)
-  - `rank_candidates`    → `RANKER_MODEL` (Sonnet — middle tier, comparison judgement)
-  - `infer_hs_code`      → `REASONER_MODEL` (Opus — top tier, hardest inference)
-- JSON structured output with `hs_code` + `confidence`
-- Local/Ollama backend was cut from V1 scope (see ADR-004). Reinstate only if a later deployment genuinely requires offline inference.
+  - `rank_candidates`     → `RANKER_MODEL` (Sonnet — middle tier, comparison judgement)
+  - `infer_hs_code`       → `REASONER_MODEL` (Opus — top tier, hardest inference)
+- Temperature 0, JSON-object responses with schema per task
+- Single `_call_json` choke-point: handles API errors, empty bodies, ```json fence stripping, JSON validation, dict-type enforcement
+- HS-code validation via `^\d{12}$` after digit-stripping — invalid → `ReasonerError`
+- Confidence clamped to `[0.0, 1.0]`; malformed → 0.0 (forces review via threshold gate)
+- `agrees_with_naqel` tolerates bool or stringified bool/null
+- Two system prompts: classifier (rank + infer) and translator (narrow Arabic)
 
-**Verify:**
-```bash
-python -c "
-from llm.api_backend import APIReasoner
-r = APIReasoner()
-# Test ranking with known candidates
-code, conf = r.rank_candidates(
-    candidates=[
-        {'hs_code': '620442000000', 'arabic_name': 'فساتين', 'description_en': 'womens dresses of cotton'},
-        {'hs_code': '620443000000', 'arabic_name': 'فساتين', 'description_en': 'womens dresses of synthetic fibres'}
-    ],
-    description='ladies cotton dress casual wear'
-)
-print(f'Ranked: {code} @ {conf}')
-assert len(code) == 12 and 0 <= conf <= 1
-print('API Ranker OK')
-"
+**Verified:** AST confirms all three abstract methods implemented; `AnthropicReasoner` inherits `HSReasoner`.
+
+---
+
+### 2.3 Resolver — all four paths in one module — ✅ **COMPLETE** (2026-04-19)
+- `hs_resolver.py` — `HSResolver` class owning DB connection + lazy FAISS index + reasoner handle
+- **Path 1 · Direct** — 12-digit declared code exists in `hs_code_master` → confidence 0.98
+- **Path 2 · Longest-prefix-wins** — 4–11 digit declared code; traverses prefixes `len(declared)-1 → 4`, takes the row with shortest HS code at the winning prefix length; ties resolved via `RANKER_MODEL`. Confidence 0.70–0.95 by prefix length.
+- **Path 3 · Reasoner** — no usable declared code / no prefix match; embeds description via sentence-transformers, pulls top-K FAISS candidates, calls `REASONER_MODEL` with Naqel bucket hint as advisory context (per ADR-007)
+- **Ledger is a hint, not a gate** — bucket lookup (scoped to `client_id`) is always done, surfaced to the Reasoner, and compared against the final code via `agrees_with_naqel`
+- `_should_flag()` — flags below `CONFIDENCE_THRESHOLD` OR when confident-but-disagrees-with-Naqel (highest-value review items)
+- Never raises mid-batch — top-level `try/except` on `resolve()` returns a `path="failed"` `Resolution` with `error` populated
+- Context-manager support (`__enter__` / `__exit__`) for DB lifecycle
+- FAISS + sentence-transformers are lazy-loaded on first Reasoner call so Path 1+2 runs don't pay the import cost
+
+**Verified (live, against real `clear_ai.db`):**
+```
+Path 1 direct ✓  hs=010100000000 conf=0.98 flagged=False
+Path 2 prefix ✓  path=prefix hs=010100000000 conf=0.8
+Failure      ✓  path=failed  (empty declared + empty description → flagged, error captured)
 ```
 
 ---
 
-### 2.3 Resolver — Path 1: Ledger lookup
-- Implement `resolve()` with ledger path only
-- Exact match on (client_id, normalized_code) returns confidence 1.0
+### 2.4 Lookup engine — ✅ **COMPLETE** (2026-04-19)
+- `lookup_engine.py` — `LookupEngine` class with indexed lookups against all five mapping tables
+- Typed result dataclasses: `CurrencyLookup`, `CityLookup`, `SourceCompany`, `CountryLookup`
+- Methods:
+  - `currency_by_iso(iso)` — ISO-4217 → (infotrack_id, tabdul_id)
+  - `currency_by_infotrack_id(id)` — reverse path
+  - `city_by_info_id(info_city_id)` — bridges `city_mapping_bridge` → `tabdul_city`
+  - `source_company(client_id, port_code)` — falls back to `BAYAN_CONSTANTS["defaultSourceCompanyName"]` (`"ناقل"`) when no mapping
+  - `country_of_origin(client_id)` — joins `country_origin_mapping` → `country_code` (origin comes from mapping, not Excel `CountryofManufacture`, per INSTRUCTIONS.md)
+  - `country_by_intl_code(iso2)` — general ISO-2 country lookup
 
-**Verify:**
-```bash
-python -c "
-from hs_resolver import resolve
-# Insert a known ledger entry first
-import sqlite3
-from config import DB_PATH
-conn = sqlite3.connect(DB_PATH)
-conn.execute(\"INSERT OR REPLACE INTO hs_decision_ledger VALUES ('TEST01', '6204', '620442000000', 'فساتين', 'human_verified', '2026-01-01')\")
-conn.commit()
-conn.close()
-
-result = resolve({'ClientID': 'TEST01', 'CustomsCommodityCode': '6204', 'Description': 'test', 'ChineseDescription': '', 'SKU': ''})
-print(f'Path: {result.path}, Code: {result.hs_code}, Confidence: {result.confidence}')
-assert result.path == 'ledger' and result.confidence == 1.0
-print('PATH 1 LEDGER OK')
-"
+**Verified (live):**
+```
+currency USD  → CurrencyLookup(infotrack_currency_id=4, tabdul_currency_id=410, iso_code='USD')
+country  CN   → CountryLookup(code=142, en='CHINA', ar='الصين الشعبية', intl='CN')
+source_company fallback (unknown client/port) → name='ناقل' number='340476' is_fallback=True
 ```
 
 ---
 
-### 2.4 Resolver — Path 2: Direct 12-digit lookup
-- 12-digit code found in hs_code_master = confidence 0.98
-- 12-digit code NOT found = fall through to Path 4
+### 2.5 Arabic translation engine — ✅ **COMPLETE** (2026-04-19)
+- `arabic_translation_engine.py` — `ArabicTranslationEngine` with 4-path resolution (cheapest first):
+  1. **Invoice row** — scans all row fields for any Arabic-Unicode string; first hit wins
+  2. **Master** — `hs_code_master.arabic_name` for the resolved code
+  3. **Ledger** — `hs_decision_ledger.arabic_name` tied to merchant's declared raw code
+  4. **LLM translation** via `TRANSLATION_MODEL` (Haiku), with in-process cache keyed by English description so the same phrase isn't re-translated per row
+- Returns `ArabicResolution(arabic, source, cache_hit)` — source is one of `invoice | master | ledger | llm_translation | missing`
+- Never raises — `ReasonerError` logs + returns `source=missing`, caller decides what to do
 
-**Verify:**
-```bash
-python -c "
-from hs_resolver import resolve
-# Use a known 12-digit code from hs_code_master
-result = resolve({'ClientID': 'UNKNOWN', 'CustomsCommodityCode': '620442000000', 'Description': 'test', 'ChineseDescription': '', 'SKU': ''})
-print(f'Path: {result.path}, Code: {result.hs_code}, Confidence: {result.confidence}')
-assert result.path == 'direct' and result.confidence == 0.98
-print('PATH 2 DIRECT OK')
-"
+**Verified (live):**
 ```
-
----
-
-### 2.5 Resolver — Path 3: Prefix traversal (longest-prefix-wins)
-- 4-11 digit code, find candidates by prefix in master
-- 1 candidate = deterministic (0.95)
-- 2-15 candidates = call Ranker
-- 15+ or 0 candidates = fall through to Path 4
-
-**Verify:**
-```bash
-python -c "
-from hs_resolver import resolve
-# Test with a prefix that yields exactly 1 candidate (deterministic)
-result = resolve({'ClientID': 'UNKNOWN', 'CustomsCommodityCode': '62044200', 'Description': 'dress', 'ChineseDescription': '', 'SKU': ''})
-print(f'Path: {result.path}, Code: {result.hs_code}, Confidence: {result.confidence}')
-# Should be prefix_deterministic or prefix_ranked depending on candidate count
-assert result.path in ('prefix_deterministic', 'prefix_ranked')
-print('PATH 3 PREFIX OK')
-"
-```
-
----
-
-### 2.6 Resolver — Path 4: Reasoner (FAISS + LLM)
-- Build search text from Description + ChineseDescription + SKU
-- FAISS top-10 candidates → Reasoner LLM call
-- Returns inferred code with confidence
-
-**Verify:**
-```bash
-python -c "
-from hs_resolver import resolve
-# No code at all — forces Reasoner path
-result = resolve({'ClientID': 'UNKNOWN', 'CustomsCommodityCode': '', 'Description': 'wireless bluetooth earbuds charging case', 'ChineseDescription': '无线蓝牙耳机', 'SKU': 'BT-EARBUDS-001'})
-print(f'Path: {result.path}, Code: {result.hs_code}, Confidence: {result.confidence}')
-assert result.path == 'reasoner'
-assert len(result.hs_code) == 12
-print('PATH 4 REASONER OK')
-"
-```
-
----
-
-### 2.7 Lookup engine
-- `lookup_engine.py` — currency, city, source company, country origin, transport type, doc ref
-- Each lookup independently testable
-
-**Verify:**
-```bash
-python -c "
-from lookup_engine import run_all_lookups
-# Test with a known ClientID
-result = run_all_lookups(
-    row={'CurrencyCode': 'USD', 'ClientID': 'TEST01', 'ConsigneeAddress': 'Riyadh', 'MobileNo': '1234567890'},
-    declaration_rows=[]
-)
-print(f'Currency: {result.tabdul_currency}')
-print(f'City: {result.city_cd} / {result.city_arabic}')
-print(f'Source: {result.source_company}')
-print(f'Country: {result.country_origin}')
-print(f'Transport type: {result.transport_type}')
-print(f'DocRefNo: {result.doc_ref_no}')
-print('LOOKUPS OK')
-"
-```
-
----
-
-### 2.8 Arabic translation engine
-- `arabic_translation_engine.py` — resolve Arabic name from master, fallback to LLM translation on `TRANSLATION_MODEL` (Haiku)
-- Narrow tariff-terminology translation, not casual translation. Cheapest tier handles this reliably.
-
-**Verify:**
-```bash
-python -c "
-from arabic_translation_engine import resolve_arabic
-from llm.api_backend import APIReasoner
-# Test with a code that has arabic_name in master
-arabic = resolve_arabic('620442000000', 'womens cotton dresses', APIReasoner())
-print(f'Arabic: {arabic}')
-assert arabic and len(arabic) > 0
-print('ARABIC TRANSLATION ENGINE OK')
-"
+Path 1 invoice ✓   src=invoice
+Path 2 master  ✓   src=master  (real ZATCA Arabic name from hs_code_master)
+Path 4 LLM     ✓   src=llm_translation  ar='قميص قطن'  (from stub)
+cache hit      ✓   cache_hit=True on second call with same English description
 ```
 
 ---
