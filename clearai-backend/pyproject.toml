@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "clearai-app"
+name = "clearai-backend"
 version = "0.1.0"
 description = "HS code resolution pipeline for Saudi customs (ZATCA Bayan XML)"
 requires-python = ">=3.11"
@@ -17,33 +17,29 @@ dependencies = [
     "sentence-transformers>=2.7",
     "anthropic>=0.30",
     "python-dotenv>=1.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.12",
+    "httpx>=0.27",
     "ruff>=0.4",
     "mypy>=1.10",
+    "import-linter>=2.0",
 ]
 
 [project.scripts]
-clearai-setup = "db.setup:main"
-clearai-run = "run:main"
-clearai-verify = "db.write_verified:main"
+clearai-setup = "clearai.data_setup.setup:main"
+clearai-build-faiss = "clearai.data_setup.build_faiss:main"
 
-[tool.setuptools]
-packages = ["llm", "db", "tests"]
-py-modules = [
-    "config",
-    "invoice_parser",
-    "hs_resolver",
-    "lookup_engine",
-    "arabic_translation_engine",
-    "xml_builder",
-    "comparator",
-    "run",
-]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["clearai*", "api*", "cli*"]
+exclude = ["tests*", ".venv*", "data*", "output*", "templates*", "tracker*"]
 
 [tool.ruff]
 line-length = 100

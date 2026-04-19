@@ -42,8 +42,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import config
-from llm.base import (
+from clearai import config
+from clearai.ports.reasoner import (
     Candidate,
     HSReasoner,
     RankerInput,

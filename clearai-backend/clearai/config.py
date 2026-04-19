@@ -24,8 +24,9 @@ from dotenv import load_dotenv
 # ---------------------------------------------------------------------------
 # Env loading
 # ---------------------------------------------------------------------------
-# Load .env from the project root (same dir as this file) if present.
-_PROJECT_ROOT = Path(__file__).resolve().parent
+# The "project root" is the `clearai-backend/` directory — the parent of the
+# `clearai/` package. All relative paths in env vars resolve against it.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_PROJECT_ROOT / ".env", override=True)
 
 

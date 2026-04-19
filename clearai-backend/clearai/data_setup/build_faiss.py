@@ -5,8 +5,8 @@ This index powers Path 4 (Reasoner) — when no code or no prefix match is found
 we embed the product description and retrieve the top-K semantically similar
 HS codes to pass as candidates to the LLM.
 
-Run (after db/setup.py):
-    python db/build_faiss.py
+Run (after clearai.data_setup.setup):
+    python -m clearai.data_setup.build_faiss
 
 Verify:
     python -c "
@@ -30,14 +30,10 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-import sys
-from pathlib import Path
 
-# Make `config` importable when running as `python db/build_faiss.py`
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import config  # noqa: E402
+from clearai import config
 
-logger = logging.getLogger("clearai.db.build_faiss")
+logger = logging.getLogger("clearai.data_setup.build_faiss")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s")
 
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"

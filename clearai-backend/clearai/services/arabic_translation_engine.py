@@ -28,7 +28,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
-from llm.base import HSReasoner, ReasonerError
+from clearai.ports.reasoner import HSReasoner, ReasonerError
 
 logger = logging.getLogger("clearai.arabic_translation_engine")
 

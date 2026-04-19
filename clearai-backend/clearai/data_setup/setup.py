@@ -6,7 +6,7 @@ appropriate table. Idempotent — safe to re-run. Drops & recreates tables each
 time so schema migrations stay simple during V1.
 
 Run:
-    python db/setup.py
+    python -m clearai.data_setup.setup
 
 Verify:
     sqlite3 clear_ai.db "SELECT name FROM sqlite_master WHERE type='table';"
@@ -18,18 +18,15 @@ import json
 import logging
 import re
 import sqlite3
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
 import openpyxl
 
-# Make `config` importable when running as `python db/setup.py`
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import config  # noqa: E402
+from clearai import config
 
-logger = logging.getLogger("clearai.db.setup")
+logger = logging.getLogger("clearai.data_setup.setup")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s")
 
 

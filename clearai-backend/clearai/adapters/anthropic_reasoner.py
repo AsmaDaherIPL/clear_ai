@@ -24,8 +24,8 @@ from typing import Any
 
 from anthropic import Anthropic, APIError
 
-import config
-from llm.base import (
+from clearai import config
+from clearai.ports.reasoner import (
     Candidate,
     HSReasoner,
     RankerInput,

@@ -24,7 +24,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
-import config
+from clearai import config
 
 logger = logging.getLogger("clearai.lookup_engine")
 
