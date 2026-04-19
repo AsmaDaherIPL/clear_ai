@@ -2,8 +2,13 @@
 ClearAI configuration.
 
 Loads all settings from environment variables (with .env support) and validates
-that required values are present for the selected LLM backend. Fails fast at
-import time so downstream modules can rely on config being valid.
+that required values are present. Fails fast at import time so downstream
+modules can rely on config being valid.
+
+V1 is API-only (Anthropic). No local inference. See tracker/ARCHITECTURE.md
+ADR-004 for rationale. The axis of flexibility is per-task model tiering —
+three tiers (Haiku for translation, Sonnet for ranking, Opus for reasoning) —
+not API-vs-local.
 
 Also exports BAYAN_CONSTANTS — the hardcoded values observed in Naqel's baseline
 XMLs (see tracker/INSTRUCTIONS.md "Bayan XML schema" section).
@@ -13,7 +18,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
 
 from dotenv import load_dotenv
 
@@ -56,11 +60,17 @@ def _get_path(key: str, default: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# LLM backend
+# LLM provider (Anthropic, API-only)
 # ---------------------------------------------------------------------------
-LLM_BACKEND: Literal["api", "local"] = _get("LLM_BACKEND", "api").lower()  # type: ignore[assignment]
-if LLM_BACKEND not in ("api", "local"):
-    raise RuntimeError(f"LLM_BACKEND must be 'api' or 'local', got {LLM_BACKEND!r}")
+ANTHROPIC_API_KEY: str = _get("ANTHROPIC_API_KEY", required=True)
+
+# Three-tier model split — pick the smallest model that does each task well.
+# RANKER      — narrow comparison task: pick best candidate from a prefix shortlist
+# TRANSLATION — very narrow task: Arabic description translation fallback
+# REASONER    — hardest path: full HS inference from a free-text description
+TRANSLATION_MODEL: str = _get("TRANSLATION_MODEL", "claude-haiku-4-6")
+RANKER_MODEL: str = _get("RANKER_MODEL", "claude-sonnet-4-6")
+REASONER_MODEL: str = _get("REASONER_MODEL", "claude-opus-4-6")
 
 # ---------------------------------------------------------------------------
 # Confidence gating & resolution tuning
@@ -71,23 +81,6 @@ HV_THRESHOLD_SAR: float = _get_float("HV_THRESHOLD_SAR", 1000.0)
 # Kept for backward-compat with BUILD.md; the production algorithm is
 # longest-prefix-wins (deterministic) — see LESSONS.md entry 2026-04-16.
 PREFIX_RANKER_MAX_CANDIDATES: int = int(_get_float("PREFIX_RANKER_MAX_CANDIDATES", 15))
-
-# ---------------------------------------------------------------------------
-# API backend (Anthropic)
-# ---------------------------------------------------------------------------
-ANTHROPIC_API_KEY: str = _get(
-    "ANTHROPIC_API_KEY",
-    required=(LLM_BACKEND == "api"),
-)
-RANKER_API_MODEL: str = _get("RANKER_API_MODEL", "claude-sonnet-4-6")
-REASONER_API_MODEL: str = _get("REASONER_API_MODEL", "claude-opus-4-6")
-
-# ---------------------------------------------------------------------------
-# Local backend (Ollama)
-# ---------------------------------------------------------------------------
-OLLAMA_BASE_URL: str = _get("OLLAMA_BASE_URL", "http://localhost:11434")
-RANKER_LOCAL_MODEL: str = _get("RANKER_LOCAL_MODEL", "phi3-mini")
-REASONER_LOCAL_MODEL: str = _get("REASONER_LOCAL_MODEL", "llama3:70b")
 
 # ---------------------------------------------------------------------------
 # Storage paths (all relative to project root unless absolute)
@@ -163,12 +156,12 @@ def describe() -> str:
     api_key_status = "set" if ANTHROPIC_API_KEY else "missing"
     return (
         f"ClearAI config:\n"
-        f"  LLM_BACKEND          = {LLM_BACKEND}\n"
+        f"  ANTHROPIC_API_KEY    = {api_key_status}\n"
+        f"  TRANSLATION_MODEL    = {TRANSLATION_MODEL}\n"
+        f"  RANKER_MODEL         = {RANKER_MODEL}\n"
+        f"  REASONER_MODEL       = {REASONER_MODEL}\n"
         f"  CONFIDENCE_THRESHOLD = {CONFIDENCE_THRESHOLD}\n"
         f"  HV_THRESHOLD_SAR     = {HV_THRESHOLD_SAR}\n"
-        f"  ANTHROPIC_API_KEY    = {api_key_status}\n"
-        f"  RANKER_API_MODEL     = {RANKER_API_MODEL}\n"
-        f"  REASONER_API_MODEL   = {REASONER_API_MODEL}\n"
         f"  DB_PATH              = {DB_PATH}\n"
         f"  FAISS_INDEX_PATH     = {FAISS_INDEX_PATH}\n"
         f"  OUTPUT_DIR           = {OUTPUT_DIR}\n"

@@ -21,6 +21,35 @@ Each entry follows this structure:
 
 ## Entries
 
+### 2026-04-19 — Three-tier model split (Haiku / Sonnet / Opus) replaces two-tier
+**Context:** Right after dropping local inference and moving to API-only, the natural design was two tiers — cheap Ranker (Sonnet) for narrow tasks, strong Reasoner (Opus) for hard ones. Arabic translation was bundled under the Ranker tier.
+**What happened:** On closer look, Arabic translation is noticeably simpler than candidate ranking — it's a narrow terminology task, not a comparison/judgement task. Running it on Sonnet works but pays a Sonnet price for what is likely the most-frequently-called LLM site in the pipeline (every row that needs a fallback Arabic description). Haiku does this task well at roughly an order of magnitude lower cost.
+**Lesson:** "Cheap vs strong" is already an improvement over "API vs local," but two tiers collapses real task-difficulty variance. Three tiers (one per clearly-separable task class) is still boring-simple — one env var per task, one default per env var, no dynamic routing — but captures the actual cost structure of the workload.
+**What we explicitly rejected:** confidence-based routing (Haiku → escalate to Sonnet) and content-based heuristic routing. Both sound clever; both have a well-known track record of complexity outpacing savings. Revisit only if V1 cost data from real runs justifies it.
+**Action:**
+- Added `TRANSLATION_MODEL` env var (default `claude-haiku-4-6`) to `.env.example` and `config.py`
+- `RANKER_MODEL` narrowed in scope to "candidate ranking only" (no longer covers translation)
+- ADR-004 rewritten from "two-tier" to "three-tier" split with explicit rationale for not doing dynamic routing
+- `describe()` in config now prints all three models
+- INSTRUCTIONS.md prompt rules split into three bullets (Ranker / Reasoner / Translation), each with the env var named
+
+---
+
+### 2026-04-19 — V1 goes API-only, drops local LLM backend
+**Context:** The original design had a pluggable LLM backend — Anthropic API *or* Ollama local — behind the `HSReasoner` interface. `.env.example`, `config.py`, `pyproject.toml`, and PROGRESS.md all carried the dual-backend assumption. Stakeholder feedback: "don't bother — this isn't running locally or offline, so there's no reason for local inference. Why a separate rig, complexity, and 'dumbness' when we can call the API cheaply on the Foundry."
+**What happened:** On reflection the local-backend plan was speculative insurance against a requirement that doesn't actually exist. V1 is not an air-gapped deployment. Data residency is handled at the API-vendor layer (regional endpoints / Bedrock) more cleanly than by hosting an open-source 70B on a separate box. And the accuracy ceiling of the strongest local model is still measurably below Opus on the hardest HS classification cases — the very cases where a model call is most justified.
+**Lesson:** Don't build in flexibility for a requirement you can't name a concrete deployment for. Abstractions cost — test surface, doc surface, dep surface, mental surface. "Pluggable backend" sounds free but it bought us an Ollama install step in docs, a second code path to maintain, an `ollama` pip dep, and an `LLM_BACKEND` env switch that had to be validated in 5 places. Dropping it removed 30+ lines of config, one Python dep, one PROGRESS task, and simplified the quick-start from "pick a backend → configure it" to "set ANTHROPIC_API_KEY."
+**Action:**
+- Removed `ollama>=0.2` from pyproject.toml
+- Removed `LLM_BACKEND`, `OLLAMA_BASE_URL`, `RANKER_LOCAL_MODEL`, `REASONER_LOCAL_MODEL` from `.env.example` and `config.py`
+- Renamed env vars: `RANKER_API_MODEL` → `RANKER_MODEL`, `REASONER_API_MODEL` → `REASONER_MODEL` (the "_API_" infix was only meaningful when there was a local counterpart)
+- Dropped Phase 2.3 (Local backend task) from PROGRESS.md; renumbered 2.4a-d → 2.3-2.6
+- Rewrote ADR-004 from "Pluggable API or local" to "API-only with per-task model tiering"
+- Updated INSTRUCTIONS.md architecture principles — "Pluggable LLM backend" → "Model tiering, not backend switching"
+- The flexibility axis is now cheap-vs-strong model per task (Sonnet for Ranker/translation, Opus for Reasoner). Same spirit, simpler mechanism.
+
+---
+
 ### 2026-04-16 — BUILD.md XML schema was a placeholder, not the real Bayan schema
 **Context:** Planning Phase 3.1 (XML template). BUILD.md provided an illustrative `<CustomsDeclaration>` template with simple tag names. We received 5 real baseline XMLs from Naqel.
 **What happened:** The real ZATCA/SaudiEDI schema uses a completely different structure — SOAP-style namespaced XML with `decsub:` / `deccm:` / `sau:` / `cm:` prefixes, root `<decsub:saudiEDI>`, and field names like `tariffCode` (not `hsCode`), `goodsDescription` (not `arabicDescription`), `countryOfOrigin` (not `countryOfOrigin`), etc.

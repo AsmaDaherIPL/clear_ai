@@ -17,7 +17,6 @@ dependencies = [
     "sentence-transformers>=2.7",
     "anthropic>=0.30",
     "python-dotenv>=1.0",
-    "ollama>=0.2",
 ]
 
 [project.optional-dependencies]

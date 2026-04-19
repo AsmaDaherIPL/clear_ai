@@ -11,7 +11,7 @@ pip install -e ".[dev]"
 
 # 2. Configure
 cp .env.example .env
-# edit .env — set LLM_BACKEND and ANTHROPIC_API_KEY
+# edit .env — set ANTHROPIC_API_KEY (V1 is API-only)
 
 # 3. Place data files (see data/README.md)
 

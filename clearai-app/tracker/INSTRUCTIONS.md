@@ -7,11 +7,14 @@
 
 ## Architecture Principles
 
-1. **Local-first, no cloud at runtime.** Everything runs on the developer's machine. No external service calls except LLM APIs (Anthropic or Ollama).
+1. **Single-machine Python CLI.** Everything runs on the developer's machine. The only external service call is the Anthropic API. V1 is API-only — no local inference, no Ollama. See ADR-004.
 
 2. **SQLite as the single data store.** All mapping tables live in one `.db` file. No Postgres, no Redis, no file-based lookups at runtime.
 
-3. **Pluggable LLM backend.** The `HSReasoner` interface abstracts API vs local models. All resolution logic in `hs_resolver.py` is backend-agnostic.
+3. **Three-tier model split.** The `HSReasoner` interface exposes one Anthropic-backed implementation. Flexibility comes from per-task model choice — three tiers, configured via env vars:
+   - `TRANSLATION_MODEL` (default Haiku) — Arabic description translation fallback. Very narrow task; cheapest tier is enough.
+   - `RANKER_MODEL` (default Sonnet) — candidate ranking when prefix traversal returns multiple plausible matches. Needs comparison judgement; middle tier.
+   - `REASONER_MODEL` (default Opus) — full HS inference from a free-text description. Only runs when deterministic paths fail (~2.5% of rows). Strongest tier earns its cost here.
 
 4. **Confidence-gated output.** Every resolved HS code carries a confidence score. Below threshold = flagged for human review. Never silently output low-confidence results.
 
@@ -39,17 +42,16 @@ Follow this order strictly. Each file depends only on files above it.
 2. db/setup.py            — depends on config
 3. invoice_parser.py      — depends on config
 4. llm/base.py            — no dependencies
-5. llm/api_backend.py     — depends on base, config
-6. llm/local_backend.py   — depends on base, config
-7. hs_resolver.py         — depends on config, llm/*, db
-8. lookup_engine.py       — depends on config, db
-9. arabic_translation_engine.py — depends on config, llm/base, db
-10. xml_builder.py        — depends on config
-11. templates/declaration.xml.j2  — no code deps
-12. run.py                — depends on everything
-13. comparator.py         — depends on xml_builder
-14. db/write_verified.py  — depends on config, db
-15. tests/test_resolver.py — depends on hs_resolver
+5. llm/api_backend.py     — depends on base, config (Anthropic-only; V1 has no local backend)
+6. hs_resolver.py         — depends on config, llm/*, db
+7. lookup_engine.py       — depends on config, db
+8. arabic_translation_engine.py — depends on config, llm/base, db
+9. xml_builder.py         — depends on config
+10. templates/declaration.xml.j2  — no code deps
+11. run.py                — depends on everything
+12. comparator.py         — depends on xml_builder
+13. db/write_verified.py  — depends on config, db
+14. tests/test_resolver.py — depends on hs_resolver
 ```
 
 ---
@@ -66,9 +68,9 @@ Follow this order strictly. Each file depends only on files above it.
 ## LLM Prompt Rules
 
 - Always request JSON responses with `hs_code` and `confidence` fields
-- Ranker prompts: structured candidate list, ask for best match
-- Reasoner prompts: include description, GRI rules context, FAISS candidates
-- Arabic translation: use tariff-specific terminology, not casual translation
+- **Ranker** prompts: structured candidate list, ask for best match. Use `RANKER_MODEL` (Sonnet, middle tier).
+- **Reasoner** prompts: include description, GRI rules context, FAISS candidates, Naqel bucket hint. Use `REASONER_MODEL` (Opus, top tier).
+- **Arabic translation**: use tariff-specific terminology, not casual translation. Use `TRANSLATION_MODEL` (Haiku, cheapest tier) — this is a narrow task, no need for Sonnet or Opus.
 - Set temperature to 0 for deterministic outputs
 - Include system prompt establishing HS classification domain context
 

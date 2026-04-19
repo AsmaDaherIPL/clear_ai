@@ -5,17 +5,22 @@
 
 ---
 
-## Snapshot (updated 2026-04-16)
+## Snapshot (updated 2026-04-19)
 
 | Phase | Status | Progress |
 |-------|--------|----------|
 | Phase 1 — Foundation & Data Layer | ✅ Complete | 5/5 done |
-| Phase 2 — Resolution Engine | ⚪ Not started | 0/6 |
+| Phase 2 — Resolution Engine | ⚪ Not started | 0/8 |
 | Phase 3 — Output & CLI | ⚪ Not started | 0/5 |
 | Phase 4 — Testing & Hardening | ⚪ Not started | 0/4 |
-| **Overall** | | **5/20 tasks complete (25%)** |
+| **Overall** | | **5/22 tasks complete (23%)** |
 
 **Next up:** Phase 2.1 — `llm/base.py` (HSReasoner abstract interface).
+
+**V1 scope note (2026-04-19):** V1 is API-only (Anthropic). The earlier planned
+local/Ollama backend (task 2.3) has been cut — see ADR-004 and LESSONS.md entry
+"V1 goes API-only, drops local LLM backend". Flexibility comes from per-task
+model tiering (RANKER_MODEL vs REASONER_MODEL), not from swapping providers.
 
 ---
 
@@ -46,28 +51,31 @@ print('✓ PHASE 1.1 VERIFIED')
 
 ---
 
-### 1.2 Config module — ✅ **COMPLETE** (2026-04-16)
+### 1.2 Config module — ✅ **COMPLETE** (2026-04-16, revised 2026-04-19)
 - `config.py` — loads all settings via python-dotenv
-- Fails fast: missing `ANTHROPIC_API_KEY` when `LLM_BACKEND=api`, invalid `LLM_BACKEND` value, non-numeric floats
+- Fails fast: missing `ANTHROPIC_API_KEY`, non-numeric floats
+- Three-tier model split via env: `TRANSLATION_MODEL` (Haiku), `RANKER_MODEL` (Sonnet), `REASONER_MODEL` (Opus)
 - `BAYAN_CONSTANTS` dict (27 values from baseline XMLs) — broker info, declarationType, hardcoded defaults
 - `BAYAN_NAMESPACES` dict (7 XML namespace prefixes: decsub, deccm, sau, cm, deckey, xsi, xsd)
 - `describe()` helper for startup logging (no secrets leaked)
 - Relative paths resolved against project root, not cwd
 
+**2026-04-19 revision:** Dropped `LLM_BACKEND` / `OLLAMA_*` / `*_LOCAL_MODEL` vars
+(V1 is API-only). See ADR-004.
+
 **Verify (passed):**
 ```bash
-# Test 1: api backend without key → fails fast ✓
-ANTHROPIC_API_KEY= LLM_BACKEND=api python3 -c "import config"
-# Test 2: local backend → succeeds ✓
-LLM_BACKEND=local python3 -c "import config; print(config.describe())"
-# Test 3: api + key → succeeds ✓
-LLM_BACKEND=api ANTHROPIC_API_KEY=sk-test python3 -c "import config"
-# Test 4: invalid backend → fails fast ✓
-LLM_BACKEND=bogus python3 -c "import config"
-# Test 5: custom threshold → honored ✓
-LLM_BACKEND=local CONFIDENCE_THRESHOLD=0.85 python3 -c "import config"
+# Test 1: no API key → fails fast ✓
+ANTHROPIC_API_KEY= python3 -c "import config"
+# Test 2: API key set → succeeds ✓
+ANTHROPIC_API_KEY=sk-test python3 -c "import config; print(config.describe())"
+# Test 3: custom threshold → honored ✓
+ANTHROPIC_API_KEY=sk-test CONFIDENCE_THRESHOLD=0.85 python3 -c "import config"
+# Test 4: model overrides → honored ✓
+ANTHROPIC_API_KEY=sk-test REASONER_MODEL=claude-opus-4-7 python3 -c "import config; print(config.REASONER_MODEL)"
+ANTHROPIC_API_KEY=sk-test TRANSLATION_MODEL=claude-haiku-4-7 python3 -c "import config; print(config.TRANSLATION_MODEL)"
 ```
-**Result:** 27 BAYAN_CONSTANTS, 7 namespaces, all 5 validation paths work.
+**Result:** 27 BAYAN_CONSTANTS, 7 namespaces, fail-fast works.
 
 ---
 
@@ -179,10 +187,14 @@ print('Interface OK')
 
 ---
 
-### 2.2 API backend (Anthropic)
+### 2.2 API backend (Anthropic) — V1's only backend
 - `llm/api_backend.py` — implements HSReasoner using Anthropic SDK
-- `rank_candidates` uses Sonnet, `infer_hs_code` uses Opus
+- Three-tier model split (see ADR-004):
+  - `translate_to_arabic` → `TRANSLATION_MODEL` (Haiku — cheapest, narrow task)
+  - `rank_candidates`    → `RANKER_MODEL` (Sonnet — middle tier, comparison judgement)
+  - `infer_hs_code`      → `REASONER_MODEL` (Opus — top tier, hardest inference)
 - JSON structured output with `hs_code` + `confidence`
+- Local/Ollama backend was cut from V1 scope (see ADR-004). Reinstate only if a later deployment genuinely requires offline inference.
 
 **Verify:**
 ```bash
@@ -205,31 +217,7 @@ print('API Ranker OK')
 
 ---
 
-### 2.3 Local backend (Ollama)
-- `llm/local_backend.py` — implements HSReasoner using Ollama
-- Same prompts, different models
-
-**Verify:**
-```bash
-# Requires: ollama pull phi3-mini
-python -c "
-from llm.local_backend import LocalReasoner
-r = LocalReasoner()
-code, conf = r.rank_candidates(
-    candidates=[
-        {'hs_code': '620442000000', 'arabic_name': 'فساتين', 'description_en': 'womens dresses of cotton'},
-        {'hs_code': '620443000000', 'arabic_name': 'فساتين', 'description_en': 'womens dresses of synthetic fibres'}
-    ],
-    description='ladies cotton dress casual wear'
-)
-print(f'Ranked: {code} @ {conf}')
-print('Local Ranker OK')
-"
-```
-
----
-
-### 2.4a Resolver — Path 1: Ledger lookup
+### 2.3 Resolver — Path 1: Ledger lookup
 - Implement `resolve()` with ledger path only
 - Exact match on (client_id, normalized_code) returns confidence 1.0
 
@@ -254,7 +242,7 @@ print('PATH 1 LEDGER OK')
 
 ---
 
-### 2.4b Resolver — Path 2: Direct 12-digit lookup
+### 2.4 Resolver — Path 2: Direct 12-digit lookup
 - 12-digit code found in hs_code_master = confidence 0.98
 - 12-digit code NOT found = fall through to Path 4
 
@@ -272,7 +260,7 @@ print('PATH 2 DIRECT OK')
 
 ---
 
-### 2.4c Resolver — Path 3: Prefix traversal + Ranker
+### 2.5 Resolver — Path 3: Prefix traversal (longest-prefix-wins)
 - 4-11 digit code, find candidates by prefix in master
 - 1 candidate = deterministic (0.95)
 - 2-15 candidates = call Ranker
@@ -293,7 +281,7 @@ print('PATH 3 PREFIX OK')
 
 ---
 
-### 2.4d Resolver — Path 4: Reasoner (FAISS + LLM)
+### 2.6 Resolver — Path 4: Reasoner (FAISS + LLM)
 - Build search text from Description + ChineseDescription + SKU
 - FAISS top-10 candidates → Reasoner LLM call
 - Returns inferred code with confidence
@@ -313,7 +301,7 @@ print('PATH 4 REASONER OK')
 
 ---
 
-### 2.5 Lookup engine
+### 2.7 Lookup engine
 - `lookup_engine.py` — currency, city, source company, country origin, transport type, doc ref
 - Each lookup independently testable
 
@@ -338,8 +326,9 @@ print('LOOKUPS OK')
 
 ---
 
-### 2.6 Arabic translation engine
-- `arabic_translation_engine.py` — resolve Arabic name from master, fallback to LLM translation
+### 2.8 Arabic translation engine
+- `arabic_translation_engine.py` — resolve Arabic name from master, fallback to LLM translation on `TRANSLATION_MODEL` (Haiku)
+- Narrow tariff-terminology translation, not casual translation. Cheapest tier handles this reliably.
 
 **Verify:**
 ```bash

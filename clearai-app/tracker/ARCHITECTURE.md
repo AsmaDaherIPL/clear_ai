@@ -1,14 +1,15 @@
 # ClearAI — Architecture Decision Record
 
-## ADR-001: Local-first Python CLI
+## ADR-001: Single-machine Python CLI
 
-**Decision:** Build as a Python CLI with no server, no UI, no cloud dependency at runtime.
+**Decision:** Build V1 as a Python CLI with no server, no UI. Data processing and storage are local to the developer's machine; the only external dependency at runtime is the Anthropic API for LLM inference.
 
-**Context:** The tool is for internal customs operations. It processes merchant invoice files and outputs ZATCA-compliant XML. The operators run it locally on their machines.
+**Context:** The tool is for internal customs operations. It processes merchant invoice files and outputs ZATCA-compliant XML. The operators run it locally on their machines. V1 is not an offline/air-gapped deployment — it assumes outbound internet for the API. A future multi-tenant deployment will sit behind an Azure Functions Python runtime with a REST boundary.
 
 **Consequences:**
-- All data stays local (compliance-friendly)
-- No infrastructure to maintain
+- Data files, SQLite, and generated XML stay on the operator's machine
+- Only LLM requests leave the box (to Anthropic, with region-appropriate routing as compliance requires)
+- No infrastructure to maintain for V1
 - Easy to distribute and run
 - No real-time collaboration features
 
@@ -47,17 +48,27 @@
 
 ---
 
-## ADR-004: Pluggable LLM backend
+## ADR-004: API-only LLM with per-task model tiering (V1)
 
-**Decision:** Abstract LLM calls behind `HSReasoner` interface with API and local implementations.
+**Decision:** V1 is API-only (Anthropic). No local/Ollama backend. The `HSReasoner` interface exposes a single Anthropic-backed implementation. Flexibility comes from a **three-tier model split**, matching each LLM task to the smallest model that does it well:
 
-**Context:** Need to support both cloud APIs (Anthropic) for production accuracy and local models (Ollama) for offline/development use.
+- `TRANSLATION_MODEL` (default: **Haiku**) — Arabic description translation fallback when the master table has no Arabic name. Very narrow task, runs often. Cheapest tier.
+- `RANKER_MODEL` (default: **Sonnet**) — candidate ranking when prefix traversal returns multiple plausible matches. Needs comparison judgement. Middle tier.
+- `REASONER_MODEL` (default: **Opus**) — full HS classification from a free-text description, with FAISS candidates + Naqel bucket hint as evidence. Only runs when deterministic paths fail (~2.5% of rows). Strongest tier earns its cost here.
+
+**Context:** An earlier draft planned both API and local (Ollama) backends. The rationale was offline/on-prem deployment and data residency. Neither is a real V1 requirement — the tool is not shipped for air-gapped operation, and data residency is solved at the API-vendor layer (regional endpoints / Bedrock) more cleanly than by hosting open-source models on a separate rig. Running a local inference server adds real operational complexity (GPU provisioning, model pulls, warm-keeping) and the accuracy ceiling of an open-source 70B model is genuinely below Opus on the hardest classification cases. Dropping local inference removes complexity, doesn't compromise any real requirement, and lets us pick the right model per task independently.
+
+The three-tier split (vs a simpler two-tier "cheap Ranker / strong Reasoner") exists because translation is meaningfully narrower than ranking. Haiku handles "translate 'cotton blouse' to Arabic tariff terminology" reliably at roughly an order of magnitude lower cost than Sonnet. Running translation on Sonnet would work, but it would be paying a Sonnet price for a Haiku-class task on what is likely the most frequently-called LLM site in the pipeline.
+
+**What we explicitly did NOT do (and why):**
+- **Confidence-based routing** ("Haiku first, escalate to Sonnet if unsure"): attractive on paper but in practice doubles the call count on ambiguous rows, requires calibrating a confidence threshold on a model known to be overconfident, and adds retry/latency complexity. Revisit only if real cost data from V1 runs justifies it.
+- **Content-based routing** (heuristic picks the model): hand-written "is this easy?" rules are exactly what LLMs are supposed to do for you. Would be brittle.
 
 **Consequences:**
-- Resolution logic is backend-agnostic
-- Can switch backends via env var
-- Local dev doesn't require API keys
-- Different accuracy/speed tradeoffs per backend
+- No `llm/local_backend.py`, no `ollama` dependency, no `LLM_BACKEND` switch
+- Three env vars (`TRANSLATION_MODEL`, `RANKER_MODEL`, `REASONER_MODEL`) — one per task, each defaulting to the right tier
+- Each LLM call site in the code picks the right model by task, no dynamic routing logic
+- If a future deployment genuinely needs offline inference, the `HSReasoner` interface still supports a second implementation — we'd reinstate local as a separate, justified decision then, not as speculative insurance now
 
 ---
 
