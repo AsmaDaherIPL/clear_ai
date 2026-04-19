@@ -17,6 +17,8 @@ data/Baseline XML output/
 output/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 hs_master_faiss.index
 hs_codes.json
 *.log

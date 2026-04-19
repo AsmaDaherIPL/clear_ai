@@ -126,3 +126,71 @@ The three-tier split (vs a simpler two-tier "cheap Ranker / strong Reasoner") ex
 **What this rules out:**
 - Treating ledger lookups as 1.0-confidence outputs
 - Defaulting to Naqel's bucket code when the description clearly indicates a different chapter
+
+## ADR-008: Hexagonal (ports-and-adapters) layout inside clearai-backend
+
+**Decision:** The backend is organised as a strict hexagonal architecture with a single inward-pointing dependency direction. Core domain logic is a Python package (`clearai/`) that knows nothing about HTTP, CLIs, or LLM providers. Integration surfaces (`api/`, `cli/`) and concrete provider implementations (`clearai/adapters/`) sit outside the core and depend on it through explicit interfaces (`clearai/ports/`).
+
+**Context:** The Phase 2 layout had every module (`config.py`, `hs_resolver.py`, `lookup_engine.py`, `llm/api_backend.py`, …) sitting flat at the repo root. That worked for a CLI-only prototype but blocked everything downstream: a FastAPI surface, a future Azure AI Foundry backend, batch-mode CLI entry points, and test isolation all wanted to import into the flat tree in incompatible ways. When the user asked for a web UI in Migration V1, the choice was either bolt FastAPI onto the flat tree (guaranteeing an eventual big-ball-of-mud rewrite) or take one disruptive commit now to install real boundaries.
+
+**Layout:**
+
+```
+clearai-backend/
+├── clearai/                        ← the core; no framework imports
+│   ├── config.py
+│   ├── domain/                     pure types (reserved)
+│   ├── ports/                      abstract interfaces
+│   │   └── reasoner.py             HSReasoner, Candidate, RankerInput,
+│   │                               ReasonerInput, ReasonerResult, ReasonerError
+│   ├── adapters/                   concrete implementations of ports
+│   │   └── anthropic_reasoner.py   AnthropicReasoner (V1 only impl)
+│   ├── services/                   orchestration over ports + DB + FAISS
+│   │   ├── hs_resolver.py
+│   │   ├── lookup_engine.py
+│   │   └── arabic_translation_engine.py
+│   ├── parsing/                    invoice intake
+│   │   └── invoice_parser.py
+│   ├── rendering/                  Bayan XML builder (Phase 3; stub)
+│   └── data_setup/                 one-time DB + FAISS builders
+│       ├── setup.py
+│       └── build_faiss.py
+├── api/                            ← FastAPI surface (outside the core)
+├── cli/                            ← CLI entry points (outside the core)
+└── tests/
+    ├── unit/
+    ├── integration/
+    └── api/
+```
+
+**Import rules (enforced by import-linter in CI):**
+
+1. `api/` and `cli/` MAY import from `clearai.*`.
+   `clearai.*` MUST NEVER import from `api/` or `cli/`.
+2. Within `clearai/`, dependencies point inward only:
+   - `services/` may import from `ports/`, `domain/`, `config`, `parsing/`.
+   - `adapters/` may import from `ports/`, `domain/`, `config`.
+   - `ports/` may import from `domain/` only — NEVER from `adapters/` or `services/`.
+   - `domain/` imports from nothing inside the project.
+3. `data_setup/` is an isolated outer ring: it may import from `config` and nothing else in `clearai/`. It is invoked once at bootstrap via `python -m clearai.data_setup.{setup,build_faiss}`; services never import from it.
+4. Tests may import from anywhere. Tests have no architectural privileges; they are free to reach in so they can exercise any layer in isolation.
+
+**Why this specific shape:**
+- **Swappable reasoner:** a future Azure AI Foundry or local-inference backend is a new file in `adapters/`. Services don't move. No PR touching `hs_resolver.py` has ever shipped just because a vendor changed.
+- **Swappable surface:** FastAPI today, a gRPC service or a SQS worker tomorrow — all new code lands in sibling folders of `api/`. The core is reused verbatim.
+- **Testable core:** the services package has zero HTTP / CLI / vendor dependencies, so unit tests run in milliseconds with stubbed `HSReasoner` and an in-memory SQLite.
+- **No import cycles, by construction:** the dependency direction is a DAG, so circular imports can't happen without the linter screaming.
+
+**Enforcement mechanism:** `import-linter` (declared in `[project.optional-dependencies].dev`) runs against the contract file `.importlinter` at the repo root. `lint-imports` is a required CI check before merge. Violations fail the build; the contract file is the single source of truth for the rules above.
+
+**Consequences:**
+- Every new module is born in exactly one of: `ports/`, `adapters/`, `services/`, `parsing/`, `rendering/`, `data_setup/`, `api/`, `cli/`, or `tests/`. If it doesn't fit, the module is doing two jobs and must be split.
+- Adding a second LLM provider is a two-file change: one new adapter, one config switch. The resolver does not change.
+- `config.py` is intentionally at the package root (not in `domain/`) because it reads environment variables — a side effect `domain/` must not own.
+- The data dataclasses (`Candidate`, `ReasonerInput`, `ReasonerResult`, …) live in `ports/reasoner.py` rather than `domain/` for V1. Rationale: they only exist as the data shape crossing the `HSReasoner` interface. If a second port emerges and these shapes are shared, they migrate to `domain/` — but speculative splitting would cost import ceremony for zero payoff today.
+
+**What this rules out:**
+- Importing FastAPI, Typer, Uvicorn, or any transport concern anywhere under `clearai/`.
+- Instantiating `AnthropicReasoner` (or any adapter class) inside `services/`. Services receive an `HSReasoner` via dependency injection; they never name a concrete implementation.
+- Adding "just one" utility file at the `clearai-backend/` root. Every file has a layer.
+- Sys.path manipulation. All execution uses either the installed editable package or `python -m clearai.<module>`.
