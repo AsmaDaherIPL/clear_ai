@@ -86,3 +86,32 @@
 - Human reviewers focus only on flagged items
 - Verified corrections feed back into the ledger (ADR-003, path 1)
 - Threshold is configurable per deployment
+
+---
+
+## ADR-007: ClearAI is a precise HS classifier; Naqel's ledger is a hint, not an oracle
+
+**Decision:** Treat the product as a precise HS classification tool (analogous to Zonos' HS/HTS lookup). The Naqel `hs_decision_ledger` is an **input signal** — one evidence stream among several — not the authoritative output.
+
+**Context:** Initial framing treated Naqel's ledger as either (a) "human-corrected mappings" (wrong — it's automated) or (b) the authoritative bucket-map that defines ClearAI's output space (also wrong — that collapses us into a re-implementation of Naqel's operational shortcut). The user clarified: the product's job is to resolve a merchant's incomplete/ambiguous HS code into the **correct** 12-digit Saudi ZATCA code. Naqel's ledger encodes an operational bucket-mapping used for consolidated express/e-commerce clearance — useful as a hint when precise classification is ambiguous, but not the end goal.
+
+**Signal hierarchy (inputs to the Reasoner):**
+1. Merchant's declared code (may be partial, wrong jurisdiction, or HS-6 international)
+2. Product description (EN / AR / CN if present)
+3. FAISS semantic candidates from ZATCA tariff master (ground truth of valid Saudi codes)
+4. Prefix-traversal candidates (longest-prefix-wins against master)
+5. **Naqel ledger bucket hint** — "for items like this, Naqel historically declares code X" (advisory, not authoritative)
+6. Duty-rate and description coherence across candidates
+
+**Output:** a precise 12-digit Saudi code with confidence score. When the Reasoner's top candidate disagrees with the Naqel bucket, both are surfaced; reviewer decides.
+
+**Consequences:**
+- The 4-path resolver no longer short-circuits on ledger match. Ledger is a **prior**, not a gate.
+- Path 1 ("ledger hit") becomes "ledger-consistent classification": if the merchant code maps to a bucket, and FAISS/prefix agree the bucket is plausible for the description, confidence goes up. Disagreement triggers the Reasoner.
+- Reasoner prompt explicitly names the ledger hint as one of several evidence streams, not as the answer key.
+- Confidence scoring reflects **classification correctness**, with agreement-with-Naqel as a secondary signal.
+- Review queue surfaces cases where correct-classification and Naqel-bucket diverge — these are the highest-value human-review items.
+
+**What this rules out:**
+- Treating ledger lookups as 1.0-confidence outputs
+- Defaulting to Naqel's bucket code when the description clearly indicates a different chapter
