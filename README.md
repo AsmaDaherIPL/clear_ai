@@ -1,8 +1,7 @@
 # ClearAI
 
-Resolves merchant invoice line items into precise 12-digit Saudi ZATCA HS codes
-with WCO-grounded justifications and a FAISS evidence trail. This repo is a
-monorepo split into three deployable apps plus a CI pipeline.
+Resolves merchant invoice line items into precise 12-digit Saudi ZATCA HS codes.
+ This repo is a monorepo split into three deployable apps plus a CI pipeline.
 
 ## Repo layout
 
