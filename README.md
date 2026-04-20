@@ -10,21 +10,14 @@ GitHub Actions. Holds the Cloudflare deploy workflow (`deploy.yml`) that auto-sh
 the wiki (and later the frontend) to Cloudflare Pages on every push to `main`.
 
 ### `clearai-wiki/`
-The public documentation site. Static docs + architecture notes, deployed to
-Cloudflare Pages. This is what end-users and reviewers read to understand the
-system.
-
+App documentation site — static docs and architecture notes. Hosted on Cloudflare Pages and gated by Cloudflare Zero Trust Access, which puts an authentication wall in front of the site. Access is currently restricted to emails from the @ipl, @splonline, and @microsoft domains.
 ### `clearai-frontend/`
-The classification UI — an Astro + React island styled with Tailwind. Talks to
-the backend API (`:8787`) and renders the HS code, 7-section justification,
-and FAISS evidence table. Deploys to Cloudflare Pages.
+Lightweight demo UI for exercising the classifier end-to-end. Built on Astro + React, input is free-text product description or not complete HS code to the backend API and renders the returned HS code alongside its W justification. Deployed to Cloudflare Pages.
+
 
 ### `clearai-backend/`
-The Python brain. Hexagonal architecture: `clearai/` is the core (domain,
-ports, adapters, services, parsing, rendering, data setup), with `api/` exposing
-a FastAPI surface, `cli/` for batch scripts, `tests/` for the test pyramid, and
-`tracker/` holding the ADRs, build progress, and architecture rules enforced
-by import-linter.
+The Python brain that does the actual classification work. The clearai/ package is the core engine — business logic, data access, and LLM integration. 
+Around it sit the supporting services: api/ (a FastAPI server exposing the engine over HTTPs), tests/, and tracker/ (architecture decisions and build progress).
 
 ---
 
