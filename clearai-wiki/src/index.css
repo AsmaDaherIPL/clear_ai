@@ -1,8 +1,39 @@
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500;600&family=Noto+Naskh+Arabic:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ============================================================
+   ClearAI v5 design tokens — shared with clearai-frontend.
+   Warm paper neutrals with a bold orange gradient accent.
+   ============================================================ */
+:root {
+  --bg:        #FAFAFA;
+  --paper:     #FFFFFF;
+  --paper-2:   #F5F5F4;
+  --ink:       #151516;
+  --ink-2:     #2B2B2D;
+  --mute-1:    #7C7C7F;
+  --mute-2:    #A6A8AC;
+  --mute-3:    #D4D6D8;
+  --line:      #E8E9EA;
+  --line-2:    #F0F1F2;
+  --orange-1:     #EA6A1F;
+  --orange-2:     #94421C;
+  --orange-wash:  #FDEFE5;
+  --orange-wash-2:#FBE3D1;
+  --grad:       linear-gradient(135deg, #EA6A1F 0%, #94421C 100%);
+  --grad-soft:  linear-gradient(135deg, rgba(234,106,31,.10), rgba(148,66,28,.08));
+  --ok:      #2E7D57;
+  --ok-wash: #E6F1EC;
+
+  /* legend / tier colors used in Reference page (HS Code anatomy) */
+  --gold:   #94421C;
+  --orange: #EA6A1F;
+  --blue:   #2B2B2D;
+  --green:  #2E7D57;
+}
 
 @layer base {
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -10,31 +41,26 @@
   html { scroll-behavior: smooth; }
 
   body {
-    background: #f8f9fc;
-    color: #0E1729;
-    font-family: 'Lora', Georgia, serif;
-    font-size: 15px;
-    line-height: 1.75;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'FK Grotesk', 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
-  /* Grain overlay */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 9999;
-    opacity: .06;
-  }
+  ::selection { background: var(--orange-wash); color: var(--orange-2); }
 
   ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: #f8f9fc; }
-  ::-webkit-scrollbar-thumb { background: #2d5a8e; border-radius: 2px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--orange-1); border-radius: 2px; }
 
   [id] { scroll-margin-top: 80px; }
+
+  /* focus ring matches frontend */
+  *:focus-visible { outline: 2px solid var(--orange-1); outline-offset: 2px; border-radius: 3px; }
 }
 
 @layer components {
@@ -43,7 +69,7 @@
     position: absolute;
     top: -1px; left: -100%;
     width: 40%; height: 3px;
-    background: linear-gradient(90deg, transparent, #2d5a8e, transparent);
+    background: linear-gradient(90deg, transparent, var(--orange-1), transparent);
     animation: flow-right 3s linear infinite;
     opacity: 0.5;
   }
@@ -52,7 +78,7 @@
     position: absolute;
     left: -1px; top: -40%;
     width: 4px; height: 40%;
-    background: linear-gradient(180deg, transparent, #1e3a5f, transparent);
+    background: linear-gradient(180deg, transparent, var(--orange-2), transparent);
     animation: flow-down 2s linear infinite;
   }
 
@@ -60,7 +86,7 @@
     position: absolute;
     left: -1px; top: -40%;
     width: 4px; height: 40%;
-    background: linear-gradient(180deg, transparent, #1e3a5f, transparent);
+    background: linear-gradient(180deg, transparent, var(--orange-2), transparent);
     animation: flow-down 1.5s linear infinite;
   }
 }

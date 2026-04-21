@@ -108,11 +108,11 @@ function V2Panel() {
   return (
     <div
       className="rounded-2xl p-6 sm:p-12 text-center"
-      style={{ background: 'linear-gradient(135deg, rgba(167,139,250,.05), rgba(96,165,250,.04))', border: '1px dashed rgba(109,40,217,.3)' }}
+      style={{ background: 'linear-gradient(135deg, rgba(234,106,31,.06), rgba(148,66,28,.04))', border: '1px dashed rgba(148,66,28,.30)' }}
     >
       <span
-        className="inline-block font-mono text-[.62rem] text-purple px-[.7rem] py-[.25rem] rounded mb-4 tracking-[.14em] uppercase"
-        style={{ background: 'rgba(167,139,250,.1)', border: '1px solid rgba(167,139,250,.3)' }}
+        className="inline-block font-mono text-[.62rem] text-accent px-[.7rem] py-[.25rem] rounded mb-4 tracking-[.14em] uppercase"
+        style={{ background: '#FDEFE5', border: '1px solid #FBE3D1' }}
       >
         Coming next
       </span>

@@ -20,15 +20,15 @@ function HSAnatomy() {
       <div>
         {/* Layer labels */}
         <div className="hidden sm:flex gap-3 mb-1">
-          <div className="flex-[3] text-center font-mono text-[.62rem] uppercase tracking-[.1em] font-semibold text-text px-2 py-1.5 rounded" style={{ background: 'rgba(14,23,41,.05)' }}>
+          <div className="flex-[3] text-center font-mono text-[.62rem] uppercase tracking-[.1em] font-semibold text-text px-2 py-1.5 rounded" style={{ background: '#FDEFE5' }}>
             WCO Harmonized System · digits 1–6
           </div>
           <div className="w-4" />
-          <div className="flex-1 text-center font-mono text-[.62rem] uppercase tracking-[.1em] font-semibold text-text px-2 py-1.5 rounded" style={{ background: 'rgba(45,90,142,.06)' }}>
+          <div className="flex-1 text-center font-mono text-[.62rem] uppercase tracking-[.1em] font-semibold text-text px-2 py-1.5 rounded" style={{ background: '#F5F5F4' }}>
             GCC · 7–8
           </div>
           <div className="w-4" />
-          <div className="flex-[2] text-center font-mono text-[.62rem] uppercase tracking-[.1em] font-semibold text-text px-2 py-1.5 rounded" style={{ background: 'rgba(10,122,82,.06)' }}>
+          <div className="flex-[2] text-center font-mono text-[.62rem] uppercase tracking-[.1em] font-semibold text-text px-2 py-1.5 rounded" style={{ background: '#E6F1EC' }}>
             Saudi Local · digits 9–12
           </div>
         </div>
@@ -37,17 +37,17 @@ function HSAnatomy() {
         <div className="overflow-x-auto -mx-1 px-1">
         <div className="flex gap-2 mb-6 min-w-[480px]">
           {/* WCO 6 digits */}
-          <div className="flex-[3] flex rounded-xl overflow-hidden border border-[rgba(14,23,41,.18)]">
+          <div className="flex-[3] flex rounded-xl overflow-hidden border border-[#E8E9EA]">
             {HS_ANATOMY.layers.map((item, i) => {
-              const colors = ['var(--gold)', 'var(--orange)', '#2d5a8e'];
-              const bgs = ['#f0f3f8', '#eaeff5', '#e4ebf3'];
+              const colors = ['#94421C', '#EA6A1F', '#2B2B2D'];
+              const bgs = ['#FDEFE5', '#FBE3D1', '#F5F5F4'];
               return (
                 <div
                   key={item.digits}
                   className="flex-1 px-4 py-3"
                   style={{
                     background: bgs[i],
-                    borderRight: i < 2 ? '1px solid rgba(14,23,41,.12)' : undefined,
+                    borderRight: i < 2 ? '1px solid #E8E9EA' : undefined,
                   }}
                 >
                   <div className="font-mono text-[1.2rem] font-bold" style={{ color: colors[i], letterSpacing: '.06em' }}>{item.digits}</div>
@@ -58,16 +58,16 @@ function HSAnatomy() {
             })}
           </div>
           {/* GCC */}
-          <div className="flex-1 rounded-xl overflow-hidden border" style={{ borderColor: 'rgba(29,78,216,.25)' }}>
-            <div className="px-4 py-3" style={{ background: '#f0f4ff' }}>
-              <div className="font-mono text-[1.2rem] font-bold text-blue" style={{ letterSpacing: '.06em' }}>{HS_ANATOMY.gcc.digits}</div>
+          <div className="flex-1 rounded-xl overflow-hidden border" style={{ borderColor: '#E8E9EA' }}>
+            <div className="px-4 py-3" style={{ background: '#F5F5F4' }}>
+              <div className="font-mono text-[1.2rem] font-bold" style={{ letterSpacing: '.06em', color: '#2B2B2D' }}>{HS_ANATOMY.gcc.digits}</div>
               <div className="text-[.72rem] text-muted mt-1">{HS_ANATOMY.gcc.label}</div>
               <div className="font-mono text-[.62rem] text-dim mt-0.5">{HS_ANATOMY.gcc.sub}</div>
             </div>
           </div>
           {/* Saudi */}
-          <div className="flex-[2] rounded-xl overflow-hidden border" style={{ borderColor: 'rgba(10,122,82,.25)' }}>
-            <div className="px-4 py-3" style={{ background: '#edf7f2' }}>
+          <div className="flex-[2] rounded-xl overflow-hidden border" style={{ borderColor: 'rgba(46,125,87,.25)' }}>
+            <div className="px-4 py-3" style={{ background: '#E6F1EC' }}>
               <div className="font-mono text-[1.2rem] font-bold text-green" style={{ letterSpacing: '.06em' }}>{HS_ANATOMY.saudi.digits}</div>
               <div className="text-[.72rem] text-muted mt-1">{HS_ANATOMY.saudi.label}</div>
               <div className="font-mono text-[.62rem] text-dim mt-0.5">{HS_ANATOMY.saudi.sub}</div>
@@ -82,7 +82,7 @@ function HSAnatomy() {
           <div className="bg-surface border border-border rounded-lg px-3 py-1.5 inline-flex gap-0 items-center">
             <span className="font-mono text-[.95rem] font-bold" style={{ color: 'var(--gold)' }}>85</span>
             <span className="font-mono text-[.95rem] font-bold text-orange">17</span>
-            <span className="font-mono text-[.95rem] font-bold" style={{ color: '#2d5a8e' }}>12</span>
+            <span className="font-mono text-[.95rem] font-bold" style={{ color: '#2B2B2D' }}>12</span>
             <span className="font-mono text-[.95rem] text-dim mx-1">·</span>
             <span className="font-mono text-[.95rem] font-bold text-blue">10</span>
             <span className="font-mono text-[.95rem] text-dim mx-1">·</span>
@@ -110,10 +110,10 @@ function HSAnatomy() {
 
 // ── Source type styles ─────────────────────────────────────
 const sourceColorStyles: Record<string, { bg: string; border: string; color: string }> = {
-  blue:   { bg: 'rgba(29,78,216,.08)', border: 'rgba(29,78,216,.2)', color: 'var(--blue)' },
-  gray:   { bg: 'rgba(107,114,144,.1)', border: 'var(--border)',      color: 'var(--muted)' },
-  orange: { bg: 'rgba(251,146,60,.1)',  border: 'rgba(251,146,60,.3)', color: '#c2440e' },
-  green:  { bg: 'rgba(52,211,153,.1)',  border: 'rgba(52,211,153,.3)', color: '#0a7a52' },
+  blue:   { bg: '#F5F5F4',                border: '#E8E9EA',                color: '#2B2B2D' },
+  gray:   { bg: '#F5F5F4',                border: '#E8E9EA',                color: '#7C7C7F' },
+  orange: { bg: '#FDEFE5',                border: '#FBE3D1',                color: '#94421C' },
+  green:  { bg: '#E6F1EC',                border: 'rgba(46,125,87,.30)',    color: '#2E7D57' },
 };
 
 // ── Page ──────────────────────────────────────────────────
@@ -174,7 +174,7 @@ export default function Reference() {
                 </div>
                 {a.note && (
                   <div className="mt-auto pt-3 border-t border-border text-[.76rem] text-muted leading-[1.5]"
-                    style={{ background: 'rgba(29,78,216,.05)', border: '1px solid rgba(29,78,216,.15)', borderRadius: '8px', padding: '.7rem .9rem' }}>
+                    style={{ background: '#FDEFE5', border: '1px solid #FBE3D1', borderRadius: '8px', padding: '.7rem .9rem' }}>
                     <strong>Note:</strong> {a.note}
                   </div>
                 )}

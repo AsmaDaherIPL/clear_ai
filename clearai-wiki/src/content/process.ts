@@ -122,9 +122,9 @@ export const HS_CODE_SECTION = {
 };
 
 export const HS_QUALITY_ROWS = [
-  { label: 'Complete 12-digit code', count: '296,749', pct: '83.9%', color: '#0a7a52' },
-  { label: 'Short code (4–11 digits)', count: '48,119', pct: '13.6%', color: '#c2440e' },
-  { label: 'No HS code or <4 digits', count: '8,754', pct: '2.5%', color: '#c0392b' },
+  { label: 'Complete 12-digit code', count: '296,749', pct: '83.9%', color: '#2E7D57' },
+  { label: 'Short code (4–11 digits)', count: '48,119', pct: '13.6%', color: '#EA6A1F' },
+  { label: 'No HS code or <4 digits', count: '8,754', pct: '2.5%', color: '#94421C' },
 ];
 
 export const ALGO_STEPS = [
@@ -175,21 +175,21 @@ export const WARNINGS = [
 export const AI_OPPORTUNITIES = [
   {
     pct: '83.9%',
-    color: '#0a7a52',
+    color: '#2E7D57',
     title: 'Complete 12-digit code',
     today: 'Normalised and passed through as-is. No validation against the item description. ZATCA does not auto-reject mismatches — but customs staff may manually reject in rare cases (confirmed by Naqel team).',
     ai: "Pre-submission validation — cross-check the code against the item description and flag mismatches before ZATCA submission. This catches the silent errors the current system cannot detect.",
   },
   {
     pct: '13.6%',
-    color: '#c2440e',
+    color: '#EA6A1F',
     title: 'Short code (4–11 digits)',
     today: "Prefix algorithm (Steps 1–5 above) finds candidates in HSCodeMaster, picks the first match by table order. Item description is ignored. If 5 valid leaf codes share the same prefix, the algorithm always picks the first — regardless of what the item actually is.",
     ai: "Disambiguation — AI reads the item description and selects the correct leaf code instead of defaulting to table order. e.g. client sends `62046200`, system finds 5 matches (trousers, shorts, overalls…) — AI picks the right one.",
   },
   {
     pct: '2.5%',
-    color: '#c0392b',
+    color: '#94421C',
     title: 'No HS code or <4 digits',
     today: "The gateway team identifies the closest HS code based on the goods description — and in rare cases physically inspects the item. The code is submitted directly through the ZATCA portal, **bypassing InfoTrack entirely**. The corrected code lives only in ZATCA/Bayan and is never written back upstream. For LV shipments, the fallback code `980300000001` is used instead.",
     ai: 'Classification from scratch — AI classifies from the item description alone, eliminating the manual gateway portal workaround and keeping the corrected code in the data pipeline.',

@@ -54,24 +54,24 @@ function HVLVCard({
         className="rounded-2xl p-5 sm:p-8 border"
         style={{
           background: isHV
-            ? 'linear-gradient(135deg, rgba(14,23,41,.05) 0%, #fff 60%)'
-            : 'linear-gradient(135deg, rgba(52,211,153,.06) 0%, #fff 60%)',
-          borderColor: isHV ? 'rgba(30,58,95,.2)' : 'rgba(52,211,153,.25)',
+            ? 'linear-gradient(135deg, rgba(234,106,31,.07) 0%, #fff 60%)'
+            : 'linear-gradient(135deg, rgba(46,125,87,.07) 0%, #fff 60%)',
+          borderColor: isHV ? '#FBE3D1' : 'rgba(46,125,87,.25)',
         }}
       >
         <span
           className="inline-flex items-center gap-1 font-mono text-[.72rem] tracking-[.08em] uppercase px-[.7rem] py-[.25rem] rounded-md mb-4"
           style={
             isHV
-              ? { background: 'rgba(14,23,41,.06)', color: '#1e3a5f', border: '1px solid rgba(30,58,95,.2)' }
-              : { background: 'rgba(52,211,153,.1)', color: '#0a7a52', border: '1px solid rgba(52,211,153,.25)' }
+              ? { background: '#FDEFE5', color: '#94421C', border: '1px solid #FBE3D1' }
+              : { background: '#E6F1EC', color: '#2E7D57', border: '1px solid rgba(46,125,87,.25)' }
           }
         >
           {badge}
         </span>
         <div
           className="font-mono text-[1.4rem] sm:text-[1.8rem] font-bold mb-1"
-          style={{ color: isHV ? '#1e3a5f' : '#0a7a52' }}
+          style={{ color: isHV ? '#94421C' : '#2E7D57' }}
         >
           {threshold}
         </div>
@@ -98,7 +98,7 @@ function ChannelCard({
   fields: { name: string; val: string; status: 'req' | 'miss' | 'opt' }[];
   delay?: number;
 }) {
-  const statusColor = { req: '#1e3a5f', miss: '#c0392b', opt: '#546178' };
+  const statusColor = { req: '#94421C', miss: '#94421C', opt: '#7C7C7F' };
   const statusLabel = { req: '✓', miss: '✗ absent', opt: 'opt' };
 
   return (
@@ -106,7 +106,7 @@ function ChannelCard({
       <div className="bg-card border border-border rounded-2xl p-5 sm:p-8 h-full transition-[border-color] duration-300 hover:border-accent">
         <div
           className="inline-flex items-center gap-2 font-mono text-[.72rem] tracking-[.08em] uppercase px-3 py-[.3rem] rounded-md mb-4"
-          style={{ background: 'rgba(14,23,41,.06)', border: '1px solid rgba(30,58,95,.2)', color: '#1e3a5f' }}
+          style={{ background: '#FDEFE5', border: '1px solid #FBE3D1', color: '#94421C' }}
         >
           {badge}
         </div>
@@ -137,7 +137,7 @@ function EngineBox() {
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
         {ENGINE_STEPS.map((s, i) => (
           <Reveal key={s.num} delay={i * 70}>
-            <div className="bg-surface border border-border rounded-xl px-4 py-5 text-center transition-all duration-300 hover:border-accent hover:bg-[rgba(14,23,41,.04)]">
+            <div className="bg-surface border border-border rounded-xl px-4 py-5 text-center transition-all duration-300 hover:border-accent hover:bg-[rgba(234,106,31,.06)]">
               <div className="font-mono text-[1.1rem] text-dim font-bold mb-1">{s.num}</div>
               <div className="font-sans text-[.85rem] font-semibold text-text mb-1">{s.name}</div>
               <div className="text-[.74rem] text-muted leading-[1.5]">{s.desc}</div>
@@ -173,10 +173,10 @@ function HSQualityTable() {
 
 // ── ZATCA XML ─────────────────────────────────────────────
 const sourceStyles: Record<FieldSource, { bg: string; border: string; color: string; label: string }> = {
-  client:  { bg: 'rgba(96,165,250,.1)',   border: 'rgba(96,165,250,.25)',  color: '#1d4ed8', label: 'client' },
-  derived: { bg: 'rgba(167,139,250,.1)',  border: 'rgba(167,139,250,.25)', color: '#6d28d9', label: 'derived' },
-  fixed:   { bg: 'rgba(107,113,144,.15)', border: '#d8dce8',               color: '#546178', label: 'fixed' },
-  mapped:  { bg: 'rgba(14,23,41,.06)',    border: 'rgba(30,58,95,.2)',      color: '#1e3a5f', label: 'mapped' },
+  client:  { bg: '#FDEFE5',                border: '#FBE3D1',                color: '#94421C', label: 'client' },
+  derived: { bg: 'rgba(234,106,31,.10)',   border: 'rgba(234,106,31,.25)',   color: '#94421C', label: 'derived' },
+  fixed:   { bg: '#F5F5F4',                border: '#E8E9EA',                color: '#7C7C7F', label: 'fixed' },
+  mapped:  { bg: '#E6F1EC',                border: 'rgba(46,125,87,.25)',    color: '#2E7D57', label: 'mapped' },
 };
 
 function ZatcaSection({ sec }: { sec: typeof ZATCA_SECTIONS[number] & { delay?: number } }) {
@@ -299,7 +299,7 @@ export default function Process() {
               {ALGO_STEPS.map((step, i) => (
                 <Reveal key={step.num} delay={i * 80}>
                   <div className="bg-card border border-border rounded-[13px] p-6">
-                    <div className="font-mono text-[.58rem] tracking-[.12em] uppercase mb-2" style={{ color: '#2d5a8e' }}>
+                    <div className="font-mono text-[.58rem] tracking-[.12em] uppercase mb-2" style={{ color: '#EA6A1F' }}>
                       Step {step.num}
                     </div>
                     <div className="font-sans font-bold text-text text-[.92rem] mb-2">{step.title}</div>
@@ -320,7 +320,7 @@ export default function Process() {
               {/* Warnings */}
               {WARNINGS.map((w, i) => (
                 <Reveal key={w.tag} delay={450 + i * 50}>
-                  <div className="bg-card border border-border rounded-[13px] p-5" style={{ background: 'rgba(251,146,60,.04)', borderColor: 'rgba(251,146,60,.25)' }}>
+                  <div className="bg-card border border-border rounded-[13px] p-5" style={{ background: '#FDEFE5', borderColor: '#FBE3D1' }}>
                     <div className="font-mono text-[.6rem] text-orange tracking-[.1em] uppercase mb-2">⚠ {w.tag}</div>
                     <div className="text-[.8rem] text-muted leading-[1.65]"><Md text={w.body} /></div>
                   </div>
@@ -402,15 +402,15 @@ export default function Process() {
                   <div className="font-mono text-[.82rem] mt-1">goodsDescription: <span className="text-muted">{WORKED_EXAMPLE.result.goodsDescription}</span></div>
                   <span
                     className="inline-block mt-2 font-mono text-[.62rem] tracking-[.06em] px-[.7rem] py-[.25rem] rounded"
-                    style={{ background: 'rgba(52,211,153,.1)', border: '1px solid rgba(52,211,153,.25)', color: '#0a7a52' }}
+                    style={{ background: '#E6F1EC', border: '1px solid rgba(46,125,87,.25)', color: '#2E7D57' }}
                   >
                     {WORKED_EXAMPLE.result.badge}
                   </span>
                 </div>
 
                 {/* Blue note */}
-                <div className="rounded-[10px] p-4 mt-1" style={{ background: 'rgba(96,165,250,.05)', border: '1px solid rgba(96,165,250,.2)' }}>
-                  <div className="font-mono text-[.6rem] text-blue tracking-[.1em] uppercase mb-1">✓ Complete code — no algorithm needed</div>
+                <div className="rounded-[10px] p-4 mt-1" style={{ background: '#FDEFE5', border: '1px solid #FBE3D1' }}>
+                  <div className="font-mono text-[.6rem] text-accent tracking-[.1em] uppercase mb-1">✓ Complete code — no algorithm needed</div>
                   <div className="text-[.72rem] text-muted leading-[1.65]">
                     <Md text={WORKED_EXAMPLE.completeCodeNote} />
                   </div>

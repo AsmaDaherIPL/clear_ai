@@ -46,10 +46,10 @@ export function Reveal({
 // ── SectionLabel ─────────────────────────────────────────
 export function SectionLabel({ num, children }: { num: string; children: ReactNode }) {
   return (
-    <Reveal className="flex items-center gap-3 font-mono text-[.8rem] text-accent tracking-[.12em] uppercase mb-4">
+    <Reveal className="flex items-center gap-3 font-mono text-[.8rem] text-accent tracking-[.08em] uppercase mb-4">
       <span
-        className="w-6 h-6 rounded-full grid place-items-center text-[.7rem] font-bold text-bg shrink-0"
-        style={{ background: '#1e3a5f' }}
+        className="w-6 h-6 rounded-full grid place-items-center text-[.7rem] font-medium text-white shrink-0"
+        style={{ background: 'linear-gradient(135deg, #EA6A1F 0%, #94421C 100%)' }}
       >
         {num}
       </span>
@@ -63,8 +63,8 @@ export function SectionTitle({ children, className = '' }: { children: ReactNode
   return (
     <Reveal>
       <h2
-        className={`font-display font-normal tracking-[-0.015em] text-text mb-4 ${className}`}
-        style={{ fontSize: 'clamp(1.55rem, 2.6vw, 2.2rem)', lineHeight: 1.2 }}
+        className={`font-sans font-medium tracking-[-0.022em] text-text mb-4 ${className}`}
+        style={{ fontSize: 'clamp(1.55rem, 2.6vw, 2.2rem)', lineHeight: 1.15 }}
       >
         {children}
       </h2>
@@ -86,7 +86,7 @@ export function Divider() {
   return (
     <div
       className="h-px mx-20"
-      style={{ background: 'linear-gradient(90deg, transparent, #d8dce8, transparent)' }}
+      style={{ background: 'linear-gradient(90deg, transparent, #E8E9EA, transparent)' }}
     />
   );
 }
@@ -95,14 +95,15 @@ export function Divider() {
 type CalloutVariant = 'default' | 'warn' | 'info' | 'note' | 'gold' | 'red' | 'blue' | 'green';
 
 const calloutStyles: Record<CalloutVariant, { bg: string; border: string; strongColor: string }> = {
-  default: { bg: 'rgba(14,23,41,.04)',  border: 'rgba(30,58,95,.2)',   strongColor: '#1e3a5f' },
-  gold:    { bg: 'rgba(14,23,41,.04)',  border: 'rgba(30,58,95,.2)',   strongColor: '#1e3a5f' },
-  warn:    { bg: 'rgba(248,113,113,.06)', border: 'rgba(248,113,113,.3)', strongColor: '#c0392b' },
-  red:     { bg: 'rgba(192,57,43,.06)', border: 'rgba(192,57,43,.25)', strongColor: '#c0392b' },
-  info:    { bg: 'rgba(96,165,250,.06)', border: 'rgba(96,165,250,.2)', strongColor: '#1d4ed8' },
-  blue:    { bg: 'rgba(29,78,216,.06)', border: 'rgba(29,78,216,.2)',  strongColor: '#1d4ed8' },
-  note:    { bg: 'rgba(167,139,250,.06)', border: 'rgba(167,139,250,.2)', strongColor: '#6d28d9' },
-  green:   { bg: 'rgba(10,122,82,.06)', border: 'rgba(10,122,82,.22)', strongColor: '#0a7a52' },
+  // ClearAI palette: orange accent + green ok + neutral paper
+  default: { bg: '#F5F5F4',           border: '#E8E9EA',                strongColor: '#151516' },
+  gold:    { bg: '#FDEFE5',           border: '#FBE3D1',                strongColor: '#94421C' },
+  warn:    { bg: '#FDEFE5',           border: '#FBE3D1',                strongColor: '#94421C' },
+  red:     { bg: '#FDEFE5',           border: '#FBE3D1',                strongColor: '#94421C' },
+  info:    { bg: '#F5F5F4',           border: '#E8E9EA',                strongColor: '#2B2B2D' },
+  blue:    { bg: '#F5F5F4',           border: '#E8E9EA',                strongColor: '#2B2B2D' },
+  note:    { bg: 'rgba(234,106,31,.06)', border: 'rgba(234,106,31,.20)', strongColor: '#94421C' },
+  green:   { bg: '#E6F1EC',           border: 'rgba(46,125,87,.22)',    strongColor: '#2E7D57' },
 };
 
 export function Callout({
@@ -139,11 +140,11 @@ export function Badge({
   color?: 'accent' | 'green' | 'blue' | 'purple' | 'muted';
 }) {
   const styles: Record<string, { bg: string; border: string; text: string }> = {
-    accent: { bg: 'rgba(14,23,41,.06)',   border: 'rgba(30,58,95,.2)',   text: '#1e3a5f' },
-    green:  { bg: 'rgba(10,122,82,.08)',  border: 'rgba(10,122,82,.25)', text: '#0a7a52' },
-    blue:   { bg: 'rgba(29,78,216,.07)',  border: 'rgba(29,78,216,.2)',  text: '#1d4ed8' },
-    purple: { bg: 'rgba(167,139,250,.1)', border: 'rgba(167,139,250,.3)', text: '#6d28d9' },
-    muted:  { bg: 'rgba(107,114,144,.1)', border: '#d8dce8',              text: '#546178' },
+    accent: { bg: '#FDEFE5',                border: '#FBE3D1',                text: '#94421C' },
+    green:  { bg: '#E6F1EC',                border: 'rgba(46,125,87,.25)',    text: '#2E7D57' },
+    blue:   { bg: '#F5F5F4',                border: '#E8E9EA',                text: '#2B2B2D' },
+    purple: { bg: 'rgba(234,106,31,.08)',   border: 'rgba(234,106,31,.25)',   text: '#94421C' },
+    muted:  { bg: '#F5F5F4',                border: '#E8E9EA',                text: '#7C7C7F' },
   };
   const s = styles[color];
   return (
@@ -158,9 +159,9 @@ export function Badge({
 
 // ── FeatureTag (p0/p1/p2) ────────────────────────────────
 const featureTagStyles = {
-  p0: { bg: 'rgba(14,23,41,.06)',   border: 'rgba(30,58,95,.2)',   text: '#1e3a5f' },
-  p1: { bg: 'rgba(29,78,216,.07)', border: 'rgba(29,78,216,.2)',  text: '#1d4ed8' },
-  p2: { bg: 'rgba(107,114,144,.08)', border: '#d8dce8',            text: '#546178' },
+  p0: { bg: '#FDEFE5',           border: '#FBE3D1',                text: '#94421C' },
+  p1: { bg: 'rgba(234,106,31,.08)', border: 'rgba(234,106,31,.22)', text: '#94421C' },
+  p2: { bg: '#F5F5F4',           border: '#E8E9EA',                text: '#7C7C7F' },
 };
 
 export function FeatureTag({ tier, children }: { tier: 'p0' | 'p1' | 'p2'; children: ReactNode }) {
@@ -218,7 +219,7 @@ export function PersonaCard({
       {/* Head */}
       <div
         className="px-5 sm:px-7 pt-5 sm:pt-6 pb-4 sm:pb-5 border-b border-border"
-        style={{ background: 'linear-gradient(135deg, rgba(14,23,41,.03) 0%, #fff 70%)' }}
+        style={{ background: 'linear-gradient(135deg, rgba(234,106,31,.05) 0%, #fff 70%)' }}
       >
         <div className="font-mono text-[.74rem] text-muted tracking-[.12em] uppercase mb-1">{num}</div>
         <div className="font-sans text-[1.05rem] sm:text-[1.15rem] font-bold text-text mb-1">{name}</div>
@@ -235,7 +236,7 @@ export function PersonaCard({
             <ul className="flex flex-col gap-1 list-none">
               {sub.items.map((item, i) => (
                 <li key={i} className="flex gap-[.6rem] text-[.88rem] text-text leading-[1.55]">
-                  <span className="font-mono text-[.72rem] text-[#2d5a8e] shrink-0">—</span>
+                  <span className="font-mono text-[.72rem] text-[#EA6A1F] shrink-0">—</span>
                   {item}
                 </li>
               ))}
@@ -295,10 +296,10 @@ export function MetricCard({
 // ── RiskCard ──────────────────────────────────────────────
 type Severity = 'high' | 'med' | 'low' | 'unknown';
 const sevStyles: Record<Severity, { bg: string; border: string; text: string; label: string }> = {
-  high:    { bg: 'rgba(248,113,113,.1)',  border: 'rgba(248,113,113,.25)', text: '#c0392b', label: 'High' },
-  med:     { bg: 'rgba(251,146,60,.1)',   border: 'rgba(251,146,60,.25)',  text: '#c2440e', label: 'Medium' },
-  low:     { bg: 'rgba(52,211,153,.1)',   border: 'rgba(52,211,153,.25)',  text: '#0a7a52', label: 'Low' },
-  unknown: { bg: 'rgba(167,139,250,.1)',  border: 'rgba(167,139,250,.25)', text: '#6d28d9', label: 'Unknown' },
+  high:    { bg: '#FBE3D1',                border: 'rgba(148,66,28,.30)',    text: '#94421C', label: 'High' },
+  med:     { bg: '#FDEFE5',                border: 'rgba(234,106,31,.30)',   text: '#94421C', label: 'Medium' },
+  low:     { bg: '#E6F1EC',                border: 'rgba(46,125,87,.25)',    text: '#2E7D57', label: 'Low' },
+  unknown: { bg: '#F5F5F4',                border: '#E8E9EA',                text: '#7C7C7F', label: 'Unknown' },
 };
 
 export function RiskCard({
@@ -495,7 +496,7 @@ export function EmptyPlaceholder({ children }: { children: ReactNode }) {
 export function SubHeading({ children }: { children: ReactNode }) {
   return (
     <h3 className="flex items-center gap-3 font-mono text-[.62rem] text-accent tracking-[.18em] uppercase my-6">
-      <span className="inline-block w-4 h-px bg-[#2d5a8e]" />
+      <span className="inline-block w-4 h-px bg-[#EA6A1F]" />
       {children}
     </h3>
   );

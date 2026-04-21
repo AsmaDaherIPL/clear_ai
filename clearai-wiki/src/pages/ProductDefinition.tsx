@@ -82,9 +82,9 @@ export default function ProductDefinition() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {SOLUTION.modes.map((mode, i) => {
               const modeColors = [
-                { bg: 'rgba(251,146,60,.05)', border: 'rgba(251,146,60,.2)', accent: '#ea580c', glow: 'rgba(251,146,60,.15)' }, // orange
-                { bg: 'rgba(168,85,247,.05)', border: 'rgba(168,85,247,.2)', accent: '#a855f7', glow: 'rgba(168,85,247,.15)' }, // purple
-                { bg: 'rgba(34,197,94,.05)', border: 'rgba(34,197,94,.2)', accent: '#22c55e', glow: 'rgba(34,197,94,.15)' },   // green
+                { bg: '#FDEFE5',                      border: '#FBE3D1',                      accent: '#EA6A1F', glow: 'rgba(234,106,31,.18)' }, // orange-1 (bright)
+                { bg: 'rgba(148,66,28,.05)',          border: 'rgba(148,66,28,.20)',          accent: '#94421C', glow: 'rgba(148,66,28,.18)' }, // orange-2 (deep)
+                { bg: '#E6F1EC',                      border: 'rgba(46,125,87,.25)',          accent: '#2E7D57', glow: 'rgba(46,125,87,.18)' }, // green ok
               ];
               const color = modeColors[i];
 
@@ -173,7 +173,7 @@ export default function ProductDefinition() {
 
           <Reveal delay={300} className="mt-8">
             <Callout variant="note" icon="🧭">
-              <strong style={{ color: '#6d28d9' }}>Note:</strong> {TARGET_CUSTOMER.note}
+              <strong style={{ color: '#94421C' }}>Note:</strong> {TARGET_CUSTOMER.note}
             </Callout>
           </Reveal>
         </div>
