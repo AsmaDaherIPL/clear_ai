@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Clear AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500;600&family=Noto+Naskh+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  :root{
+    --bg:#FAFAFA; --paper:#FFFFFF; --paper-2:#F5F5F4;
+    --ink:#151516; --ink-2:#2B2B2D; --mute-1:#7C7C7F; --mute-2:#A6A8AC; --mute-3:#D4D6D8;
+    --line:#E8E9EA; --line-2:#F0F1F2;
+    --orange-1:#EA6A1F; --orange-2:#94421C;
+    --orange-wash:#FDEFE5; --orange-wash-2:#FBE3D1;
+    --grad: linear-gradient(135deg,#EA6A1F 0%,#94421C 100%);
+    --grad-soft: linear-gradient(135deg, rgba(234,106,31,.10), rgba(148,66,28,.08));
+    --ok:#2E7D57; --ok-wash:#E6F1EC;
+    --radius:12px; --radius-sm:8px;
+  }
+  [data-theme="dark"]{
+    --bg:#0E0E0F;--paper:#141416;--paper-2:#1A1A1C;--ink:#F2F2F2;--ink-2:#D6D6D6;
+    --mute-1:#8D8D8D;--mute-2:#6B6E72;--mute-3:#2D2F33;--line:#1F2023;--line-2:#1A1B1E;
+    --orange-wash:#2A1608;--orange-wash-2:#3A1E0D;--ok-wash:#0E2118;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink)}
+  body{font-family:'FK Grotesk','Space Grotesk',ui-sans-serif,system-ui,sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh}
+  button{font-family:inherit;color:inherit;background:none;border:none;padding:0;cursor:pointer}
+  input,textarea,select{font-family:inherit;color:inherit}
+  .mono{font-family:'Geist Mono',ui-monospace,monospace;font-feature-settings:"zero"}
+  .ar{font-family:'Noto Naskh Arabic','FK Grotesk','Space Grotesk',serif}
+  ::selection{background:var(--orange-wash);color:var(--orange-2)}
+
+  .shell{max-width:780px;margin:0 auto;padding:0 28px}
+
+  /* top bar */
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:22px 0}
+  .brand{display:flex;align-items:baseline;gap:10px}
+  .brand .name{font-size:17px;font-weight:500;letter-spacing:-.01em}
+  .brand .dot{width:7px;height:7px;border-radius:50%;background:var(--grad);display:inline-block;margin:0 2px;transform:translateY(-1px)}
+  .brand .by{font-family:'Geist Mono',monospace;font-size:12px;color:var(--mute-1)}
+  .brand .by a{color:inherit;border-bottom:1px solid var(--mute-3);padding-bottom:1px;text-decoration:none}
+  .brand .by a:hover{color:var(--ink)}
+  .top-meta{display:flex;gap:14px;align-items:center;font-family:'Geist Mono',monospace;font-size:12px;color:var(--mute-1)}
+  .top-meta .sep{color:var(--mute-3)}
+  .top-meta .pulse{display:inline-flex;align-items:center;gap:7px}
+  .top-meta .pulse .d{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+
+  /* hero — centered, minimal */
+  .hero{padding:72px 0 36px;text-align:center;border-bottom:1px solid var(--line-2)}
+  .hero .eyebrow{
+    display:inline-flex;align-items:center;gap:10px;
+    padding:5px 12px;border-radius:999px;background:var(--orange-wash);color:var(--orange-2);
+    font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.08em;margin-bottom:18px;
+  }
+  .hero h1{
+    margin:0;font-weight:500;letter-spacing:-.028em;color:var(--ink);
+    font-size:54px;line-height:1.04;text-wrap:balance;max-width:18ch;margin:0 auto;
+  }
+  .hero h1 .accent{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero .sub{margin:14px auto 0;color:var(--mute-1);font-size:16px;max-width:54ch;line-height:1.55}
+
+  /* mode tabs */
+  .modes-wrap{padding:18px 0 6px}
+  .modes{
+    display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;
+    padding:6px;background:var(--paper);border:1px solid var(--line);border-radius:14px;
+  }
+  .mode{
+    padding:12px 14px;border-radius:10px;display:flex;flex-direction:column;gap:3px;
+    align-items:flex-start;text-align:left;position:relative;cursor:pointer;transition:background .2s;
+  }
+  .mode .mtag{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--mute-1)}
+  .mode .mttl{font-weight:600;font-size:15px;color:var(--ink);letter-spacing:-.005em}
+  .mode .msub{font-size:12px;color:var(--mute-1);line-height:1.4}
+  .mode.on{background:var(--grad-soft);box-shadow:inset 0 0 0 1px var(--orange-wash-2)}
+  .mode.on .mtag{color:var(--orange-2)}
+  .mode:hover:not(.on):not(.soon){background:var(--paper-2)}
+  .mode.soon{cursor:default;opacity:.85}
+  .mode.soon .mttl{color:var(--mute-1)}
+  .mode.soon .soonchip{
+    position:absolute;top:10px;right:12px;
+    font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:.08em;
+    color:var(--mute-1);padding:2px 6px;border:1px solid var(--line);border-radius:999px;background:var(--paper-2);
+  }
+
+  /* input card — description & HS code are equal peers */
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-top:14px;box-shadow:0 1px 0 rgba(0,0,0,.02)}
+  .peer{padding:16px 20px}
+  .peer-head{
+    display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;
+    font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--mute-1);letter-spacing:.06em;text-transform:uppercase;
+  }
+  .peer-head .hint{color:var(--mute-2);font-size:10.5px;text-transform:none;letter-spacing:0}
+  .peer textarea{
+    width:100%;background:transparent;border:none;outline:none;resize:none;
+    font-size:16px;line-height:1.55;color:var(--ink);min-height:64px;font-family:inherit;
+  }
+  .peer textarea::placeholder{color:var(--mute-2)}
+  .peer .hs-input{
+    width:100%;background:transparent;border:none;outline:none;
+    font-family:'Geist Mono',monospace;font-size:20px;letter-spacing:.02em;color:var(--ink);
+    font-variant-numeric:tabular-nums;padding:2px 0;
+  }
+  .peer .hs-input::placeholder{color:var(--mute-2);font-size:17px}
+  .or-rule{display:flex;align-items:center;gap:10px;padding:0 20px}
+  .or-rule::before,.or-rule::after{content:"";flex:1;height:1px;background:var(--line-2)}
+  .or-rule span{
+    font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.14em;
+    color:var(--mute-2);padding:3px 10px;border:1px solid var(--line-2);border-radius:999px;background:var(--paper);
+  }
+  .card-bar{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:12px 14px;gap:10px;border-top:1px solid var(--line-2);background:var(--paper-2);
+  }
+  .card-bar .l{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .pill{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:var(--paper);
+    font-size:12px;color:var(--mute-1);transition:all .15s;
+  }
+  .pill:hover{color:var(--ink);border-color:var(--mute-2)}
+  .pill .plus{color:var(--mute-2)}
+  .pill.val-pill input{
+    background:transparent;border:none;outline:none;width:56px;
+    font-family:'Geist Mono',monospace;font-size:12px;color:var(--ink);
+  }
+  .pill.val-pill .cur{font-family:'Geist Mono',monospace;font-size:11px;color:var(--mute-2)}
+  .card-bar .r{display:flex;gap:8px;align-items:center}
+  .btn-classify{
+    display:inline-flex;align-items:center;gap:9px;
+    padding:9px 14px;border-radius:8px;font-size:13.5px;font-weight:500;color:#fff;
+    background:var(--grad);box-shadow:0 1px 0 rgba(0,0,0,.05),0 6px 18px -8px rgba(234,106,31,.55);
+    transition:filter .2s;
+  }
+  .btn-classify:hover{filter:brightness(1.04)}
+  .btn-classify:disabled{opacity:.55;cursor:not-allowed;filter:grayscale(.3)}
+  .btn-classify .kb{opacity:.8;font-family:'Geist Mono',monospace;font-size:11px;padding:1px 5px;border:1px solid rgba(255,255,255,.35);border-radius:3px}
+
+  /* suggestions under the card */
+  .sugg{margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:12px}
+  .sugg-head{padding:10px 14px;border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:8px;font-family:'Geist Mono',monospace;font-size:11px;color:var(--mute-1);letter-spacing:.04em}
+  .sugg-row{padding:11px 14px;border-top:1px solid var(--line-2);font-size:14px;color:var(--ink-2);cursor:pointer;transition:background .12s}
+  .sugg-row:first-of-type{border-top:none}
+  .sugg-row:hover{background:var(--paper-2)}
+
+  /* pipeline */
+  .pipe{
+    margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    max-height:0;opacity:0;transition:max-height .35s ease, opacity .25s;
+  }
+  .pipe.show{max-height:360px;opacity:1}
+  .pipe.done{max-height:56px}
+  .pipe-bar{height:3px;background:var(--line-2);overflow:hidden;position:relative}
+  .pipe-bar .fill{position:absolute;inset:0 auto 0 0;background:var(--grad);width:0;transition:width .25s}
+  .pipe-list{padding:10px 18px}
+  .pipe-row{display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:center;padding:6px 0;font-size:13.5px}
+  .pipe-row .ic{width:16px;height:16px;border-radius:50%;border:1px solid var(--mute-3);display:grid;place-items:center;font-family:'Geist Mono',monospace;font-size:9px;color:var(--mute-2);position:relative}
+  .pipe-row.done .ic{border-color:transparent;background:var(--grad);color:#fff}
+  .pipe-row.active .ic{border-color:var(--ink);color:var(--ink)}
+  .pipe-row.active .ic::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--orange-1);opacity:.4;animation:pulse 1.2s ease-out infinite}
+  @keyframes pulse{0%{transform:scale(.85);opacity:.5}100%{transform:scale(1.7);opacity:0}}
+  .pipe-row .lb{color:var(--mute-1)}
+  .pipe-row.active .lb,.pipe-row.done .lb{color:var(--ink)}
+  .pipe-row .t{font-family:'Geist Mono',monospace;font-size:11px;color:var(--mute-2)}
+  .pipe-done-row{padding:16px 18px;display:flex;justify-content:space-between;align-items:center;font-family:'Geist Mono',monospace;font-size:12px;color:var(--mute-1)}
+  .pipe-done-row .ok{color:var(--ok);display:inline-flex;align-items:center;gap:6px}
+  .pipe-done-row .ok::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok)}
+
+  /* result */
+  .result{margin-top:14px;opacity:0;transform:translateY(8px);transition:opacity .35s ease .1s, transform .35s ease .1s}
+  .result.show{opacity:1;transform:none}
+
+  .hs-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:26px 26px 22px;position:relative;overflow:hidden}
+  .hs-card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--grad)}
+  .hs-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .hs-top .k{font-family:'Geist Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--mute-1)}
+  .conf-pill{display:inline-flex;align-items:center;gap:9px;padding:6px 11px;border-radius:999px;background:var(--ok-wash);color:var(--ok);font-family:'Geist Mono',monospace;font-size:11.5px}
+  .conf-pill .d{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+  .conf-pill .n{color:var(--ink-2);opacity:.7}
+
+  .hs-code{display:flex;align-items:flex-end;gap:6px;margin:4px 0 18px;flex-wrap:wrap}
+  .seg{display:flex;flex-direction:column;gap:5px}
+  .seg .d{font-family:'Geist Mono',monospace;font-variant-numeric:tabular-nums;font-size:44px;letter-spacing:.01em;color:var(--ink);font-weight:500;line-height:1;padding:3px 5px}
+  .seg .d.accent{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .seg .l{font-family:'Geist Mono',monospace;font-size:9.5px;color:var(--mute-1);letter-spacing:.1em;text-transform:uppercase;text-align:center}
+  .dot-sep{font-family:'Geist Mono',monospace;font-size:36px;color:var(--mute-3);line-height:1;padding:0 2px;align-self:flex-start;margin-top:8px}
+
+  .plain{padding:14px 16px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:15px;line-height:1.55;color:var(--ink-2)}
+  .plain b{font-weight:500;color:var(--ink)}
+
+  .hs-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap}
+  .hs-actions .al{display:flex;gap:6px}
+  .btn-sec{padding:8px 12px;border:1px solid var(--line);border-radius:7px;background:var(--paper);font-size:12.5px;color:var(--ink-2);font-family:'Geist Mono',monospace;letter-spacing:.02em;display:inline-flex;align-items:center;gap:7px;transition:all .15s}
+  .btn-sec:hover{border-color:var(--mute-1);color:var(--ink)}
+  .btn-sec.primary{background:var(--grad);color:#fff;border-color:transparent;font-family:'FK Grotesk','Space Grotesk',sans-serif;font-size:13px;padding:9px 14px;letter-spacing:0}
+  .btn-sec.primary:hover{filter:brightness(1.04)}
+
+  /* tabs */
+  .tabs{margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .tabs-head{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
+  .tabbtn{padding:14px 18px;text-align:left;font-size:14px;font-weight:500;color:var(--mute-1);border-right:1px solid var(--line);position:relative;transition:background .15s, color .15s}
+  .tabbtn:last-child{border-right:none}
+  .tabbtn .tn{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--mute-2);display:block;margin-bottom:3px}
+  .tabbtn.on{color:var(--ink);background:var(--paper)}
+  .tabbtn.on .tn{color:var(--orange-2)}
+  .tabbtn.on::after{content:"";position:absolute;inset:auto 0 -1px 0;height:2px;background:var(--grad)}
+  .tabbtn:hover:not(.on){background:var(--paper-2);color:var(--ink-2)}
+  .tabs-body{padding:18px 20px}
+
+  .desc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .desc-cell{padding:14px 16px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius-sm)}
+  .desc-cell .k{display:block;font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--mute-1);margin-bottom:6px;text-transform:uppercase}
+  .desc-cell.rtl{font-family:'Noto Naskh Arabic','FK Grotesk','Space Grotesk',serif;text-align:right}
+  .desc-cell.rtl .k{text-align:left}
+
+  .rat{display:flex;flex-direction:column;gap:14px}
+  .r-item{display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:flex-start}
+  .r-item .n{width:24px;height:24px;border-radius:6px;background:var(--paper-2);border:1px solid var(--line);display:grid;place-items:center;font-family:'Geist Mono',monospace;font-size:11px;color:var(--mute-1)}
+  .r-item .t{font-weight:500;font-size:15px;color:var(--ink);margin-bottom:4px}
+  .r-item .d{font-size:14px;color:var(--ink-2);line-height:1.55}
+  .r-item .pe{font-size:13.5px;color:var(--mute-1);line-height:1.5;margin-top:6px;padding:9px 12px;border-left:2px solid var(--orange-wash-2);background:var(--orange-wash);border-radius:0 var(--radius-sm) var(--radius-sm) 0}
+  .r-item .pe b{color:var(--orange-2);font-weight:500}
+  .r-item .ref{display:inline-block;margin-top:8px;font-family:'Geist Mono',monospace;font-size:11px;padding:2px 8px;border-radius:4px;color:var(--ink-2);background:var(--paper-2);border:1px solid var(--line)}
+
+  .sources{margin-top:20px;border-top:1px solid var(--line-2);padding-top:16px}
+  .sources .head{font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.06em;color:var(--mute-1);margin-bottom:10px;text-transform:uppercase}
+  .ev-row{display:grid;grid-template-columns:1fr auto;gap:14px;padding:12px 0;border-top:1px solid var(--line-2)}
+  .ev-row:first-of-type{border-top:none}
+  .ev-src{display:flex;align-items:center;gap:8px;font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--mute-1);letter-spacing:.06em;margin-bottom:4px}
+  .ev-src .d{width:4px;height:4px;border-radius:50%;background:var(--mute-2)}
+  .ev-row .tt{font-size:13.5px;color:var(--ink);font-weight:500;margin-bottom:2px}
+  .ev-row .snip{font-size:12.5px;color:var(--mute-1);line-height:1.5}
+  .ev-sim{display:flex;flex-direction:column;align-items:flex-end;gap:5px;min-width:60px}
+  .ev-sim .s{font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .ev-sim .bar{width:48px;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+  .ev-sim .bar .fill{height:100%;background:var(--grad)}
+
+  /* process / metadata panel */
+  .proc{margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .proc-head{padding:14px 18px;border-bottom:1px solid var(--line-2);display:flex;justify-content:space-between;align-items:center}
+  .proc-head .t{font-size:14px;font-weight:500;color:var(--ink)}
+  .proc-head .s{font-family:'Geist Mono',monospace;font-size:11px;color:var(--mute-1);letter-spacing:.04em}
+  .proc-sub{padding:14px 18px 6px;font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--mute-1);letter-spacing:.08em;text-transform:uppercase}
+  .alt-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:14px;align-items:center;padding:10px 18px;border-top:1px solid var(--line-2)}
+  .alt-code{font-family:'Geist Mono',monospace;font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .alt-desc{font-size:13px;color:var(--mute-1)}
+  .alt-sim{display:flex;align-items:center;gap:8px;font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--mute-1);font-variant-numeric:tabular-nums}
+  .alt-sim .bar{width:40px;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+  .alt-sim .bar .fill{height:100%;background:var(--grad);opacity:.6}
+  .alt-pick{font-family:'Geist Mono',monospace;font-size:11px;color:var(--mute-1);padding:4px 9px;border:1px solid var(--line);border-radius:5px;transition:all .15s}
+  .alt-pick:hover{color:var(--ink);border-color:var(--mute-1)}
+  .meta-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--line-2)}
+  .meta-cell{padding:14px 14px;border-right:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
+  .meta-cell:nth-child(3n){border-right:none}
+  .meta-cell:nth-last-child(-n+3){border-bottom:none}
+  .meta-cell .k{font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:.06em;color:var(--mute-1);margin-bottom:4px;text-transform:uppercase}
+  .meta-cell .v{font-family:'Geist Mono',monospace;font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}
+
+  /* coming soon */
+  .soon-card{
+    margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:14px;
+    padding:40px 28px;text-align:center;
+  }
+  .soon-card .chip{display:inline-flex;align-items:center;gap:8px;padding:5px 11px;border-radius:999px;background:var(--paper-2);border:1px solid var(--line);font-family:'Geist Mono',monospace;font-size:11px;color:var(--mute-1);letter-spacing:.06em}
+  .soon-card h2{margin:14px 0 8px;font-size:26px;font-weight:500;letter-spacing:-.02em}
+  .soon-card p{color:var(--mute-1);font-size:14.5px;line-height:1.55;margin:0 auto 18px;max-width:44ch}
+  .soon-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;max-width:520px;margin:0 auto}
+  .soon-feat{padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--paper-2);text-align:left}
+  .soon-feat .k{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--orange-2);margin-bottom:4px}
+  .soon-feat .t{font-weight:500;font-size:13.5px;color:var(--ink)}
+  .soon-card .tag{display:inline-block;padding:4px 10px;border-radius:5px;background:var(--orange-wash);color:var(--orange-2);font-family:'Geist Mono',monospace;font-size:11px;margin-top:20px}
+
+  /* footer */
+  .foot{margin:56px 0 40px;padding-top:18px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--mute-1)}
+  .foot a{color:inherit;text-decoration:none;border-bottom:1px solid var(--mute-3);padding-bottom:1px}
+  .foot a:hover{color:var(--ink)}
+
+  /* tweaks */
+  .tweaks{position:fixed;right:20px;bottom:20px;width:280px;z-index:50;background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px -14px rgba(0,0,0,.18);display:none}
+  .tweaks.show{display:block}
+  .tw-head{padding:12px 14px;border-bottom:1px solid var(--line-2);display:flex;justify-content:space-between;align-items:center}
+  .tw-head .t{font-weight:500;font-size:13px}
+  .tw-head .c{cursor:pointer;color:var(--mute-1);font-size:18px}
+  .tw-body{padding:12px 14px}
+  .tw-row{margin-bottom:12px}
+  .tw-row:last-child{margin-bottom:0}
+  .tw-label{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.06em;color:var(--mute-1);margin-bottom:6px}
+  .tw-opts{display:grid;grid-template-columns:1fr 1fr;gap:3px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px}
+  .tw-opts button{padding:5px 8px;border-radius:4px;font-size:12px;color:var(--mute-1)}
+  .tw-opts button.on{background:var(--paper);color:var(--ink);box-shadow:0 1px 0 rgba(0,0,0,.03),0 1px 2px rgba(0,0,0,.04)}
+
+  @media (max-width:720px){
+    .hero h1{font-size:36px}
+    .modes{grid-template-columns:1fr}
+    .tabs-head{grid-template-columns:1fr}
+    .tabbtn{border-right:none;border-bottom:1px solid var(--line)}
+    .desc-grid{grid-template-columns:1fr}
+    .meta-grid{grid-template-columns:1fr 1fr}
+  }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.TWEAKS = /*EDITMODE-BEGIN*/{
+      "theme": "light",
+      "density": "comfortable"
+    }/*EDITMODE-END*/;
+  </script>
+  <script type="text/babel" data-presets="env,react">
+  const { useState, useEffect, useRef } = React;
+
+  const MODES = [
+    { key:"generate", tag:"01 · CREATE",  ttl:"Generate", sub:"Build a code from scratch",     state:"live" },
+    { key:"boost",    tag:"02 · IMPROVE", ttl:"Boost",    sub:"Improve an existing code",      state:"soon" },
+    { key:"validate", tag:"03 · CHECK",   ttl:"Validate", sub:"Check code before submission",  state:"soon" }
+  ];
+
+  const STEPS = [
+    { key:"parse",    lb:"Read the description",          t:"180ms" },
+    { key:"retrieve", lb:"Search the tariff book",        t:"420ms" },
+    { key:"rank",     lb:"Rank candidate headings",       t:"280ms" },
+    { key:"reason",   lb:"Reason under WCO rules (GIR)",  t:"680ms" },
+    { key:"resolve",  lb:"Lock the 12-digit code",        t:"220ms" },
+    { key:"emit",     lb:"Write rationale and evidence",  t:"160ms" }
+  ];
+
+  const RESULT = {
+    segments:[
+      { label:"CHAPTER",  digits:"49", accent:true },
+      { label:"HEADING",  digits:"01", accent:true },
+      { label:"SUB",      digits:"10", accent:true },
+      { label:"NATIONAL", digits:"00" },
+      { label:"STAT",     digits:"00" },
+      { label:"EXT",      digits:"00" }
+    ],
+    confidence:0.94, confLabel:"High confidence",
+    plain:"This is a **printed comic book**. It lands in **Chapter 49** (printed matter), heading **49.01**, subheading **10** (single-sheet paperback).",
+    zatca_en:"Printed books, brochures, leaflets and similar printed matter — in single sheets, whether or not folded.",
+    zatca_ar:"كتب وكتيبات ونشرات ومطبوعات مماثلة — في صحائف منفردة، سواء أكانت مطوية أم لا.",
+    desc_en:"Comic book (graphic novel) — single issue, printed paperback, 36 pages.",
+    desc_ar:"كتاب مصوّر (كوميكس) — إصدار مفرد، مطبوع ورقي بغلاف ورقي، 36 صفحة.",
+    rationale:[
+      { t:"Chapter 49 — Printed matter", d:"A printed paper product with informational or pictorial content lands in Chapter 49.", pe:"**What this means:** 49 marks the broad category.", ref:"WCO GIR 1" },
+      { t:"Heading 49.01 — Books and similar", d:"Single-issue comics are books, not periodicals (49.02).", pe:"**What this means:** 4901 beats 4902 because it's not a dated serial.", ref:"GIR 3(a)" },
+      { t:"Subheading 10 — In single sheets", d:"A 36-page paperback keeps it in 4901.10 rather than 4901.99 (hardcover).", pe:"**What this means:** 10 marks it as soft single-sheet.", ref:"ZATCA Note 4901" }
+    ],
+    evidence:[
+      { src:"ZATCA Tariff", link:"4901.10",  tt:"Heading 49.01 — Printed books, brochures, leaflets", snip:"…in single sheets, whether or not folded, and whether bound or not…", sim:0.96 },
+      { src:"WCO Notes",    link:"Ch.49",    tt:"Chapter 49 — scope of printed matter",               snip:"…comic strips and comic books remain in heading 49.01…", sim:0.91 },
+      { src:"Bayan ruling", link:"BYN-2141", tt:"Prior ruling: imported comic paperback",            snip:"Classification confirmed as 4901.10 on appeal.", sim:0.83 }
+    ],
+    alts:[
+      { code:"4901.99.00.00.00.00", desc:"Printed books, other (hardcover, illustrated)", sim:0.71 },
+      { code:"4902.90.00.00.00.00", desc:"Newspapers, journals, periodicals — other",    sim:0.58 },
+      { code:"4911.91.00.00.00.00", desc:"Printed pictures, designs — other",             sim:0.44 }
+    ],
+    meta:{ latency:"1.84 s", model:"claude-opus-4.1", tokens_in:"1,240", tokens_out:"1,884", passages:"12 used / 24 matched", cost:"$0.0062" }
+  };
+
+  function TopBar(){
+    return (
+      <div className="topbar">
+        <div className="brand">
+          <span className="name">Clear<span className="dot"/>AI</span>
+          <span className="by">by <a href="https://infinitepl.ai" target="_blank" rel="noreferrer">Infinite PL</a></span>
+        </div>
+        <div className="top-meta">
+          <span>ZATCA · 2024.3</span>
+          <span className="sep">·</span>
+          <span className="pulse"><span className="d"/>online</span>
+        </div>
+      </div>
+    );
+  }
+
+  function Hero(){
+    return (
+      <div className="hero">
+        <h1>Clear customs with <span className="accent">confidence</span>.</h1>
+        <p className="sub">An intelligent platform that improves accuracy before clearance — reducing manual effort and supporting faster, more consistent customs processing.</p>
+      </div>
+    );
+  }
+
+  function ModeTabs({ mode, setMode }){
+    return (
+      <div className="modes-wrap">
+        <div className="modes">
+          {MODES.map(m=>(
+            <button key={m.key}
+              className={"mode "+(mode===m.key?"on ":"")+(m.state==="soon"?"soon":"")}
+              onClick={()=> setMode(m.key)}>
+              <div className="mtag">{m.tag}</div>
+              <div className="mttl">{m.ttl}</div>
+              <div className="msub">{m.sub}</div>
+              {m.state==="soon" && <span className="soonchip">SOON</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function InputCard({ text, setText, hsHint, setHsHint, val, setVal, busy, onClassify }){
+    const taRef = useRef(null);
+    useEffect(()=>{ taRef.current?.focus() },[]);
+    const onKey = (e)=>{
+      if ((e.metaKey||e.ctrlKey) && e.key === "Enter"){ e.preventDefault(); onClassify(); }
+    };
+    const canRun = text.trim().length > 0 || hsHint.trim().length > 0;
+    return (
+      <div className="card">
+        <div className="peer">
+          <div className="peer-head"><span>Describe the product</span><span className="hint">plain language — EN or AR</span></div>
+          <textarea ref={taRef} rows={2} value={text}
+            onChange={(e)=>setText(e.target.value)} onKeyDown={onKey}
+            placeholder="e.g. Marvel comic book — single issue, printed paperback, 36 pages"/>
+        </div>
+        <div className="or-rule"><span>OR</span></div>
+        <div className="peer">
+          <div className="peer-head"><span>HS code you already have</span><span className="hint">partial or full — we'll resolve to 12 digits</span></div>
+          <input className="hs-input" value={hsHint} onChange={(e)=>setHsHint(e.target.value)} onKeyDown={onKey} placeholder="e.g. 4901 or 4901.10.00.00.00.00"/>
+        </div>
+        <div className="card-bar">
+          <div className="l">
+            <span className="pill val-pill">
+              <span className="plus">$</span>
+              <input value={val} onChange={(e)=>setVal(e.target.value)} placeholder="Value"/>
+              <span className="cur">USD</span>
+            </span>
+            <button className="pill">＋ Attach CSV</button>
+          </div>
+          <div className="r">
+            <button className="btn-classify" onClick={onClassify} disabled={busy || !canRun}>
+              {busy ? "Classifying…" : "Classify"}<span className="kb">⌘↵</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function Suggestions({ setText }){
+    const presets = [
+      "Marvel comic book — single issue, printed paperback, 36 pages",
+      "Bluetooth over-ear headphones, active noise cancelling",
+      "Cold-pressed extra-virgin olive oil, 500 ml glass bottle",
+      "Men's cotton t-shirt, knitted, short sleeve"
+    ];
+    return (
+      <div className="sugg">
+        <div className="sugg-head">TRY AN EXAMPLE</div>
+        {presets.map((p,i)=>(
+          <div key={i} className="sugg-row" onClick={()=>setText(p)}>{p}</div>
+        ))}
+      </div>
+    );
+  }
+
+  function Pipeline({ progress, show, compact }){
+    const state = (i)=> progress<0 ? "idle" : i<progress ? "done" : i===progress ? "active" : "pending";
+    const pct = progress<0 ? 0 : Math.min(100,(progress/STEPS.length)*100);
+    return (
+      <div className={"pipe "+(show?"show ":"")+(compact?"done":"")}>
+        <div className="pipe-bar"><div className="fill" style={{width:`${pct}%`}}/></div>
+        {compact ? (
+          <div className="pipe-done-row">
+            <span className="ok">Classified in 1.84 s · 6 stages</span>
+            <span>trace · 7f3a9c</span>
+          </div>
+        ) : (
+          <div className="pipe-list">
+            {STEPS.map((s,i)=>(
+              <div key={s.key} className={"pipe-row "+state(i)}>
+                <div className="ic">{state(i)==="done"?"✓":String(i+1).padStart(2,"0")}</div>
+                <div className="lb">{s.lb}</div>
+                <div className="t">{state(i)==="done"?s.t:state(i)==="active"?"…":""}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function Plain({ md }){
+    const parts = md.split(/(\*\*[^*]+\*\*)/g);
+    return <>{parts.map((p,i)=> p.startsWith("**") ? <b key={i}>{p.slice(2,-2)}</b> : <span key={i}>{p}</span>)}</>;
+  }
+
+  function ResultPanel({ show, data }){
+    const [tab, setTab] = useState("desc");
+    if (!show) return null;
+    return (
+      <div className={"result show"}>
+        <div className="hs-card">
+          <div className="hs-top">
+            <div className="k">SAUDI HS · 12-DIGIT</div>
+            <div className="conf-pill"><span className="d"/><span>{data.confLabel}</span><span className="n">· {(data.confidence*100).toFixed(0)}%</span></div>
+          </div>
+          <div className="hs-code">
+            {data.segments.map((s,i)=>(
+              <React.Fragment key={i}>
+                <div className="seg">
+                  <div className={"d "+(s.accent?"accent":"")}>{s.digits}</div>
+                  <div className="l">{s.label}</div>
+                </div>
+                {i < data.segments.length-1 && <span className="dot-sep">·</span>}
+              </React.Fragment>
+            ))}
+          </div>
+          <div className="plain"><Plain md={data.plain}/></div>
+          <div className="hs-actions">
+            <div className="al">
+              <button className="btn-sec">⎘ Copy code</button>
+              <button className="btn-sec">⚐ Flag error</button>
+            </div>
+            <button className="btn-sec primary">↗ Generate ZATCA integration XML</button>
+          </div>
+        </div>
+
+        <div className="tabs">
+          <div className="tabs-head">
+            <button className={"tabbtn "+(tab==="desc"?"on":"")} onClick={()=>setTab("desc")}>
+              <span className="tn">A · DESCRIPTIONS</span>EN + AR
+            </button>
+            <button className={"tabbtn "+(tab==="why"?"on":"")} onClick={()=>setTab("why")}>
+              <span className="tn">B · EXPLAINED</span>Reasoning & sources
+            </button>
+          </div>
+          <div className="tabs-body">
+            {tab === "desc" && (
+              <div className="desc-grid">
+                <div className="desc-cell"><span className="k">ZATCA description · EN</span>{data.zatca_en}</div>
+                <div className="desc-cell rtl" dir="rtl"><span className="k">ZATCA description · AR</span>{data.zatca_ar}</div>
+                <div className="desc-cell"><span className="k">Product description · EN</span>{data.desc_en}</div>
+                <div className="desc-cell rtl" dir="rtl"><span className="k">Product description · AR</span>{data.desc_ar}</div>
+              </div>
+            )}
+            {tab === "why" && (
+              <div>
+                <div className="rat">
+                  {data.rationale.map((r,i)=>(
+                    <div key={i} className="r-item">
+                      <div className="n">{String(i+1).padStart(2,"0")}</div>
+                      <div>
+                        <div className="t">{r.t}</div>
+                        <div className="d">{r.d}</div>
+                        <div className="pe"><Plain md={r.pe}/></div>
+                        <span className="ref">{r.ref}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="sources">
+                  <div className="head">Sources cited</div>
+                  {data.evidence.map((e,i)=>(
+                    <div key={i} className="ev-row">
+                      <div>
+                        <div className="ev-src"><span className="d"/><span>{e.src}</span><span style={{color:"var(--mute-3)"}}>·</span><span>{e.link}</span></div>
+                        <div className="tt">{e.tt}</div>
+                        <div className="snip">{e.snip}</div>
+                      </div>
+                      <div className="ev-sim">
+                        <span className="s">{e.sim.toFixed(2)}</span>
+                        <div className="bar"><div className="fill" style={{width:`${e.sim*100}%`}}/></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="proc">
+          <div className="proc-head">
+            <div className="t">Process &amp; metadata</div>
+            <div className="s">trace · 7f3a9c</div>
+          </div>
+          <div className="proc-sub">Other codes considered</div>
+          {data.alts.map((a,i)=>(
+            <div key={i} className="alt-row">
+              <div className="alt-code">{a.code}</div>
+              <div className="alt-desc">{a.desc}</div>
+              <div className="alt-sim"><div className="bar"><div className="fill" style={{width:`${a.sim*100}%`}}/></div>sim {a.sim.toFixed(2)}</div>
+              <button className="alt-pick">Pick →</button>
+            </div>
+          ))}
+          <div className="meta-grid">
+            <div className="meta-cell"><div className="k">Model</div><div className="v">{data.meta.model}</div></div>
+            <div className="meta-cell"><div className="k">Latency</div><div className="v">{data.meta.latency}</div></div>
+            <div className="meta-cell"><div className="k">Tokens · input</div><div className="v">{data.meta.tokens_in}</div></div>
+            <div className="meta-cell"><div className="k">Tokens · output</div><div className="v">{data.meta.tokens_out}</div></div>
+            <div className="meta-cell">
+              <div className="k" title="Passages retrieved from the tariff book and rulings index. 'used' is what informed the answer; 'matched' is the full candidate set.">Passages used</div>
+              <div className="v">{data.meta.passages}</div>
+            </div>
+            <div className="meta-cell"><div className="k">Cost</div><div className="v">{data.meta.cost}</div></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function SoonCard({ mode }){
+    const content = {
+      boost: {
+        chip:"02 · IMPROVE",
+        title:"Boost",
+        copy:"Improve an HS code you already have. Boost takes an approximate or supplier-provided code and suggests a better classification.",
+        feats:[
+          { k:"REVIEW",  t:"Review existing codes" },
+          { k:"SUGGEST", t:"Recommend alternatives" },
+          { k:"COMPARE", t:"Current vs recommended" }
+        ]
+      },
+      validate: {
+        chip:"03 · CHECK",
+        title:"Validate",
+        copy:"Final pre-submission check. Validate verifies that your HS code, description, and declared value are consistent before Bayan.",
+        feats:[
+          { k:"CONSISTENCY", t:"Consistency check" },
+          { k:"FLAG",        t:"Flag mismatches" },
+          { k:"RISK",        t:"Risk level & reason" }
+        ]
+      }
+    }[mode];
+    if (!content) return null;
+    return (
+      <div className="soon-card">
+        <span className="chip">{content.chip}</span>
+        <h2>{content.title}</h2>
+        <p>{content.copy}</p>
+        <div className="soon-list">
+          {content.feats.map((f,i)=>(
+            <div key={i} className="soon-feat">
+              <div className="k">{f.k}</div>
+              <div className="t">{f.t}</div>
+            </div>
+          ))}
+        </div>
+        <div><span className="tag">In development · coming soon</span></div>
+      </div>
+    );
+  }
+
+  function Foot(){
+    return (
+      <div className="foot">
+        <div>v0.1</div>
+        <div><a href="https://infinitepl.ai" target="_blank" rel="noreferrer">Infinite PL</a></div>
+      </div>
+    );
+  }
+
+  function Tweaks({ open, onClose, theme, setTheme, density, setDensity }){
+    return (
+      <div className={"tweaks "+(open?"show":"")}>
+        <div className="tw-head">
+          <div className="t">Tweaks</div>
+          <div className="c" onClick={onClose}>×</div>
+        </div>
+        <div className="tw-body">
+          <div className="tw-row">
+            <div className="tw-label">Theme</div>
+            <div className="tw-opts">
+              <button className={theme==="light"?"on":""} onClick={()=>setTheme("light")}>Light</button>
+              <button className={theme==="dark"?"on":""} onClick={()=>setTheme("dark")}>Dark</button>
+            </div>
+          </div>
+          <div className="tw-row">
+            <div className="tw-label">Density</div>
+            <div className="tw-opts">
+              <button className={density==="comfortable"?"on":""} onClick={()=>setDensity("comfortable")}>Comfortable</button>
+              <button className={density==="compact"?"on":""} onClick={()=>setDensity("compact")}>Compact</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function App(){
+    const [mode, setMode] = useState("generate");
+    const [text, setText] = useState("");
+    const [hsHint, setHsHint] = useState("");
+    const [val, setVal] = useState("");
+    const [progress, setProgress] = useState(-1);
+    const [pipeShow, setPipeShow] = useState(false);
+    const [pipeDone, setPipeDone] = useState(false);
+    const [showResult, setShowResult] = useState(false);
+    const [busy, setBusy] = useState(false);
+
+    const [tweaksOpen, setTweaksOpen] = useState(false);
+    const [theme, setThemeS] = useState(window.TWEAKS?.theme || "light");
+    const [density, setDensityS] = useState(window.TWEAKS?.density || "comfortable");
+
+    useEffect(()=>{
+      document.body.setAttribute("data-theme", theme);
+      document.body.setAttribute("data-density", density);
+    },[theme,density]);
+
+    const setTheme = (t)=>{ setThemeS(t); window.parent?.postMessage({type:"__edit_mode_set_keys",edits:{theme:t}},"*") };
+    const setDensity = (d)=>{ setDensityS(d); window.parent?.postMessage({type:"__edit_mode_set_keys",edits:{density:d}},"*") };
+
+    useEffect(()=>{
+      const h = (e)=>{
+        if (e.data?.type === "__activate_edit_mode") setTweaksOpen(true);
+        if (e.data?.type === "__deactivate_edit_mode") setTweaksOpen(false);
+      };
+      window.addEventListener("message", h);
+      window.parent?.postMessage({type:"__edit_mode_available"},"*");
+      return ()=>window.removeEventListener("message", h);
+    },[]);
+
+    const classify = () => {
+      if (busy || mode !== "generate") return;
+      if (!text.trim() && !hsHint.trim()) return;
+      setBusy(true); setShowResult(false); setPipeDone(false); setPipeShow(true); setProgress(0);
+      const stepTimes = [320, 420, 340, 620, 280, 260];
+      let i = 0;
+      const advance = () => {
+        i += 1;
+        setProgress(i);
+        if (i < STEPS.length){
+          setTimeout(advance, stepTimes[i]);
+        } else {
+          setTimeout(()=>{
+            setShowResult(true);
+            setBusy(false);
+            setTimeout(()=> setPipeDone(true), 500);
+          }, 260);
+        }
+      };
+      setTimeout(advance, stepTimes[0]);
+    };
+
+    useEffect(()=>{
+      const h = (e)=>{ if ((e.metaKey||e.ctrlKey) && e.key==="Enter") classify(); };
+      window.addEventListener("keydown", h);
+      return ()=>window.removeEventListener("keydown", h);
+    },[busy, text, hsHint, mode]);
+
+    return (
+      <div className="shell">
+        <TopBar/>
+        <Hero/>
+        <ModeTabs mode={mode} setMode={setMode}/>
+
+        {mode === "generate" && (
+          <>
+            <InputCard text={text} setText={setText} hsHint={hsHint} setHsHint={setHsHint} val={val} setVal={setVal} busy={busy} onClassify={classify}/>
+            {!showResult && !pipeShow && <Suggestions setText={setText}/>}
+            <Pipeline progress={progress} show={pipeShow} compact={pipeDone}/>
+            <ResultPanel show={showResult} data={RESULT}/>
+          </>
+        )}
+
+        {mode !== "generate" && <SoonCard mode={mode}/>}
+
+        <Foot/>
+        <Tweaks open={tweaksOpen} onClose={()=>setTweaksOpen(false)}
+                theme={theme} setTheme={setTheme}
+                density={density} setDensity={setDensity}/>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
