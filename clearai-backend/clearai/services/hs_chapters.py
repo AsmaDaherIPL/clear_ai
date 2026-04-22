@@ -1,0 +1,160 @@
+"""WCO HS Chapter titles (1–97, plus 98/99 national-use).
+
+The ZATCA master loaded into hs_code_master only contains 12-digit tariff
+lines — it has no row for "Chapter 15" itself. The classification ladder
+needs a human-readable chapter title at the 2-digit rung, so we carry the
+99 canonical chapter headings here. These titles are WCO HS 2022 edition,
+which Saudi Arabia's 2024.3 tariff is aligned to.
+
+AR titles are from ZATCA's Arabic publication of the same nomenclature.
+If/when a `hs_chapters` table is added to clear_ai.db this module becomes
+a one-line read; the interface stays the same.
+"""
+from __future__ import annotations
+
+
+# Chapter number (int) → (en, ar)
+_CHAPTERS: dict[int, tuple[str, str]] = {
+    1:  ("Live animals",                                                              "حيوانات حية"),
+    2:  ("Meat and edible meat offal",                                                "لحوم وأحشاء وأطراف صالحة للأكل"),
+    3:  ("Fish and crustaceans, molluscs and other aquatic invertebrates",            "أسماك وقشريات ورخويات وغيرها من اللافقاريات المائية"),
+    4:  ("Dairy produce; birds' eggs; natural honey; edible products of animal origin, not elsewhere specified or included",
+                                                                                      "منتجات الألبان؛ بيض الطيور؛ عسل طبيعي؛ منتجات صالحة للأكل من أصل حيواني، غير مذكورة ولا داخلة في مكان آخر"),
+    5:  ("Products of animal origin, not elsewhere specified or included",            "منتجات من أصل حيواني، غير مذكورة ولا داخلة في مكان آخر"),
+    6:  ("Live trees and other plants; bulbs, roots and the like; cut flowers and ornamental foliage",
+                                                                                      "أشجار وغيرها من النباتات الحية؛ أبصال وجذور وما يماثلها؛ أزهار مقطوفة وأوراق شجر للزينة"),
+    7:  ("Edible vegetables and certain roots and tubers",                             "خضر ونباتات وجذور ودرنات صالحة للأكل"),
+    8:  ("Edible fruit and nuts; peel of citrus fruit or melons",                      "فواكه وأثمار قشرية صالحة للأكل؛ قشور حمضيات أو بطيخ"),
+    9:  ("Coffee, tea, maté and spices",                                               "بن وشاي ومتة وبهارات"),
+    10: ("Cereals",                                                                    "حبوب"),
+    11: ("Products of the milling industry; malt; starches; inulin; wheat gluten",     "منتجات صناعة الطحن؛ شعير ناشت؛ نشأ؛ إينولين؛ غلوتين القمح"),
+    12: ("Oil seeds and oleaginous fruits; miscellaneous grains, seeds and fruit; industrial or medicinal plants; straw and fodder",
+                                                                                       "بذور وثمار زيتية؛ حبوب وبذور وثمار متنوعة؛ نباتات صناعية أو طبية؛ تبن وعلف"),
+    13: ("Lac; gums, resins and other vegetable saps and extracts",                    "صمغ اللك؛ صموغ وراتنجات وعصارات وخلاصات نباتية أخرى"),
+    14: ("Vegetable plaiting materials; vegetable products not elsewhere specified or included",
+                                                                                       "مواد ضفر نباتية؛ منتجات نباتية غير مذكورة ولا داخلة في مكان آخر"),
+    15: ("Animal, vegetable or microbial fats and oils and their cleavage products; prepared edible fats; animal or vegetable waxes",
+                                                                                       "شحوم ودهون وزيوت حيوانية أو نباتية أو ميكروبية ومنتجات تفككها؛ دهون غذائية محضرة؛ شموع حيوانية أو نباتية"),
+    16: ("Preparations of meat, of fish, of crustaceans, molluscs or other aquatic invertebrates, or of insects",
+                                                                                       "محضرات من لحوم أو أسماك أو قشريات أو رخويات أو غيرها من اللافقاريات المائية أو الحشرات"),
+    17: ("Sugars and sugar confectionery",                                             "سكر ومصنوعاته السكرية"),
+    18: ("Cocoa and cocoa preparations",                                               "كاكاو ومحضراته"),
+    19: ("Preparations of cereals, flour, starch or milk; pastrycooks' products",      "محضرات من الحبوب أو الدقيق أو النشأ أو اللبن؛ منتجات المخابز"),
+    20: ("Preparations of vegetables, fruit, nuts or other parts of plants",           "محضرات من الخضر أو الفواكه أو الأثمار القشرية أو أجزاء نباتية أخرى"),
+    21: ("Miscellaneous edible preparations",                                          "محضرات غذائية متنوعة"),
+    22: ("Beverages, spirits and vinegar",                                             "مشروبات وسوائل كحولية وخل"),
+    23: ("Residues and waste from the food industries; prepared animal fodder",        "بقايا ونفايات صناعة الأغذية؛ أغذية محضرة للحيوانات"),
+    24: ("Tobacco and manufactured tobacco substitutes; products, whether or not containing nicotine",
+                                                                                       "تبغ وأبدال تبغ مصنعة؛ منتجات، سواء احتوت أو لم تحتو على النيكوتين"),
+    25: ("Salt; sulphur; earths and stone; plastering materials, lime and cement",     "ملح؛ كبريت؛ أتربة وأحجار؛ مواد جص وكلس وأسمنت"),
+    26: ("Ores, slag and ash",                                                         "خامات معدنية وخبث ورماد"),
+    27: ("Mineral fuels, mineral oils and products of their distillation; bituminous substances; mineral waxes",
+                                                                                       "وقود معدني وزيوت معدنية ومنتجات تقطيرها؛ مواد قارية؛ شموع معدنية"),
+    28: ("Inorganic chemicals; organic or inorganic compounds of precious metals, of rare-earth metals, of radioactive elements or of isotopes",
+                                                                                       "كيميائيات غير عضوية؛ مركبات عضوية أو غير عضوية للمعادن الثمينة أو المعادن الترابية النادرة أو العناصر المشعة أو النظائر"),
+    29: ("Organic chemicals",                                                          "كيميائيات عضوية"),
+    30: ("Pharmaceutical products",                                                    "منتجات صيدلانية"),
+    31: ("Fertilisers",                                                                "أسمدة"),
+    32: ("Tanning or dyeing extracts; tannins and their derivatives; dyes, pigments and other colouring matter; paints and varnishes; putty and other mastics; inks",
+                                                                                       "خلاصات دباغة وصباغة؛ أحماض العفص ومشتقاتها؛ مواد ملونة وأصبغة وأحبار؛ دهانات وأوراق زخرفة"),
+    33: ("Essential oils and resinoids; perfumery, cosmetic or toilet preparations",   "زيوت عطرية وراتنجات؛ منتجات عطرية أو تجميل أو محضرات للعناية"),
+    34: ("Soap, organic surface-active agents, washing preparations, lubricating preparations, artificial waxes, prepared waxes, polishing or scouring preparations, candles and similar articles, modelling pastes, 'dental waxes' and dental preparations with a basis of plaster",
+                                                                                       "صابون، عوامل تنظيف عضوية، محضرات غسيل وتلميع، شموع محضرة، شموع ومحضرات أسنان"),
+    35: ("Albuminoidal substances; modified starches; glues; enzymes",                 "مواد زلالية؛ نشا معدل؛ غراء؛ إنزيمات"),
+    36: ("Explosives; pyrotechnic products; matches; pyrophoric alloys; certain combustible preparations",
+                                                                                       "متفجرات؛ منتجات ألعاب نارية؛ أعواد ثقاب؛ سبائك إشعال تلقائي؛ محضرات قابلة للاحتراق"),
+    37: ("Photographic or cinematographic goods",                                      "سلع تصوير فوتوغرافي أو سينمائي"),
+    38: ("Miscellaneous chemical products",                                            "منتجات كيميائية متنوعة"),
+    39: ("Plastics and articles thereof",                                              "لدائن ومصنوعاتها"),
+    40: ("Rubber and articles thereof",                                                "مطاط ومصنوعاته"),
+    41: ("Raw hides and skins (other than furskins) and leather",                      "جلود خام (عدا الفراء) وجلود مدبوغة"),
+    42: ("Articles of leather; saddlery and harness; travel goods, handbags and similar containers; articles of animal gut (other than silkworm gut)",
+                                                                                       "مصنوعات جلدية؛ سروج وأعنة؛ لوازم سفر وحقائب يدوية؛ مصنوعات من مصارين الحيوانات"),
+    43: ("Furskins and artificial fur; manufactures thereof",                          "جلود فراء طبيعية أو اصطناعية ومصنوعاتها"),
+    44: ("Wood and articles of wood; wood charcoal",                                   "خشب ومصنوعاته؛ فحم خشبي"),
+    45: ("Cork and articles of cork",                                                  "فلين ومصنوعاته"),
+    46: ("Manufactures of straw, of esparto or of other plaiting materials; basketware and wickerwork",
+                                                                                       "مصنوعات من القش أو الحلفاء أو غيرها من مواد الضفر؛ مصنوعات السلال والخوص"),
+    47: ("Pulp of wood or of other fibrous cellulosic material; recovered (waste and scrap) paper or paperboard",
+                                                                                       "عجينة خشب أو مواد ليفية سلولوزية أخرى؛ ورق أو ورق مقوى مستعمل أو مستعاد"),
+    48: ("Paper and paperboard; articles of paper pulp, of paper or of paperboard",    "ورق وورق مقوى؛ مصنوعات من عجينة الورق أو الورق أو الورق المقوى"),
+    49: ("Printed books, newspapers, pictures and other products of the printing industry; manuscripts, typescripts and plans",
+                                                                                       "كتب مطبوعة وصحف وصور وغيرها من منتجات صناعة الطباعة؛ مخطوطات ومطبوعات آلية وخطط"),
+    50: ("Silk",                                                                       "حرير"),
+    51: ("Wool, fine or coarse animal hair; horsehair yarn and woven fabric",          "صوف ووبر حيواني ناعم أو خشن؛ خيوط وأقمشة من شعر الخيل"),
+    52: ("Cotton",                                                                     "قطن"),
+    53: ("Other vegetable textile fibres; paper yarn and woven fabrics of paper yarn", "ألياف نسجية نباتية أخرى؛ خيوط ورقية وأقمشة منسوجة من الخيوط الورقية"),
+    54: ("Man-made filaments; strip and the like of man-made textile materials",       "شعيرات صناعية؛ شرائط وما يماثلها من المواد النسجية الصناعية"),
+    55: ("Man-made staple fibres",                                                     "ألياف تقليدية قصيرة صناعية"),
+    56: ("Wadding, felt and nonwovens; special yarns; twine, cordage, ropes and cables and articles thereof",
+                                                                                       "حشو ولباد وأقمشة غير منسوجة؛ خيوط خاصة؛ خيوط لف وحبال وأسلاك ومصنوعاتها"),
+    57: ("Carpets and other textile floor coverings",                                  "سجاد وأغطية أرضيات نسيجية أخرى"),
+    58: ("Special woven fabrics; tufted textile fabrics; lace; tapestries; trimmings; embroidery",
+                                                                                       "أقمشة منسوجة خاصة؛ أقمشة ذات خمل؛ دانتيل؛ مرقومات؛ مواد تزيين؛ تطريز"),
+    59: ("Impregnated, coated, covered or laminated textile fabrics; textile articles of a kind suitable for industrial use",
+                                                                                       "أقمشة نسيجية مشربة أو مطلية أو مغطاة أو مصفحة؛ مصنوعات نسيجية للاستعمال الصناعي"),
+    60: ("Knitted or crocheted fabrics",                                               "أقمشة مصنرة أو منسوجة بالكروشيه"),
+    61: ("Articles of apparel and clothing accessories, knitted or crocheted",         "ملابس ولوازمها، مصنرة أو منسوجة بالكروشيه"),
+    62: ("Articles of apparel and clothing accessories, not knitted or crocheted",     "ملابس ولوازمها، غير مصنرة ولا منسوجة بالكروشيه"),
+    63: ("Other made-up textile articles; sets; worn clothing and worn textile articles; rags",
+                                                                                       "مصنوعات نسيجية جاهزة أخرى؛ أطقم؛ ملابس ومصنوعات نسيجية مستعملة؛ خرق"),
+    64: ("Footwear, gaiters and the like; parts of such articles",                     "أحذية وطماقات وما يماثلها؛ أجزاؤها"),
+    65: ("Headgear and parts thereof",                                                 "أغطية رأس وأجزاؤها"),
+    66: ("Umbrellas, sun umbrellas, walking-sticks, seat-sticks, whips, riding-crops and parts thereof",
+                                                                                       "مظلات وعصي مشي وعصي مقاعد وسياط وسياط ركوب وأجزاؤها"),
+    67: ("Prepared feathers and down and articles made of feathers or of down; artificial flowers; articles of human hair",
+                                                                                       "ريش وزغب محضر ومصنوعات منه؛ أزهار اصطناعية؛ مصنوعات من شعر الإنسان"),
+    68: ("Articles of stone, plaster, cement, asbestos, mica or similar materials",    "مصنوعات من الحجر أو الجص أو الأسمنت أو الأسبست أو الميكا أو مواد مماثلة"),
+    69: ("Ceramic products",                                                           "منتجات خزفية"),
+    70: ("Glass and glassware",                                                        "زجاج ومصنوعاته"),
+    71: ("Natural or cultured pearls, precious or semi-precious stones, precious metals, metals clad with precious metal, and articles thereof; imitation jewellery; coin",
+                                                                                       "لؤلؤ طبيعي أو مستنبت؛ أحجار كريمة أو شبه كريمة؛ معادن ثمينة ومصنوعاتها؛ مجوهرات تقليد؛ نقود"),
+    72: ("Iron and steel",                                                             "حديد وصلب"),
+    73: ("Articles of iron or steel",                                                  "مصنوعات من الحديد أو الصلب"),
+    74: ("Copper and articles thereof",                                                "نحاس ومصنوعاته"),
+    75: ("Nickel and articles thereof",                                                "نيكل ومصنوعاته"),
+    76: ("Aluminium and articles thereof",                                             "ألومنيوم ومصنوعاته"),
+    78: ("Lead and articles thereof",                                                  "رصاص ومصنوعاته"),
+    79: ("Zinc and articles thereof",                                                  "زنك (توتياء) ومصنوعاته"),
+    80: ("Tin and articles thereof",                                                   "قصدير ومصنوعاته"),
+    81: ("Other base metals; cermets; articles thereof",                               "معادن عادية أخرى؛ سيرميت؛ مصنوعاتها"),
+    82: ("Tools, implements, cutlery, spoons and forks, of base metal; parts thereof of base metal",
+                                                                                       "أدوات وعدد وسكاكين وملاعق وشوكات، من معدن عادي؛ أجزاؤها من معدن عادي"),
+    83: ("Miscellaneous articles of base metal",                                       "مصنوعات متنوعة من معادن عادية"),
+    84: ("Nuclear reactors, boilers, machinery and mechanical appliances; parts thereof",
+                                                                                       "مفاعلات نووية؛ مراجل وآلات ومعدات ميكانيكية؛ أجزاؤها"),
+    85: ("Electrical machinery and equipment and parts thereof; sound recorders and reproducers, television image and sound recorders and reproducers, and parts and accessories of such articles",
+                                                                                       "آلات ومعدات كهربائية وأجزاؤها؛ أجهزة تسجيل واستنساخ الصوت والصورة، وأجزاؤها ولوازمها"),
+    86: ("Railway or tramway locomotives, rolling-stock and parts thereof; railway or tramway track fixtures and fittings and parts thereof; mechanical (including electro-mechanical) traffic signalling equipment of all kinds",
+                                                                                       "قاطرات ومركبات للسكك الحديدية أو الترامواي وأجزاؤها؛ تركيبات السكك وتجهيزاتها؛ إشارات مرور ميكانيكية"),
+    87: ("Vehicles other than railway or tramway rolling-stock, and parts and accessories thereof",
+                                                                                       "مركبات من غير قاطرات السكك الحديدية أو الترامواي، وأجزاؤها ولوازمها"),
+    88: ("Aircraft, spacecraft, and parts thereof",                                    "طائرات ومركبات فضائية وأجزاؤها"),
+    89: ("Ships, boats and floating structures",                                       "سفن ومراكب وتركيبات عائمة"),
+    90: ("Optical, photographic, cinematographic, measuring, checking, precision, medical or surgical instruments and apparatus; parts and accessories thereof",
+                                                                                       "أدوات وأجهزة بصرية وتصويرية وسينمائية وقياس وفحص ودقة وطبية وجراحية؛ أجزاؤها ولوازمها"),
+    91: ("Clocks and watches and parts thereof",                                       "ساعات حائط ويد وأجزاؤها"),
+    92: ("Musical instruments; parts and accessories of such articles",                "آلات موسيقية؛ أجزاؤها ولوازمها"),
+    93: ("Arms and ammunition; parts and accessories thereof",                         "أسلحة وذخائر؛ أجزاؤها ولوازمها"),
+    94: ("Furniture; bedding, mattresses, mattress supports, cushions and similar stuffed furnishings; luminaires and lighting fittings, not elsewhere specified or included; illuminated signs, illuminated nameplates and the like; prefabricated buildings",
+                                                                                       "أثاث؛ فرش ومراتب ومخدات ومحشوات مماثلة؛ تجهيزات إضاءة؛ لافتات مضيئة؛ مبان سابقة الصنع"),
+    95: ("Toys, games and sports requisites; parts and accessories thereof",           "لعب وأدوات للتسلية والرياضة؛ أجزاؤها ولوازمها"),
+    96: ("Miscellaneous manufactured articles",                                        "مصنوعات متنوعة"),
+    97: ("Works of art, collectors' pieces and antiques",                              "تحف فنية وقطع للهواة وتحف أثرية"),
+    98: ("(National use — Saudi Arabia reserved)",                                     "(استعمال وطني — محجوز للمملكة العربية السعودية)"),
+    99: ("(National use — Saudi Arabia reserved)",                                     "(استعمال وطني — محجوز للمملكة العربية السعودية)"),
+}
+
+
+def chapter_title(code2: str) -> tuple[str, str] | None:
+    """Return (EN, AR) titles for a 2-digit HS chapter code, or None if the
+    chapter number is outside the 1–99 range. Accepts either a 2-digit
+    string or a longer code (only the first 2 digits are used)."""
+    digits = "".join(c for c in code2 if c.isdigit())[:2]
+    if len(digits) != 2:
+        return None
+    try:
+        n = int(digits)
+    except ValueError:
+        return None
+    return _CHAPTERS.get(n)

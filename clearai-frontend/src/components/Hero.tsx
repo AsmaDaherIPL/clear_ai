@@ -6,8 +6,8 @@ export default function Hero() {
     <div className="hero">
       <h1>Clear customs with <span className="accent">confidence</span>.</h1>
       <p className="sub">
-        An intelligent platform that improves accuracy before clearance — reducing manual effort
-        and supporting faster, more consistent customs processing.
+        Classify with confidence, clear without delays. ClearAI produces ZATCA-ready HS codes
+        and compliant documentation — turning customs compliance from a bottleneck into a formality.
       </p>
     </div>
   );

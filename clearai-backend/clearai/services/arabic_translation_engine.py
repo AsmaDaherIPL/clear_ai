@@ -166,14 +166,64 @@ def _is_arabic(text: str) -> bool:
 
 
 def _first_arabic_field(row: dict[str, Any]) -> str:
-    """Scan the row for any non-empty string field whose content is Arabic.
+    """Scan the row for an Arabic product description.
 
-    The real Naqel file doesn't have a single standard "ArabicDescription"
-    column — some rows put Arabic in `Description`, some in other ad-hoc fields.
-    We accept the first Arabic-looking value we see.
+    Bug-fix (P1 code-review): previously scanned ALL string fields and
+    returned the first Arabic-looking value. Real shipments commonly have
+    Arabic consignee names, addresses, cities, notes — those would leak
+    into goodsDescription (PII + wrong-description customs filing).
+
+    Policy now:
+    1. **Allow-list first.** If any of the known product-description keys
+       contains Arabic text, return that. Covers the Naqel/ZATCA columns
+       we've observed in the field.
+    2. **Deny-list fallback.** If no allow-list key matched, scan the
+       remaining fields but SKIP anything whose key matches known PII /
+       non-product patterns (consignee, address, city, phone, email, id,
+       name, contact, shipper, sender, postal, region).
+    3. Return "" if nothing found. Better to translate EN than leak PII.
     """
-    for _key, value in row.items():
-        if isinstance(value, str) and value.strip():
-            if _is_arabic(value):
-                return value.strip()
+    # Keys that are legitimate product-description carriers. Case-insensitive,
+    # substring match. Order matters — the first allow-list hit wins.
+    _ALLOW = (
+        "arabicdescription", "arabic_name", "arabicname", "ar_description",
+        "descriptionar", "description_ar", "descar", "goodsdescription",
+        "goods_description", "productdescription", "product_description",
+        "itemdescription", "item_description", "description",
+    )
+    # Keys that MUST NEVER source the product description — they carry PII
+    # or shipping metadata. Substring match on lower-cased key.
+    _DENY = (
+        "consignee", "shipper", "sender", "receiver", "recipient",
+        "address", "addr", "street", "city", "region", "province",
+        "country", "postal", "zip", "po_box", "pobox",
+        "phone", "tel", "mobile", "fax", "email", "contact",
+        "name", "company", "merchant_name", "client_name",
+        "id", "natid", "nationalid", "passport", "iqama", "crnumber",
+        "note", "remarks", "comment", "instruction",
+    )
+
+    def _key_norm(k: Any) -> str:
+        return str(k).lower().replace("-", "_").replace(" ", "_")
+
+    # Pass 1: allow-list
+    for key, value in row.items():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        k = _key_norm(key)
+        if any(a in k for a in _ALLOW) and _is_arabic(value):
+            return value.strip()
+
+    # Pass 2: any other field, but skip deny-listed keys
+    for key, value in row.items():
+        if not isinstance(value, str) or not value.strip():
+            continue
+        k = _key_norm(key)
+        if any(d in k for d in _DENY):
+            continue
+        if any(a in k for a in _ALLOW):
+            continue  # already checked in pass 1
+        if _is_arabic(value):
+            return value.strip()
+
     return ""

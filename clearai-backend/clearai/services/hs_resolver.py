@@ -51,6 +51,11 @@ from clearai.ports.reasoner import (
     ReasonerInput,
     ReasonerResult,
 )
+from clearai.services.complexity import (
+    as_log_dict,
+    compute_complexity_hint,
+    should_escalate_ranker,
+)
 
 logger = logging.getLogger("clearai.hs_resolver")
 
@@ -86,6 +91,73 @@ FAISS_TOP_K = 10
 MIN_PREFIX_LEN = 4
 
 _DIGITS_RE = re.compile(r"\D")
+
+
+# ---------------------------------------------------------------------------
+# "Residual subheading" guardrail (bomber-jacket fix)
+# ---------------------------------------------------------------------------
+# Apparel/textile chapters whose subheading code `XX90` is the "of other
+# textile materials" residual. When a prefix-path result lands on one of these
+# subheadings AND the description names no fibre, we force an escalation to
+# the Reasoner tier rather than silently accepting the residual bucket.
+_APPAREL_TEXTILE_CHAPTERS = ("61", "62", "63", "64", "65")
+
+# Fibre vocabulary — any hit suppresses the guardrail because the merchant
+# has already declared a material. Tokens are matched as whole words /
+# substrings so "all-cotton" still counts. Arabic tokens mirror the English
+# set; Chinese is intentionally omitted — the CN pipeline translates first.
+_FIBRE_TOKENS_EN = (
+    "cotton", "wool", "cashmere", "silk", "linen", "flax", "ramie", "jute",
+    "hemp", "polyester", "nylon", "acrylic", "rayon", "viscose", "spandex",
+    "elastane", "lycra", "modal", "lyocell", "tencel", "acetate",
+    "man-made", "man made", "synthetic", "microfibre", "microfiber",
+    "fleece", "denim",  # denim ≈ cotton; fleece ≈ MMF
+    "fur", "leather", "suede",
+)
+_FIBRE_TOKENS_AR = (
+    "قطن",     # cotton
+    "صوف",     # wool
+    "كشمير",   # cashmere
+    "حرير",    # silk
+    "كتان",    # linen
+    "بوليستر", # polyester
+    "نايلون",  # nylon
+    "أكريلك",  # acrylic
+    "فسكوز",   # viscose
+    "رايون",   # rayon
+    "دنيم",    # denim
+    "جلد",     # leather
+    "فرو",     # fur
+)
+
+
+def _residual_subheading_without_fibre(
+    hs_code: str, description: str
+) -> bool:
+    """True iff `hs_code` is an apparel/textile ...90 residual subheading AND
+    `description` names no fibre.
+
+    Rationale: the "of other textile materials" leaf is the catch-all for
+    exotic fibres (silk blends, ramie, etc.), not the default when fibre is
+    unknown. When the prefix tie-breaker (shortest-then-lexicographic)
+    silently lands here with no fibre signal in the description, we'd rather
+    escalate to the Reasoner — which has the material-inference rule and
+    the fibre prior for archetypes like bomber jackets.
+    """
+    code = "".join(c for c in (hs_code or "") if c.isdigit())
+    if len(code) < 6:
+        return False
+    if code[:2] not in _APPAREL_TEXTILE_CHAPTERS:
+        return False
+    # The "residual" marker sits at subheading level: digits 5-6 == "90".
+    if code[4:6] != "90":
+        return False
+    text = (description or "").lower()
+    if any(tok in text for tok in _FIBRE_TOKENS_EN):
+        return False
+    if any(tok in description for tok in _FIBRE_TOKENS_AR):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +293,61 @@ class HSResolver:
             if prefix_match is not None:
                 hs_code, prefix_len, ties = prefix_match
                 if len(ties) <= 1:
+                    # Guardrail (bomber-jacket fix): when the deterministic
+                    # winner is an apparel/textile ...90 residual subheading
+                    # AND the description names no fibre, the prefix
+                    # tiebreaker has silently landed on the "other textile
+                    # materials" bucket. Escalate to the Reasoner tier —
+                    # its material-inference rule encodes fibre priors for
+                    # archetypes like bomber jackets (→ man-made fibres).
+                    if _residual_subheading_without_fibre(hs_code, description_en):
+                        logger.info(
+                            "resolver.residual_escalate hs=%s prefix_len=%d "
+                            "reason=residual_subheading_no_fibre",
+                            hs_code, prefix_len,
+                        )
+                        escalated = self._escalate_to_reasoner(
+                            description_en=description_en,
+                            description_cn=description_cn,
+                            declared=declared,
+                            prefix_candidates=tuple(
+                                Candidate(
+                                    hs_code=r["hs_code"],
+                                    description_en=r["description_en"] or "",
+                                    description_ar=r["arabic_name"] or "",
+                                    duty_rate=r["duty_rate_pct"],
+                                    source="prefix",
+                                    score=float(prefix_len),
+                                )
+                                for r in ties
+                            ),
+                            bucket_hint=bucket_hint,
+                            bucket_hint_line=bucket_hint_line,
+                            escalation_reason="residual_subheading_no_fibre",
+                        )
+                        if escalated is not None:
+                            return escalated
+                        # Reasoner unavailable — fall through to return the
+                        # deterministic winner at reduced confidence so the
+                        # row is flagged for review rather than silently
+                        # accepted at full prefix confidence.
+                        return self._finalize(
+                            hs_code=hs_code,
+                            confidence=min(
+                                CONF_PREFIX_BY_LEN.get(prefix_len, 0.70), 0.60
+                            ),
+                            path=PATH_PREFIX,
+                            rationale=(
+                                f"Longest-prefix-wins at {prefix_len} digits, but "
+                                f"landed on residual ...90 subheading with no fibre "
+                                f"declared; Reasoner escalation unavailable — "
+                                f"flagging for review."
+                            ),
+                            bucket_hint_line=bucket_hint_line,
+                            bucket_verified_code=(
+                                bucket_hint["verified_code"] if bucket_hint else None
+                            ),
+                        )
                     return self._finalize(
                         hs_code=hs_code,
                         confidence=CONF_PREFIX_BY_LEN.get(prefix_len, 0.70),
@@ -266,20 +393,31 @@ class HSResolver:
     ) -> tuple[str, int, list[sqlite3.Row]] | None:
         """Return (winning_hs_code, prefix_len, tied_rows_at_winning_length).
 
-        Iterates candidate prefixes from longest (len-1) down to MIN_PREFIX_LEN,
-        returning the first length that has any master match. `ties` is the set
-        of master rows whose code starts with that winning prefix; when len==1
-        this is the single winner, otherwise the Ranker must break it.
+        Iterates candidate prefixes from longest (full declared length, capped
+        at 11 since 12-digit exact hits take the `direct` path) down to
+        MIN_PREFIX_LEN, returning the first length that has any master match.
+
+        Bug-fix (P1 code-review): previously `max_len = len(declared) - 1`
+        skipped the merchant's actual partial-code length entirely. A 4-digit
+        declared code was never queried at len=4, and an 8-digit code like
+        `61082100` was searched as `6108210`, `610821`, … never as itself.
+        Now we start at the full declared length (capped at 11).
+
+        Bug-fix (P1 code-review): removed `LIMIT 25` on the prefix query.
+        For broad 4–6 digit prefixes the correct leaf often falls outside
+        a 25-row lexicographically-earliest slice, causing the Ranker to
+        never see it and the resolver to return a wrong code. Row count is
+        bounded by chapter size (typically <1000 for a 4-digit prefix,
+        <100 for 6-digit), which is safe to materialise in memory.
         """
-        max_len = min(len(declared) - 1, 11)
+        max_len = min(len(declared), 11)
         for p_len in range(max_len, MIN_PREFIX_LEN - 1, -1):
             prefix = declared[:p_len]
             cur = self._conn.execute(
                 "SELECT hs_code, arabic_name, description_en, duty_rate_pct "
                 "FROM hs_code_master "
                 "WHERE hs_code LIKE ? "
-                "ORDER BY LENGTH(hs_code) ASC, hs_code ASC "
-                "LIMIT 25",
+                "ORDER BY LENGTH(hs_code) ASC, hs_code ASC",
                 (prefix + "%",),
             )
             rows = cur.fetchall()
@@ -339,6 +477,12 @@ class HSResolver:
             )
             for r in ties
         )
+        hint = compute_complexity_hint(
+            text=description_en or description_cn,
+            candidate_scores=None,           # prefix tie has no cosine scores
+            candidate_count=len(candidates),
+        )
+        logger.info("ranker.complexity_hint %s", as_log_dict(hint))
         try:
             result = self._reasoner.rank_candidates(
                 RankerInput(
@@ -346,6 +490,7 @@ class HSResolver:
                     description_cn=description_cn,
                     declared_code=declared,
                     candidates=candidates,
+                    complexity_hint=hint,
                 )
             )
         except ReasonerError as e:
@@ -362,18 +507,124 @@ class HSResolver:
                     bucket_hint["verified_code"] if bucket_hint else None
                 ),
             )
-        # The Ranker's code must be one of the tied candidates — trust but verify.
-        if result.hs_code not in {c.hs_code for c in candidates}:
+        # The Ranker's code MUST be one of the tied candidates. The prior
+        # behaviour was to log and accept — which violates the tie-break
+        # contract and can let a hallucinated code escape into production
+        # declarations. Bug-fix (P2 code-review): reject the out-of-set
+        # answer and fall back to the deterministic first-candidate path
+        # with reduced confidence, same as when the Ranker API errors.
+        _tied_codes = {c.hs_code for c in candidates}
+        if result.hs_code not in _tied_codes:
             logger.warning(
-                "Ranker returned out-of-set code %s; accepting anyway with reduced conf",
-                result.hs_code,
+                "Ranker returned out-of-set code %s (tied=%s); rejecting and "
+                "falling back to first candidate with reduced confidence",
+                result.hs_code, sorted(_tied_codes),
             )
+            return self._finalize(
+                hs_code=candidates[0].hs_code,
+                # Cap at 0.60 so _should_flag auto-routes this to review
+                # (below the default 0.80 threshold).
+                confidence=min(CONF_PREFIX_BY_LEN.get(prefix_len, 0.70), 0.60),
+                path=PATH_PREFIX,
+                rationale=(
+                    f"Prefix tie at {prefix_len} digits; Ranker returned "
+                    f"out-of-set code {result.hs_code!r}, rejected per "
+                    f"tie-break contract; fell back to first candidate."
+                ),
+                bucket_hint_line=bucket_hint_line,
+                bucket_verified_code=(
+                    bucket_hint["verified_code"] if bucket_hint else None
+                ),
+            )
+
+        # --- ADR-010: deterministic tier escalation -----------------------
+        # If the Ranker's confidence is low AND the input matches a known
+        # weak-spot pattern (wide tie or long Arabic-heavy text), redo the
+        # call at the Reasoner tier with full evidence. Every escalation is
+        # logged with its reason code so we can audit frequency + impact.
+        should, reason = should_escalate_ranker(
+            hint=hint,
+            ranker_confidence=result.confidence,
+            confidence_threshold=self._threshold,
+        )
+        if should:
+            logger.info(
+                "ranker.escalate reason=%s ranker_conf=%.3f threshold=%.3f",
+                reason, result.confidence, self._threshold,
+            )
+            escalated = self._escalate_to_reasoner(
+                description_en=description_en,
+                description_cn=description_cn,
+                declared=declared,
+                prefix_candidates=candidates,
+                bucket_hint=bucket_hint,
+                bucket_hint_line=bucket_hint_line,
+                escalation_reason=reason,
+            )
+            if escalated is not None:
+                return escalated
+            # Reasoner also failed — fall through to accept the Ranker's
+            # result rather than hard-failing the row.
+
         return self._finalize_from_result(
             result=result,
             path=PATH_PREFIX,
             bucket_hint_line=bucket_hint_line,
             bucket_verified_code=(bucket_hint["verified_code"] if bucket_hint else None),
             fallback_rationale=f"Ranker disambiguated prefix-{prefix_len} tie.",
+        )
+
+    # ---- Tier escalation (Ranker → Reasoner) --------------------------
+    def _escalate_to_reasoner(
+        self,
+        *,
+        description_en: str,
+        description_cn: str,
+        declared: str,
+        prefix_candidates: tuple[Candidate, ...],
+        bucket_hint: dict[str, Any] | None,
+        bucket_hint_line: str | None,
+        escalation_reason: str,
+    ) -> Resolution | None:
+        """Call REASONER_MODEL with both FAISS + prefix candidates, returning
+        `None` on failure so the caller can fall back to the Ranker's result.
+
+        Used by the ADR-010 escalation rule at the Ranker site. The path
+        stays PATH_PREFIX (not PATH_REASONER) because the resolution still
+        originated from a merchant-declared prefix — the escalation just
+        raised the tier used to disambiguate.
+        """
+        faiss_cands = self._faiss_top_candidates(
+            description_en or description_cn, k=self._faiss_top_k
+        )
+        hint = compute_complexity_hint(
+            text=description_en or description_cn,
+            candidate_scores=[c.score or 0.0 for c in faiss_cands],
+            candidate_count=len(faiss_cands),
+        )
+        try:
+            result = self._reasoner.infer_hs_code(
+                ReasonerInput(
+                    description_en=description_en,
+                    description_cn=description_cn,
+                    declared_code=declared,
+                    faiss_candidates=faiss_cands,
+                    prefix_candidates=prefix_candidates,
+                    naqel_bucket_hint=bucket_hint_line,
+                    complexity_hint=hint,
+                )
+            )
+        except ReasonerError as e:
+            logger.warning("Escalated Reasoner call failed: %s", e)
+            return None
+        return self._finalize_from_result(
+            result=result,
+            path=PATH_PREFIX,  # escalation ≠ Path-3; see docstring
+            bucket_hint_line=bucket_hint_line,
+            bucket_verified_code=(bucket_hint["verified_code"] if bucket_hint else None),
+            fallback_rationale=(
+                f"Ranker tier escalated to Reasoner ({escalation_reason})."
+            ),
         )
 
     # ---- Reasoner (full inference) ------------------------------------
@@ -398,6 +649,12 @@ class HSResolver:
         faiss_cands = self._faiss_top_candidates(
             description_en or description_cn, k=self._faiss_top_k
         )
+        hint = compute_complexity_hint(
+            text=description_en or description_cn,
+            candidate_scores=[c.score or 0.0 for c in faiss_cands],
+            candidate_count=len(faiss_cands),
+        )
+        logger.info("reasoner.complexity_hint %s", as_log_dict(hint))
         try:
             result = self._reasoner.infer_hs_code(
                 ReasonerInput(
@@ -407,6 +664,7 @@ class HSResolver:
                     faiss_candidates=faiss_cands,
                     prefix_candidates=(),
                     naqel_bucket_hint=bucket_hint_line,
+                    complexity_hint=hint,
                 )
             )
         except ReasonerError as e:
@@ -436,6 +694,81 @@ class HSResolver:
         """Return the top-K FAISS candidates for `text` without routing through
         the Reasoner. Read-only; safe to call independently of resolve()."""
         return self._faiss_top_candidates(text, k=k)
+
+    def hs_code_ladder(self, hs_code: str) -> list[dict[str, Any]]:
+        """Build a 4-rung plain-English classification ladder for `hs_code`.
+
+        Strategy per rung:
+          - 2-digit (chapter): canonical WCO chapter title from hs_chapters.
+            The ZATCA master only carries 12-digit tariff lines — it has
+            no chapter-level row — so a DB lookup alone would surface an
+            arbitrary 15.01 row ("Pig fat") for chapter 15 instead of
+            the true title ("Animal/vegetable fats and oils"). See ADR
+            note in hs_chapters.py.
+          - 4-digit (heading) and 6-digit (subheading): zero-pad the slice
+            to 12 digits and look up the master row directly. ZATCA stores
+            heading-level text at `####00000000` and subheading-level text
+            at `######000000`, so this is always the authoritative title.
+          - 12-digit (exact line): the user's resolved code itself.
+
+        Never invents text: if a rung can't be resolved, it is skipped.
+        """
+        from clearai.services.hs_chapters import chapter_title  # local import
+
+        code = "".join(c for c in hs_code if c.isdigit())
+        if len(code) != 12:
+            return []
+
+        out: list[dict[str, Any]] = []
+
+        # --- Rung 1: chapter (2-digit) — canonical WCO title -----------
+        title = chapter_title(code[:2])
+        if title is not None:
+            en, ar = title
+            out.append(
+                {
+                    "level": "The big category",
+                    "code": code[:2],
+                    "description_en": en,
+                    "description_ar": ar,
+                }
+            )
+
+        # --- Rungs 2, 3, 4: heading / subheading / exact line ----------
+        for label, n in (("The family", 4), ("The sub-family", 6), ("Your exact item", 12)):
+            # Zero-pad to 12 digits so the key matches ZATCA's storage
+            # convention (##########0000 for heading-level rows).
+            padded = code[:n].ljust(12, "0")
+            cur = self._conn.execute(
+                "SELECT hs_code, description_en, arabic_name "
+                "FROM hs_code_master WHERE hs_code = ? LIMIT 1",
+                (padded,),
+            )
+            row = cur.fetchone()
+            if row is None and n < 12:
+                # ZATCA's nomenclature sometimes uses a different padding
+                # convention for a given heading (e.g. ####10000000 instead
+                # of ####00000000). Fall back to the shortest master row
+                # under this prefix — it'll be one of the first
+                # subheadings, which carries the heading-level text.
+                cur = self._conn.execute(
+                    "SELECT hs_code, description_en, arabic_name "
+                    "FROM hs_code_master WHERE hs_code LIKE ? "
+                    "ORDER BY hs_code ASC LIMIT 1",
+                    (code[:n] + "%",),
+                )
+                row = cur.fetchone()
+            if row is None:
+                continue
+            out.append(
+                {
+                    "level": label,
+                    "code": code[:n],
+                    "description_en": row["description_en"] or "",
+                    "description_ar": row["arabic_name"] or "",
+                }
+            )
+        return out
 
     def master_row(self, hs_code: str) -> dict[str, Any] | None:
         """Fetch a single master row as a plain dict. Used by the API to

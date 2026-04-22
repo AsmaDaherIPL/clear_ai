@@ -197,3 +197,106 @@ clearai-backend/
 - Instantiating `AnthropicReasoner` (or any adapter class) inside `services/`. Services receive an `HSReasoner` via dependency injection; they never name a concrete implementation.
 - Adding "just one" utility file at the `clearai-backend/` root. Every file has a layer.
 - Sys.path manipulation. All execution uses either the installed editable package or `python -m clearai.<module>`.
+
+
+## ADR-010: Complexity-hint-driven tier escalation (rejecting Foundry Model Router)
+
+**Decision:** Within the three-tier split from ADR-004, ClearAI escalates from a
+lower tier to a higher tier using a **deterministic, logged rule** driven by a
+`ComplexityHint` computed from inputs the resolver already has (description
+length, Arabic-script ratio, FAISS top-1/top-2 score gap, candidate count). We
+**do not** adopt Azure Foundry's `model-router` deployment or any other
+dynamic-routing service.
+
+**Context:** During Migration V2 (Foundry integration) the obvious question was
+whether to replace ADR-004's hardcoded task→tier mapping with Foundry's
+`model-router`, which picks a model per prompt using a Quality / Cost / Balanced
+policy and can span vendors (Anthropic, OpenAI, Grok, DeepSeek). On the surface
+that would subsume the tiering decision into infrastructure and save a
+classification of "which tier is this?" at every call site.
+
+**Why the router loses here:**
+
+- **Cost of wrong choice is regulatory, not cosmetic.** ClearAI's output becomes
+  a ZATCA customs declaration. A router that silently downshifts Sonnet → Haiku
+  on a borderline line produces a wrong HS code → wrong duty → audit exposure.
+  Generic chatbots tolerate "the answer was slightly worse"; we cannot.
+- **Prompt/schema stability.** The WCO 7-section justification schema is
+  prompt-tuned per model family. Letting the router swap Claude → GPT → Grok
+  between calls breaks the Pydantic parser the moment the response shape drifts.
+- **Auditability.** Router decisions are opaque and not reliably logged on a
+  per-call basis. When a filing is challenged six months from now, "a router
+  picked the model" is not a defence; "rule R1 fired because tie-width=8 and
+  confidence=0.62" is.
+- **Vendor lock.** The router is an Azure-only feature. Baking it in couples
+  routing policy to Azure Foundry in a way that surviving a future move to
+  Bedrock, Vertex, or a self-hosted deployment would not.
+- **We already have a router. It's three lines of a dict.** ADR-004's per-task
+  mapping is not technical debt — it's the smallest possible correct design for
+  a pipeline whose tasks are stable and well-characterised.
+
+**What we build instead:**
+
+- `clearai/ports/reasoner.py` carries a `ComplexityHint` dataclass (pure
+  evidence, no policy).
+- `clearai/services/complexity.py` owns the builder (`compute_complexity_hint`),
+  the derived predicates (`is_long`, `is_arabic_heavy`, `faiss_is_ambiguous`,
+  `prefix_tie_is_wide`), and the escalation rules (`should_escalate_ranker`).
+- `clearai/services/hs_resolver.py` computes the hint once per call site,
+  attaches it to `RankerInput` / `ReasonerInput` (so adapters can use it in
+  prompting if they choose), logs it with `as_log_dict`, and — only at the
+  Ranker site — checks `should_escalate_ranker`. If escalation fires, the row
+  is re-classified via `infer_hs_code` (top tier) with both FAISS and prefix
+  candidates attached.
+
+**Escalation rules (v1):**
+
+- **R1 — wide tie + low confidence:** Ranker confidence below
+  `CONFIDENCE_THRESHOLD` AND prefix tie wider than 5 candidates. Indicates the
+  mid-tier conceded on a broad ambiguity the full-evidence Reasoner can
+  disambiguate.
+- **R2 — long Arabic-heavy + low confidence:** Ranker confidence below
+  `CONFIDENCE_THRESHOLD` AND description ≥60 tokens AND ≥30% Arabic script.
+  Known weak spot of Sonnet on ClearAI's dataset; escalating gives the top
+  tier more room without blanket-paying for it.
+
+Rules are **additive**: starting conservative (one site, two rules) so the
+first production weeks produce audit data that either justifies new rules or
+retires these. Every invocation of `should_escalate_ranker` returns a
+`reason_code` that is logged, so escalation frequency and effect are
+measurable, not assumed.
+
+**What we explicitly leave out of v1:**
+
+- **Escalation at the Translator site.** Translation errors are cheap to catch
+  downstream (Arabic output visibly broken on the review screen). Not worth
+  doubling Haiku cost to chase it.
+- **Auto-downshift rules (Reasoner → Ranker for easy cases).** The Reasoner
+  only runs on Path 3, which is ~2.5% of rows by design. Saving cost here is
+  pennies; the risk of downshifting a genuinely hard call is not worth it.
+- **Vendor cross-over rules (Claude → GPT).** Separate decision; would require
+  re-validating the justification schema across families. Revisit only with
+  evidence.
+
+**Enforcement:** The `ComplexityHint` lives in `ports/`, so the import-linter
+`ports-pure` contract continues to forbid `ports/` depending on `services/`
+(builder logic stays in `services/`). Unit tests in
+`tests/unit/test_complexity.py` pin the rule contracts — any change to
+threshold constants or rule logic is a deliberate, reviewed change, not a
+drift.
+
+**Consequences:**
+
+- Every LLM call site logs a `ComplexityHint` line before dispatch. Production
+  logs become the audit trail for "why did this row get Sonnet instead of
+  Haiku."
+- Adapters can optionally read `ReasonerInput.complexity_hint` to adjust
+  prompts (e.g. add "be extra careful — this is a mixed Arabic/English
+  description" for R2 cases). Not required; adapters ignoring the hint still
+  satisfy the contract.
+- Adding a new escalation rule = a new function in `complexity.py`, a new call
+  site in the resolver, and new tests. No router re-configuration, no vendor
+  lock.
+- If Foundry later adds a router that is transparent (per-call decisions
+  logged with reason, deterministic on re-run, schema-stable across families),
+  this ADR is revisited. Today's router does not meet those bars.

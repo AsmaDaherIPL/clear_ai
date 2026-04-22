@@ -58,6 +58,27 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class ComplexityHint:
+    """Per-call signals describing how hard the LLM's task is likely to be.
+
+    Computed deterministically by `clearai.services.complexity` from inputs
+    the resolver already has (description length, Arabic-script ratio, FAISS
+    top-1/top-2 score gap, candidate count). Lives in `ports/` so adapters
+    can receive it without depending on `services/`. See ADR-010.
+
+    Carries evidence, NOT policy. Escalation decisions are made by the
+    resolver using explicit, logged rules — not by the hint itself.
+    """
+
+    token_count: int                  # whitespace-split word count
+    arabic_ratio: float               # fraction of letters that are Arabic (0..1)
+    has_chinese: bool                 # whether CJK ideographs were detected
+    faiss_top1_score: float | None    # cosine similarity of top FAISS hit, or None
+    faiss_top2_gap: float | None      # top1 - top2, or None if <2 candidates
+    candidate_count: int              # candidates passed (prefix tie width or FAISS K)
+
+
+@dataclass(frozen=True)
 class RankerInput:
     """Evidence bundle for the ranking task.
 
@@ -70,6 +91,7 @@ class RankerInput:
     description_cn: str = ""
     declared_code: str = ""
     candidates: Sequence[Candidate] = field(default_factory=tuple)
+    complexity_hint: ComplexityHint | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +110,7 @@ class ReasonerInput:
     faiss_candidates: Sequence[Candidate] = field(default_factory=tuple)
     prefix_candidates: Sequence[Candidate] = field(default_factory=tuple)
     naqel_bucket_hint: str | None = None     # e.g. "Naqel historically declares 620442000000 for items like this"
+    complexity_hint: ComplexityHint | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +124,8 @@ class ReasonerResult:
     agrees_with_naqel: bool | None = None    # only set by infer_hs_code
     arabic_description: str = ""             # only set by translate_to_arabic
     model_used: str = ""                     # which tier ran this call
+    tokens_in: int = 0                       # prompt tokens consumed
+    tokens_out: int = 0                      # completion tokens emitted
 
 
 @dataclass(frozen=True)
@@ -126,10 +151,60 @@ class JustificationInput:
 
 
 @dataclass(frozen=True)
+class RationaleStep:
+    """One rung of the v5 3-step narrative (Chapter → Heading → Subheading).
+
+    Each step cites a WCO GIR or ZATCA note, gives both a technical detail and
+    a plain-English paraphrase, and is suitable for non-specialist review.
+    """
+
+    title: str          # e.g. "Chapter 49 — Printed matter"
+    detail: str         # one-sentence technical explanation
+    plain_explanation: str  # plain-English rephrasing ("What this means: ...")
+    reference: str      # e.g. "WCO GIR 1", "GIR 3(a)", "ZATCA Note 4901"
+
+
+@dataclass(frozen=True)
+class EvidenceSnippet:
+    """Justifier-produced citation for the "Sources cited" UI block.
+
+    Attached to a specific FAISS candidate by hs_code so the UI can merge it
+    with the structured evidence trail.
+    """
+
+    hs_code: str        # which FAISS candidate this snippet belongs to
+    source: str         # "ZATCA Tariff" | "WCO Notes" | "Bayan ruling"
+    title: str          # human-readable title for the card header
+    snippet: str        # 1-2 sentence quotation / paraphrase
+
+
+@dataclass(frozen=True)
+class ClosestAlternativeResult:
+    """Output of the standalone closest-alternative Haiku call.
+
+    Carries the rejected FAISS-competitor's code and a one-sentence plain-
+    English discriminator. Separate from JustificationResult so the UI can
+    render the "Why not a similar code?" card even when the big Sonnet
+    justifier is skipped (e.g. direct path with code-only input).
+    """
+
+    hs_code: str
+    why_not: str
+    model_used: str = ""
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
+@dataclass(frozen=True)
 class JustificationResult:
-    """Structured 7-section output. Fields mirror the Case 001 output spec in
-    tracker/TEST_CASES.md. Each list field has 2-5 entries in practice
-    (prompt-enforced, not schema-enforced)."""
+    """Structured output — 7-section Case 001 format PLUS v5 UI extensions
+    (plain summary, 3-step narrative, evidence snippets). Delivered in a
+    single LLM call so latency stays low and the rationale stays coherent.
+
+    Each list field has 2-5 entries in practice (prompt-enforced, not
+    schema-enforced). `rationale_steps` is exactly 3; `evidence_snippets`
+    is 2-5.
+    """
 
     product_name: str
     understanding_the_product: str
@@ -138,7 +213,21 @@ class JustificationResult:
     wco_hs_explanatory_notes: str
     correct_classification: str
     conclusion: str
+    # v5 UI additions — all optional at the dataclass level so a degraded
+    # model response (missing fields) still yields a usable result rather
+    # than dropping the whole justification.
+    plain_summary: str = ""
+    rationale_steps: tuple[RationaleStep, ...] = ()
+    evidence_snippets: tuple[EvidenceSnippet, ...] = ()
+    # Non-expert "Why not this one?" card. Justifier picks the nearest
+    # FAISS competitor it rejected and writes ONE plain sentence (no GRI
+    # citation, no heading number) explaining the discriminating fact.
+    # Empty when the justifier had no viable competitor to compare against.
+    closest_alternative_code: str = ""
+    closest_alternative_why_not: str = ""
     model_used: str = ""
+    tokens_in: int = 0
+    tokens_out: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +241,26 @@ class HSReasoner(ABC):
     return typed result dataclasses — never raw provider responses. All JSON
     parsing, validation, and retry logic lives inside the implementation.
     """
+
+    @abstractmethod
+    def refine_description_en(
+        self,
+        *,
+        merchant_description: str,
+        zatca_description: str,
+    ) -> ReasonerResult:
+        """Produce a better English product line by merging the merchant's
+        own words with the ZATCA tariff description for the resolved code.
+
+        The goal is to keep the MERCHANT'S tone and vocabulary level but
+        enrich with the tariff-precise nouns the ZATCA description uses.
+        No invention, no marketing language. Routes to TRANSLATION_MODEL
+        (Haiku) because it's a constrained rewrite task, not reasoning.
+
+        Returns ReasonerResult with `rationale` carrying the refined EN
+        description. `hs_code` and `confidence` are echoed / irrelevant.
+        """
+        raise NotImplementedError
 
     @abstractmethod
     def translate_to_arabic(self, description_en: str) -> ReasonerResult:
@@ -193,6 +302,26 @@ class HSReasoner(ABC):
 
         Returns ReasonerResult with `hs_code`, `confidence`, `rationale`, and
         `agrees_with_naqel` populated.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def build_closest_alternative(
+        self,
+        *,
+        picked_code: str,
+        picked_description_en: str,
+        faiss_candidates: Sequence[Candidate],
+    ) -> "ClosestAlternativeResult | None":
+        """Pick the nearest FAISS competitor to the resolved code and write a
+        single plain-English sentence explaining the discriminating fact.
+
+        Split out of `build_justification` so it can route to Haiku (cheap,
+        fast, focused) instead of occupying tokens inside the Sonnet 7-section
+        JSON. Runs in parallel with translate/refine for zero wall-time cost.
+
+        Returns None on any failure — the UI simply hides the "Why not a
+        similar code?" card rather than showing a half-finished one.
         """
         raise NotImplementedError
 

@@ -38,7 +38,7 @@ export default function InputCard({
   const canRun = text.trim().length > 0 || hsHint.trim().length > 0;
 
   function onKey(e: React.KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (canRun && !busy) onClassify();
     }
@@ -102,9 +102,6 @@ export default function InputCard({
               ))}
             </select>
           </span>
-          <button className="pill pill-lg" type="button" disabled title="CSV bulk upload — coming soon">
-            ＋ Attach CSV
-          </button>
         </div>
         <div className="r">
           <button

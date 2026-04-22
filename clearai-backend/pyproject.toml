@@ -20,6 +20,8 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
+    # Required by FastAPI for multipart/form-data uploads on /api/batch/upload.
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

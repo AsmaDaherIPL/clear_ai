@@ -134,7 +134,7 @@ BAYAN_CONSTANTS: dict[str, str | int] = {
     "addCountryCode": int(_get("BAYAN_ADD_COUNTRY_CODE", "100")),
     "country": int(_get("BAYAN_COUNTRY", "100")),
     "cityDefault": int(_get("BAYAN_CITY_DEFAULT", "131")),
-    "zipCode": int(_get("BAYAN_ZIP_CODE", "111")),
+    "zipCode": int(_get("BAYAN_ZIP_CODE", "1111")),  # observed in baseline XMLs
     "pob": int(_get("BAYAN_POB", "11")),
     # source company fallback
     "defaultSourceCompanyName": _get("BAYAN_DEFAULT_SOURCE_CO_NAME", "ناقل"),

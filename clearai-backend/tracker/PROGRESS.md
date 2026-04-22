@@ -5,18 +5,44 @@
 
 ---
 
-## Snapshot (updated 2026-04-19)
+## Snapshot (updated 2026-04-20)
 
 | Phase | Status | Progress |
 |-------|--------|----------|
 | Phase 1 — Foundation & Data Layer | ✅ Complete | 5/5 done |
 | Phase 2 — Resolution Engine | ✅ Complete | 5/5 done |
 | Migration V1 (UI split + FastAPI + Frontend) | ✅ Complete | 10/10 M-phases |
+| Migration V2 (Azure AI Foundry integration) | 🟡 In progress | 6/7 F-phases |
 | Phase 3 — Output & CLI (XML + batch) | ⚪ Not started | 0/5 |
 | Phase 4 — Testing & Hardening | ⚪ Not started | 0/4 |
-| **Overall** | | **17/29 tasks complete (59%)** |
+| **Overall** | | **23/36 tasks complete (64%)** |
 
-**Next up:** Phase 3 — Output & CLI (XML builder + batch resolver). Migration V1 is complete; the full stack resolves Case 001 end-to-end on Path 1 (`490300900005`, 98% confidence, 10 FAISS evidence rows) with the API reachable at `:8787` and the UI at `:3000`.
+**Next up:** F6 (Key Vault + ADR-009) when backend moves off the laptop. Then **Embedder swap** → replace `all-MiniLM-L6-v2` with `intfloat/multilingual-e5-small` for Arabic support. Then Phase 3 (XML builder + batch resolver).
+
+**Migration V2 — Azure AI Foundry (2026-04-20):** Path 3 was blocked in V1 because the Anthropic direct API (platform.claude.com) had no credit balance on this account, even though Claude Pro billing is active on claude.ai. Rather than top up a second billing surface, ClearAI is pivoting to Azure AI Foundry — the org already has a shared AI landing zone provisioned by the platform team, and Anthropic exposes a drop-in `AnthropicFoundry` client that routes to `https://<resource>.services.ai.azure.com/anthropic`. Same SDK shape, same response schema, enterprise billing instead of personal credits.
+
+Progress on Migration V2:
+
+- ✅ **F1** — Access + landing zone discovery: confirmed Contributor on `rg-infp-clearai-common-dev-gwc-01` (app LZ, `sub-infp-clearai-nonprod-gwc`, Germany West Central) and on `rg-infp-ai-dev-swc-01` (shared AI LZ, `sub-infp-ai-nonprod-eu`, Sweden Central). Registered `Microsoft.CognitiveServices` RP on the AI subscription. Identified shared Foundry resource `aif-infp-dev-swc-01` as the parent hub for ClearAI's project.
+- ✅ **F2** — Foundry project created: `proj-clearai-dev` provisioned as a child of the shared hub `aif-infp-dev-swc-01` via `az cognitiveservices account project create` (portal UI forced a new parent; CLI was the clean path). Endpoint: `https://aif-infp-dev-swc-01.services.ai.azure.com/api/projects/proj-clearai-dev`. System-assigned managed identity enabled. Orphan resources from the earlier portal attempt (`ais-infp-clearai-dev-swc` + its project) scheduled for cleanup.
+- ✅ **F3** — Claude Haiku 4.5 + Claude Sonnet 4.6 deployed into `proj-clearai-dev` (Foundry). Endpoint: `https://aif-infp-dev-swc-01.services.ai.azure.com/anthropic`. Single Foundry key authenticates both deployments (Azure keys are per-resource, not per-deployment).
+- ✅ **F4** — Reasoner wired to Foundry via `ANTHROPIC_BASE_URL` env var. The existing Anthropic SDK accepts the Foundry URL as a drop-in; no adapter refactor needed for V2. (The formal port/adapter split stays on the roadmap for when a second provider — Bedrock, Vertex — is actually required; speculative refactor avoided per architecture principle "flexibility through interfaces, not premature abstraction.")
+- ✅ **F5** — Local end-to-end acceptance run: frontend at `:3000` → backend at `:8787` → Foundry. Path 3 (description-only) now returns a real classification with justification, not `path=failed`. Latency is slow (~2-4s cold) but within expected for Foundry cold-start + multi-hop reasoning; streaming UI is a Phase-4 concern.
+- ⚪ **F6** — Governance + secrets: move the Foundry API key out of `.env` into Key Vault in `rg-infp-clearai-common-dev-gwc-01`; eventually switch to managed identity so no key ships with the backend at all. Write ADR-009 capturing the Foundry pivot. **Deferred until backend is deployed off the laptop** — on local dev, Key Vault adds no functional value; it becomes mandatory the moment the backend runs in a shared cloud environment.
+- ✅ **F7** — `ComplexityHint` added to `clearai/ports/reasoner.py` (pure evidence dataclass) + builder/predicates/escalation rules in `clearai/services/complexity.py`. Resolver now computes a hint at Ranker and Reasoner call sites, logs it, and applies two deterministic escalation rules (R1: wide tie + low conf; R2: long Arabic-heavy + low conf) to redo a sub-threshold Ranker result at Reasoner tier. Every escalation logs its reason code (`R1_wide_tie_low_conf` / `R2_long_arabic_low_conf`) for audit. 20 unit tests (`tests/unit/test_complexity.py`) lock the rule contract. All 4 import-linter contracts still pass. See ADR-010 for the rationale (and why Foundry's Model Router was rejected).
+
+**Unblockers for V2:** F3 needs an Anthropic model family to be available in Sweden Central at deploy time. If unavailable, fall back to requesting Microsoft to enable it, **not** to swapping providers — GPT-4o via Azure OpenAI was considered and rejected because it breaks the tiered-model architecture in ADR-004 (Haiku for translation, Sonnet for ranking, Opus for the reasoner). Reasoner-provider swaps would force re-validating every prompt and the WCO justification schema on a different model family, for no gain.
+
+**Why not Foundry's Model Router (recorded here, ADR-010 follows):** Foundry offers a `model-router` deployment that dynamically picks Haiku / Sonnet / Opus / GPT / Grok / DeepSeek per prompt using Quality / Cost / Balanced modes. Attractive on paper, rejected for ClearAI because (1) the pipeline's output becomes a customs declaration — cost of a wrong model choice is a regulatory issue, not a UX issue; (2) the WCO 7-section JSON schema is prompt-tuned per model family, and letting the router silently swap families breaks the Pydantic parser; (3) router decisions are opaque and not reliably logged, making classification errors hard to debug; (4) the built-in tiered router (ADR-004) is a three-line dict — not technical debt worth replacing with opaque cloud behavior. Instead, F7 builds a deterministic escalation layer on top of ADR-004 using the `complexity_hint`, which captures the one real benefit of model routers (escalating hard-within-tier cases) without losing auditability.
+
+**Planned — Embedder swap (Arabic support):** Today's FAISS index uses
+`all-MiniLM-L6-v2` (English-only, 384-dim). Arabic merchant descriptions
+map to near-random points in the embedding space, so retrieval silently
+degrades on Arabic input. Fix: swap the embedder for
+`intfloat/multilingual-e5-small` (also 384-dim → same FAISS schema) in
+both `clearai/data_setup/build_faiss.py` and `clearai/services/hs_resolver.py`,
+then regenerate the index. Stays local, no API cost. Scheduled after
+Foundry wiring lands.
 
 **Migration V1 (2026-04-19):** Split the repo into `clearai-backend/` (hexagonal,
 FastAPI) + `clearai-wiki/` (docs site) + `clearai-frontend/` (Astro + React)
@@ -24,7 +50,7 @@ so the resolver can be demoed end-to-end before Phase 3's XML builder lands.
 Progress as of this update:
 
 - ✅ **M1** — Repo state audit (clean working tree before moves)
-- ✅ **M2** — `git mv clearai-app → clearai-backend`, `docs-app → clearai-wiki` (commit `c921b14`)
+- ✅ **M2** — `git mv clearai-app → clearai-backend`, `clearai-wiki → clearai-wiki` (commit `c921b14`)
 - ✅ **M3** — Hexagonal reshape: `clearai/{domain,ports,adapters,services,parsing,rendering,data_setup}`, plus `api/`, `cli/`, layered `tests/` (commit `79d5bcb`)
 - ✅ **M4** — All imports rewritten; `pyproject.toml` switched to `setuptools.packages.find` (folded into M3 commit)
 - ✅ **M5** — Fresh `.venv` on Python 3.13 + editable install + smoke test (Path 1 passes against live DB, Path 3 blocked only by Anthropic credit balance — not a code issue)

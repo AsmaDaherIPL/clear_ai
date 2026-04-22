@@ -25,7 +25,7 @@ export default function HSLadderCard({ rows, resolvedCode }: Props) {
     <div className="ladder">
       <div className="ladder-head">
         <div className="t">How we got to this code</div>
-        <div className="s">plain-English chain · no jargon</div>
+        <div className="s">plain-English chain</div>
       </div>
       <ol className="ladder-rows">
         {rows.map((r, i) => {

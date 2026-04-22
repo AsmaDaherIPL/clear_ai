@@ -173,6 +173,85 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * Multipart variant — does NOT set Content-Type, so the browser can add the
+ * correct `multipart/form-data; boundary=…` header itself.
+ */
+async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch { /* non-json body, keep statusText */ }
+    throw new ApiError(res.status, detail);
+  }
+  return res.json() as Promise<T>;
+}
+
+// --- Batch types (mirror clearai-backend/api/routes_batch.py) -------------
+export type BatchState =
+  | 'pending'
+  | 'submitting'
+  | 'running'
+  | 'finalizing'
+  | 'done'
+  | 'failed';
+
+export interface BatchUploadResponse {
+  job_id: string;
+  row_count: number;
+  input_filename: string;
+}
+
+export interface BatchRunResponse {
+  job_id: string;
+  anthropic_batch_id: string;
+  state: BatchState;
+}
+
+export interface BatchRowSummary {
+  row_idx: number;
+  waybill_no: string | null;
+  hs_code: string | null;
+  country_of_origin: string | null;
+  flags: string[];
+  xml_filename: string | null;
+  error: string | null;
+}
+
+export interface BatchStatusResponse {
+  job_id: string;
+  state: BatchState;
+  row_count: number;
+  completed_count: number;
+  flagged_count: number;
+  anthropic_batch_id: string | null;
+  created_at: string;
+  updated_at: string;
+  input_filename: string | null;
+  output_zip_available: boolean;
+  error: string | null;
+  rows: BatchRowSummary[];
+}
+
+export interface BatchJobListItem {
+  job_id: string;
+  state: BatchState;
+  row_count: number;
+  completed_count: number;
+  flagged_count: number;
+  created_at: string;
+}
+
+export interface BatchJobListResponse {
+  jobs: BatchJobListItem[];
+}
+
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
   resolve: (body: ResolveRequest) =>
@@ -180,6 +259,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  // ---- Batch lane --------------------------------------------------------
+  batchUpload: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return requestForm<BatchUploadResponse>('/api/batch/upload', form);
+  },
+  batchRun: (jobId: string) =>
+    request<BatchRunResponse>(`/api/batch/${jobId}/run`, { method: 'POST' }),
+  batchStatus: (jobId: string) =>
+    request<BatchStatusResponse>(`/api/batch/${jobId}`),
+  batchJobs: (limit = 50) =>
+    request<BatchJobListResponse>(`/api/batch?limit=${limit}`),
+  /** URL for the ZIP — use as an <a href> / window.location target. */
+  batchDownloadUrl: (jobId: string) =>
+    `${API_BASE}/api/batch/${jobId}/download`,
 };
 
 export { ApiError };

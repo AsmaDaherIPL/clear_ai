@@ -37,7 +37,6 @@ export default function ClassifyApp() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number>(-1);
   const [pipeShow, setPipeShow] = useState(false);
-  const [pipeDone, setPipeDone] = useState(false);
 
   const [result, setResult] = useState<ResolveResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +73,6 @@ export default function ClassifyApp() {
     clearTimers();
     setError(null);
     setResult(null);
-    setPipeDone(false);
     setPipeShow(true);
     setBusy(true);
 
@@ -93,8 +91,6 @@ export default function ClassifyApp() {
       clearTimers();
       setProgress(STAGES.length); // snap to done
       setResult(res);
-      // brief pause so the final checkmark registers visually, then collapse.
-      animTimers.current.push(setTimeout(() => setPipeDone(true), 500));
     } catch (err) {
       clearTimers();
       setPipeShow(false);
@@ -143,10 +139,7 @@ export default function ClassifyApp() {
 
           <Pipeline
             progress={progress}
-            show={pipeShow}
-            compact={pipeDone}
-            totalMs={result?.meta?.latency_ms}
-            traceId={result?.trace_id}
+            show={pipeShow && !showResult}
           />
 
           {error && (
