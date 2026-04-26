@@ -1,9 +1,14 @@
-name: Deploy to Cloudflare Pages
+name: Deploy wiki to Cloudflare Pages
 
+# Scoped to clearai-wiki/** so backend or frontend pushes don't trigger
+# a wiki redeploy. Keep this workflow at the REPO ROOT — Actions only
+# discovers .github/workflows/ at the top level, never inside subfolders.
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - 'clearai-wiki/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 jobs:
@@ -14,12 +19,12 @@ jobs:
       deployments: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: clearai-wiki/package-lock.json
 

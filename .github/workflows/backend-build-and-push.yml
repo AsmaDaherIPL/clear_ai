@@ -8,7 +8,7 @@ on:
     branches: [main]
     paths:
       - 'clearai-backend/**'
-      - '.github/workflows/build-and-push.yml'
+      - '.github/workflows/backend-build-and-push.yml'
   workflow_dispatch:
 
 # Only one image build at a time per ref; cancel older runs of the same ref
