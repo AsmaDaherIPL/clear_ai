@@ -67,6 +67,17 @@ param containerAppName string = 'ca-infp-clearai-be-dev-gwc-01'
 @description('Container image (full ref). Public GHCR image, no registry creds.')
 param containerImage string = 'ghcr.io/asmadaheripl/clearai-backend:latest'
 
+// ---- APIM -------------------------------------------------------------------
+
+@description('APIM service name. Globally unique.')
+param apimName string = 'apim-infp-clearai-be-dev-gwc-01'
+
+@description('APIM publisher email.')
+param apimPublisherEmail string = 'asma.said020@gmail.com'
+
+@description('APIM publisher name.')
+param apimPublisherName string = 'ClearAI'
+
 // ---- Network Watcher --------------------------------------------------------
 
 @description('Set true to create a regional Network Watcher in this RG. Set false if NetworkWatcher_germanywestcentral already exists in NetworkWatcherRG (recommended).')
@@ -161,6 +172,23 @@ module networkWatcher 'modules/networkwatcher.bicep' = if (createNetworkWatcher)
   }
 }
 
+// 7. APIM Consumption — single instance fronting the Container App.
+//    Provisioning takes 10–30 min on first create; idempotent thereafter.
+//    Depends on containerApp because we pass its FQDN as the backend URL.
+//    The KV-backed named-value is wired in by deploy.sh post-apply (see
+//    modules/apim.bicep header comment for why it's not in-template).
+module apim 'modules/apim.bicep' = {
+  name: 'apim-deploy'
+  params: {
+    location: location
+    apimName: apimName
+    publisherName: apimPublisherName
+    publisherEmail: apimPublisherEmail
+    backendUrl: 'https://${containerApp.outputs.fqdn}'
+    tags: tags
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Outputs (no secrets)
 // -----------------------------------------------------------------------------
@@ -179,3 +207,7 @@ output containerAppsEnvName string = containerAppsEnv.outputs.name
 output containerAppName string = containerApp.outputs.name
 output containerAppFqdn string = containerApp.outputs.fqdn
 output containerAppPrincipalId string = containerApp.outputs.principalId
+
+output apimName string = apim.outputs.apimName
+output apimGatewayUrl string = apim.outputs.gatewayUrl
+output apimPrincipalId string = apim.outputs.principalId

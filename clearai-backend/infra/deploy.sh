@@ -10,8 +10,12 @@
 #   4. Pre-flight: detect existing regional Network Watcher
 #   5. Generate a 32-char Postgres admin password (only on first deploy;
 #      reused from KV on subsequent runs)
+#   5b. Generate a 48-char URL-safe APIM shared secret (only on first deploy;
+#       reused from KV on subsequent runs)
 #   6. Run the Bicep deployment
 #   7. Assign Container App MI -> 'Key Vault Secrets User' on the KV
+#   7b. Assign APIM MI -> 'Key Vault Secrets User' on the KV (so the
+#       KV-backed named-value `apim-shared-secret` resolves)
 #   8. Trigger one revision restart so secretrefs resolve
 #   9. Print outputs (no secrets)
 #
@@ -165,6 +169,37 @@ PG_PASSWORD_URLENC="$(python3 -c "import urllib.parse,sys; print(urllib.parse.qu
 ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-__REPLACE__}"
 
 # -----------------------------------------------------------------------------
+# 5b. APIM shared secret (generate once, reuse from KV)
+# -----------------------------------------------------------------------------
+# Independent of the bicep deploy because:
+#   - The named-value in apim.bicep references this KV secret BY URI.
+#     If it doesn't exist when APIM resolves the named-value, the named-value
+#     enters a permanent error state and we'd need a follow-up re-link.
+#   - Rotating it later is just `az keyvault secret set` followed by APIM's
+#     auto-refresh (or a refreshSecret call), so this stays idempotent.
+
+if [[ -n "$EXISTING_KV_ID" ]]; then
+  log "Checking for existing apim-shared-secret in Key Vault"
+  EXISTING_APIM_SECRET="$(az keyvault secret show \
+    --vault-name "$KV_NAME" \
+    --name apim-shared-secret \
+    --query value -o tsv 2>/dev/null || true)"
+
+  if [[ -z "$EXISTING_APIM_SECRET" ]]; then
+    log "Generating new 48-char URL-safe APIM shared secret"
+    NEW_APIM_SECRET="$(openssl rand -base64 36 | tr '+/' '-_' | tr -d '=')"
+    az keyvault secret set \
+      --vault-name "$KV_NAME" \
+      --name apim-shared-secret \
+      --value "$NEW_APIM_SECRET" \
+      --query id -o tsv >/dev/null
+    echo "  Stored in KV (length: ${#NEW_APIM_SECRET})."
+  else
+    echo "  Already present (length: ${#EXISTING_APIM_SECRET})."
+  fi
+fi
+
+# -----------------------------------------------------------------------------
 # 6. Bicep deployment
 # -----------------------------------------------------------------------------
 
@@ -204,6 +239,21 @@ import json,sys
 d=json.load(open("/tmp/clearai-deploy-output.json"))
 print(d["properties"]["outputs"]["containerAppPrincipalId"]["value"])
 ')"
+APIM_PRINCIPAL_ID="$(python3 -c '
+import json,sys
+d=json.load(open("/tmp/clearai-deploy-output.json"))
+print(d["properties"]["outputs"].get("apimPrincipalId", {}).get("value", ""))
+')"
+APIM_NAME="$(python3 -c '
+import json,sys
+d=json.load(open("/tmp/clearai-deploy-output.json"))
+print(d["properties"]["outputs"].get("apimName", {}).get("value", ""))
+')"
+APIM_GATEWAY_URL="$(python3 -c '
+import json,sys
+d=json.load(open("/tmp/clearai-deploy-output.json"))
+print(d["properties"]["outputs"].get("apimGatewayUrl", {}).get("value", ""))
+')"
 KV_ID="$(az keyvault show --name "$KV_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)"
 PG_FQDN="$(python3 -c '
 import json
@@ -240,6 +290,97 @@ else
     >/dev/null
   echo "  Created. Waiting 30s for AAD propagation..."
   sleep 30
+fi
+
+# Same role, but for the APIM service's system-assigned MI. APIM needs it
+# to resolve the KV-backed named-value `apim-shared-secret` at policy-eval
+# time. Without this the named-value stays at its bootstrap placeholder and
+# every request through the gateway gets the wrong header (the backend then
+# 401s, which is exactly what the origin lock is supposed to do — so it's
+# actually safe-fail, but the gateway is non-functional until we fix it).
+if [[ -n "$APIM_PRINCIPAL_ID" ]]; then
+  log "Assigning 'Key Vault Secrets User' to APIM MI"
+  if az role assignment list \
+        --assignee-object-id "$APIM_PRINCIPAL_ID" \
+        --scope "$KV_ID" \
+        --role "$KV_SECRETS_USER_ROLE_ID" \
+        --query '[0].id' -o tsv 2>/dev/null | grep -q .; then
+    echo "  Already assigned."
+  else
+    az role assignment create \
+      --assignee-object-id "$APIM_PRINCIPAL_ID" \
+      --assignee-principal-type ServicePrincipal \
+      --role "$KV_SECRETS_USER_ROLE_ID" \
+      --scope "$KV_ID" \
+      >/dev/null
+    echo "  Created. Waiting 30s for AAD propagation..."
+    sleep 30
+  fi
+
+  # Flip the named-value from its bicep-time bootstrap placeholder to a
+  # KV-backed binding. Idempotent: re-running just rewrites to the same
+  # KV secret URI. We hit the ARM REST API directly because `az apim nv
+  # update` doesn't expose --key-vault-secret-id on all CLI versions.
+  if [[ -n "$APIM_NAME" ]]; then
+    log "Flipping APIM named-value 'apim-shared-secret' to KV-backed"
+    KV_SECRET_URI="$(az keyvault secret show \
+      --vault-name "$KV_NAME" \
+      --name apim-shared-secret \
+      --query id -o tsv)"
+    # `id` returns the versioned URI; APIM accepts either versioned or
+    # unversioned. Use the unversioned form so secret rotation flows through
+    # automatically without forcing an apim refresh.
+    KV_SECRET_URI_NV="${KV_SECRET_URI%/*}"
+
+    az rest \
+      --method PATCH \
+      --url "https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/namedValues/apim-shared-secret?api-version=2024-05-01" \
+      --headers "Content-Type=application/json" \
+      --body "{
+        \"properties\": {
+          \"displayName\": \"apim-shared-secret\",
+          \"secret\": true,
+          \"keyVault\": {
+            \"secretIdentifier\": \"$KV_SECRET_URI_NV\"
+          }
+        }
+      }" \
+      >/dev/null
+    echo "  Bound to KV secret: $KV_SECRET_URI_NV"
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 8b. APIM subscription key (idempotent — create or fetch)
+# -----------------------------------------------------------------------------
+# A subscription scoped to the `clearai` product. Display key is fetched on
+# demand so it stays out of any deployment state files.
+if [[ -n "$APIM_NAME" ]]; then
+  log "Ensuring APIM subscription 'clearai-default' under product 'clearai'"
+  SUB_SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/products/clearai"
+  if ! az apim api show >/dev/null 2>&1 \
+       --resource-group "$RESOURCE_GROUP" \
+       --service-name "$APIM_NAME" \
+       --api-id clearai-backend; then
+    warn "Protected API 'clearai-backend' not visible yet — subscription create may fail. Retry deploy.sh in a minute."
+  fi
+  az rest \
+    --method PUT \
+    --url "https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/subscriptions/clearai-default?api-version=2024-05-01" \
+    --headers "Content-Type=application/json" \
+    --body "{
+      \"properties\": {
+        \"displayName\": \"ClearAI default subscription\",
+        \"scope\": \"$SUB_SCOPE\",
+        \"state\": \"active\"
+      }
+    }" \
+    >/dev/null
+
+  APIM_SUB_KEY="$(az rest \
+    --method POST \
+    --url "https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/subscriptions/clearai-default/listSecrets?api-version=2024-05-01" \
+    --query primaryKey -o tsv)"
 fi
 
 # -----------------------------------------------------------------------------
@@ -283,8 +424,13 @@ ClearAI dev deploy complete.
   Anthropic key  : $( [[ "$ANTHROPIC_KEY" == "__REPLACE__" ]] && echo "PLACEHOLDER — update with: az keyvault secret set --vault-name $KV_NAME --name anthropic-api-key --value <REAL_KEY>" || echo "set" )
 
   Container App  : $CA_NAME
-  App URL        : https://$CA_FQDN
-  Health check   : https://$CA_FQDN/health
+  App URL        : https://$CA_FQDN  (origin — locked to APIM-only)
+  Health check   : https://$CA_FQDN/health  (always anonymous)
+
+  APIM           : ${APIM_NAME:-not-deployed}
+  Gateway URL    : ${APIM_GATEWAY_URL:-pending}
+  Subscription   : clearai-default (product: clearai)
+  Sub Key        : ${APIM_SUB_KEY:-not-yet-minted}
 ============================================================
 
 Next steps:

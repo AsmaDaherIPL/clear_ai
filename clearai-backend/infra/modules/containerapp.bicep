@@ -79,6 +79,15 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           keyVaultUrl: '${kvUri}/secrets/anthropic-api-key'
           identity: 'system'
         }
+        // Shared secret used to gate origin traffic — only requests passing
+        // through APIM (which injects this header from KV-backed named-value)
+        // are accepted by the Fastify auth hook. Direct requests to the
+        // Container App ingress are rejected with 401 origin_access_denied.
+        {
+          name: 'apim-shared-secret'
+          keyVaultUrl: '${kvUri}/secrets/apim-shared-secret'
+          identity: 'system'
+        }
       ]
     }
     template: {
@@ -97,14 +106,21 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             // Secrets via secretref
             { name: 'DATABASE_URL', secretRef: 'postgres-connection-string' }
             { name: 'ANTHROPIC_API_KEY', secretRef: 'anthropic-api-key' }
-            // Foundry / model placeholders — fill once Foundry rename is done
-            { name: 'ANTHROPIC_BASE_URL', value: '__REPLACE__' }
+            { name: 'APIM_SHARED_SECRET', secretRef: 'apim-shared-secret' }
+            // Foundry / model placeholders — fill once Foundry rename is done.
+            // ANTHROPIC_BASE_URL is set to a syntactically-valid placeholder
+            // so Zod URL validation passes; the actual Anthropic client will
+            // fail at request-time until a real Foundry endpoint is wired in.
+            { name: 'ANTHROPIC_BASE_URL', value: 'https://placeholder.invalid' }
             { name: 'LLM_MODEL', value: '__REPLACE__' }
             { name: 'LLM_MODEL_STRONG', value: '__REPLACE__' }
             { name: 'LLM_TIMEOUT_MS', value: '15000' }
             // Embedder
             { name: 'EMBEDDER_MODEL', value: 'Xenova/multilingual-e5-small' }
             { name: 'EMBEDDER_DIM', value: '384' }
+            // CORS origin allowlist — APIM gateway is the only allowed origin
+            // for v1. Localhost is dropped now that we're dev-on-Azure.
+            { name: 'CORS_ORIGINS', value: 'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net' }
           ]
           probes: [
             {
