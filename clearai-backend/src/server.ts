@@ -4,6 +4,7 @@
 import Fastify from 'fastify';
 import sensible from '@fastify/sensible';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env.js';
 import { describeRoute } from './routes/describe.js';
 import { expandRoute } from './routes/expand.js';
@@ -34,6 +35,57 @@ await app.register(cors, {
   methods: ['GET', 'POST', 'OPTIONS'],
   // No credentials yet (no cookie/JWT auth) — flip on when that lands.
   credentials: false,
+  // APIM forwards this header on every request; allow it in preflight so
+  // the browser doesn't trip on it after the env-var flip lands.
+  allowedHeaders: ['content-type', 'x-apim-shared-secret', 'ocp-apim-subscription-key'],
+});
+
+// In-process per-IP rate limit — defence-in-depth alongside the APIM
+// rate-limit policy. The two layers are intentional: APIM's limit can
+// be bypassed by anyone who guesses the Container App FQDN, but the
+// shared-secret hook below blocks them at 401 long before this matters.
+// This limiter mostly exists to absorb runaway-script bursts from a
+// legitimate APIM-fronted client where the per-IP fairness still applies.
+await app.register(rateLimit, {
+  max: e.RATE_LIMIT_MAX,
+  timeWindow: e.RATE_LIMIT_WINDOW,
+  // Don't rate-limit /health — Container Apps and APIM probes should
+  // never get 429'd or the replica gets marked unhealthy and recycled.
+  allowList: (req) => req.url.startsWith('/health'),
+});
+
+// Origin lock — every non-health request must carry the shared secret
+// that APIM injects via inbound policy. Direct curls to the Container
+// App FQDN (which is publicly hittable on Consumption tier — no VNet)
+// fail closed with 401.
+//
+// Behaviour matrix:
+//   NODE_ENV=production + secret unset  → fail closed (401 on everything,
+//                                          loud signal that the wire-up
+//                                          is broken; better than
+//                                          silently allowing all traffic)
+//   NODE_ENV=production + secret set    → enforce match
+//   NODE_ENV=development                → bypass entirely (local dev
+//                                          shouldn't need APIM)
+//   /health on any env                  → always allowed (probe path)
+app.addHook('onRequest', async (req, reply) => {
+  if (req.url.startsWith('/health')) return;
+  if (e.NODE_ENV !== 'production') return;
+
+  const expected = e.APIM_SHARED_SECRET;
+  const provided = req.headers['x-apim-shared-secret'];
+
+  if (!expected) {
+    req.log.error('APIM_SHARED_SECRET not set in production — blocking all non-health traffic');
+    return reply.code(401).send({
+      error: { code: 'origin_access_denied', message: 'gateway not configured' },
+    });
+  }
+  if (provided !== expected) {
+    return reply.code(401).send({
+      error: { code: 'origin_access_denied', message: 'request did not come through the APIM gateway' },
+    });
+  }
 });
 
 // Global error handler — must be registered BEFORE the routes so any throw

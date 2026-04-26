@@ -137,3 +137,39 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
 ---
 
 <!-- New decisions append below. Do not edit existing entries. -->
+
+## ADR — APIM Consumption + shared-secret origin lock (no Front Door, no VNet)
+
+- **Date:** 2026-04-26
+- **Status:** Accepted (v1)
+- **Context:**
+  - The Container App is on **Consumption** profile with **public ingress**. Anyone who learns the FQDN can `curl` it, burn LLM quota, or scan endpoints. CORS does not stop non-browser callers.
+  - We want a real gateway in front for **v2** partner-key onboarding (per-key quotas, dev portal, JWT validation), and would rather pick the v2 endpoint **now** so the Cloudflare frontend doesn't have to migrate later.
+  - Front Door Standard (~$36/mo) and APIM Standard v2 (~$730/mo) were both rejected on cost. **APIM Consumption** is $0 base + $3.50/M calls — effectively free at v1 traffic.
+  - APIM Consumption has **no VNet integration**, so we cannot make the Container App ingress `internal`. The origin remains publicly hittable on its FQDN.
+- **Decision:** front the Container App with a single APIM Consumption instance, and lock the origin via a shared-secret header that APIM injects on every forwarded request.
+  - APIM inbound policy:
+    - `<set-header name="x-apim-shared-secret" exists-action="delete" />` then re-set from a named-value (KV-backed where feasible).
+    - `<rate-limit-by-key calls="60" renewal-period="60" counter-key="..." />` (per subscription, fallback to IP).
+  - Fastify code:
+    - `@fastify/rate-limit` registered after CORS, before the auth hook (30 req/min/IP, defence-in-depth).
+    - Global `onRequest` hook rejects every non-`/health` request in `NODE_ENV=production` unless `req.headers['x-apim-shared-secret'] === env.APIM_SHARED_SECRET`. **Fail-closed if the secret env var is unset in production** — prevents a misconfigured deploy from silently allowing all traffic.
+    - `/health` stays anonymous (Container Apps platform probe + APIM probes).
+    - Local dev (`NODE_ENV !== production`) bypasses the hook entirely.
+  - Container App env: `APIM_SHARED_SECRET` via secretref to a new Key Vault secret. `CORS_ORIGINS` tightened to the APIM gateway hostname.
+- **Consequences:**
+  - **Cost:** $0/mo at v1 traffic (under 1M APIM free calls/mo).
+  - **Code rewrite:** ~30 LOC. Schemas, business logic, retrieval, decision pipeline — all untouched.
+  - **Latency hit:** APIM Consumption adds ~50–100ms hop + ~1–2s cold-start after long idle. Container App already has cold-start with `minReplicas: 0`, so this isn't a step change.
+  - **The shared secret IS the lock.** If it leaks, anyone can bypass APIM and hit the Container App directly. Mitigations: rotate via KV without redeploy, never log the value, never echo in deploy.sh, secret has 48 chars of entropy.
+  - **No WAF.** OWASP-rule coverage of the public surface depends on Cloudflare in front of the frontend. Acceptable because the only public surface is the frontend; the API surface is APIM-fronted with auth.
+  - **256 KB request body limit on Consumption tier** — well above ClearAI's < 2 KB payloads. Documented in apim.bicep header.
+- **Rejected alternatives:**
+  - **Front Door alone (~$36/mo):** doesn't give us the v2 partner-key story; we'd still need APIM later.
+  - **APIM Standard v2 (~$730/mo):** would let us flip Container App ingress to internal, but 730× the cost for v1. Reconsider when partner traffic justifies it.
+  - **FD + APIM (~$36 + $0):** double the moving parts for ~no marginal value while Cloudflare already fronts the only public surface (the static frontend).
+  - **Cloudflare Worker proxy with shared secret:** functionally equivalent to APIM Consumption + secret, but doesn't lay groundwork for v2 partner keys. Picked APIM for v2 alignment.
+- **Revisit if:**
+  - Public-internet abuse becomes a real concern → add Front Door Standard (~$36/mo) for WAF.
+  - Origin-hiding becomes mandatory (compliance, contracts) → upgrade to APIM Standard v2 + flip ingress to internal.
+  - We outgrow APIM Consumption's 1M free calls and the per-call cost stops being trivial → re-tier rather than re-architect.

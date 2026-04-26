@@ -14,9 +14,33 @@
 // Default targets the local Fastify backend on :3000 — matches the deployed
 // Container App's internal PORT (Azure ingress fronts it on 443 in prod).
 // Frontend dev server runs on :5173 (Vite default) to avoid the collision.
+//
+// In prod, this should point at the APIM gateway, e.g.
+//   https://apim-infp-clearai-be-dev-gwc-01.azure-api.net
+// NOT the Container App FQDN — direct calls to the origin are blocked
+// by the backend's APIM origin-lock.
 export const API_BASE =
   (import.meta.env.PUBLIC_CLEARAI_API_BASE as string | undefined) ??
   'http://localhost:3000';
+
+/**
+ * APIM subscription key, sent as `Ocp-Apim-Subscription-Key` on every
+ * request when the backend is APIM-fronted. Read from the Astro env
+ * var so build-time injection works on Cloudflare Pages.
+ *
+ * Trade-off: baking the key into a static frontend means it's visible
+ * in the JS bundle. That's acceptable for v1 because:
+ *   - The key has a per-key rate limit at APIM (60 req/min), so quota
+ *     burning is bounded.
+ *   - CORS is scoped to the Cloudflare origin, so the key + cross-origin
+ *     fetch combo is harder to abuse from another site than it looks.
+ *   - It's still strictly better than no auth at all.
+ *
+ * For v1.5, move the key behind a Cloudflare Pages Function (server-side
+ * passthrough) so it never lands in the browser.
+ */
+const APIM_SUBSCRIPTION_KEY =
+  (import.meta.env.PUBLIC_CLEARAI_APIM_KEY as string | undefined) ?? '';
 
 // --- Decision envelope ----------------------------------------------------
 // Closed enums — must match clearai-backend/src/decision/types.ts.
@@ -125,9 +149,14 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (APIM_SUBSCRIPTION_KEY) {
+    // APIM expects `Ocp-Apim-Subscription-Key` (note the lowercase prefix).
+    headers['Ocp-Apim-Subscription-Key'] = APIM_SUBSCRIPTION_KEY;
+  }
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
   });
   let body: unknown = null;
   try {
