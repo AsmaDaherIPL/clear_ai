@@ -1,116 +1,130 @@
 /**
- * InputCard — the two-peer input surface (description OR HS code),
- * with a value+currency pill, an attach-CSV pill, and the Classify button.
+ * InputCard — mode-aware input surface.
  *
- * Currency is a <select> so the user can pick from a short ISO-4217 list
- * (defaults to USD). Value + Attach + Classify are sized up from the v5
- * reference per product direction — easier to tap and more anchoring.
+ * Generate:  one textarea (free-text description).
+ * Expand:    HS prefix (4/6/8/10 digits) + description textarea.
+ * Boost:     one numeric input (exactly 12 digits), no description.
+ *
+ * The currency/value pill from the legacy v5 design has been removed —
+ * the Fastify backend doesn't take a value, and showing fields the API
+ * ignores would lie to the user.
  */
 import { useEffect, useRef } from 'react';
-
-const CURRENCIES = ['USD', 'SAR', 'EUR', 'GBP', 'AED', 'CNY', 'JPY', 'INR'] as const;
+import type { Mode } from './ModeTabs';
 
 type Props = {
+  mode: Mode;
   text: string;
   setText: (s: string) => void;
-  hsHint: string;
-  setHsHint: (s: string) => void;
-  value: string;
-  setValue: (s: string) => void;
-  currency: string;
-  setCurrency: (s: string) => void;
+  hsCode: string;
+  setHsCode: (s: string) => void;
   busy: boolean;
-  onClassify: () => void;
-};
-
-const CURRENCY_SYMBOL: Record<string, string> = {
-  USD: '$', SAR: 'ر.س', EUR: '€', GBP: '£', AED: 'د.إ', CNY: '¥', JPY: '¥', INR: '₹',
+  onSubmit: () => void;
 };
 
 export default function InputCard({
-  text, setText, hsHint, setHsHint,
-  value, setValue, currency, setCurrency,
-  busy, onClassify,
+  mode, text, setText, hsCode, setHsCode, busy, onSubmit,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { taRef.current?.focus(); }, []);
+  const codeRef = useRef<HTMLInputElement>(null);
 
-  const canRun = text.trim().length > 0 || hsHint.trim().length > 0;
+  // Focus the most relevant control when mode changes.
+  useEffect(() => {
+    if (mode === 'boost') codeRef.current?.focus();
+    else if (mode === 'expand') codeRef.current?.focus();
+    else taRef.current?.focus();
+  }, [mode]);
 
-  function onKey(e: React.KeyboardEvent) {
+  const canRun = (() => {
+    if (mode === 'generate') return text.trim().length > 0;
+    if (mode === 'expand') return /^\d{4}$|^\d{6}$|^\d{8}$|^\d{10}$/.test(hsCode) && text.trim().length > 0;
+    return /^\d{12}$/.test(hsCode); // boost
+  })();
+
+  function onTextKey(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (canRun && !busy) onClassify();
+      if (canRun && !busy) onSubmit();
+    }
+  }
+  function onCodeKey(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (canRun && !busy) onSubmit();
     }
   }
 
-  const symbol = CURRENCY_SYMBOL[currency] ?? '$';
+  const codePlaceholder =
+    mode === 'boost' ? 'e.g. 010121100000 (exactly 12 digits)' : 'e.g. 0101 / 010121 / 01012110';
+  const codeLabel =
+    mode === 'boost' ? '12-digit ZATCA code under inspection' : 'Parent code (4, 6, 8 or 10 digits)';
+  const codeHint =
+    mode === 'boost'
+      ? "we'll search siblings under the same parent for a better match"
+      : "we'll narrow within this branch to a 12-digit leaf";
+
+  // Generate uses textarea only; Expand uses code + textarea; Boost uses code only.
+  const showText = mode !== 'boost';
+  const showCode = mode !== 'generate';
+  const codeMaxLen = mode === 'boost' ? 12 : 10;
 
   return (
     <div className="card">
-      <div className="peer">
-        <div className="peer-head">
-          <span>Describe the product</span>
-          <span className="hint">plain language — EN or AR</span>
+      {showText && (
+        <div className="peer">
+          <div className="peer-head">
+            <span>Describe the product</span>
+            <span className="hint">plain language — EN or AR</span>
+          </div>
+          <textarea
+            ref={taRef}
+            rows={2}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onTextKey}
+            placeholder="e.g. Live horse, purebred breeding stock, mare"
+          />
         </div>
-        <textarea
-          ref={taRef}
-          rows={2}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKey}
-          placeholder="e.g. Marvel comic book — single issue, printed paperback, 36 pages"
-        />
-      </div>
+      )}
 
-      <div className="or-rule"><span>OR</span></div>
+      {showText && showCode && <div className="or-rule"><span>+</span></div>}
 
-      <div className="peer">
-        <div className="peer-head">
-          <span>HS code you already have</span>
-          <span className="hint">partial or full — we'll resolve to 12 digits</span>
+      {showCode && (
+        <div className="peer">
+          <div className="peer-head">
+            <span>{codeLabel}</span>
+            <span className="hint">{codeHint}</span>
+          </div>
+          <input
+            ref={codeRef}
+            className="hs-input"
+            value={hsCode}
+            onChange={(e) => setHsCode(e.target.value.replace(/\D/g, '').slice(0, codeMaxLen))}
+            onKeyDown={onCodeKey}
+            placeholder={codePlaceholder}
+            inputMode="numeric"
+          />
         </div>
-        <input
-          className="hs-input"
-          value={hsHint}
-          onChange={(e) => setHsHint(e.target.value.replace(/\D/g, '').slice(0, 12))}
-          onKeyDown={onKey}
-          placeholder="e.g. 4901 or 490110000000"
-          inputMode="numeric"
-        />
-      </div>
+      )}
 
       <div className="card-bar">
         <div className="l">
-          <span className="pill pill-lg val-pill">
-            <span className="plus" aria-hidden>{symbol}</span>
-            <input
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="Value"
-              inputMode="decimal"
-              aria-label="Declared value"
-            />
-            <select
-              className="cur-select"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              aria-label="Currency"
-            >
-              {CURRENCIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </span>
+          {/* Slot kept for future "advanced options" pill. */}
         </div>
         <div className="r">
           <button
             className="btn-classify btn-classify-lg"
-            onClick={onClassify}
+            onClick={onSubmit}
             disabled={busy || !canRun}
             type="button"
           >
-            {busy ? 'Classifying…' : 'Classify'}
+            {busy
+              ? 'Classifying…'
+              : mode === 'generate'
+                ? 'Classify'
+                : mode === 'expand'
+                  ? 'Expand'
+                  : 'Boost'}
             <span className="kb">⌘↵</span>
           </button>
         </div>

@@ -1,0 +1,19 @@
+# Bicep build artefacts
+*.bicep.json
+.bicep/
+
+# Azure CLI deploy outputs (transient, may contain non-secret outputs only)
+deploy-output.json
+/tmp/clearai-deploy-output.json
+
+# Local override params (never commit secrets)
+main.local.bicepparam
+*.local.bicepparam
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

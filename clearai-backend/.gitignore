@@ -1,43 +1,35 @@
-# ---- Secrets ----
+# env files (never commit secrets)
 .env
 .env.*
 !.env.example
+foundryllm.env
 
-# ---- Source data (never commit — sensitive customer data) ----
-data/*.xlsx
-data/*.xls
-data/*.csv
-data/*.xml
-data/*.XML
-data/Baseline XML output/
-!data/README.md
-!data/.gitkeep
-
-# ---- Generated artifacts ----
-output/
-*.db
-*.db-journal
-*.db-shm
-*.db-wal
-hs_master_faiss.index
-hs_codes.json
-*.log
-
-# ---- Python ----
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.venv/
-venv/
+# node
+node_modules/
 dist/
 build/
+*.tsbuildinfo
 
-# ---- OS / Editor ----
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# os
 .DS_Store
 Thumbs.db
-.idea/
+
+# editor
 .vscode/
+.idea/
 *.swp
+
+# local data
+pgdata/
+*.local.json
+
+# transformers.js model cache (committed via Docker layer in prod)
+.cache/
+models/
+
+awesome-claude-code/

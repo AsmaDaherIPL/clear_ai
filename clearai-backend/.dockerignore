@@ -1,0 +1,50 @@
+# Build artefacts and host-only state — never ship these into the image.
+node_modules
+dist
+.git
+.gitignore
+.github
+
+# Local env / secrets — Container App injects via secretref from KV.
+.env
+.env.*
+!.env.example
+
+# Dev tooling
+.vscode
+.idea
+*.log
+*.tsbuildinfo
+
+# Test / coverage / scratch
+coverage
+.nyc_output
+.cache
+.turbo
+
+# Local docker compose state — runtime uses Azure Postgres, not the local pg.
+docker-compose.yml
+docker-compose.*.yml
+
+# Markdown / docs / planning — not needed in the runtime image.
+README.md
+CHANGELOG.md
+tracker
+docs
+
+# Drizzle backups + studio output. We DO ship drizzle/*.sql and drizzle/meta.
+drizzle/**/*.sql.bak
+drizzle-studio
+
+# Local embedder cache — the build stage prefetches a fresh copy.
+models
+
+# Awesome-claude-code vendored fork — not part of the app.
+awesome-claude-code
+
+# Legacy Python sibling (only present in some local checkouts).
+clearai-backend-python
+
+# OS junk
+.DS_Store
+Thumbs.db

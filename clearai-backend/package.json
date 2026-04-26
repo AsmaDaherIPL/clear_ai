@@ -1,0 +1,53 @@
+{
+  "name": "clearai-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ClearAI v1 — ZATCA 12-digit HS classification (TypeScript + Fastify + Drizzle + pgvector)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "tsx src/scripts/migrate.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/scripts/ingest.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.1",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/sensible": "^6.0.3",
+    "@xenova/transformers": "^2.17.2",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.36.4",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.1",
+    "pino-pretty": "^13.0.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "^3.24.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "esbuild",
+      "protobufjs"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "drizzle-kit": "^0.30.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

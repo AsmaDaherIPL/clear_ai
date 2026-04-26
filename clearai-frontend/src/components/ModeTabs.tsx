@@ -1,22 +1,41 @@
 /**
- * ModeTabs — 3 product modes. Only "generate" is live; Boost + Validate
- * render a coming-soon card.
+ * ModeTabs — three product modes mapped 1:1 to backend endpoints:
+ *   generate → POST /classify/describe   (free-text → 12-digit code)
+ *   expand   → POST /classify/expand     (4/6/8/10-digit prefix + description → 12-digit code)
+ *   boost    → POST /boost               (12-digit code → check for a more specific sibling)
+ *
+ * "Validate" is intentionally absent: there's no backend endpoint for it
+ * yet. When that lands we'll add it as a fourth tab.
  */
 
-export type Mode = 'generate' | 'boost' | 'validate';
+export type Mode = 'generate' | 'expand' | 'boost';
 
 type ModeDef = {
   key: Mode;
   tag: string;
   ttl: string;
   sub: string;
-  state: 'live' | 'soon';
 };
 
 export const MODES: ModeDef[] = [
-  { key: 'generate', tag: '01 · CREATE',   ttl: 'Generate', sub: 'No code yet — build one from your description',       state: 'live' },
-  { key: 'boost',    tag: '02 · SHARPEN',  ttl: 'Boost',    sub: 'Code too generic — drill down to submission precision', state: 'soon' },
-  { key: 'validate', tag: '03 · AUDIT',    ttl: 'Validate', sub: 'Ready to submit — check everything is consistent',     state: 'soon' },
+  {
+    key: 'generate',
+    tag: '01 · CREATE',
+    ttl: 'Generate',
+    sub: 'Free-text description → full 12-digit ZATCA code',
+  },
+  {
+    key: 'expand',
+    tag: '02 · EXPAND',
+    ttl: 'Expand',
+    sub: 'Partial code (4/6/8/10 digits) + description → 12-digit code',
+  },
+  {
+    key: 'boost',
+    tag: '03 · SHARPEN',
+    ttl: 'Boost',
+    sub: 'Already have a 12-digit code? Check for a more specific sibling',
+  },
 ];
 
 type Props = { mode: Mode; setMode: (m: Mode) => void };
@@ -28,14 +47,13 @@ export default function ModeTabs({ mode, setMode }: Props) {
         {MODES.map((m) => (
           <button
             key={m.key}
-            className={`mode ${mode === m.key ? 'on ' : ''}${m.state === 'soon' ? 'soon' : ''}`}
+            className={`mode ${mode === m.key ? 'on' : ''}`}
             onClick={() => setMode(m.key)}
             type="button"
           >
             <div className="mtag">{m.tag}</div>
             <div className="mttl">{m.ttl}</div>
             <div className="msub">{m.sub}</div>
-            {m.state === 'soon' && <span className="soonchip">SOON</span>}
           </button>
         ))}
       </div>

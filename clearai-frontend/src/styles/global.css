@@ -112,6 +112,83 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .hero h1 .accent { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .hero .sub { margin: 14px auto 0; color: var(--mute-1); font-size: 16px; max-width: 54ch; line-height: 1.55; }
 
+/* lane switch — opens the "working" section below the hero + mode tabs.
+   Page layout is two parts:
+     1. Hero section: hero + .modes (CREATE/SHARPEN/AUDIT)
+     2. Working section: LANE switch → input surface → results
+   A top divider separates the working section from the hero above.
+   No coloured side-borders per the project's aesthetic rule. */
+.lane-switch {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  padding: 4px; margin: 28px 0 10px;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
+  position: relative;
+  isolation: isolate; /* contain the sliding indicator's z-index context */
+}
+.lane-switch::before {
+  content: ""; position: absolute; top: -14px; left: 0; right: 0;
+  height: 1px; background: var(--line-2);
+}
+/* Sliding pill highlight. Absolutely positioned; translateX picks the slot.
+   Width is calc(50% - 4px) to leave room for the switch's outer 4px padding. */
+.lane-indicator {
+  position: absolute;
+  top: 4px; bottom: 4px; left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 9px;
+  background: var(--grad-soft);
+  box-shadow: inset 0 0 0 1px var(--orange-wash-2);
+  transition: transform .22s cubic-bezier(.4, 0, .2, 1);
+  z-index: 0;
+  pointer-events: none;
+}
+.lane-btn {
+  position: relative; z-index: 1;
+  padding: 9px 14px; border-radius: 9px;
+  display: flex; flex-direction: column; gap: 2px;
+  align-items: flex-start; text-align: left;
+  cursor: pointer;
+  background: transparent; border: none;
+  transition: color .18s ease;
+}
+.lane-btn .lane-ttl {
+  font-weight: 600; font-size: 13.5px; color: var(--ink-2);
+  letter-spacing: -.002em;
+  transition: color .18s ease;
+}
+.lane-btn .lane-sub {
+  font-family: 'Geist Mono', monospace; font-size: 10.5px; color: var(--mute-1);
+  letter-spacing: .02em;
+  transition: color .18s ease;
+}
+.lane-btn.on .lane-ttl { color: var(--ink); }
+.lane-btn.on .lane-sub { color: var(--orange-2); }
+.lane-btn:focus-visible {
+  outline: 2px solid var(--orange-2); outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lane-indicator { transition: none; }
+}
+
+/* ---- Workbench cross-fade between views -------------------------------- */
+.workbench { position: relative; }
+.workbench-pane {
+  transition: opacity .2s ease, transform .2s ease;
+}
+.workbench-pane[data-active="false"] {
+  display: none;
+}
+.workbench-pane[data-active="true"] {
+  animation: workbench-fade-in .22s ease-out both;
+}
+@keyframes workbench-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workbench-pane[data-active="true"] { animation: none; }
+}
+
 /* mode tabs */
 .modes-wrap { padding: 18px 0 6px; }
 .modes {
@@ -407,12 +484,47 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .ev-sim .bar { width: 48px; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .ev-sim .bar .fill { height: 100%; background: var(--grad); }
 
+/* Merchant-facing source list: binary Chosen / Considered chip instead of a
+   raw cosine score (which is text-overlap, not correctness, and easy to
+   misread as "higher = better"). Raw scores still live in the dev panel. */
+.sources-hint {
+  font-size: 12.5px; line-height: 1.55; color: var(--mute-1);
+  margin: -4px 0 12px;
+}
+.ev-row.is-chosen { background: var(--ok-wash, #f0f7f1); border-radius: 8px; padding-left: 10px; padding-right: 10px; }
+.ev-row.is-chosen .tt { color: var(--ink); }
+.ev-role { display: flex; align-items: flex-start; }
+.ev-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'Geist Mono', monospace; font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--mute-1);
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.ev-chip.is-chosen {
+  color: var(--ok, #2f7a3d);
+  background: var(--ok-wash, #f0f7f1);
+  border-color: transparent;
+  font-weight: 500;
+}
+
 /* process panel */
 .proc { margin-top: 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .proc-head { padding: 14px 18px; border-bottom: 1px solid var(--line-2); display: flex; justify-content: space-between; align-items: center; }
 .proc-head .t { font-size: 14px; font-weight: 500; color: var(--ink); }
 .proc-head .s { font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--mute-1); letter-spacing: .04em; }
 .proc-sub { padding: 14px 18px 6px; font-family: 'Geist Mono', monospace; font-size: 10.5px; color: var(--mute-1); letter-spacing: .08em; text-transform: uppercase; }
+.proc-hint {
+  padding: 0 18px 10px;
+  font-size: 12px; line-height: 1.55;
+  color: var(--mute-1);
+  margin: 0;
+}
+.proc-hint b { color: var(--ink); font-weight: 500; }
+.proc-hint em { font-style: italic; color: var(--ink); }
 .alt-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 14px; align-items: center; padding: 10px 18px; border-top: 1px solid var(--line-2); }
 .alt-code { font-family: 'Geist Mono', monospace; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .alt-desc { font-size: 13px; color: var(--mute-1); }
@@ -501,11 +613,53 @@ input, textarea, select { font-family: inherit; color: inherit; }
   font-family: system-ui, -apple-system, sans-serif;
 }
 
-/* --- closest-alternative: "why not a similar code?" ------------------ */
+/* --- closest-competitor block (inside Explained tab) -----------------
+   Previously rendered as a standalone `.alt-card` floating between
+   HSLadderCard and the Full-justification accordion. Now lives inside
+   the Explained tab, right after Sources Cited, so the narrative reads:
+     1. Here's why we picked it (rationale_steps)
+     2. Here's what we compared against (sources cited)
+     3. Here's the nearest wrong answer and why (this block)
+   .alt-card styles are kept below for the old mount point; the tab
+   variant uses .closest-comp-* classes with no side-border and a
+   slightly tighter inner density to fit tab context. */
+.closest-comp {
+  margin-top: 18px; padding: 14px 16px;
+  background: var(--paper-2); border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.closest-comp-head { margin-bottom: 10px; }
+.closest-comp-ttl {
+  font-size: 13px; font-weight: 600; color: var(--ink); letter-spacing: -.003em;
+}
+.closest-comp-sub {
+  margin-top: 2px;
+  font-size: 12px; color: var(--mute-1); line-height: 1.5;
+}
+.closest-comp-meta {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding-bottom: 6px;
+}
+.cc-code {
+  font-family: 'Geist Mono', monospace; font-size: 12.5px;
+  color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: .02em;
+}
+.cc-desc { font-size: 13px; color: var(--ink-2); }
+.cc-desc-ar {
+  font-size: 12.5px; color: var(--mute-1); margin-bottom: 8px;
+  font-family: 'Noto Naskh Arabic', system-ui, -apple-system, sans-serif;
+}
+.cc-why {
+  margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--ink);
+  padding: 10px 12px; background: var(--paper); border-radius: 8px;
+  border: 1px solid var(--line-2);
+}
+
+/* --- legacy: standalone .alt-card (kept for backwards compat if it
+     gets remounted somewhere). Not used in the main result view. --- */
 .alt-card {
   margin-top: 14px; padding: 16px 18px;
   background: var(--paper); border: 1px solid var(--line);
-  border-left: 3px solid var(--mute-2);
   border-radius: 12px;
 }
 .alt-head {
@@ -547,10 +701,11 @@ input, textarea, select { font-family: inherit; color: inherit; }
 }
 .full-just > summary::-webkit-details-marker { display: none; }
 .full-just > summary::after {
-  content: "▸"; font-size: 12px; color: var(--mute-1); margin-left: auto;
-  transition: transform .15s;
+  content: "▸"; font-size: 22px; line-height: 1; color: var(--mute-1); margin-left: auto;
+  transition: transform .18s ease, color .18s ease;
 }
 .full-just[open] > summary::after { transform: rotate(90deg); }
+.full-just > summary:hover::after { color: var(--ink); }
 .full-just > summary:hover { background: var(--paper-2); }
 .full-just > summary .t { font-size: 14px; font-weight: 500; color: var(--ink); }
 .full-just > summary .s {
@@ -597,6 +752,141 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .stage-row.slow .stage-bar .fill { background: var(--grad); }
 .stage-row.slow .stage-ms { color: var(--orange-2); font-weight: 600; }
 
+/* proc-hero — prominent latency readout at the top of the process panel.
+   Shoves the dev-view meta grid's most load-bearing numbers above the fold
+   so operators don't have to scan for them. Deliberately free of coloured
+   side-borders (per user aesthetic rule). */
+.proc-hero {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 24px;
+  align-items: center;
+  padding: 18px 18px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--paper);
+}
+.proc-hero-latency .k {
+  font-family: 'Geist Mono', monospace; font-size: 9.5px;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--mute-1);
+  margin-bottom: 4px;
+}
+.proc-hero-latency .v {
+  font-family: 'Geist Mono', monospace; font-size: 28px; color: var(--ink);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.proc-hero-tokens { display: flex; gap: 18px; }
+.proc-hero-tokens .tok { display: flex; flex-direction: column; gap: 3px; }
+.proc-hero-tokens .tok .k {
+  font-family: 'Geist Mono', monospace; font-size: 9.5px;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--mute-1);
+}
+.proc-hero-tokens .tok .v {
+  font-family: 'Geist Mono', monospace; font-size: 13px; color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.proc-hero-models { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.model-chip {
+  font-family: 'Geist Mono', monospace; font-size: 10.5px;
+  padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px;
+  color: var(--ink-2); background: var(--bg);
+  letter-spacing: .02em;
+}
+
+/* model-calls — one row per LLM invocation. Reuses stage-row visual
+   language (mono, tabular, thin bar) but keyed on task+model. */
+.model-calls { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line-2); }
+.mc-row {
+  display: grid;
+  grid-template-columns: 80px 160px 1fr 72px 100px;
+  gap: 12px; align-items: center;
+  padding: 9px 18px; border-top: 1px solid var(--line-2);
+  font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--mute-1);
+  font-variant-numeric: tabular-nums;
+}
+.mc-row:first-child { border-top: none; }
+.mc-task {
+  font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-2);
+  /* Dotted underline is the conventional signal for "has a tooltip".
+     Uses currentColor muted so it feels like a hint, not an emphasis. */
+  border-bottom: 1px dotted var(--mute-3);
+  cursor: help;
+}
+.mc-task:hover { color: var(--ink); border-bottom-color: var(--mute-1); }
+.mc-model { font-size: 11.5px; color: var(--ink-2); }
+.mc-bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.mc-bar .fill { height: 100%; background: var(--mute-2); transition: width .3s; }
+.mc-ms { color: var(--ink); text-align: right; }
+.mc-tok { color: var(--mute-2); text-align: right; font-size: 11px; }
+
+/* ---- Unified Pipeline timeline table -------------------------------
+   Replaces the old separate .stage-rows + .model-calls lists. Single
+   table with stage rows + indented call rows so "what ran, which model,
+   how long, how many tokens" reads in one scan. */
+.tl-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  color: var(--mute-1);
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--line-2);
+}
+.tl-table thead th {
+  text-align: left;
+  font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--mute-1); font-weight: 500;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--paper-2);
+}
+.tl-table thead th.tl-ms,
+.tl-table thead th.tl-tok { text-align: right; }
+.tl-table td { padding: 9px 12px; vertical-align: middle; }
+.tl-row-stage td {
+  border-top: 1px solid var(--line-2);
+  background: transparent;
+}
+.tl-row-stage:first-child td { border-top: none; }
+.tl-row-stage .tl-step {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.tl-stage-key {
+  font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--mute-1);
+}
+.tl-stage-label {
+  font-size: 12.5px; color: var(--ink-2); font-family: inherit;
+  font-weight: 500;
+}
+.tl-row-stage.has-children .tl-stage-label { color: var(--ink); }
+.tl-row-call td {
+  background: var(--paper-2);
+  padding-top: 7px; padding-bottom: 7px;
+  border-top: 1px dashed var(--line-2);
+}
+.tl-task {
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-2);
+  padding-left: 10px;
+  border-bottom: 1px dotted var(--mute-3);
+  cursor: help;
+}
+.tl-task:hover { color: var(--ink); border-bottom-color: var(--mute-1); }
+.tl-model { font-size: 11.5px; color: var(--ink-2); }
+.tl-bar .bar {
+  height: 4px; background: var(--line); border-radius: 2px; overflow: hidden;
+  min-width: 60px;
+}
+.tl-bar .fill {
+  height: 100%; background: var(--mute-2); transition: width .3s;
+}
+.tl-row-call .tl-bar .fill { background: var(--grad); opacity: .6; }
+.tl-ms { color: var(--ink); text-align: right; white-space: nowrap; }
+.tl-tok { color: var(--mute-2); text-align: right; font-size: 11px; white-space: nowrap; }
+.tl-muted { color: var(--mute-3); }
+
 /* error banner */
 .err-banner {
   margin-top: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-sm);
@@ -625,6 +915,14 @@ input, textarea, select { font-family: inherit; color: inherit; }
   .meta-grid { grid-template-columns: 1fr 1fr; }
   .stage-row { grid-template-columns: 56px 1fr 56px 40px; }
   .stage-row .stage-label { display: none; }
+  .proc-hero { grid-template-columns: 1fr; gap: 14px; }
+  .proc-hero-models { justify-content: flex-start; }
+  .mc-row { grid-template-columns: 70px 1fr 56px 80px; }
+  .mc-row .mc-bar { display: none; }
+  .tl-table .tl-bar { display: none; }
+  .tl-table thead th.tl-bar-h { display: none; }
+  .tl-table thead th.tl-tok,
+  .tl-table td.tl-tok { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -693,3 +991,93 @@ input, textarea, select { font-family: inherit; color: inherit; }
 
 .batch-bar { height: 6px; border-radius: 999px; background: var(--line-2); overflow: hidden; }
 .batch-bar .fill { height: 100%; background: var(--grad); transition: width .4s ease; }
+
+/* --- Batch header-override form ------------------------------------------ */
+.batch-hdr-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0 4px;
+}
+.batch-hdr-field { display: flex; flex-direction: column; gap: 6px; }
+.batch-hdr-field label {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--mute-1); font-weight: 500;
+}
+.batch-hdr-field input {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.3 'Geist Mono', ui-monospace, monospace;
+  transition: border-color .15s ease, background .15s ease;
+}
+.batch-hdr-field input:focus {
+  outline: none;
+  border-color: var(--orange-1);
+  background: var(--paper-2);
+}
+.batch-hdr-field input::placeholder { color: var(--mute-2, #9ca3af); opacity: .85; }
+.batch-hdr-field input:disabled { opacity: .55; cursor: not-allowed; }
+.batch-hdr-hint {
+  font-size: 12px;
+  color: var(--mute-1);
+  margin: -4px 0 8px;
+}
+@media (max-width: 720px) {
+  .batch-hdr-form { grid-template-columns: 1fr; }
+}
+
+/* --- Completion table ---------------------------------------------------- */
+.batch-table-wrap {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  max-height: 520px;
+  background: var(--paper);
+}
+table.batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.batch-table thead th {
+  position: sticky; top: 0;
+  background: var(--paper-2);
+  text-align: left;
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--mute-1); font-weight: 500;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+table.batch-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-2);
+  vertical-align: top;
+  color: var(--ink);
+}
+table.batch-table tbody tr:last-child td { border-bottom: none; }
+table.batch-table td.col-code { font-family: 'Geist Mono', ui-monospace, monospace; white-space: nowrap; }
+table.batch-table td.col-ar { direction: rtl; text-align: right; font-size: 14px; }
+table.batch-table td.col-en { color: var(--ink); }
+table.batch-table td.col-idx { color: var(--mute-1); font-family: 'Geist Mono', ui-monospace, monospace; white-space: nowrap; }
+
+.conf-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+}
+.conf-dot {
+  width: 40px; height: 6px; border-radius: 999px;
+  background: var(--line-2); position: relative; overflow: hidden;
+}
+.conf-dot .fill {
+  position: absolute; inset: 0; width: var(--c, 0%);
+  background: var(--grad);
+}
+.conf-chip.is-low .conf-dot .fill { background: var(--orange-2, #d46a17); }
+.conf-chip.is-na { color: var(--mute-1); }
+

@@ -1,21 +1,30 @@
 /**
- * HSResultCard — the top outcome card: confidence, segmented 12-digit
- * code, plain-language summary, primary/secondary actions.
+ * HSResultCard — top outcome card for an `accepted` decision.
  *
- * Segment split follows the v5 design: 4-2-2-2-2 grouped as
- *   CHAPTER · HEADING · SUB · NATIONAL · STAT · EXT
- * Only the first three segments use the orange gradient accent (the
- * international HS6 trunk — the rest is Saudi-national extension).
+ * Renders the chosen 12-digit code (segmented as CHAPTER · HEADING · SUB ·
+ * NATIONAL · STAT · EXT, accent on the international HS6 trunk), the
+ * decision_reason as a plain-English label, EN+AR descriptions, and copy
+ * actions. Confidence is presented as a label tied to decision_reason —
+ * we don't fake a numeric confidence the backend doesn't compute.
  */
-import type { ResolveResponse } from '../lib/api';
-import InlineBold from './InlineBold';
+import type {
+  DecisionStatus,
+  DecisionReason,
+  ResultLine,
+} from '../lib/api';
+import { reasonLabel, statusToTone } from '../lib/api';
 
-type Props = { result: ResolveResponse };
+type Props = {
+  status: DecisionStatus;
+  reason: DecisionReason;
+  result: ResultLine;
+  /** "Before" code shown only by /expand and /boost. */
+  beforeCode?: string;
+};
 
 type Segment = { label: string; digits: string; accent: boolean };
 
 function splitCode(code: string): Segment[] {
-  // Right-pad with zeros if short so a partial result still renders cleanly.
   const c = (code || '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
   return [
     { label: 'CHAPTER',  digits: c.slice(0, 2),  accent: true  },
@@ -27,42 +36,35 @@ function splitCode(code: string): Segment[] {
   ];
 }
 
-function confLabel(c: number): string {
-  if (c >= 0.85) return 'High confidence';
-  if (c >= 0.6)  return 'Medium confidence';
-  return 'Low confidence';
-}
-
 function copyToClipboard(s: string) {
   if (typeof navigator !== 'undefined' && navigator.clipboard) {
     navigator.clipboard.writeText(s).catch(() => {});
   }
 }
 
-export default function HSResultCard({ result }: Props) {
-  const {
-    hs_code, confidence, plain_summary, customs_description_en, rationale,
-  } = result;
-
-  const segments = splitCode(hs_code);
-
-  // Prefer the backend-provided plain_summary; fall back to building one
-  // from customs_description_en + rationale so the panel never looks empty.
-  const plain = plain_summary
-    ?? (customs_description_en
-          ? `This classifies as **${hs_code}** — ${customs_description_en}.`
-          : rationale || '');
+export default function HSResultCard({ status, reason, result, beforeCode }: Props) {
+  const segments = splitCode(result.code);
+  const tone = statusToTone(status);
 
   return (
     <div className="hs-card">
       <div className="hs-top">
         <div className="k">SAUDI HS · 12-DIGIT</div>
-        <div className="conf-pill">
+        <div className={`conf-pill conf-${tone}`}>
           <span className="d" />
-          <span>{confLabel(confidence)}</span>
-          <span className="n">· {(confidence * 100).toFixed(0)}%</span>
+          <span>{reasonLabel(reason)}</span>
         </div>
       </div>
+
+      {beforeCode && beforeCode !== result.code && (
+        <div className="before-after">
+          <span className="ba-k">from</span>
+          <span className="ba-code">{beforeCode}</span>
+          <span className="ba-arrow" aria-hidden>→</span>
+          <span className="ba-k">to</span>
+          <span className="ba-code ba-after">{result.code}</span>
+        </div>
+      )}
 
       <div className="hs-code">
         {segments.map((s, i) => (
@@ -76,29 +78,28 @@ export default function HSResultCard({ result }: Props) {
         ))}
       </div>
 
-      {plain && (
-        <div className="plain"><InlineBold md={plain} /></div>
-      )}
+      <div className="desc-grid">
+        <div className="desc-cell">
+          <span className="k">ZATCA description · EN</span>
+          {result.description_en || '—'}
+        </div>
+        <div className="desc-cell rtl" dir="rtl">
+          <span className="k">ZATCA description · AR</span>
+          {result.description_ar || '—'}
+        </div>
+      </div>
 
       <div className="hs-actions">
         <div className="al">
-          <button className="btn-sec" type="button" onClick={() => copyToClipboard(hs_code)}>
+          <button className="btn-sec" type="button" onClick={() => copyToClipboard(result.code)}>
             ⎘ Copy code
-          </button>
-          <button
-            className="btn-sec"
-            type="button"
-            title="Flag this classification for human review"
-            onClick={() => alert('Flag-for-review is not wired to the backend yet.')}
-          >
-            ⚐ Flag error
           </button>
         </div>
         <button
           className="btn-sec primary"
           type="button"
-          title="Bayan XML export — coming soon"
-          onClick={() => alert('ZATCA / Bayan XML export is not wired to the backend yet.')}
+          title="ZATCA / Bayan XML export — coming soon"
+          onClick={() => alert('ZATCA integration XML export is not wired yet.')}
         >
           ↗ Generate ZATCA integration XML
         </button>

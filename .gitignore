@@ -38,3 +38,9 @@ npm-debug.log*
 
 # Local docs
 BUILD.md
+
+# Legacy Python backend (kept locally for reference, never commit)
+clearai-backend-python/
+
+# MS Office lock files
+~$*
