@@ -228,8 +228,19 @@ export default function Process() {
           <SectionLabel num={BIG_PICTURE.num}>{BIG_PICTURE.label}</SectionLabel>
           <SectionTitle>{BIG_PICTURE.title}</SectionTitle>
           <SectionDesc><Md text={BIG_PICTURE.desc} /></SectionDesc>
-          <Reveal className="mt-2 text-center">
-            <img src={BIG_PICTURE.diagram} alt={BIG_PICTURE.diagramAlt} className="max-w-full h-auto rounded-xl border border-border" />
+
+          <Reveal>
+            <figure className="rounded-[14px] border border-border bg-card p-4 sm:p-6 overflow-hidden">
+              <img
+                src={BIG_PICTURE.diagram}
+                alt={BIG_PICTURE.diagramAlt}
+                loading="lazy"
+                className="w-full h-auto block"
+              />
+              <figcaption className="font-mono text-[.7rem] text-muted tracking-[.1em] uppercase mt-4 text-center">
+                {BIG_PICTURE.diagramAlt}
+              </figcaption>
+            </figure>
           </Reveal>
         </div>
       </section>

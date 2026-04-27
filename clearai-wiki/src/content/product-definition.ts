@@ -43,13 +43,13 @@ export const SOLUTION = {
   label: 'Solution Overview',
   title: 'An AI platform for faster ZATCA clearance',
   titleAccent: 'faster ZATCA clearance',
-  desc: 'ClearAI helps businesses pass ZATCA clearance faster by generating, refining, and validating HS code data before submission. Three distinct modes solve three distinct problems — **Generate** a compliant classification from scratch when you have no code, **Boost** a partial code into submission-ready precision, and **Validate** that code, description, and value are consistent before filing.',
-  modesIntro: 'The three modes are not three flavors of the same engine — they are three distinct products sharing one platform. Each exists because a user at a different stage of the customs workflow has a different starting point and needs a different answer. The shape of the input alone determines the mode: no code → Generate, partial code → Boost, full code + value → Validate.',
+  desc: 'ClearAI helps businesses pass ZATCA clearance faster by generating, refining, and validating HS code data before submission. Three distinct modes solve three distinct problems — **Create** a compliant classification from scratch when you have no code, **Expand** a partial code into submission-ready precision, and **Validate** the coherence of code, description, and value before the declaration leaves your hands.',
+  modesIntro: 'The three modes are not three flavors of the same engine — they are three distinct products sharing one platform. Each exists because a user at a different stage of the customs workflow has a different starting point and needs a different answer. The shape of the input alone determines the mode: no code → Create, partial code → Expand, complete declaration → Validate.',
   modes: [
     {
       num: 'Mode 01 · Create',
       name: 'Generate',
-      role: 'For new products with no prior classification. ClearAI reads your product description and produces a full, submission-ready 12-digit HS code and ZATCA-compliant description from scratch — with justification and confidence scoring.',
+      role: 'Free-text description → full 12-digit ZATCA code.',
       whenToUse: [
         'New SKUs with only a product name or short description',
         'Supplier spreadsheets with product names but no customs metadata',
@@ -58,11 +58,10 @@ export const SOLUTION = {
       badge: 'From scratch',
     },
     {
-      num: 'Mode 02 · Improve',
-      name: 'Boost',
-      role: 'For products that already have a partial or chapter-level HS code. ClearAI drills down within the HS tree using your description and declared value to refine a generic code into a specific, submission-ready one.',
+      num: 'Mode 02 · Expand',
+      name: 'Expand',
+      role: 'For products that already have a partial HS code prefix (4, 6, 8 or 10 digits). ClearAI drills down within that branch of the HS tree using your description to land on the precise 12-digit leaf.',
       whenToUse: [
-        'ERP codes stuck at 4 or 6 digits that Bayan will reject',
         'Supplier-provided chapter headings that need subheading precision',
         'Legacy catalogs built before subheading-level classification was required',
       ],
@@ -75,7 +74,6 @@ export const SOLUTION = {
       whenToUse: [
         'Final pre-submission coherence check before Bayan',
         'Compliance screening for suspicious code-description-value combinations',
-        'Audit trail proving due diligence was performed on a declaration',
       ],
       badge: 'Pre-submission audit',
     },
@@ -95,9 +93,9 @@ export const TARGET_CUSTOMER = {
       role: 'Teams handling high shipment volumes that need faster, more consistent classification and customs documentation across many orders',
       subsections: [
         { label: 'What they care about', items: ['Operational efficiency and repeatability at scale', 'Visibility across shipments and teams', 'Keeping unit cost flat as shipment volume grows'] },
-        { label: 'Primary modes', items: ['Boost — refine partial or supplier-provided codes', 'Validate — catch mismatches before Bayan submission'] },
+        { label: 'Primary modes', items: ['Expand — drill partial or supplier-provided prefixes down to a 12-digit leaf', 'Validate — pre-submission coherence check before Bayan'] },
       ],
-      badge: 'Boost · Validate',
+      badge: 'Expand · Validate',
     },
     {
       num: 'Segment B',
@@ -105,9 +103,9 @@ export const TARGET_CUSTOMER = {
       role: 'Businesses shipping cross-border into KSA that need scalable classification at checkout or order processing to reduce clearance delays',
       subsections: [
         { label: 'What they care about', items: ['Automation at scale across large catalogs', 'Product data that is customs-ready from day one', 'Fewer clearance surprises for the end customer'] },
-        { label: 'Primary modes', items: ['Generate — create classifications from sparse product data', 'Boost — improve existing catalog codes over time'] },
+        { label: 'Primary modes', items: ['Create — generate classifications from sparse product data', 'Expand — improve existing catalog codes over time', 'Validate — screen declarations before they reach Bayan'] },
       ],
-      badge: 'Generate · Boost',
+      badge: 'Create · Expand · Validate',
     },
     {
       num: 'Segment C',
@@ -115,12 +113,12 @@ export const TARGET_CUSTOMER = {
       role: 'Agents managing customs filings for multiple clients who need fast, accurate, and repeatable HS classification with less manual effort',
       subsections: [
         { label: 'What they care about', items: ['Moving quickly across many client inputs', 'Defensible classifications with clear rationale', 'Handling variable data quality from different clients'] },
-        { label: 'Primary modes', items: ['All three — Generate, Boost, Validate depending on client data'] },
+        { label: 'Primary modes', items: ['All three — Create, Expand, and Validate depending on the shape of the client input and stage of the filing'] },
       ],
-      badge: 'Generate · Boost · Validate',
+      badge: 'Create · Expand · Validate',
     },
   ],
-  note: "Not every segment uses every mode equally. Some will rely mostly on Validate, others on Generate and Boost — depending on the quality of input data and where they sit in the workflow.",
+  note: "Not every segment uses every mode equally. Some will rely mostly on Expand on top of existing supplier prefixes; others lean on Create when starting from raw descriptions — depending on the quality of input data and where they sit in the workflow.",
 };
 
 // ── Section 4: Features ──
@@ -141,17 +139,17 @@ export const FEATURES_SECTION = {
 };
 
 export const FEATURES: Feature[] = [
-  { mode: 'p0', modeLabel: 'Generate', feature: 'Flexible input',          description: 'Accepts input from description, image, or product attributes — works with whatever data the user has.' },
-  { mode: 'p0', modeLabel: 'Generate', feature: 'Full 12-digit HS code',   description: 'Outputs a complete Saudi 12-digit HS code, not just a heading or chapter-level guess.' },
-  { mode: 'p0', modeLabel: 'Generate', feature: 'ZATCA-ready description', description: 'Generates a compliant product description alongside the code, structured to match ZATCA submission format so it flows downstream without reformatting.' },
-  { mode: 'p0', modeLabel: 'Generate', feature: 'Confidence & rationale',  description: 'Every result shows a confidence score and the reasoning behind the chosen classification.' },
-  { mode: 'p1', modeLabel: 'Boost',    feature: 'Prefix-constrained drill-down', description: 'Takes a partial HS code (2–8 digits) and drills down within that branch of the HS tree to find the precise subheading.' },
-  { mode: 'p1', modeLabel: 'Boost',    feature: 'Description-driven refinement', description: 'Uses the product description — and optionally declared value — to disambiguate and select the most specific code under the given prefix.' },
-  { mode: 'p1', modeLabel: 'Boost',    feature: 'Before & after comparison', description: 'Shows the original generic code next to the refined code with a clear explanation of what drove the narrowing.' },
-  { mode: 'p2', modeLabel: 'Validate', feature: 'Code ↔ Description check', description: 'Verifies the product description plausibly fits the HS code\'s official scope — catches mismatches like a leather code on a synthetic product.' },
-  { mode: 'p2', modeLabel: 'Validate', feature: 'Description ↔ Value check', description: 'Flags implausible declared values — a Rolex at $20 or a pencil at $5,000 — before they trigger customs review.' },
-  { mode: 'p2', modeLabel: 'Validate', feature: 'Pass / Warn / Fail verdict', description: 'Returns a clear verdict with per-check breakdown so reviewers know exactly what triggered and why.' },
-  { mode: 'p2', modeLabel: 'Validate', feature: 'Audit-ready rationale',   description: 'Every flag includes a plain-language explanation, providing a compliance audit trail for every declaration checked.' },
+  { mode: 'p0', modeLabel: 'Create', feature: 'Flexible input',          description: 'Accepts input from description, image, or product attributes — works with whatever data the user has.' },
+  { mode: 'p0', modeLabel: 'Create', feature: 'Full 12-digit HS code',   description: 'Outputs a complete Saudi 12-digit HS code, not just a heading or chapter-level guess.' },
+  { mode: 'p0', modeLabel: 'Create', feature: 'ZATCA-ready description', description: 'Generates a compliant product description alongside the code, structured to match ZATCA submission format so it flows downstream without reformatting.' },
+  { mode: 'p0', modeLabel: 'Create', feature: 'Confidence & rationale',  description: 'Every result shows a confidence score and the reasoning behind the chosen classification.' },
+  { mode: 'p1', modeLabel: 'Expand', feature: 'Prefix-constrained drill-down', description: 'Takes a partial HS code (4, 6, 8 or 10 digits) and drills down within that branch of the HS tree to find the precise 12-digit leaf.' },
+  { mode: 'p1', modeLabel: 'Expand', feature: 'Description-driven refinement', description: 'Uses the product description to disambiguate and select the most specific code under the given prefix.' },
+  { mode: 'p1', modeLabel: 'Expand', feature: 'Before & after comparison', description: 'Shows the original prefix next to the resolved 12-digit code with a clear explanation of what drove the narrowing.' },
+  { mode: 'p2', modeLabel: 'Validate', feature: 'Code · description · value coherence check', description: 'Verifies that the declared HS code, product description, and customs value tell a consistent story before the declaration is submitted.' },
+  { mode: 'p2', modeLabel: 'Validate', feature: 'Mismatch & implausible-value flags',         description: 'Surfaces specific mismatches (e.g. code says "leather", description says "synthetic") and value bands that are out of range for the chosen code.' },
+  { mode: 'p2', modeLabel: 'Validate', feature: 'Pre-submission audit trail',                  description: 'Produces a per-shipment audit record showing what was checked, what was flagged, and the rationale — defensible against ZATCA queries.' },
+  { mode: 'p2', modeLabel: 'Validate', feature: 'Suspicious-combination screening',            description: 'Catches code-description-value combinations that statistically pattern-match to historical rejections or reclassifications.' },
 ];
 
 // ── Section 5: Metrics ──
@@ -170,20 +168,20 @@ export const METRICS_SECTION = {
 };
 
 export const METRICS: Record<string, Metric[]> = {
-  generate: [
-    { category: 'Quality',    title: 'Accepted without correction',     target: 'Target → % of generated classifications accepted without manual correction', note: 'Measures whether Generate output is trusted end-to-end, not just directionally useful.' },
+  create: [
+    { category: 'Quality',    title: 'Accepted without correction',     target: 'Target → % of generated classifications accepted without manual correction', note: 'Measures whether Create output is trusted end-to-end, not just directionally useful.' },
     { category: 'Speed',      title: 'Time to first valid HS code',     target: 'Target → average time from input to first valid HS code output',             note: 'Covers latency plus any required input enrichment to reach a usable code.' },
-    { category: 'Compliance', title: 'ZATCA-ready output rate',         target: 'Target → % of Generate outputs formatted and structured for ZATCA without rework', note: 'Measures whether Generate output flows straight into downstream submission.' },
+    { category: 'Compliance', title: 'ZATCA-ready output rate',         target: 'Target → % of Create outputs formatted and structured for ZATCA without rework', note: 'Measures whether Create output flows straight into downstream submission.' },
   ],
-  boost: [
-    { category: 'Lift',       title: 'Improved over baseline',          target: 'Target → % of classifications improved compared to the input code',           note: 'Measures whether Boost is actually adding classification value beyond what the user had.' },
-    { category: 'Efficiency', title: 'Reduction in manual reclassification', target: 'Target → time saved vs manual reclassification effort',                  note: "Tracks Boost's ability to replace slow, manual review cycles in large catalogs." },
-    { category: 'Accuracy',   title: 'Accuracy uplift over existing codes', target: 'Target → measured uplift in classification accuracy vs existing codes',    note: 'Validates that "improved" codes are actually more correct, not just different.' },
+  expand: [
+    { category: 'Lift',       title: 'Improved over baseline',          target: 'Target → % of classifications improved compared to the input prefix',         note: 'Measures whether Expand is actually adding classification value beyond what the user had.' },
+    { category: 'Efficiency', title: 'Reduction in manual reclassification', target: 'Target → time saved vs manual reclassification effort',                  note: "Tracks Expand's ability to replace slow, manual review cycles in large catalogs." },
+    { category: 'Accuracy',   title: 'Accuracy uplift over existing prefixes', target: 'Target → measured uplift in classification accuracy vs the supplied prefix', note: 'Confirms that the resolved 12-digit codes are actually more correct, not just longer.' },
   ],
   validate: [
-    { category: 'Detection',  title: 'Invalid entries flagged',         target: 'Target → % of invalid or suspicious entries flagged before submission',        note: 'Measures whether Validate catches the problems it is supposed to catch.' },
-    { category: 'Outcome',    title: 'Reduction in clearance issues',   target: 'Target → drop in clearance issues caused by inconsistent data',               note: 'Links Validate output directly to real ZATCA clearance outcomes.' },
-    { category: 'Workflow',   title: 'Review resolution time',          target: 'Target → median time to resolve flagged items in the review queue',            note: 'Tracks whether flags are actionable and reviewable at operational speed.' },
+    { category: 'Catch rate', title: 'Issues caught pre-submission',    target: 'Target → % of mismatches and implausible values flagged before reaching Bayan', note: 'Measures whether Validate is actually preventing rejections, not just commenting on them.' },
+    { category: 'Precision',  title: 'False-flag rate',                  target: 'Target → low % of flagged declarations that turn out to be correct',           note: 'A noisy validator gets switched off — precision is what keeps it in the workflow.' },
+    { category: 'Outcome',    title: 'Reduction in ZATCA rejections',    target: 'Target → fewer rejected declarations on Validate-screened shipments vs unscreened baseline', note: 'The headline outcome — proves Validate moves the needle on real clearance failures.' },
   ],
   overall: [
     { category: 'Clearance',  title: 'Faster customs clearance cycles', target: 'Target → shorter end-to-end clearance cycle time',                            note: "The product's headline outcome — the reason customers care." },
@@ -197,7 +195,7 @@ export const ROADMAP = {
   num: '6',
   label: 'Roadmap',
   title: 'What ships, when',
-  placeholder: 'Reserved for phased delivery plan across Generate, Boost, and Validate.',
+  placeholder: 'Reserved for phased delivery plan across Create, Expand, and Validate.',
 };
 
 export const OPEN_QUESTIONS = {

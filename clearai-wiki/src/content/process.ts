@@ -19,7 +19,7 @@ export const BIG_PICTURE = {
   title: 'Current flow',
   desc: 'Merchant ships a parcel → sends manifest and commercial invoice to Naqel → Naqel submits manifest to ZATCA first → on acceptance, builds and submits the declaration → ZATCA issues a **Bayan number** (the clearance document).',
   diagram: '/diagrams/naqel-customs-flow.svg',
-  diagramAlt: 'Naqel customs clearance flow — Merchant → Naqel/SPL → ZATCA',
+  diagramAlt: 'End-to-end flow: merchant → Naqel → ZATCA manifest → declaration → Bayan number.',
 };
 
 // ── Section 2: HV vs LV ──

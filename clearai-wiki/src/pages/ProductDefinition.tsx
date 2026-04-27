@@ -69,22 +69,13 @@ export default function ProductDefinition() {
             </p>
           </Reveal>
 
-          {/* Modes diagram */}
-          <Reveal className="mb-12">
-            <img
-              src="/diagrams/MODES.svg"
-              alt="Three product modes: Generate, Boost, Validate"
-              className="w-full max-w-[800px] mx-auto"
-            />
-          </Reveal>
-
           {/* Three-card layout */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {SOLUTION.modes.map((mode, i) => {
               const modeColors = [
                 { bg: '#FDEFE5',                      border: '#FBE3D1',                      accent: '#EA6A1F', glow: 'rgba(234,106,31,.18)' }, // orange-1 (bright)
                 { bg: 'rgba(148,66,28,.05)',          border: 'rgba(148,66,28,.20)',          accent: '#94421C', glow: 'rgba(148,66,28,.18)' }, // orange-2 (deep)
-                { bg: '#E6F1EC',                      border: 'rgba(46,125,87,.25)',          accent: '#2E7D57', glow: 'rgba(46,125,87,.18)' }, // green ok
+                { bg: 'rgba(46,109,82,.06)',          border: 'rgba(46,109,82,.22)',          accent: '#2E6D52', glow: 'rgba(46,109,82,.18)' }, // green (audit)
               ];
               const color = modeColors[i];
 
@@ -200,14 +191,14 @@ export default function ProductDefinition() {
           <SectionTitle>{METRICS_SECTION.title}</SectionTitle>
           <SectionDesc>{METRICS_SECTION.desc}</SectionDesc>
 
-          <SubHeading>Generate</SubHeading>
+          <SubHeading>Create</SubHeading>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-            {METRICS.generate.map((m, i) => <MetricCard key={m.title} {...m} delay={i * 100} />)}
+            {METRICS.create.map((m, i) => <MetricCard key={m.title} {...m} delay={i * 100} />)}
           </div>
 
-          <SubHeading>Boost</SubHeading>
+          <SubHeading>Expand</SubHeading>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-            {METRICS.boost.map((m, i) => <MetricCard key={m.title} {...m} delay={i * 100} />)}
+            {METRICS.expand.map((m, i) => <MetricCard key={m.title} {...m} delay={i * 100} />)}
           </div>
 
           <SubHeading>Validate</SubHeading>
