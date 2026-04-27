@@ -40,7 +40,7 @@ export const API_BASE =
  * passthrough) so it never lands in the browser.
  */
 const APIM_SUBSCRIPTION_KEY =
-  (import.meta.env.PUBLIC_CLEARAI_APIM_KEY as string | undefined) ?? '';
+  (import.meta.env.PUBLIC_CLEARAI_API_KEY as string | undefined) ?? '';
 
 // --- Decision envelope ----------------------------------------------------
 // Closed enums — must match clearai-backend/src/decision/types.ts.
@@ -56,7 +56,8 @@ export type DecisionReason =
   | 'invalid_prefix'
   | 'ambiguous_top_candidates'
   | 'guard_tripped'
-  | 'llm_unavailable';
+  | 'llm_unavailable'
+  | 'brand_not_recognised';
 
 export type ConfidenceBand = 'high' | 'medium' | 'low';
 
@@ -85,6 +86,23 @@ export interface ModelInfo {
   embedder: string;
   /** null when the request didn't reach the LLM (gate failed, /boost, single-descendant). */
   llm: string | null;
+  /** Set when the input was rewritten by the Sonnet researcher (brand/SKU jargon path). */
+  researcher?: string;
+}
+
+/**
+ * Trust note: tells the user what the system actually classified.
+ * - stage='passthrough': retrieval understood the original input.
+ * - stage='researched':  Sonnet rewrote the input; `rewritten_as` shows the
+ *                        canonical phrase that retrieval and the picker saw.
+ * - stage='unknown':     researcher declined to identify the product;
+ *                        `researcher_note` carries the reason.
+ */
+export interface Interpretation {
+  original: string;
+  stage: 'passthrough' | 'researched' | 'unknown';
+  rewritten_as?: string;
+  researcher_note?: string;
 }
 
 /** Common envelope shared by /classify/describe, /classify/expand, /boost. */
@@ -95,6 +113,8 @@ export interface DecisionEnvelopeBase {
   alternatives: AlternativeLine[];
   rationale?: string;
   missing_attributes?: MissingAttribute[];
+  /** Optional on /expand and /boost (which don't run the researcher today). */
+  interpretation?: Interpretation;
   model: ModelInfo;
 }
 
@@ -212,6 +232,7 @@ export function reasonLabel(reason: DecisionReason): string {
     case 'ambiguous_top_candidates': return 'Multiple plausible candidates';
     case 'guard_tripped': return 'Hallucination guard tripped';
     case 'llm_unavailable': return 'LLM unavailable';
+    case 'brand_not_recognised': return 'Brand or product not recognised';
   }
 }
 
@@ -235,6 +256,8 @@ export function remediationHint(
       return 'The code does not match any tariff branch. Check the digits and try again.';
     case 'guard_tripped':
       return 'The model proposed a code outside the candidate set. Please refine the description.';
+    case 'brand_not_recognised':
+      return 'We could not identify this brand or product code. Describe what the product physically is and does (e.g. "leather sandal with adjustable straps" instead of just the model name).';
     default:
       return 'Please refine the input and try again.';
   }

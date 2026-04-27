@@ -178,3 +178,40 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
   - Public-internet abuse becomes a real concern → add Front Door Standard (~$36/mo) for WAF.
   - Origin-hiding becomes mandatory (compliance, contracts) → upgrade to APIM Standard v2 + flip ingress to internal.
   - We outgrow APIM Consumption's 1M free calls and the per-call cost stops being trivial → re-tier rather than re-architect.
+
+---
+
+## ADR — Cloudflare Pages for the frontend, GitHub Actions as the deploy surface
+
+- **Date:** 2026-04-26
+- **Status:** Accepted (v1)
+- **Context:**
+  - The Astro 6 frontend (`clearai-frontend/`) ships as static SSG with React 19 islands hydrated `client:load`. There is no SSR runtime to host — `npm run build` produces a `dist/` directory that any static host can serve.
+  - The wiki (`clearai-wiki/`) is already deployed to Cloudflare Pages via a GitHub Actions workflow (`.github/workflows/wiki-deploy-cloudflare.yml`) using `cloudflare/wrangler-action@v3`. The Cloudflare account, API token, and account-ID secrets are already provisioned in the repo.
+  - The backend gateway is APIM Consumption fronting the Container App (per the prior ADR). Browser → APIM → Container App. APIM enforces CORS via an `<allowed-origins>` list and a per-subscription `<rate-limit calls="60" renewal-period="60" />`. The backend's own Fastify-level `CORS_ORIGINS` env var is the second line of defence.
+  - The frontend needs two `PUBLIC_*` env vars at build time (Astro/Vite `import.meta.env` bakes these into the client bundle): `PUBLIC_CLEARAI_API_BASE` (the APIM gateway URL) and `PUBLIC_CLEARAI_API_KEY` (the APIM subscription key, `Ocp-Apim-Subscription-Key` header value).
+- **Decision:**
+  - **Host:** Cloudflare Pages, project name `clearai-frontend`, production branch `main`, served at `https://clearai-frontend.pages.dev`.
+  - **Deploy surface:** GitHub Actions workflow at `.github/workflows/frontend-deploy-cloudflare.yml`, mirroring the wiki workflow byte-for-byte where possible. Triggered on push to `main` with `paths:` scoped to `clearai-frontend/**` and the workflow file itself, plus `workflow_dispatch` for manual runs. The wiki workflow is left untouched.
+  - **Build:** `npm ci` + `npm run build` from `clearai-frontend/`, Node 22, npm cache keyed on `clearai-frontend/package-lock.json`. The build step injects:
+    - `PUBLIC_CLEARAI_API_BASE: https://apim-infp-clearai-be-dev-gwc-01.azure-api.net` (literal in the workflow — public URL, not a secret).
+    - `PUBLIC_CLEARAI_API_KEY: ${{ secrets.CLEARAI_APIM_SUBSCRIPTION_KEY }}` (new GH repo secret, value = the APIM subscription primary key).
+  - **Publish:** `cloudflare/wrangler-action@v3` with `command: pages deploy clearai-frontend/dist --project-name=clearai-frontend --branch=main`. Uses the existing `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets.
+  - **CORS wiring (one-line surgical change to APIM policy):** added `<origin>https://clearai-frontend.pages.dev</origin>` inside `<allowed-origins>` of the `clearai-backend` API policy. Verified the existing `<set-header name="x-apim-shared-secret">` block and the `<rate-limit calls="60" renewal-period="60" />` block are unchanged. Pre-patch policy backed up at `/tmp/apim-policy-backup-clearai-backend-*.json`.
+  - **Container App env:** `CORS_ORIGINS` extended with `https://clearai-frontend.pages.dev`. New revision `ca-infp-clearai-be-dev-gwc-01--0000005` rolled out healthy with one replica.
+- **Consequences:**
+  - **Cost:** Cloudflare Pages free tier covers the whole site (1 build/min limit, unlimited bandwidth, unlimited static requests). Total marginal cost: $0/mo.
+  - **Bundle exposes the APIM subscription key.** Anyone who opens DevTools sees it. This is acceptable per the prior APIM ADR: the key is rate-limited at 60 req/min/subscription, CORS-locked to the single Pages origin, and the Container App is shared-secret-locked behind APIM. The blast radius of a leaked key is "burn 60 calls/min until we rotate it" — bounded and recoverable. Rotation is `az apim subscription regenerate-key` + push the new value to the GH secret + re-run the workflow.
+  - **No SSR.** Every API call is browser → APIM → backend. Adds CORS surface (mitigated above) but means we have zero server-side rendering complexity, zero cold-start tax on the frontend, and the static bundle is cacheable globally on Cloudflare's edge.
+  - **GH Actions is the single source of truth for both Pages projects** (wiki + frontend). Engineers don't need Cloudflare dashboard access to ship — a push to `main` is the deploy. Branch previews are also free if/when we want them (just point a branch deploy at a separate Pages project).
+  - **Two GH repo secrets to maintain:** `CLEARAI_APIM_SUBSCRIPTION_KEY` (rotate quarterly + on suspected leak); `CLOUDFLARE_API_TOKEN` (already in use for the wiki). `CLOUDFLARE_ACCOUNT_ID` is not a secret per se but is stored as one for consistency with the wiki workflow.
+  - **Origin allowlist is now in three places:** APIM policy `<allowed-origins>`, Container App `CORS_ORIGINS`, and (implicitly) the deployed Pages domain. All three must include `https://clearai-frontend.pages.dev`. Adding a custom domain later (e.g. `app.clearai.sa`) is a three-edit change — documented here so the next maintainer doesn't miss one.
+- **Rejected alternatives:**
+  - **Cloudflare Pages native git integration (no GH Actions):** would split the deploy story across two surfaces (wiki uses Actions, frontend would use CF git hook), and the build-time env vars would have to live in the Cloudflare dashboard out of repo view. Single source of truth wins.
+  - **Vercel:** adds another vendor, another billing account, another secrets surface. No marginal benefit over CF Pages for a static SPA.
+  - **Azure Static Web Apps:** would tie the frontend tighter to Azure than necessary. CF Pages already in use for the wiki; staying multi-region/multi-cloud-cheap.
+  - **Cloudflare Pages Functions to proxy the APIM key server-side at v1:** would hide the subscription key from the bundle, but requires writing a small Worker (≈50 LOC), deploying it alongside Pages, managing its own env binding to the key, and adds one more network hop (browser → Pages Function → APIM → backend). Deferred to **v1.5** when partner-key onboarding makes per-tenant proxying valuable anyway.
+- **Revisit if:**
+  - The APIM subscription key starts getting abused beyond the 60 req/min rate-limit despite the CORS lock → ship the v1.5 Pages Functions proxy and remove `PUBLIC_CLEARAI_API_KEY` from the bundle entirely.
+  - We need SSR (auth-gated routes, dynamic OG images, signed-in dashboards) → switch the Astro adapter to `@astrojs/cloudflare` and deploy via the same Pages workflow (no host change required).
+  - We add a custom domain → update APIM `<allowed-origins>`, Container App `CORS_ORIGINS`, and the Pages project's custom-domain config in the same change.

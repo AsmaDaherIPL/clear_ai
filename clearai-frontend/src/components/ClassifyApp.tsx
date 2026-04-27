@@ -10,7 +10,7 @@
  * shape for `accepted` vs `needs_clarification` vs `degraded`. No fake
  * confidence numbers; we use decision_reason as the truthful label.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   api,
   ApiError,
@@ -27,7 +27,7 @@ import Hero from './Hero';
 import ModeTabs, { type Mode } from './ModeTabs';
 import InputCard from './InputCard';
 import Suggestions from './Suggestions';
-import Pipeline, { STAGES } from './Pipeline';
+import Pipeline, { type StageKey } from './Pipeline';
 import HSResultCard from './HSResultCard';
 import AlternativesCard from './AlternativesCard';
 import MetaPanel from './MetaPanel';
@@ -47,14 +47,25 @@ function pickBeforeCode(mode: Mode, r: AnyResponse): string | undefined {
   return (r as ExpandBoostResponse).before?.code;
 }
 
-export default function ClassifyApp() {
+type ClassifyAppProps = {
+  /** Optional slot rendered between the ModeTabs and the InputCard.
+   *  Used by ClassifyWorkbench to inject the single/batch run toggle. */
+  runToggle?: ReactNode;
+};
+
+export default function ClassifyApp({ runToggle }: ClassifyAppProps = {}) {
   const [mode, setMode] = useState<Mode>('generate');
 
   const [text, setText] = useState('');
   const [hsCode, setHsCode] = useState('');
 
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<number>(-1);
+  // `phase` reflects what the request is plausibly doing right now. We can't
+  // know precisely without SSE from the backend, so we flip from 'search' to
+  // 'reason' on a single timer tuned to the typical retrieval cost (~250ms
+  // warm). It's not perfect, but it's two honest labels instead of six lying
+  // ones with fabricated millisecond budgets.
+  const [phase, setPhase] = useState<StageKey | null>(null);
   const [pipeShow, setPipeShow] = useState(false);
 
   const [result, setResult] = useState<{
@@ -68,7 +79,7 @@ export default function ClassifyApp() {
   useEffect(() => {
     setResult(null);
     setError(null);
-    setProgress(-1);
+    setPhase(null);
     setPipeShow(false);
   }, [mode]);
 
@@ -76,25 +87,18 @@ export default function ClassifyApp() {
   const latest = useRef({ busy, mode, text, hsCode });
   latest.current = { busy, mode, text, hsCode };
 
-  const animTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  function clearTimers() {
-    animTimers.current.forEach(clearTimeout);
-    animTimers.current = [];
+  // One pending timer that flips us from 'search' → 'reason' partway through
+  // the request. ~700ms approximates a warm describe() retrieval (embedder +
+  // pgvector hybrid query); past that, the request is most likely waiting on
+  // the LLM. If the response arrives sooner, we just clear the timer.
+  const phaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function clearPhaseTimer() {
+    if (phaseTimer.current !== null) {
+      clearTimeout(phaseTimer.current);
+      phaseTimer.current = null;
+    }
   }
-  useEffect(() => clearTimers, []);
-
-  function runAnimation() {
-    let i = 0;
-    setProgress(0);
-    const tick = () => {
-      i += 1;
-      setProgress(i);
-      if (i < STAGES.length) {
-        animTimers.current.push(setTimeout(tick, STAGES[i]!.defaultMs));
-      }
-    };
-    animTimers.current.push(setTimeout(tick, STAGES[0]!.defaultMs));
-  }
+  useEffect(() => clearPhaseTimer, []);
 
   async function submit() {
     const s = latest.current;
@@ -105,12 +109,13 @@ export default function ClassifyApp() {
     if (s.mode === 'expand' && (!/^\d{4}$|^\d{6}$|^\d{8}$|^\d{10}$/.test(s.hsCode) || !s.text.trim())) return;
     if (s.mode === 'boost' && !/^\d{12}$/.test(s.hsCode)) return;
 
-    clearTimers();
+    clearPhaseTimer();
     setError(null);
     setResult(null);
     setPipeShow(true);
     setBusy(true);
-    runAnimation();
+    setPhase('search');
+    phaseTimer.current = setTimeout(() => setPhase('reason'), 700);
 
     const t0 = performance.now();
     try {
@@ -123,13 +128,13 @@ export default function ClassifyApp() {
         body = await api.boost({ code: s.hsCode });
       }
       const clientLatencyMs = Math.round(performance.now() - t0);
-      clearTimers();
-      setProgress(STAGES.length);
+      clearPhaseTimer();
+      setPhase(null);
       setResult({ body, mode: s.mode, clientLatencyMs });
     } catch (err) {
-      clearTimers();
+      clearPhaseTimer();
       setPipeShow(false);
-      setProgress(-1);
+      setPhase(null);
       if (err instanceof ApiError) {
         // 400 from Zod usually carries a fieldErrors object — best-effort flatten.
         const detail = (err.body as { detail?: { fieldErrors?: Record<string, string[]> } } | null)
@@ -170,6 +175,8 @@ export default function ClassifyApp() {
       <Hero />
       <ModeTabs mode={mode} setMode={setMode} />
 
+      {runToggle}
+
       <InputCard
         mode={mode}
         text={text} setText={setText}
@@ -181,7 +188,11 @@ export default function ClassifyApp() {
         <Suggestions setText={setText} />
       )}
 
-      <Pipeline progress={progress} show={pipeShow && !showResult} />
+      <Pipeline
+        phase={phase}
+        totalMs={result?.clientLatencyMs ?? null}
+        show={pipeShow && !showResult}
+      />
 
       {error && (
         <div className="err-banner" role="alert">{error}</div>
@@ -234,6 +245,12 @@ function ResultBlock({
       <AlternativesCard
         alternatives={body.alternatives}
         {...(line?.code ? { chosenCode: line.code } : {})}
+        {...(line?.description_en !== undefined
+          ? { chosenDescriptionEn: line.description_en }
+          : {})}
+        {...(line?.description_ar !== undefined
+          ? { chosenDescriptionAr: line.description_ar }
+          : {})}
         {...((body as DecisionEnvelopeBase).rationale
           ? { rationale: (body as DecisionEnvelopeBase).rationale as string }
           : {})}

@@ -1,0 +1,52 @@
+name: Deploy frontend to Cloudflare Pages
+
+# Scoped to clearai-frontend/** so backend or wiki pushes don't trigger
+# a frontend redeploy. Keep this workflow at the REPO ROOT — Actions only
+# discovers .github/workflows/ at the top level, never inside subfolders.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clearai-frontend/**'
+      - '.github/workflows/frontend-deploy-cloudflare.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: clearai-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: clearai-frontend
+        run: npm ci
+
+      # Astro PUBLIC_* env vars are read at BUILD time and baked into the
+      # client bundle (Vite import.meta.env). The APIM subscription key
+      # ships in the bundle — this is acceptable per ADR (rate-limited per
+      # key + CORS-locked to the Pages origin). Pages Functions to proxy
+      # the key server-side are deferred to v1.5.
+      - name: Build
+        working-directory: clearai-frontend
+        env:
+          PUBLIC_CLEARAI_API_BASE: https://apim-infp-clearai-be-dev-gwc-01.azure-api.net
+          PUBLIC_CLEARAI_API_KEY: ${{ secrets.CLEARAI_APIM_SUBSCRIPTION_KEY }}
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy clearai-frontend/dist --project-name=clearai-frontend --branch=main
