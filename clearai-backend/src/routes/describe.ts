@@ -323,6 +323,19 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     let accepted: Extract<BestEffortOutcome, { kind: 'ok' }> | null =
       bestEffort && bestEffort.kind === 'ok' ? bestEffort : null;
 
+    // "No-signal" guard: best-effort returned an all-zero code (e.g. "00",
+    // "0000", "000000000000") — that's the LLM's way of saying "no product
+    // cue here" (typical for a personal name or empty marketing string).
+    // It's NOT a useful classification — show it as needs_clarification
+    // (brand_not_recognised), not as a verify-gated best-effort. Suppresses
+    // the noisy "considered alternatives" block too: RRF hits against a
+    // personal name are guaranteed to be irrelevant (donkeys, etc.).
+    let noSignalBestEffort = false;
+    if (accepted && /^0+$/.test(accepted.code)) {
+      noSignalBestEffort = true;
+      accepted = null;
+    }
+
     // ---- Heading-level acceptance promotion (ADR-0019, V3-tightened) -----
     // ZATCA recognises heading-padded 12-digit codes (e.g. `420200000000`,
     // `640300000000`) as valid customs declarations with published duty
@@ -774,7 +787,11 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           description_ar: null,
         },
         rationale: accepted.rationale,
-        alternatives,
+        // No alternatives on the best-effort path. The RRF top hits were
+        // computed against the raw input — when best-effort had to fire,
+        // retrieval had already failed the gate, so those hits would be
+        // wrong-family noise (e.g. donkeys ranked against "Asma Said").
+        alternatives: [],
         interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
         model: {
           embedder: EMBEDDER_VERSION(),
@@ -788,8 +805,15 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       };
     }
 
-    // Researcher-declined response (no fallback — feature flag off).
-    if (stage === 'unknown' && research && research.kind === 'unknown') {
+    // Researcher-declined OR best-effort-no-signal response. Both paths
+    // mean "we can't see a product here" — emit needs_clarification with
+    // empty alternatives, no verify-toggle. The frontend should render a
+    // soft "we couldn't identify a product — try a fuller description"
+    // message rather than the orange "best effort — verify" badge.
+    if (
+      (stage === 'unknown' && research && research.kind === 'unknown') ||
+      noSignalBestEffort
+    ) {
       return {
         ...withRequestId(requestId),
         decision_status: 'needs_clarification' as const,
@@ -799,7 +823,8 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         model: {
           embedder: EMBEDDER_VERSION(),
           llm: null,
-          researcher: research.model,
+          ...(research && research.kind === 'recognised' ? { researcher: research.model } : {}),
+          ...(research && research.kind === 'unknown' ? { researcher: research.model } : {}),
           ...(cleanup && cleanup.invoked === 'llm' && cleanup.model
             ? { cleanup: cleanup.model }
             : {}),
