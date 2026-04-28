@@ -1,0 +1,105 @@
+name: Deploy frontend to Azure Static Web Apps
+
+# ---------------------------------------------------------------------------
+# WHY THIS FILE EXISTS (and why the Cloudflare workflow still exists too)
+#
+# We are migrating the ClearAI frontend from Cloudflare Pages to Azure Static
+# Web Apps so all project infrastructure lives in one Azure subscription
+# (sub-infp-clearai-nonprod-gwc / 6e9d19dc-...). The Cloudflare workflow
+# (frontend-deploy-cloudflare.yml) is intentionally NOT deleted here. It stays
+# alive as a rollback safety net — the Cloudflare Pages site remains live
+# during the cutover window. Cleanup (delete Cloudflare project, old workflow,
+# old Cloudflare GH secrets, remove the old origin from CORS) is a separate
+# follow-up task after the user has verified this SWA deployment is healthy.
+#
+# WHY WE BUILD IN CI, NOT IN SWA'S ORYX ENGINE
+#
+# Azure Static Web Apps can auto-build with its built-in Oryx build agent.
+# We deliberately skip that (skip_app_build: true) and build here instead,
+# because Astro reads PUBLIC_* variables at BUILD TIME via Vite's
+# import.meta.env — they get statically inlined into the JS bundle. Oryx
+# runs in Azure's sandbox and cannot see GitHub Actions secrets, so
+# PUBLIC_CLEARAI_API_KEY would resolve to undefined and the deployed bundle
+# would fail to call the backend. Building in CI where GITHUB_ACTIONS secrets
+# ARE available is the correct pattern for Vite/Astro PUBLIC_* injection.
+# (Pages Functions / Azure Functions to proxy the key server-side are deferred
+# to a future v1.5 milestone per the existing ADR.)
+#
+# WHY BOTH ORIGINS MUST BE IN APIM + CONTAINER APP CORS
+#
+# CORS is locked at three layers: APIM <allowed-origins>, Container App
+# CORS_ORIGINS env var, and (implicitly) the deployed origin. During cutover,
+# BOTH https://clearai-frontend.pages.dev AND https://yellow-glacier-05e43ee03.7.azurestaticapps.net
+# must appear in all three CORS allow-lists. When a custom domain is added
+# later (separate task), that domain must also be appended — the
+# *.azurestaticapps.net auto-hostname alone is not sufficient at that point.
+# ---------------------------------------------------------------------------
+
+# Scoped to clearai-frontend/** so backend or wiki pushes don't trigger
+# a frontend redeploy. Keep this workflow at the REPO ROOT — Actions only
+# discovers .github/workflows/ at the top level, never inside subfolders.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clearai-frontend/**'
+      - '.github/workflows/frontend-deploy-azure-swa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # id-token: write is required if we ever add OIDC-based Azure login;
+  # included now so the permission block is correct from the start.
+  id-token: write
+  # pull-requests: write lets the SWA GitHub Action post a preview-URL
+  # comment on PRs (staging environment feature). Harmless on push-to-main.
+  pull-requests: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+          lfs: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: clearai-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: clearai-frontend
+        run: npm ci
+
+      # Astro PUBLIC_* env vars are read at BUILD time and baked into the
+      # client bundle (Vite import.meta.env). The APIM subscription key
+      # ships in the bundle — this is acceptable per ADR (rate-limited per
+      # key + CORS-locked to the SWA origin). See the header comment above
+      # for why we build here rather than letting SWA's Oryx engine do it.
+      - name: Build
+        working-directory: clearai-frontend
+        env:
+          PUBLIC_CLEARAI_API_BASE: https://apim-infp-clearai-be-dev-gwc-01.azure-api.net
+          PUBLIC_CLEARAI_API_KEY: ${{ secrets.CLEARAI_APIM_SUBSCRIPTION_KEY }}
+        run: npm run build
+
+      # Deploys the pre-built dist/ folder to Azure Static Web Apps.
+      # app_location points at the already-built output directory; skip_app_build
+      # tells SWA's Oryx not to re-run a build (which would overwrite our
+      # PUBLIC_*-injected bundle with a blank-key build). output_location is
+      # left empty because app_location is already the final artifact.
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "clearai-frontend/dist"
+          skip_app_build: true
+          output_location: ""
