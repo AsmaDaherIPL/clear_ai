@@ -90,6 +90,23 @@ export type MissingAttribute =
   | 'dimensions'
   | 'composition';
 
+/**
+ * ZATCA duty rate for the chosen code. The catalog stores duty bilingually
+ * but the values are essentially one attribute that's either:
+ *   - a numeric percentage (5 / 6.5 / 12) → `rate_percent` set, status nulls
+ *   - a status word ("Exempted" / "Prohibited from Importing" with their
+ *     Arabic translations) → status_en / status_ar set, rate_percent null
+ * `null` on the response when the chosen code is heading-level (no leaf
+ * duty applies) or when the catalog row had no duty entry.
+ */
+export interface DutyInfo {
+  rate_percent: number | null;
+  status_en: string | null;
+  status_ar: string | null;
+  raw_en: string | null;
+  raw_ar: string | null;
+}
+
 export interface ResultLine {
   code: string;
   description_en: string | null;
@@ -105,6 +122,14 @@ export interface ResultLine {
    *     omitted.
    */
   retrieval_score?: number | null;
+  /** ZATCA duty rate / status. Null on heading-level / unknown rows. */
+  duty?: DutyInfo | null;
+  /**
+   * Import-procedures reference from the catalog (e.g. "21", "61"). Maps
+   * to ZATCA's procedure-codes table and signals SABER / SFDA / etc
+   * compliance steps. Optional; null when the catalog row has none.
+   */
+  procedures?: string | null;
 }
 
 export interface AlternativeLine {

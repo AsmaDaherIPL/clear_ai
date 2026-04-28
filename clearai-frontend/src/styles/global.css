@@ -1298,6 +1298,61 @@ input, textarea, select { font-family: inherit; color: inherit; }
   font-style: italic;
 }
 
+/* ----- Duty + procedures strip (HSResultCard) ------------------------------
+   Sits between the chosen-code grid and the description grid. Shows the
+   ZATCA duty rate and import-procedures reference at a glance — both are
+   first-order facts a customs broker needs alongside the code itself.
+
+   Tones:
+     neutral — numeric percentages (5%, 6.5%, 12%) — common case
+     good    — favourable statuses ("Exempted")
+     warn    — restrictive statuses ("Prohibited from Importing", etc.)
+*/
+.hs-duty-strip {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 14px 20px 0;
+  padding: 8px 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+}
+.hs-duty,
+.hs-procs {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  padding: 4px 10px; border-radius: 6px;
+  font-family: 'Geist Mono', monospace;
+}
+.hs-duty .k,
+.hs-procs .k {
+  font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--mute-1); font-weight: 600;
+}
+.hs-duty .v,
+.hs-procs .v {
+  font-size: 15px; font-weight: 600; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.hs-duty-neutral {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+}
+.hs-duty-good {
+  background: color-mix(in srgb, #1f7a3d 8%, var(--paper));
+  border: 1px solid color-mix(in srgb, #1f7a3d 28%, transparent);
+}
+.hs-duty-good .v { color: #1f7a3d; }
+.hs-duty-warn {
+  background: color-mix(in srgb, #b1442e 8%, var(--paper));
+  border: 1px solid color-mix(in srgb, #b1442e 28%, transparent);
+}
+.hs-duty-warn .v { color: #b1442e; }
+.hs-procs {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+}
+.hs-procs .v {
+  font-size: 13px; color: var(--ink-2);
+}
+
 /* ----- Heading-level acceptance eyebrow + note (ADR-0019) ------------------
    ZATCA accepts heading-padded 12-digit codes (e.g. 420200000000) as valid
    declarations. The card visually distinguishes them from full-leaf

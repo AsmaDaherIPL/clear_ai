@@ -40,6 +40,7 @@ import {
 import { bestEffortHeading, type BestEffortOutcome } from '../decision/best-effort-fallback.js';
 import { filterAlternatives } from '../decision/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
+import { parseDutyInfo } from '../decision/duty-info.js';
 import { rankBranch, type BranchRankResult } from '../decision/branch-rank.js';
 import {
   generateSubmissionDescription,
@@ -584,6 +585,31 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       });
     }
 
+    // ---- Duty + procedures lookup ----------------------------------------
+    // ZATCA's catalog stores duty rate (e.g. "5 %") and an import procedures
+    // reference per leaf. Brokers need both — duty informs the duty-paid
+    // calculation, procedures hint at SABER / SFDA / etc compliance steps
+    // required at the port. Single SELECT per request; ~5ms. No-op when
+    // we don't have a 12-digit chosen code (e.g. best-effort prefix).
+    let dutyInfo: ReturnType<typeof parseDutyInfo> = null;
+    let proceduresRaw: string | null = null;
+    if (effectiveChosenCode && /^\d{12}$/.test(effectiveChosenCode)) {
+      const pool = getPool();
+      const r = await pool.query<{
+        duty_en: string | null;
+        duty_ar: string | null;
+        procedures: string | null;
+      }>(
+        `SELECT duty_en, duty_ar, procedures FROM hs_codes WHERE code = $1`,
+        [effectiveChosenCode],
+      );
+      const row = r.rows[0];
+      if (row) {
+        dutyInfo = parseDutyInfo(row.duty_en, row.duty_ar);
+        proceduresRaw = row.procedures?.trim() || null;
+      }
+    }
+
     const totalLatency = Date.now() - t0;
 
     // Log the event with the *final* decision status — best_effort if the
@@ -821,6 +847,13 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
                   ).toFixed(4),
                 )
               : null,
+          // Duty rate + import procedures from the ZATCA catalog. duty is
+          // a structured object distinguishing percentages (`rate_percent`)
+          // from status words (`status_en` / `status_ar` for "Exempted" /
+          // "Prohibited from Importing"). procedures is the raw reference
+          // code from the catalog (e.g. "21" → SABER conformity).
+          duty: dutyInfo,
+          procedures: proceduresRaw,
         },
       }),
       alternatives,

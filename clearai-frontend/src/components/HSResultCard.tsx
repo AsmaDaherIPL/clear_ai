@@ -64,10 +64,45 @@ function isHeadingPaddedCode(code: string): boolean {
   return /^\d{4}0{8}$/.test(code) && code.slice(0, 4) !== '0000';
 }
 
+/**
+ * Format a duty rate for display. Numeric percentages render as a tight
+ * pill (`5%`); status words render as the EN string (with the AR shown
+ * in a tooltip for non-English users to verify). Restrictive statuses
+ * ("Prohibited from Importing") get a `warn` tone so the broker sees
+ * the constraint at a glance.
+ *
+ * Returns null when there's nothing to render — the card omits the
+ * whole strip in that case (heading-level rows often have no duty).
+ */
+type DutyInfo = NonNullable<ResultLine['duty']>;
+type DutyDisplay = { label: string; tooltip: string; tone: 'good' | 'warn' | 'neutral' };
+function formatDuty(d: DutyInfo | null | undefined): DutyDisplay | null {
+  if (!d) return null;
+  if (d.rate_percent !== null) {
+    return {
+      label: `${d.rate_percent}%`,
+      tooltip: `ZATCA duty rate: ${d.rate_percent}% (raw: ${d.raw_en ?? '—'})`,
+      tone: 'neutral',
+    };
+  }
+  const en = d.status_en?.trim() ?? '';
+  const ar = d.status_ar?.trim() ?? '';
+  if (!en && !ar) return null;
+  const restrictive = /prohibit|restrict|ban/i.test(en);
+  return {
+    label: en || ar,
+    tooltip: en && ar ? `${en} · ${ar}` : en || ar,
+    tone: restrictive ? 'warn' : 'good',
+  };
+}
+
 export default function HSResultCard({ status, reason, result, beforeCode, rationale }: Props) {
   const segments = splitCode(result.code);
   const tone = statusToTone(status);
   const isHeadingLevel = reason === 'heading_level_match' || isHeadingPaddedCode(result.code);
+  const dutyDisplay = formatDuty(result.duty);
+  const procedures = result.procedures?.trim() || null;
+  const showDutyStrip = !!dutyDisplay || !!procedures;
 
   return (
     <div className="hs-card">
@@ -112,6 +147,23 @@ export default function HSResultCard({ status, reason, result, beforeCode, ratio
           </span>
         ))}
       </div>
+
+      {showDutyStrip && (
+        <div className="hs-duty-strip">
+          {dutyDisplay && (
+            <div className={`hs-duty hs-duty-${dutyDisplay.tone}`} title={dutyDisplay.tooltip}>
+              <span className="k">DUTY</span>
+              <span className="v">{dutyDisplay.label}</span>
+            </div>
+          )}
+          {procedures && (
+            <div className="hs-procs" title={`Import procedures reference (ZATCA): ${procedures}. May indicate SABER conformity, SFDA registration, or other compliance steps required at the port.`}>
+              <span className="k">PROCEDURES</span>
+              <span className="v">{procedures}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="desc-grid">
         <div className="desc-cell">
