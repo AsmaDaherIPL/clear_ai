@@ -67,5 +67,13 @@ export interface AlternativeCandidate {
   code: string;
   description_en: string | null;
   description_ar: string | null;
-  retrieval_score: number;
+  /**
+   * RRF score when alternatives come from filtered retrieval; `null` when
+   * alternatives come from deterministic branch enumeration (Phase 1 of
+   * v3 alternatives redesign — `accepted` results enumerate the chosen
+   * code's HS-6 branch from the catalog rather than expose retrieval rank).
+   * The frontend should render the picker's-choice chip (no number) on
+   * the chosen row and a "branch sibling" indicator on null-scored rows.
+   */
+  retrieval_score: number | null;
 }

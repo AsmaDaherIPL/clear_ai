@@ -24,12 +24,19 @@ const EnvSchema = z.object({
    * Comma-separated origin allowlist for CORS. Browsers reject `*` when the
    * request carries credentials, and we may add cookie-based auth later, so
    * we keep it explicit. Local dev defaults cover the Astro dev server
-   * (:5173) plus the conventional Astro alt port (:4321) for safety.
+   * (:5173) plus the conventional Astro alt port (:4321) and the next two
+   * fallbacks Vite picks when 5173 is busy (5174, 5175) — common when a
+   * previous run didn't shut down cleanly. Without these, switching from
+   * one stale dev server to another silently breaks fetch with a misleading
+   * "Network error" (the browser blocks the preflight; the app surfaces it
+   * the same way as a real connection failure).
    * Set to the deployed Cloudflare Pages URL in prod.
    */
   CORS_ORIGINS: z
     .string()
-    .default('http://localhost:5173,http://localhost:4321')
+    .default(
+      'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:4321',
+    )
     .transform((s) =>
       s
         .split(',')

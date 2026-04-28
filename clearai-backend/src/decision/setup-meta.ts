@@ -91,6 +91,23 @@ export interface Thresholds {
    * query but score meaningfully below the top. Default 0.95.
    */
   STRONG_ALT_RATIO: number;
+
+  /**
+   * Prefix length (in digits) to enumerate as the branch under an accepted
+   * chosen code. Must be one of {4, 6, 8} where 4 = heading, 6 = subheading,
+   * 8 = national subheading. Default 8 — testing showed HS-6 mixes
+   * structurally-related but commercially-distinct families (e.g. wireless
+   * headphones lumped with telephone exchange equipment under 8517.62);
+   * HS-8 keeps comparisons within the same national-leaf family.
+   */
+  BRANCH_PREFIX_LENGTH: number;
+
+  /**
+   * Hard cap on leaves returned by branch enumeration. Default 50. Lets us
+   * keep response payloads bounded even when an HS-4 enumeration drags in
+   * 100+ leaves in dense headings.
+   */
+  BRANCH_MAX_LEAVES: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -113,6 +130,8 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'BEST_EFFORT_MAX_DIGITS',
   'MIN_ALT_SCORE',
   'STRONG_ALT_RATIO',
+  'BRANCH_PREFIX_LENGTH',
+  'BRANCH_MAX_LEAVES',
 ];
 
 let _cache: Thresholds | null = null;

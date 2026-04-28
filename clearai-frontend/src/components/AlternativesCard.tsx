@@ -71,12 +71,11 @@ export default function AlternativesCard({
             code: chosenCode,
             description_en: chosenDescriptionEn ?? null,
             description_ar: chosenDescriptionAr ?? null,
-            // Use the highest sibling score as a soft proxy when no score
-            // came back for the chosen line. Prevents an empty sim bar.
-            retrieval_score:
-              alternatives.length > 0
-                ? Math.max(...alternatives.map((a) => a.retrieval_score))
-                : 0,
+            // Synthetic chosen rows don't carry a score — branch-sourced
+            // siblings have no scores, and we don't want to manufacture a
+            // misleading retrieval percentage on the chosen row anyway
+            // (the "Picker's choice" chip already communicates pick status).
+            retrieval_score: null,
             synthetic: true,
           }
         : null;
@@ -86,14 +85,21 @@ export default function AlternativesCard({
     return null;
   }
 
+  // When ALL non-chosen alternatives have null scores, the surface was sourced
+  // from branch enumeration (ADR-0012), not retrieval. We swap the heading
+  // copy to match — "Branch alternatives" reads better than "Considered
+  // alternatives" when there's no scoring/ranking semantic at play.
+  const isBranchSourced =
+    others.length > 0 && others.every((a) => a.retrieval_score === null);
+
   return (
     <div className="cands">
       <div className="cands-head">
-        <div className="t">Considered alternatives</div>
+        <div className="t">{isBranchSourced ? 'Branch alternatives' : 'Considered alternatives'}</div>
         <div className="s">
-          Top candidates the picker shortlisted. Similarity is text-match
-          strength to your input — a sibling can outrank the chosen code here
-          and still be the wrong classification.
+          {isBranchSourced
+            ? "Other valid leaves under the chosen code's branch. Listed for comparison so you can refine the classification — every row is a real ZATCA leaf in the same legal family."
+            : 'Top candidates the picker shortlisted. Similarity is text-match strength to your input — a sibling can outrank the chosen code here and still be the wrong classification.'}
         </div>
       </div>
 
@@ -139,13 +145,19 @@ type RowProps = {
   code: string;
   descEn: string | null;
   descAr: string | null;
-  score: number;
+  /**
+   * Numeric score when alternatives come from RRF retrieval, `null` when
+   * they come from deterministic branch enumeration (chosen code's HS-prefix
+   * tree). Null score → render a "branch sibling" indicator, not a percent
+   * bar — there's no similarity score to report.
+   */
+  score: number | null;
   isTop?: boolean;
   onPick?: (code: string) => void;
 };
 
 function CandidateRow({ rank, code, descEn, descAr, score, isTop, onPick }: RowProps) {
-  const weak = score < 0.2 && !isTop;
+  const weak = score !== null && score < 0.2 && !isTop;
   const cls = ['cand', isTop && 'top', weak && 'weak'].filter(Boolean).join(' ');
 
   return (
@@ -172,6 +184,17 @@ function CandidateRow({ rank, code, descEn, descAr, score, isTop, onPick }: RowP
           <div className="cand-picked" title="The picker (LLM + GIR rules) chose this code. Sibling similarity scores below are text-match strength, not correctness.">
             <span className="picked-dot" />
             <span>Picker’s choice</span>
+          </div>
+        ) : score === null ? (
+          // Branch-sourced sibling — no similarity score applies. The
+          // alternatives come from a deterministic enumeration of the chosen
+          // code's HS-prefix branch (Phase 1 of the v3 alternatives redesign,
+          // ADR-0012), not from retrieval. We render a small chip instead of
+          // a percent bar so the contrast with the chosen row's "Picker's
+          // choice" chip stays visually consistent.
+          <div className="cand-sib" title="Sibling under the same legal branch as the chosen code. Listed for comparison only — no similarity score applies (alternatives are enumerated from the catalog tree, not from retrieval).">
+            <span className="sib-dot" />
+            <span>Branch sibling</span>
           </div>
         ) : (
           <div

@@ -90,7 +90,15 @@ export interface AlternativeLine {
   code: string;
   description_en: string | null;
   description_ar: string | null;
-  retrieval_score: number;
+  /**
+   * RRF retrieval score when alternatives come from filtered retrieval; `null`
+   * when alternatives are sourced from deterministic branch enumeration
+   * (Phase 1 of the v3 alternatives redesign — accepted classifications now
+   * enumerate the chosen code's HS-prefix branch from the catalog rather
+   * than expose retrieval rank). Render the picker's-choice chip on the
+   * chosen row and a "branch sibling" indicator on null-scored rows.
+   */
+  retrieval_score: number | null;
 }
 
 export interface ModelInfo {

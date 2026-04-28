@@ -34,6 +34,7 @@ import { checkUnderstanding } from '../preprocess/check-understanding.js';
 import { researchInput, type ResearchOutcome } from '../preprocess/research.js';
 import { bestEffortHeading, type BestEffortOutcome } from '../decision/best-effort-fallback.js';
 import { filterAlternatives } from '../decision/filter-alternatives.js';
+import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
 
 type InterpretationStage = 'passthrough' | 'researched' | 'unknown';
 
@@ -138,23 +139,63 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     const accepted: Extract<BestEffortOutcome, { kind: 'ok' }> | null =
       bestEffort && bestEffort.kind === 'ok' ? bestEffort : null;
 
-    // Pin chosen + filter the rest. The chosen code (or best-effort code) is
-    // always shown; siblings are filtered by an absolute RRF floor and a
-    // chapter-coherence rule so we don't render "Bathing headgear" alongside
-    // wireless headphones just because RRF rescaled the long tail. See
-    // src/decision/filter-alternatives.ts for the full rationale.
+    // Alternatives surface — sourced differently per decision status.
+    //
+    //   accepted     → branch-local enumeration. Deterministic SQL pull of
+    //                  every leaf under the chosen code's HS-6 prefix.
+    //                  Same chosen code, same alternatives, every time.
+    //   not accepted → filtered RRF top-K (Phase 0). The picker didn't
+    //                  commit to a branch, so we have nothing to enumerate
+    //                  under — fall back to the cleaned retrieval list.
+    //
+    // Phase 1 of the v3 alternatives redesign (ADR-0012). See
+    // src/decision/branch-enumerate.ts for the full rationale.
     const chosenForAlts = accepted ? accepted.code : decision.chosenCode;
-    const alternatives = filterAlternatives(candidates, {
-      chosenCode: chosenForAlts,
-      minScore: t.MIN_ALT_SCORE,
-      strongRatio: t.STRONG_ALT_RATIO,
-      maxShown: t.ALTERNATIVES_SHOWN_describe,
-    }).map((c) => ({
-      code: c.code,
-      description_en: c.description_en,
-      description_ar: c.description_ar,
-      retrieval_score: Number(c.rrf_score.toFixed(4)),
-    }));
+    const isAcceptedFamily =
+      decision.decisionStatus === 'accepted' &&
+      decision.chosenCode !== null &&
+      /^\d{12}$/.test(decision.chosenCode);
+
+    type Alt = {
+      code: string;
+      description_en: string | null;
+      description_ar: string | null;
+      retrieval_score: number | null;
+    };
+    let alternatives: Alt[];
+    let branchLeaves: BranchLeaf[] | null = null;
+
+    if (isAcceptedFamily && decision.chosenCode) {
+      branchLeaves = await enumerateBranch({
+        chosenCode: decision.chosenCode,
+        prefixLength: t.BRANCH_PREFIX_LENGTH as 4 | 6 | 8,
+        maxLeaves: t.BRANCH_MAX_LEAVES,
+      });
+      // Pin chosen first, then siblings in catalog order. Score is null on
+      // branch-sourced rows because RRF doesn't apply here — the surface
+      // is enumeration, not retrieval.
+      const chosen = branchLeaves.find((l) => l.code === decision.chosenCode);
+      const others = branchLeaves.filter((l) => l.code !== decision.chosenCode);
+      const ordered = chosen ? [chosen, ...others] : branchLeaves;
+      alternatives = ordered.slice(0, t.ALTERNATIVES_SHOWN_describe).map((l) => ({
+        code: l.code,
+        description_en: l.description_en,
+        description_ar: l.description_ar,
+        retrieval_score: null,
+      }));
+    } else {
+      alternatives = filterAlternatives(candidates, {
+        chosenCode: chosenForAlts,
+        minScore: t.MIN_ALT_SCORE,
+        strongRatio: t.STRONG_ALT_RATIO,
+        maxShown: t.ALTERNATIVES_SHOWN_describe,
+      }).map((c) => ({
+        code: c.code,
+        description_en: c.description_en,
+        description_ar: c.description_ar,
+        retrieval_score: Number(c.rrf_score.toFixed(4)),
+      }));
+    }
 
     const totalLatency = Date.now() - t0;
 

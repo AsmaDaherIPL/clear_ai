@@ -241,3 +241,35 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
   - The APIM subscription key starts getting abused beyond the 60 req/min rate-limit despite the CORS lock → ship the v1.5 Pages Functions proxy and remove `PUBLIC_CLEARAI_API_KEY` from the bundle entirely.
   - We need SSR (auth-gated routes, dynamic OG images, signed-in dashboards) → switch the Astro adapter to `@astrojs/cloudflare` and deploy via the same Pages workflow (no host change required).
   - We add a custom domain → update APIM `<allowed-origins>`, Container App `CORS_ORIGINS`, and the Pages project's custom-domain config in the same change.
+
+---
+
+## ADR-0012 — v3 alternatives redesign: branch-local enumeration replaces RRF for accepted classifications
+
+- **Date:** 2026-04-28
+- **Status:** Phase 1 shipped (this ADR); Phases 1.5, 3, 4, 5, 7 planned (see V1_PLAN).
+- **Context:**
+  - The user-facing `alternatives` array in classify responses was sourced from the same RRF (vector + BM25 + trigram) retrieval that powers the picker. RRF normalises ranks within a query, not in absolute terms — so once the strong matches in a query are exhausted, the long tail gets rescaled upward. Users searching for "Bluetooth ANC headphones" saw "Bathing headgear (80%)" and "Horses (50%)" listed alongside the genuine wireless-headphones codes. The picker (Sonnet) correctly ignored those candidates when picking, but the alternatives surface was downstream of the picker and dumped the raw top-K.
+  - Phase 0 (ADR-implicit, commit `f787af6`) added `filterAlternatives` — an absolute RRF floor + a cross-chapter ratio rule — which removed the worst noise but kept the surface conceptually wrong: alternatives were still sourced from a retrieval scoring system, not from the catalog's tree structure.
+  - The right shape for the alternatives surface, once a code is accepted, is: "what other valid leaves exist under the same legal family as my chosen code?" That answer is deterministic SQL, not retrieval. Two requests with the same chosen code should produce the same alternatives list, every time.
+- **Decision:**
+  - When `decision_status === 'accepted'` and the chosen code is a 12-digit leaf, source `alternatives` from a deterministic enumeration of leaves under the chosen code's HS-prefix, not from retrieval.
+  - Default prefix length is **HS-8** (national subheading, 8 digits). Tunable via `setup_meta.BRANCH_PREFIX_LENGTH ∈ {4, 6, 8}`. We tested HS-6 first and found it mixed structurally-related but commercially-distinct families: under HS-6 `8517.62`, "wireless headphones" got listed alongside "Switching board and telephone exchange apparatus". HS-8 (`8517.62.90`) keeps comparisons within the same national-leaf family — wireless headphones with smart watches, GPS trackers, smart glasses — which is what a customs broker actually wants to compare against.
+  - Branch-sourced alternatives carry `retrieval_score: null` to signal to the frontend that no similarity score applies (the surface is enumeration, not retrieval). The chosen row gets the `Picker's choice` chip; sibling rows show the EN/AR description without a numeric bar.
+  - Implemented in `src/decision/branch-enumerate.ts` (single SQL query, defensive validation, hard cap on returned leaves via `BRANCH_MAX_LEAVES = 50`). Wired into `/classify/describe` only at this stage; `/classify/expand` and `/classify/boost` continue to use filtered RRF for now (those routes have different semantics — expand is already branch-scoped by the parent prefix, and boost is comparing within a known sibling set).
+  - Non-accepted statuses (`needs_clarification`, `degraded`, `best_effort`) keep using filtered RRF. The picker didn't commit to a branch on those paths, so we have nothing to enumerate under.
+  - Migration `0006_branch_enumeration.sql` seeds the two new keys idempotently (`ON CONFLICT DO NOTHING`) and adds a CHECK constraint on `BRANCH_PREFIX_LENGTH` so a wrong value can't be UPDATEd in directly.
+- **Consequences:**
+  - **Determinism.** Same chosen code → same alternatives list, every time. Users learn the catalog structure rather than the retrieval system's quirks.
+  - **No more cross-chapter noise on accepted results.** Bathing headgear and horses are gone from the wireless-headphones response — not because we filtered them out, but because they're not leaves under `8517.62.90`.
+  - **Wire-format change:** `AlternativeCandidate.retrieval_score` is now `number | null`. Frontend must handle the null case (already does, via the `Picker's choice` chip on the chosen row; sibling rows just need a "branch" indicator instead of a percent bar). Documented in `src/decision/types.ts`.
+  - **Zero new LLM calls.** Branch enumeration is pure SQL against an indexed column. p95 cost ~5–10ms.
+  - **Decoupling for future phases.** Phase 3 (branch-rank — Sonnet ranks the enumerated leaves with reasoning) and Phase 5 (submission-description — generates a short Arabic description anchored on chosen code + branch context) both consume the branch-enumeration output. Building Phase 1 first means Phases 3 and 5 are additive, not blocked on a different data source.
+- **Rejected alternatives:**
+  - **Heading-first LLM classification (Pass 1: pick HS-4, Pass 2: enumerate leaves).** Rejected because the legally hard part of HS classification is heading selection, not leaf selection. Front-loading that decision into a single unconstrained LLM call without retrieval support is strictly worse on cross-heading edge cases (8517 vs 8518 vs 8527 for consumer audio). Retrieval gives the picker grounded cross-heading evidence and shouldn't be removed.
+  - **Replacing the embedder before measuring.** The "horses" issue was a contract problem (alternatives surface) not a retrieval-quality problem (the picker chose correctly). A stronger embedder might shift which noise rows surface, but wouldn't have fixed the architectural error of sourcing user-facing alternatives from retrieval rank at all.
+  - **Default HS-6 prefix.** Tested first; produced commercially-incoherent groupings in dense headings. HS-8 wins on real data.
+- **Revisit if:**
+  - HS-8 produces too few alternatives (some national subheadings only have 2–3 leaves) — flip `BRANCH_PREFIX_LENGTH` to 6 globally or per-route.
+  - Need to apply the same branch-local pattern to `/classify/expand` (probably yes once Phase 7's broker-mapping lookup lands — those routes will benefit from the same determinism).
+  - We add Phase 3 (branch-rank LLM rerank) — at that point the alternatives list will also carry per-leaf reasoning, and the wire format adds a `rationale` field on each `AlternativeCandidate` for accepted results.

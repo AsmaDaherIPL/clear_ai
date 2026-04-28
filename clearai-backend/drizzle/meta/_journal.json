@@ -43,6 +43,13 @@
       "when": 1777210500000,
       "tag": "0005_alternatives_floor",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777210600000,
+      "tag": "0006_branch_enumeration",
+      "breakpoints": true
     }
   ]
 }
