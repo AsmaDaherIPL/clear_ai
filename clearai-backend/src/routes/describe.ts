@@ -33,6 +33,7 @@ import { env } from '../config/env.js';
 import { checkUnderstanding } from '../preprocess/check-understanding.js';
 import { researchInput, type ResearchOutcome } from '../preprocess/research.js';
 import { bestEffortHeading, type BestEffortOutcome } from '../decision/best-effort-fallback.js';
+import { filterAlternatives } from '../decision/filter-alternatives.js';
 
 type InterpretationStage = 'passthrough' | 'researched' | 'unknown';
 
@@ -137,14 +138,23 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     const accepted: Extract<BestEffortOutcome, { kind: 'ok' }> | null =
       bestEffort && bestEffort.kind === 'ok' ? bestEffort : null;
 
-    const alternatives = candidates
-      .slice(0, t.ALTERNATIVES_SHOWN_describe)
-      .map((c) => ({
-        code: c.code,
-        description_en: c.description_en,
-        description_ar: c.description_ar,
-        retrieval_score: Number(c.rrf_score.toFixed(4)),
-      }));
+    // Pin chosen + filter the rest. The chosen code (or best-effort code) is
+    // always shown; siblings are filtered by an absolute RRF floor and a
+    // chapter-coherence rule so we don't render "Bathing headgear" alongside
+    // wireless headphones just because RRF rescaled the long tail. See
+    // src/decision/filter-alternatives.ts for the full rationale.
+    const chosenForAlts = accepted ? accepted.code : decision.chosenCode;
+    const alternatives = filterAlternatives(candidates, {
+      chosenCode: chosenForAlts,
+      minScore: t.MIN_ALT_SCORE,
+      strongRatio: t.STRONG_ALT_RATIO,
+      maxShown: t.ALTERNATIVES_SHOWN_describe,
+    }).map((c) => ({
+      code: c.code,
+      description_en: c.description_en,
+      description_ar: c.description_ar,
+      retrieval_score: Number(c.rrf_score.toFixed(4)),
+    }));
 
     const totalLatency = Date.now() - t0;
 

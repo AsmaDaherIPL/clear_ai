@@ -36,6 +36,13 @@
       "when": 1777210400000,
       "tag": "0004_setup_meta_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777210500000,
+      "tag": "0005_alternatives_floor",
+      "breakpoints": true
     }
   ]
 }

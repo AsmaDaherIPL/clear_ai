@@ -71,6 +71,26 @@ export interface Thresholds {
    * least-harmful fallback.
    */
   BEST_EFFORT_MAX_DIGITS: number;
+
+  /**
+   * Absolute RRF score floor for surfaced alternatives. Anything below this
+   * is dropped from the user-facing list regardless of relative rank — RRF
+   * rescales the long tail upward, so without an absolute floor users see
+   * "Bathing headgear at 80%" listed alongside genuine matches simply
+   * because nothing better was left in the catalog. Default 0.55.
+   */
+  MIN_ALT_SCORE: number;
+
+  /**
+   * Cross-chapter ratio against the top retrieval score. A cross-chapter
+   * candidate only survives if `score >= topScore * STRONG_ALT_RATIO`.
+   * 0.95 means "must be within 5% of the top score" — i.e. a genuine
+   * near-tie, not just "above some absolute number". This lets a real
+   * cross-chapter sibling through (wired vs wireless headphones both
+   * score ~1.0) while killing rows that share a single token with the
+   * query but score meaningfully below the top. Default 0.95.
+   */
+  STRONG_ALT_RATIO: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -91,6 +111,8 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'BEST_EFFORT_MAX_TOKENS',
   'BEST_EFFORT_ENABLED',
   'BEST_EFFORT_MAX_DIGITS',
+  'MIN_ALT_SCORE',
+  'STRONG_ALT_RATIO',
 ];
 
 let _cache: Thresholds | null = null;
