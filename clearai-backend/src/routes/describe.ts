@@ -22,6 +22,7 @@ import { describeBody } from './schemas.js';
 import { digitNormalize } from '../retrieval/digit-normalize.js';
 import { loadKnownPrefixes } from '../retrieval/known-prefixes.js';
 import { retrieveCandidates, type Candidate } from '../retrieval/retrieve.js';
+import { getPool } from '../db/client.js';
 import { loadThresholds } from '../decision/setup-meta.js';
 import { evaluateGate } from '../decision/evidence-gate.js';
 import { llmPick } from '../decision/llm-pick.js';
@@ -132,6 +133,53 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       // degraded mode.
     }
 
+    // ---- Stage 2c: heading-padded code injection ------------------------
+    // Retrieval often misses the heading-level row (xxxx00000000) because
+    // its description is long and generic — the embedder dilutes it
+    // against a short input. But the picker's heading-fallback rule can
+    // only fire when the heading-padded code is in the candidate set. So:
+    // if the retrieval's top candidate's chapter+heading has a
+    // corresponding heading-padded row in hs_codes, splice it into the
+    // candidate list. We give it a synthetic RRF score equal to the
+    // current top so it visibly competes; the picker decides whether to
+    // pick it (heading-level commit) or a leaf below it.
+    if (candidates.length > 0) {
+      const top = candidates[0]!;
+      const headingPrefix = top.code.slice(0, 4); // e.g. "4202"
+      const candidateHeadingCode = `${headingPrefix}00000000`;
+      const alreadyPresent = candidates.some((c) => c.code === candidateHeadingCode);
+      if (!alreadyPresent) {
+        const pool = getPool();
+        const r = await pool.query<{
+          code: string;
+          description_en: string | null;
+          description_ar: string | null;
+        }>(
+          `SELECT code, description_en, description_ar FROM hs_codes WHERE code = $1 AND is_leaf = true`,
+          [candidateHeadingCode],
+        );
+        const row = r.rows[0];
+        if (row) {
+          candidates = [
+            ...candidates,
+            {
+              code: row.code,
+              description_en: row.description_en,
+              description_ar: row.description_ar,
+              parent10: row.code.slice(0, 10),
+              vec_rank: null,
+              bm25_rank: null,
+              trgm_rank: null,
+              vec_score: null,
+              bm25_score: null,
+              trgm_score: null,
+              rrf_score: top.rrf_score, // tied with the top so it visibly competes
+            },
+          ];
+        }
+      }
+    }
+
     // ---- Stage 3 + 4: gate + picker (called at most once) ---------------
     const gate = evaluateGate(candidates, {
       minScore: t.MIN_SCORE_describe,
@@ -139,10 +187,31 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     });
 
     let llm = null;
-    // Skip the picker entirely if the researcher flagged the input as unknown:
-    // we already know retrieval doesn't have the right product.
+    // Run the picker when:
+    //   - the gate passed (strong retrieval), OR
+    //   - the gate refused for soft reasons (weak_retrieval /
+    //     ambiguous_top_candidates) BUT we have candidates AND the
+    //     candidate set includes a heading-padded code in the same family.
+    //     The picker's heading-fallback rule will commit to that heading,
+    //     which is a legitimate ZATCA-accepted classification rather than
+    //     forcing the input through best-effort fallback.
+    //   - never when the researcher flagged the input as unknown — we
+    //     already know retrieval doesn't have the right product.
+    //   - never on `invalid_prefix` (the candidate set is empty).
     const skipPicker = stage === 'unknown';
-    if (!skipPicker && gate.passed && candidates.length > 0) {
+    const gateSoftRefuse =
+      !gate.passed &&
+      'reason' in gate &&
+      (gate.reason === 'weak_retrieval' || gate.reason === 'ambiguous_top_candidates');
+    const hasHeadingPadded = candidates.some(
+      (c) => /^\d{4}0{8}$/.test(c.code), // 4 digits + 8 zeros
+    );
+    const runPickerOnSoftRefuse = gateSoftRefuse && hasHeadingPadded;
+    if (
+      !skipPicker &&
+      candidates.length > 0 &&
+      (gate.passed || runPickerOnSoftRefuse)
+    ) {
       llm = await llmPick({
         kind: 'describe',
         query: effectiveDescription,
@@ -151,7 +220,15 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const decision = resolve({ gate, llm });
+    // If the picker ran on a soft-refused gate AND committed to a code,
+    // we treat the gate as "passed" for resolve()'s purposes — the picker's
+    // commit (per its heading-fallback rule) is the authoritative signal,
+    // and the heading-level commit is a legitimate accepted ZATCA code.
+    const effectiveGate =
+      runPickerOnSoftRefuse && llm && llm.chosenCode
+        ? { ...gate, passed: true as const }
+        : gate;
+    const decision = resolve({ gate: effectiveGate, llm });
 
     // ---- Stage 5: best-effort fallback tail ------------------------------
     // Trigger when the route has not produced an accepted code AND the

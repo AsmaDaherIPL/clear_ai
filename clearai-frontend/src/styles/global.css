@@ -433,14 +433,54 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .tabbtn:hover:not(.on) { background: var(--paper-2); color: var(--ink-2); }
 .tabs-body { padding: 18px 20px; }
 
-.desc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Stacked 2-row layout (was previously 2-column) — gives each language full
+   width and lets the 5-line clamp breathe. Mobile breakpoint already used a
+   single column, so this just promotes that layout to all viewports. */
+.desc-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .desc-cell { padding: 14px 16px; background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.desc-cell .desc-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 6px;
+}
 .desc-cell .k {
-  display: block; font-family: 'Geist Mono', monospace; font-size: 10px; letter-spacing: .08em;
-  color: var(--mute-1); margin-bottom: 6px; text-transform: uppercase;
+  font-family: 'Geist Mono', monospace; font-size: 10px; letter-spacing: .08em;
+  color: var(--mute-1); text-transform: uppercase;
 }
 .desc-cell.rtl { font-family: 'Noto Naskh Arabic', 'FK Grotesk', 'Space Grotesk', serif; text-align: right; }
+/* RTL block keeps the header bar LTR so the copy button lands on the right
+   (visual leading edge for English readers) and the label on the left. The
+   description body underneath flips to RTL via `dir="rtl"` on the cell. */
+.desc-cell.rtl .desc-head { direction: ltr; }
 .desc-cell.rtl .k { text-align: left; }
+
+/* 5-line clamp on the description body. `-webkit-line-clamp` is widely
+   supported (Safari/Chromium/Firefox 68+) — when unsupported the text just
+   shows in full, which is acceptable degraded behaviour. */
+.desc-clamp {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+/* Compact copy button living inside the description header. Sized smaller
+   than `.btn-sec` to read as a tertiary action, not steal focus from the
+   primary "Copy code" / "Generate ZATCA XML" buttons below. */
+.desc-copy {
+  appearance: none; cursor: pointer;
+  font: inherit; font-size: 11px; font-family: 'Geist Mono', monospace;
+  letter-spacing: .04em;
+  padding: 4px 10px; border-radius: 6px;
+  background: var(--paper); color: var(--ink-2);
+  border: 1px solid var(--line);
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.desc-copy:hover:not(:disabled) { background: var(--paper-2); color: var(--ink); border-color: var(--mute-1); }
+.desc-copy:active:not(:disabled) { transform: translateY(1px); }
+.desc-copy:disabled { opacity: .4; cursor: not-allowed; }
 
 .rat { display: flex; flex-direction: column; gap: 14px; }
 .r-item { display: grid; grid-template-columns: 28px 1fr; gap: 14px; align-items: flex-start; }
@@ -1469,7 +1509,7 @@ input, textarea, select { font-family: inherit; color: inherit; }
   .modes { grid-template-columns: 1fr; }
   .tabs-head { grid-template-columns: 1fr; }
   .tabbtn { border-right: none; border-bottom: 1px solid var(--line); }
-  .desc-grid { grid-template-columns: 1fr; }
+  /* .desc-grid is now single-column at all breakpoints (see base rule). */
   .meta-grid { grid-template-columns: 1fr 1fr; }
   .stage-row { grid-template-columns: 56px 1fr 56px 40px; }
   .stage-row .stage-label { display: none; }

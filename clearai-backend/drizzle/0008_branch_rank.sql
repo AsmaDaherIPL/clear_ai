@@ -10,7 +10,7 @@
 -- ============================================================================
 
 INSERT INTO setup_meta (key, value, description) VALUES
-  ('BRANCH_RANK_ENABLED',     '0',   'Feature flag: 1 = run Sonnet rerank of the branch leaves with per-row reasoning; 0 = skip (the picker''s pick stands and alternatives come back unranked from branch enumeration). Default 0 — flip to 1 after measuring quality. Adds ~3-5s wall-clock to the accepted path when enabled. Boolean encoded as 0/1.'),
+  ('BRANCH_RANK_ENABLED',     '1',   'Feature flag: 1 = run Sonnet rerank of the branch leaves with per-row reasoning (default); 0 = skip and the picker''s pick stands. Flipped to default-on after the picker''s leaf-preference + heading-fallback rules made branch-rank''s reranking valuable for committing to the right leaf when the user''s input vocabulary disambiguates. Adds ~3-5s wall-clock to the accepted path. Boolean encoded as 0/1.'),
   ('BRANCH_RANK_MAX_TOKENS',  '800', 'Cap on tokens the branch-rank LLM may emit. Per-row reasoning adds up — 800 is comfortable for an HS-8 branch with up to ~15 leaves at ~30 words each. Increase if BRANCH_PREFIX_LENGTH is flipped to HS-6 (denser branches).')
 ON CONFLICT (key) DO NOTHING;
 --> statement-breakpoint

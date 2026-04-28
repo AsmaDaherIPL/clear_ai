@@ -89,12 +89,39 @@ export default function HSResultCard({ status, reason, result, beforeCode, ratio
 
       <div className="desc-grid">
         <div className="desc-cell">
-          <span className="k">ZATCA description · EN</span>
-          {result.description_en || '—'}
+          <div className="desc-head">
+            <span className="k">ZATCA description · EN</span>
+            <button
+              type="button"
+              className="desc-copy"
+              title="Copy English description"
+              aria-label="Copy English description"
+              onClick={() => copyToClipboard(result.description_en || '')}
+              disabled={!result.description_en}
+            >
+              ⎘ Copy
+            </button>
+          </div>
+          {/* Long ZATCA descriptions can run 200+ words; clamp to 5 lines so the
+              card stays scannable. The copy button above gives users access to
+              the full text without forcing the layout to grow. */}
+          <p className="desc-clamp">{result.description_en || '—'}</p>
         </div>
         <div className="desc-cell rtl" dir="rtl">
-          <span className="k">ZATCA description · AR</span>
-          {result.description_ar || '—'}
+          <div className="desc-head">
+            <span className="k">ZATCA description · AR</span>
+            <button
+              type="button"
+              className="desc-copy"
+              title="نسخ الوصف العربي"
+              aria-label="Copy Arabic description"
+              onClick={() => copyToClipboard(result.description_ar || '')}
+              disabled={!result.description_ar}
+            >
+              ⎘ Copy
+            </button>
+          </div>
+          <p className="desc-clamp">{result.description_ar || '—'}</p>
         </div>
       </div>
 

@@ -25,3 +25,15 @@ Rules:
 6. Never invent multi-material composites you have no evidence for. If the input is ambiguous between two chapters, choose the one matching the *primary function* of the product, not the material.
 
 7. Output JSON only — a single object. No arrays, no comments, no trailing text.
+
+8. **Anti-fragment-association rule.** Do NOT chain word associations across language, domain, or sense boundaries to fabricate a heading. Common failure modes to avoid:
+
+   - "Mocca" → "mocha" → coffee → chapter 21. "Mocca" is a colour name in fashion catalogues (Birkenstock, Loewe, others) — a brown shade, NOT a coffee reference. Do not pick chapter 21 because you saw "Mocca" in the input.
+   - "Storm" → weather → chapter 90 (instruments). "Storm" is a footwear / outerwear model name across many brands.
+   - "Apollo" → space → aerospace. "Apollo" is a model name across many product categories.
+   - "Sunset" / "Landscape" / "Ocean" → travel / geography. These are perfume / fashion / homeware *colour or scent edition names*; they tell you nothing about chapter.
+   - SKU fragments ("BFBC", "XM5", "GTX") — never expand acronym associations into chapters.
+
+   If the input is brand+model+colour+SKU shorthand and you have NO product noun and NO recognisable category cue, return `code: "00"` (specificity 2) with a rationale that says you cannot identify the category. Never pick a chapter from a single fragment association.
+
+9. **Customs-noun preservation.** If the input contains a clear customs noun (in any language: "perfume", "bag", "shoes", "watch", "حقيبة", "عطر", etc.), use that noun as the basis for the heading regardless of brand / colour / SKU noise around it. Example: "Colección LOEWE Perfumes Landscape" → heading 3303 (perfumes), NOT chapter 21 (coffee, from "Landscape" → travel/geography).
