@@ -310,3 +310,42 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
   - Cleanup misclassifies a meaningful fraction of inputs as `ungrounded` when they're actually products (the "false ungrounded" rate). Tune the prompt's example set or shift the bias toward `kind: product` more aggressively.
   - We add `/classify/expand` cleanup. The current implementation only wires Stage 0 into `/describe` because `/expand` already takes a parent prefix that anchors the legal family — cleanup matters less when the chapter is already chosen.
   - Token cost goes up materially. The `MERCHANT_CLEANUP_MAX_TOKENS` cap exists for this; tune from setup_meta.
+
+---
+
+## ADR-0014 — Phase 3: branch-rank Sonnet rerank with per-row reasoning
+
+- **Date:** 2026-04-28
+- **Status:** Shipped behind feature flag (default off).
+- **Context:**
+  - The picker (Sonnet, called from `llm-pick.ts`) sees only `PICKER_CANDIDATES_describe` (default 8) RRF top hits. It's possible — and observed in the data — for the right leaf to live in the chosen code's HS-8 branch but not be in retrieval's top-K, particularly when the branch is dense (10+ leaves under one HS-8 prefix in chapters like 8517.62 or 6204).
+  - Phase 1 (ADR-0012) shipped branch-local enumeration as the alternatives surface, but the rendered list was in catalog order (numeric code asc) with no ranking and no per-leaf reasoning. Users saw the right family but no signal of which sibling fit best.
+  - Real broker submissions show that the leaf-pad pattern matters: from the 5,001-row sample-2 distribution, 50% of submitted codes end in `0000`, 13% in `0001` (first national variant), 13% in `9999` (catch-all "Other"), and ~12% in `0002–0006` (other named variants). Picking the right one is a real classification decision, not a rubber-stamp.
+- **Decision:**
+  - New module `src/decision/branch-rank.ts`. After the picker accepts a code AND `BRANCH_RANK_ENABLED=1`, fire one Sonnet call that takes the user's effective description + every leaf in the branch (typically 5–15 rows) and returns a ranked list with `{rank, fit, reason}` per row. `fit ∈ {fits, partial, excludes}`; `reason` is one sentence ≤25 words.
+  - Output shape: `{ranking: [...], top_pick, agrees_with_picker}`. The downstream guard validates that the OUTPUT code set is exactly the INPUT code set — no inventions, no drops. Guard trips → fall back to picker's pick, no override.
+  - **Override mechanic:** if branch-rank's top_pick differs from the picker's chosen code (rare; we expect ~5–10% of accepted classifications), the response code is overridden. The picker's pre-override pick is preserved in the event log under `branch_rank_picker_choice`, and `branch_rank_overrode` is set to true. This is not a bug in the picker — it's the picker doing its job (it picked the best of 8 RRF candidates) and branch-rank doing a different job (picking the best of the FULL HS-8 family). Recording overrides lets us audit them offline and tune the picker prompt or RRF parameters over time.
+  - **Feature-flagged off.** `BRANCH_RANK_ENABLED=0` is the default. Flipping it on adds ~3-5s wall-clock and ~1 Sonnet call to every accepted classification. Common-path latency (most users, most queries) stays unchanged at the default. Flip on per-customer or globally once we measure quality on real traffic.
+  - **Mutually exclusive with best-effort.** Branch-rank only runs when there's an accepted leaf to enumerate under. On the best-effort path (gate refused, fallback heading), there's no branch — branch-rank doesn't fire.
+  - Two new setup_meta tunables: `BRANCH_RANK_ENABLED` (flag, default 0), `BRANCH_RANK_MAX_TOKENS` (default 800 — per-row reasoning adds up). Migration `0008_branch_rank.sql`, idempotent INSERT, with a CHECK constraint on the boolean.
+  - Wire-format additions:
+    - `AlternativeCandidate` grows three optional fields: `rank?: number`, `fit?: 'fits' | 'partial' | 'excludes'`, `reason?: string`. Populated when branch-rank ran; absent otherwise.
+    - Top-level `branch_rank_override?: { picker_choice, branch_rank_choice }` only emitted when an override happened.
+    - `model.branch_rank?: string` records the model identifier when branch-rank ran.
+    - `result.retrieval_score` becomes nullable (some overrides land on codes not in the original RRF top-K, where there's no score to report).
+- **Consequences:**
+  - **Latency:** common path with flag off = unchanged. With flag on, +3-5s wall-clock on the accepted path. Worst-case path (cleanup + researcher + picker + branch-rank): ~10s p95. We measured the headphones case at 16s once with cleanup also enabled — the tail can run long but the gate keeps the median tight.
+  - **Cost:** +1 Sonnet call per accepted classification when enabled. Sonnet is ~10× more expensive than Haiku per token; the per-row reasoning makes branch-rank's output 3–4× larger than the picker's. Net: branch-rank doubles per-request token spend on the accepted path when on.
+  - **Quality upside:** UI now renders "fits / partial / excludes" with one-line per-row reasoning — exactly what a customs broker would write next to each code while comparing siblings. Users can see *why* a sibling lost, not just that it lost.
+  - **Override audit trail:** every override is logged with the picker's pre-override pick and the branch-rank override pick. Lets us study disagreement patterns offline and decide whether to tune the picker prompt, increase `PICKER_CANDIDATES_describe`, or accept branch-rank as the primary picker.
+  - **Defensive guards:** unit-tested for hallucinated codes, omitted codes, error responses, unparseable JSON, fewer-than-2-leaf branches, chosen-code-missing-from-leaves. All fall back to the picker's pick — branch-rank failures degrade silently, never break classification.
+- **Rejected alternatives:**
+  - **Run branch-rank in parallel with the picker.** Tempting, but the picker's chosen code IS the branch-rank input (we need to know which branch to enumerate). Sequential is mandatory.
+  - **Use Haiku for branch-rank instead of Sonnet.** Haiku writes shallow, repetitive per-leaf reasons that all sound the same — not customs-broker-grade prose. Sonnet's reasoning is the value here; Haiku saves cost but not quality.
+  - **Always overrule the picker with branch-rank.** No — the picker has signal that branch-rank doesn't (cross-heading evidence from RRF). When they agree, we accept; when they disagree, branch-rank wins with audit. Unconditional override would lose the picker's heading-level disambiguation work.
+  - **Inline branch-rank's output as the new picker.** That collapses two distinct decisions into one and removes the cross-heading vs within-branch separation. Two LLM calls is the right shape for the right reasons.
+- **Revisit if:**
+  - Override rate is consistently > 30% — that's a signal the picker is systematically wrong, not branch-rank doing tiebreaks. Tune the picker prompt or `PICKER_CANDIDATES_describe`.
+  - Override rate is < 1% with no quality lift — branch-rank's value is mostly in the per-row reasoning, not the override; consider keeping the reasoning UI but skipping the override mechanic.
+  - The HS-8 branch sizes are too large (>15 leaves) and `BRANCH_RANK_MAX_TOKENS=800` truncates output. Increase the cap or flip `BRANCH_PREFIX_LENGTH` to HS-6 with the corresponding token bump.
+  - We add `/classify/expand` branch-rank. Same pattern but the parent prefix is supplied — no picker call to disagree with, just rank under the supplied parent. Trivial extension once we measure value on `/describe`.

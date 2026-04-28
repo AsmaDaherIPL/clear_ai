@@ -35,6 +35,7 @@ import { researchInput, type ResearchOutcome } from '../preprocess/research.js';
 import { bestEffortHeading, type BestEffortOutcome } from '../decision/best-effort-fallback.js';
 import { filterAlternatives } from '../decision/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
+import { rankBranch, type BranchRankResult } from '../decision/branch-rank.js';
 import { cleanMerchantInput, type MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 
 type InterpretationStage = 'passthrough' | 'cleaned' | 'researched' | 'unknown';
@@ -194,9 +195,25 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       description_en: string | null;
       description_ar: string | null;
       retrieval_score: number | null;
+      // Phase 3 — populated only when branch-rank ran. Per-row reasoning
+      // tells the user why each sibling fits / doesn't fit. `fit` and
+      // `reason` are missing on rows that came from branch enumeration
+      // alone (Phase 1) or from filtered RRF (non-accepted paths).
+      rank?: number;
+      fit?: 'fits' | 'partial' | 'excludes';
+      reason?: string;
     };
     let alternatives: Alt[];
     let branchLeaves: BranchLeaf[] | null = null;
+    let branchRank: BranchRankResult | null = null;
+    /**
+     * The code we ship to the user. Defaults to the picker's pick. If
+     * branch-rank is enabled AND ran successfully AND its #1 differs from
+     * the picker's pick, this is overridden to branch-rank's choice. The
+     * picker's original choice is kept in the event log under
+     * `branch_rank_overrode` for offline review.
+     */
+    let effectiveChosenCode: string | null = decision.chosenCode;
 
     if (isAcceptedFamily && decision.chosenCode) {
       branchLeaves = await enumerateBranch({
@@ -204,18 +221,55 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         prefixLength: t.BRANCH_PREFIX_LENGTH as 4 | 6 | 8,
         maxLeaves: t.BRANCH_MAX_LEAVES,
       });
-      // Pin chosen first, then siblings in catalog order. Score is null on
-      // branch-sourced rows because RRF doesn't apply here — the surface
-      // is enumeration, not retrieval.
-      const chosen = branchLeaves.find((l) => l.code === decision.chosenCode);
-      const others = branchLeaves.filter((l) => l.code !== decision.chosenCode);
-      const ordered = chosen ? [chosen, ...others] : branchLeaves;
-      alternatives = ordered.slice(0, t.ALTERNATIVES_SHOWN_describe).map((l) => ({
-        code: l.code,
-        description_en: l.description_en,
-        description_ar: l.description_ar,
-        retrieval_score: null,
-      }));
+
+      // Phase 3 — Sonnet rerank with per-row reasoning, optionally
+      // overriding the picker. Feature-flagged off by default; flip
+      // BRANCH_RANK_ENABLED in setup_meta to enable.
+      branchRank = await rankBranch({
+        query: effectiveDescription,
+        chosenCode: decision.chosenCode,
+        leaves: branchLeaves,
+        opts: {
+          enabled: t.BRANCH_RANK_ENABLED === 1,
+          maxTokens: t.BRANCH_RANK_MAX_TOKENS,
+        },
+      });
+
+      if (branchRank.invoked === 'llm' && !branchRank.agreesWithPicker) {
+        // Branch-rank is overriding the picker. We trust it because it
+        // saw the FULL HS-8 branch; the picker only saw 8 RRF top hits.
+        effectiveChosenCode = branchRank.effectiveCode;
+      }
+
+      // Render the alternatives:
+      //   - When branch-rank ran successfully → use its rank order, attach
+      //     fit + reason to each row. The (possibly overridden) chosen
+      //     code is at rank=1.
+      //   - Otherwise → fall back to catalog order with chosen pinned to
+      //     the front, no fit/reason.
+      if (branchRank.invoked === 'llm') {
+        alternatives = branchRank.ranking
+          .slice(0, t.ALTERNATIVES_SHOWN_describe)
+          .map((r) => ({
+            code: r.code,
+            description_en: r.description_en,
+            description_ar: r.description_ar,
+            retrieval_score: null,
+            rank: r.rank,
+            fit: r.fit,
+            reason: r.reason,
+          }));
+      } else {
+        const chosen = branchLeaves.find((l) => l.code === effectiveChosenCode);
+        const others = branchLeaves.filter((l) => l.code !== effectiveChosenCode);
+        const ordered = chosen ? [chosen, ...others] : branchLeaves;
+        alternatives = ordered.slice(0, t.ALTERNATIVES_SHOWN_describe).map((l) => ({
+          code: l.code,
+          description_en: l.description_en,
+          description_ar: l.description_ar,
+          retrieval_score: null,
+        }));
+      }
     } else {
       alternatives = filterAlternatives(candidates, {
         chosenCode: chosenForAlts,
@@ -239,7 +293,12 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     const loggedConfidence: 'high' | 'medium' | 'low' | null = accepted
       ? 'low'
       : (decision.confidenceBand ?? null);
-    const loggedChosen = accepted ? accepted.code : decision.chosenCode;
+    // The "chosen code" we log is the FINAL one shipped to the user — i.e.
+    // branch-rank's override if it overrode the picker, else the picker's
+    // original choice (or best-effort's, on the fallback path). The
+    // picker's pre-override choice is logged separately as
+    // `branch_rank_picker_choice` for offline review.
+    const loggedChosen = accepted ? accepted.code : effectiveChosenCode;
 
     logEvent({
       endpoint: 'describe',
@@ -265,6 +324,17 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         cleanup_attributes_count: cleanup?.attributes.length ?? 0,
         cleanup_stripped_count: cleanup?.stripped.length ?? 0,
         cleanup_latency_ms: cleanup?.latencyMs ?? 0,
+        // Phase 3 — branch-rank observability. `branch_rank_overrode`
+        // captures the rare case where Sonnet's full-branch view rerouted
+        // away from the picker's choice. The picker's pre-override pick
+        // is recorded so we can audit overrides offline and tune the
+        // picker prompt over time.
+        branch_rank_invoked: branchRank?.invoked ?? null,
+        branch_rank_picker_choice: branchRank ? decision.chosenCode : null,
+        branch_rank_top_pick: branchRank?.topPick ?? null,
+        branch_rank_overrode:
+          branchRank?.invoked === 'llm' && !branchRank.agreesWithPicker,
+        branch_rank_latency_ms: branchRank?.latencyMs ?? 0,
       },
       languageDetected: lang,
       decisionStatus: loggedStatus,
@@ -294,6 +364,15 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           : []),
         ...(llm
           ? [{ model: llm.llmModel, latency_ms: llm.latencyMs, status: llm.llmStatus }]
+          : []),
+        ...(branchRank && branchRank.invoked === 'llm' && branchRank.model
+          ? [
+              {
+                model: branchRank.model,
+                latency_ms: branchRank.latencyMs,
+                status: 'ok' as const,
+              },
+            ]
           : []),
         ...(accepted
           ? [
@@ -365,16 +444,33 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       decision_status: decision.decisionStatus,
       decision_reason: decision.decisionReason,
       ...(decision.confidenceBand && { confidence_band: decision.confidenceBand }),
-      ...(decision.chosenCode && {
+      ...(effectiveChosenCode && {
         result: {
-          code: decision.chosenCode,
+          code: effectiveChosenCode,
+          // Look up descriptions: branch-rank overrides may have a code that
+          // wasn't in the original RRF top-K, so fall back to branchLeaves
+          // (which is the full HS-8 enumeration). Either source is fine —
+          // both pull from hs_codes.
           description_en:
-            candidates.find((c) => c.code === decision.chosenCode)?.description_en ?? null,
+            candidates.find((c) => c.code === effectiveChosenCode)?.description_en ??
+            branchLeaves?.find((l) => l.code === effectiveChosenCode)?.description_en ??
+            null,
           description_ar:
-            candidates.find((c) => c.code === decision.chosenCode)?.description_ar ?? null,
-          retrieval_score: Number(
-            (candidates.find((c) => c.code === decision.chosenCode)?.rrf_score ?? 0).toFixed(4),
-          ),
+            candidates.find((c) => c.code === effectiveChosenCode)?.description_ar ??
+            branchLeaves?.find((l) => l.code === effectiveChosenCode)?.description_ar ??
+            null,
+          // retrieval_score is only meaningful when the chosen code came from
+          // the picker (RRF top-K); on a branch-rank override, the code may
+          // not be in `candidates` and the score has no meaning. Null in
+          // that case, matching the AlternativeCandidate convention.
+          retrieval_score:
+            candidates.find((c) => c.code === effectiveChosenCode)
+              ? Number(
+                  (
+                    candidates.find((c) => c.code === effectiveChosenCode)?.rrf_score ?? 0
+                  ).toFixed(4),
+                )
+              : null,
         },
       }),
       alternatives,
@@ -382,6 +478,18 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       ...(decision.missingAttributes.length > 0 && {
         missing_attributes: decision.missingAttributes,
       }),
+      // Phase 3 — surface a branch-rank "overrode" notice when relevant so
+      // the frontend can render a small badge ("Picker chose X; branch-rank
+      // overrode to Y because the wider HS-8 view showed a better fit"). On
+      // the common path where ranks agree, we don't emit anything.
+      ...(branchRank && branchRank.invoked === 'llm' && !branchRank.agreesWithPicker
+        ? {
+            branch_rank_override: {
+              picker_choice: decision.chosenCode,
+              branch_rank_choice: branchRank.topPick,
+            },
+          }
+        : {}),
       interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
       model: {
         embedder: EMBEDDER_VERSION(),
@@ -389,6 +497,9 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         ...(research && research.kind === 'recognised' ? { researcher: research.model } : {}),
         ...(cleanup && cleanup.invoked === 'llm' && cleanup.model
           ? { cleanup: cleanup.model }
+          : {}),
+        ...(branchRank && branchRank.invoked === 'llm' && branchRank.model
+          ? { branch_rank: branchRank.model }
           : {}),
       },
     };

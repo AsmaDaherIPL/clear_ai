@@ -83,7 +83,17 @@ export interface ResultLine {
   code: string;
   description_en: string | null;
   description_ar: string | null;
-  retrieval_score?: number;
+  /**
+   * RRF retrieval score for the chosen code. Optional / nullable because:
+   *   - On `accepted` results that came from the picker, this is the RRF
+   *     score of the chosen candidate.
+   *   - On branch-rank overrides (Phase 3), the chosen code may not be in
+   *     the original RRF top-K, so the score has no meaning → null.
+   *   - On `best_effort` and other paths, the chosen code may be a chapter
+   *     prefix that isn't a leaf in `hs_codes`, so no score applies →
+   *     omitted.
+   */
+  retrieval_score?: number | null;
 }
 
 export interface AlternativeLine {
@@ -99,6 +109,17 @@ export interface AlternativeLine {
    * chosen row and a "branch sibling" indicator on null-scored rows.
    */
   retrieval_score: number | null;
+  /**
+   * Phase 3 — populated only when branch-rank ran successfully. `rank` is
+   * 1-based (rank=1 is the chosen code after any branch-rank override).
+   * `fit` is the model's qualitative judgement; `reason` is one sentence
+   * (≤25 words) explaining why this leaf fits / doesn't fit. The frontend
+   * should render reason text under each row when present, and use `fit`
+   * to color-code the row (fits=accent, partial=neutral, excludes=muted).
+   */
+  rank?: number;
+  fit?: 'fits' | 'partial' | 'excludes';
+  reason?: string;
 }
 
 export interface ModelInfo {

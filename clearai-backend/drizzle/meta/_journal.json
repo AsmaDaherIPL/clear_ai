@@ -57,6 +57,13 @@
       "when": 1777210700000,
       "tag": "0007_merchant_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777210800000,
+      "tag": "0008_branch_rank",
+      "breakpoints": true
     }
   ]
 }

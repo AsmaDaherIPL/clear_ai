@@ -124,6 +124,22 @@ export interface Thresholds {
    * headroom for even pathological inputs with long stripped-token lists.
    */
   MERCHANT_CLEANUP_MAX_TOKENS: number;
+
+  /**
+   * Phase 3 — branch-rank feature flag. 1 = run a Sonnet rerank of the
+   * enumerated branch leaves with per-row reasoning, optionally overriding
+   * the picker's chosen code; 0 = skip entirely. Default 0 (off) so the
+   * common-path latency budget stays as-is until measurement justifies the
+   * extra Sonnet call.
+   */
+  BRANCH_RANK_ENABLED: number;
+
+  /**
+   * Cap on tokens branch-rank may emit. Per-row reasoning adds up — 800 is
+   * comfortable for an HS-8 branch with up to ~15 leaves at ~30 words each.
+   * Increase if BRANCH_PREFIX_LENGTH is flipped to HS-6 (denser branches).
+   */
+  BRANCH_RANK_MAX_TOKENS: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -150,6 +166,8 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'BRANCH_MAX_LEAVES',
   'MERCHANT_CLEANUP_ENABLED',
   'MERCHANT_CLEANUP_MAX_TOKENS',
+  'BRANCH_RANK_ENABLED',
+  'BRANCH_RANK_MAX_TOKENS',
 ];
 
 let _cache: Thresholds | null = null;
