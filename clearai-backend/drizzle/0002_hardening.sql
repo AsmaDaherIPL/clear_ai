@@ -112,7 +112,8 @@ UPDATE setup_meta
     'MIN_SCORE_describe', 'MIN_GAP_describe',
     'MIN_SCORE_expand',   'MIN_GAP_expand',
     'MIN_SCORE_boost',    'MIN_GAP_boost',
-    'BOOST_MARGIN',       'RRF_K'
+    'BOOST_MARGIN',       'RRF_K',
+    'UNDERSTOOD_MAX_DISTINCT_CHAPTERS'
  )
    AND value_kind = 'string';
 --> statement-breakpoint

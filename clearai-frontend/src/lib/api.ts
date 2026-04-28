@@ -45,7 +45,16 @@ const APIM_SUBSCRIPTION_KEY =
 // --- Decision envelope ----------------------------------------------------
 // Closed enums — must match clearai-backend/src/decision/types.ts.
 
-export type DecisionStatus = 'accepted' | 'needs_clarification' | 'degraded';
+export type DecisionStatus =
+  | 'accepted'
+  | 'needs_clarification'
+  | 'degraded'
+  /**
+   * v2/ADR-0011: low-confidence fallback heading (4-digit by default).
+   * The UI MUST gate this behind a verify-toggle — never render it as an
+   * accepted code.
+   */
+  | 'best_effort';
 
 export type DecisionReason =
   | 'strong_match'
@@ -57,7 +66,9 @@ export type DecisionReason =
   | 'ambiguous_top_candidates'
   | 'guard_tripped'
   | 'llm_unavailable'
-  | 'brand_not_recognised';
+  | 'brand_not_recognised'
+  /** v2/ADR-0011: paired with decision_status='best_effort'. */
+  | 'best_effort_heading';
 
 export type ConfidenceBand = 'high' | 'medium' | 'low';
 
@@ -233,6 +244,7 @@ export function reasonLabel(reason: DecisionReason): string {
     case 'guard_tripped': return 'Hallucination guard tripped';
     case 'llm_unavailable': return 'LLM unavailable';
     case 'brand_not_recognised': return 'Brand or product not recognised';
+    case 'best_effort_heading': return 'Best-effort heading (verify before use)';
   }
 }
 
@@ -244,6 +256,9 @@ export function remediationHint(
   if (status === 'accepted') return null;
   if (status === 'degraded') {
     return 'The classification model is currently unavailable. Try again in a moment.';
+  }
+  if (status === 'best_effort') {
+    return 'This is a low-confidence chapter heading, not a final classification. A customs broker must verify and refine it to a 12-digit code before use.';
   }
   // needs_clarification
   switch (reason) {
@@ -266,5 +281,6 @@ export function remediationHint(
 export function statusToTone(status: DecisionStatus): 'good' | 'warn' | 'bad' {
   if (status === 'accepted') return 'good';
   if (status === 'needs_clarification') return 'warn';
+  if (status === 'best_effort') return 'warn';
   return 'bad';
 }

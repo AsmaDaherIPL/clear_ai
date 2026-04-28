@@ -20,6 +20,7 @@ import {
   type DescribeResponse,
   type ExpandBoostResponse,
   type DecisionEnvelopeBase,
+  type DecisionStatus,
   type ResultLine,
 } from '../lib/api';
 import TopBar from './TopBar';
@@ -29,6 +30,7 @@ import InputCard from './InputCard';
 import Suggestions from './Suggestions';
 import Pipeline, { type StageKey } from './Pipeline';
 import HSResultCard from './HSResultCard';
+import BestEffortCard from './BestEffortCard';
 import AlternativesCard from './AlternativesCard';
 import MetaPanel from './MetaPanel';
 import Footer from './Footer';
@@ -238,7 +240,15 @@ function ResultBlock({
         />
       )}
 
-      {status !== 'accepted' && (
+      {status === 'best_effort' && line && (
+        <BestEffortCard
+          result={line}
+          rationale={(body as DecisionEnvelopeBase).rationale}
+          hint={hint}
+        />
+      )}
+
+      {status !== 'accepted' && status !== 'best_effort' && (
         <NotAcceptedCard status={status} reason={reason} tone={tone} hint={hint} />
       )}
 
@@ -265,7 +275,7 @@ function ResultBlock({
 function NotAcceptedCard({
   status, reason, tone, hint,
 }: {
-  status: 'needs_clarification' | 'degraded';
+  status: Exclude<DecisionStatus, 'accepted' | 'best_effort'>;
   reason: ReturnType<typeof reasonLabel> extends string ? Parameters<typeof reasonLabel>[0] : never;
   tone: 'warn' | 'bad' | 'good';
   hint: string | null;

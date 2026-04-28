@@ -2,23 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { expandBody, boostBody, describeBody } from './schemas.js';
 
 describe('expandBody.code regex', () => {
-  it.each(['1234', '123456', '12345678', '1234567890'])('accepts %s (valid prefix length)', (code) => {
-    const r = expandBody.safeParse({ code, description: 'shirt' });
-    expect(r.success).toBe(true);
-  });
+  it.each(['123456', '1234567', '12345678', '123456789', '1234567890'])(
+    'accepts %s (6–10 digit prefix)',
+    (code) => {
+      const r = expandBody.safeParse({ code, description: 'shirt' });
+      expect(r.success).toBe(true);
+    },
+  );
 
   it.each([
-    '12345', // 5 digits — earlier broken regex matched (starts with 4 digits)
-    '1234567', // 7 digits — earlier matched (contains 6 digits)
-    '123456789', // 9 digits — earlier matched (contains 8 digits)
-    'abc123456def', // junk + 6 digits — earlier matched (contains 6 digits)
-    '12345678901', // 11 digits
+    '1234', // 4 digits — too short (chapter/heading would fan out too far)
+    '12345', // 5 digits — too short
+    'abc123456def', // junk surrounding digits
+    '12345678901', // 11 digits — too long
     '123456789012', // 12 digits — must use /boost, not /expand
     'foo', // no digits
     '', // empty
     '12 34', // whitespace
-    '1234.', // trailing punctuation
-  ])('rejects %s (must be exactly 4/6/8/10 digits)', (code) => {
+    '1234567.', // trailing punctuation
+  ])('rejects %s (must be 6–10 digits, no surrounding junk)', (code) => {
     const r = expandBody.safeParse({ code, description: 'shirt' });
     expect(r.success).toBe(false);
   });

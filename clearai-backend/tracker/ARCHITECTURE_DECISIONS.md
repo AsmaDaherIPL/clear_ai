@@ -138,6 +138,32 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
 
 <!-- New decisions append below. Do not edit existing entries. -->
 
+## ADR-0011 — Stateless v2 control flow + best-effort fallback
+
+- **Date:** 2026-04-28
+- **Status:** Accepted
+- **Context:** v1 `/classify/describe` had two failure modes on hard inputs (jargon, brand SKUs, abbreviated descriptions, generic product names with insufficient context): (a) it confidently returned a wrong 12-digit code because retrieval happened to cluster around an unrelated tariff family; (b) it returned `needs_clarification` with no actionable code at all. Operators asked for "always return a result" — but a fully confident 12-digit answer for ambiguous input is a liability. We also flirted with a per-product-code cache and a regex "merchant-shorthand detector" prefilter; both were rejected as either non-stateless (cache) or too specific to scale (detector — see Rejected below).
+- **Decision:**
+  1. **Stateless control flow.** Every request is handled from raw input. No catalog, no per-product memory, no profile state. The order is: retrieve → `checkUnderstanding` → optional researcher → gate → picker (called at most once) → optional best-effort fallback. Worst case 3 LLM calls (researcher + picker + fallback); common case 1 (picker only).
+  2. **Two-stage understanding signal driven by retrieval, not the LLM.** `checkUnderstanding` counts distinct HS-2 chapters among the top-N candidates (window and threshold both come from `setup_meta`). Coherent inputs cluster; ambiguous inputs scatter. If scattered, the route invokes the researcher (strong model) which returns `RECOGNISED: <canonical>` or `UNKNOWN: <reason>`; the canonical phrase replaces the input for re-retrieval.
+  3. **Best-effort fallback as a third decision class.** When the picker abstains, the gate refuses, or the researcher returns UNKNOWN, and `setup_meta.BEST_EFFORT_ENABLED = 1`, the route asks the strong model for a low-specificity heading (capped by `BEST_EFFORT_MAX_DIGITS`, default 4). Returns `decision_status: 'best_effort'`, `decision_reason: 'best_effort_heading'`, `confidence_band: 'low'`. The frontend gates this behind a verify-toggle (`BestEffortCard`) — visually distinct from `accepted`, never copyable until the user acknowledges.
+  4. **Configuration over code.** Eight v2 tunables (`UNDERSTOOD_TOP_K_describe`, `RETRIEVAL_TOP_K_describe`, `PICKER_CANDIDATES_describe`, `ALTERNATIVES_SHOWN_describe`, `RESEARCHER_MAX_TOKENS`, `BEST_EFFORT_MAX_TOKENS`, `BEST_EFFORT_ENABLED`, `BEST_EFFORT_MAX_DIGITS`) live in `setup_meta`, validated by the fail-closed loader (ADR-0009). Booleans are encoded as 0/1 numbers because `setup_meta_value_kind_chk` only allows `('number','string')`. Migration 0003 also widens `events_decision_status_chk` to include `'best_effort'` and `events_decision_reason_chk` to include `'brand_not_recognised'` and `'best_effort_heading'`.
+- **Rejected:**
+  - **Per-product-code or brand catalog.** Violates the stateless principle and creates a maintenance burden (catalog freshness, GDPR/data-retention concerns, leakage between merchants).
+  - **Regex "merchant-shorthand detector" prefilter.** Briefly considered to short-circuit jargon inputs straight to the researcher, saving a retrieval round-trip. Rejected: the optimisation saves ~50–150 ms on a subset of inputs but adds 130 lines of pattern code, has high false-negative rate (any brand without an SKU suffix slips through — TitleCase product names, common-noun product lines), and false positives silently regress quality (plain inputs containing 2-digit numbers get routed to the researcher unnecessarily). `checkUnderstanding` already catches the same failure mode using actual evidence (retrieval scores) instead of guesses about text shape.
+  - **Confident 12-digit output on hard inputs.** Causes incorrect customs classification with legal/financial consequences. Best-effort at 4-digit chapter level is the least-harmful starting point for a customs broker to refine.
+  - **Fallback at 12-digit specificity with `confidence_band: 'low'`.** Same problem at a different label — users still treat 12-digit codes as final. Capping specificity is the structural guard.
+- **Consequences:**
+  - The route always returns *something*: `accepted`, `best_effort`, `needs_clarification`, or `degraded`. No more silent dead-ends.
+  - Best-effort responses include a model-emitted rationale (1 sentence, ≤ 200 chars) explaining the chapter pick. Logged to `classification_events` as a regular row with `decision_status='best_effort'` so audit/eval queries can isolate them.
+  - Tuning is done in `setup_meta` and prompt files — no code redeploy needed to adjust window size, top-K, fallback specificity, or prompt wording.
+  - The frontend now has three result-shape branches (`HSResultCard`, `BestEffortCard`, `NotAcceptedCard`). The Best-Effort card uses dashed amber border, partial code grid with `··` placeholder slots for absent digits, and a required acknowledge-checkbox before the copy button is enabled.
+  - **Working rule established:** make the design and flow simple and generic; tune via `setup_meta` and prompts to improve judgement. Never ship product-specific code branches or test-set-specific examples in comments/prompts. The repo `grep`s clean of brand names from the test set.
+- **Revisit if:**
+  - The best-effort fallback is invoked on > ~20% of production requests — that signals retrieval/picker calibration drift that should be fixed at the source rather than masked by fallback.
+  - Operators need a fourth specificity level (e.g. 6-digit fallback for high-confidence-on-family but ambiguous-at-subheading cases) — reuse the `BEST_EFFORT_MAX_DIGITS` row, no schema change needed.
+  - Multi-tenant/per-merchant tuning is required — introduce overrides as a separate `setup_meta_overrides(tenant_id, key, …)` table per ADR-0009's revisit clause; do not weaken the fail-closed loader.
+
 ## ADR — APIM Consumption + shared-secret origin lock (no Front Door, no VNet)
 
 - **Date:** 2026-04-26

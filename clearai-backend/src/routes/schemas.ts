@@ -9,17 +9,17 @@ export const expandBody = z.object({
   /**
    * Parent prefix declaring the branch under which to retrieve.
    *
-   * MUST be exactly 4, 6, 8, or 10 digits — anchored at both ends and grouped
-   * as a single alternative set. The earlier pattern `^\d{4}|\d{6}|\d{8}|\d{10}$`
-   * was wrong: regex alternation has lower precedence than anchors, so it
-   * actually matched "starts with 4 digits OR contains 6 digits OR contains
-   * 8 digits OR ends with 10 digits", letting `12345` and `abc123456def`
-   * through to the retrieval path. Negative tests live in
-   * `src/routes/schemas.test.ts`.
+   * MUST be 6 to 10 digits — anchored at both ends. We deliberately accept
+   * odd lengths (7, 9) too, not just the canonical HS bucket boundaries
+   * (6/8/10), because in practice users paste partial codes mid-typing and
+   * the retrieval layer treats `code` as a `LIKE 'code%'` prefix anyway.
+   * The 6-digit floor exists because anything shorter (chapter / heading)
+   * fans out to too many candidates to be useful as a "parent under which
+   * to expand". Negative tests live in `src/routes/schemas.test.ts`.
    */
   code: z
     .string()
-    .regex(/^(?:\d{4}|\d{6}|\d{8}|\d{10})$/, 'parent code must be exactly 4, 6, 8 or 10 digits'),
+    .regex(/^\d{6,10}$/, 'parent code must be 6 to 10 digits'),
   description: z.string().min(1).max(2000),
 });
 export type ExpandBody = z.infer<typeof expandBody>;

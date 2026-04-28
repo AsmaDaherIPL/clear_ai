@@ -918,6 +918,58 @@ input, textarea, select { font-family: inherit; color: inherit; }
 }
 
 /* ============================================================
+   BestEffortCard — low-confidence fallback heading (ADR-0011).
+   Uses .hs-card-warn for the orange strip, then layers:
+   - a prominent banner above the code grid
+   - placeholder slots ("··") for digits the system did not produce
+   - a verify-toggle that gates the copy action
+   ============================================================ */
+.be-card { border-color: var(--orange-1); }
+
+.be-banner {
+  margin: 12px 0 14px; padding: 12px 14px;
+  background: var(--orange-wash); border: 1px solid var(--orange-1);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px; color: var(--orange-2); line-height: 1.55;
+}
+.be-banner strong { color: #842018; }
+
+.be-code .seg.be-placeholder .d {
+  color: var(--ink-3, #b9b9b9); opacity: .55; letter-spacing: 1px;
+}
+.be-code .seg.be-placeholder .l { opacity: .55; }
+
+.be-rationale {
+  margin: 14px 0 0; padding: 12px 14px;
+  background: var(--paper-2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px; color: var(--ink-1); line-height: 1.55;
+}
+.be-rationale .k {
+  display: block;
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-2); margin-bottom: 6px;
+}
+
+.be-verify {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: 14px 0 0; padding: 12px 14px;
+  background: #fff; border: 1px dashed var(--orange-1); border-radius: var(--radius-sm);
+  font-size: 13px; color: var(--ink-1); line-height: 1.5;
+  cursor: pointer;
+}
+.be-verify input[type="checkbox"] {
+  margin-top: 3px; flex-shrink: 0;
+  accent-color: var(--orange-1);
+}
+.be-verify input[type="checkbox"]:checked + span {
+  color: var(--ink-2);
+}
+.btn-sec[disabled] {
+  opacity: .45; cursor: not-allowed; pointer-events: none;
+}
+
+/* ============================================================
    AlternativesCard — ranked candidate picker (.cands)
    Ported from the v5 design HTML. Top row = chosen code, soft-orange
    wash + gradient code + CHOSEN flag + primary CTA. Other rows = sibling

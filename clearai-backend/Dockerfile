@@ -109,4 +109,8 @@ EXPOSE 3000
 # shutdown() handler runs (closes app + drains DB pool) before the
 # Container App scales the replica out.
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["node", "dist/server.js"]
+# Production entry runs Drizzle migrations first, then boots Fastify. The
+# migrator is idempotent (drizzle ledger, ADR-0010), so cold starts after the
+# first deploy of a release are no-ops. If migrations fail, the process exits
+# non-zero and Container Apps keeps the previous revision serving traffic.
+CMD ["node", "dist/scripts/migrate-and-start.js"]

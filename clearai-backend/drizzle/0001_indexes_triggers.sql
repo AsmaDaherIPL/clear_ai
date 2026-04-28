@@ -47,5 +47,6 @@ INSERT INTO setup_meta (key, value, description) VALUES
   ('MIN_SCORE_boost',    '0.20', 'Evidence Gate: minimum top retrieval score for /boost'),
   ('MIN_GAP_boost',      '0.03', 'Evidence Gate: minimum top1-top2 gap for /boost'),
   ('BOOST_MARGIN',       '0.05', '/boost short-circuit: minimum margin a sibling must beat current code by'),
-  ('RRF_K',              '60',   'Reciprocal Rank Fusion constant')
+  ('RRF_K',              '60',   'Reciprocal Rank Fusion constant'),
+  ('UNDERSTOOD_MAX_DISTINCT_CHAPTERS', '3', 'Max distinct HS-2 chapters in top-5 retrieval before input is treated as not-understood and routed to LLM researcher')
 ON CONFLICT (key) DO NOTHING;
