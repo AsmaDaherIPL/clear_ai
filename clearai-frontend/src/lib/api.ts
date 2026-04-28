@@ -112,14 +112,26 @@ export interface ModelInfo {
 /**
  * Trust note: tells the user what the system actually classified.
  * - stage='passthrough': retrieval understood the original input.
+ * - stage='cleaned':     merchant-input cleanup (Phase 1.5) stripped brand
+ *                        / SKU / marketing noise from the raw input;
+ *                        `cleaned_as` shows what retrieval actually saw.
  * - stage='researched':  Sonnet rewrote the input; `rewritten_as` shows the
  *                        canonical phrase that retrieval and the picker saw.
  * - stage='unknown':     researcher declined to identify the product;
  *                        `researcher_note` carries the reason.
+ *
+ * `cleanup_*` fields are populated whenever the cleanup LLM ran (Haiku),
+ * regardless of whether its output was used as the retrieval input. They
+ * let the UI render an "Understood as: X — ignored: Brand, SKU, marketing"
+ * line so the user can sanity-check what was stripped.
  */
 export interface Interpretation {
   original: string;
-  stage: 'passthrough' | 'researched' | 'unknown';
+  stage: 'passthrough' | 'cleaned' | 'researched' | 'unknown';
+  cleaned_as?: string;
+  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded';
+  cleanup_attributes?: string[];
+  cleanup_stripped?: string[];
   rewritten_as?: string;
   researcher_note?: string;
 }

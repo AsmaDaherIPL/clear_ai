@@ -108,6 +108,22 @@ export interface Thresholds {
    * 100+ leaves in dense headings.
    */
   BRANCH_MAX_LEAVES: number;
+
+  /**
+   * Phase 1.5 — merchant-input cleanup feature flag. 1 = run the cleanup
+   * pre-step (Haiku-strips brand/SKU/marketing on noisy inputs); 0 = bypass
+   * entirely, raw user input goes straight to retrieval. Default 1.
+   * Set to 0 to A/B the impact, or to disable cleanup for routes where the
+   * input is known to be already clean.
+   */
+  MERCHANT_CLEANUP_ENABLED: number;
+
+  /**
+   * Cap on tokens the cleanup LLM may emit. Default 200 (the JSON is small).
+   * The cleanup output is structured JSON, not prose — 200 is comfortable
+   * headroom for even pathological inputs with long stripped-token lists.
+   */
+  MERCHANT_CLEANUP_MAX_TOKENS: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -132,6 +148,8 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'STRONG_ALT_RATIO',
   'BRANCH_PREFIX_LENGTH',
   'BRANCH_MAX_LEAVES',
+  'MERCHANT_CLEANUP_ENABLED',
+  'MERCHANT_CLEANUP_MAX_TOKENS',
 ];
 
 let _cache: Thresholds | null = null;

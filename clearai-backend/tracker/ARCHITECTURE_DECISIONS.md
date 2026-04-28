@@ -273,3 +273,40 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
   - HS-8 produces too few alternatives (some national subheadings only have 2–3 leaves) — flip `BRANCH_PREFIX_LENGTH` to 6 globally or per-route.
   - Need to apply the same branch-local pattern to `/classify/expand` (probably yes once Phase 7's broker-mapping lookup lands — those routes will benefit from the same determinism).
   - We add Phase 3 (branch-rank LLM rerank) — at that point the alternatives list will also carry per-leaf reasoning, and the wire format adds a `rationale` field on each `AlternativeCandidate` for accepted results.
+
+---
+
+## ADR-0013 — Phase 1.5: merchant-input cleanup before retrieval
+
+- **Date:** 2026-04-28
+- **Status:** Shipped.
+- **Context:**
+  - Real merchant inputs from the broker's data feed are dominated by Amazon-style listing titles (`Samsung Galaxy S25 Ultra AI Phone, 256GB Storage, 12GB RAM, Titanium Gray, Android Smartphone, 200MP Camera, S Pen, Long Battery Life (International Version) B0DP3GDTCF`), brand+SKU shorthand (`Arizona BFBC Mocca43`, `WH-1000XM5`), or stub words that aren't products at all (`parcel`, `item`).
+  - Feeding raw merchant strings into retrieval has three failure modes: (1) trigram and embedder hits land on noise tokens (`Titanium`, `Ftwwht`, ASIN strings); (2) the picker reads marketing copy and either gets distracted or anchors on brand-implied attributes (Birkenstock → "leather"); (3) the researcher fires reactively on every shorthand input — expensive (Sonnet) and reactive when a cheap proactive cleanup would suffice for the noisy-but-grounded majority.
+  - Sample-2 distribution analysis showed ~78% of merchant descriptions are 1–3 word stubs (`Hair Clip`, `Coat`, `Cards`) — these need no cleanup. The remaining ~22% benefit from cleanup; ~5–10% are full Amazon-title noise where cleanup is essential.
+- **Decision:**
+  - New Stage 0 in `/classify/describe`: `cleanMerchantInput` runs before retrieval. Two layers:
+    - **Deterministic short-circuit** (`looksClean`): inputs ≤4 tokens, ≤80 chars, no ASIN pattern (`B0[A-Z0-9]{8}`), no mixed alphanumeric model codes, no marketing punctuation (`,()[]{}/`) → bypass the LLM, retrieval gets the raw input. Saves an LLM call on the ~78% already-clean majority.
+    - **Haiku call** on noisy inputs. Returns structured JSON: `{kind, clean_description, attributes, stripped}`. `kind ∈ {product, merchant_shorthand, ungrounded}`.
+  - Output routing:
+    - `kind=product` with non-empty `clean_description` → use as the retrieval input, with attributes appended as a hint string (`"smartphone Android"`).
+    - `kind=merchant_shorthand` → leave raw input as the retrieval input. Stage 2's existing `checkUnderstanding` will route to the researcher, which is what handles brand+SKU resolution today.
+    - `kind=ungrounded` → leave raw input. Gate will likely refuse, which is the correct degraded mode.
+  - Haiku not Sonnet: structured cleanup, not legal reasoning. ~10× cheaper, ~3× faster (~1.5s vs ~3-5s). Worst case is downstream re-classification — bounded blast radius.
+  - Cleanup result surfaced on the response via the existing `interpretation` block (new fields: `cleaned_as`, `cleanup_kind`, `cleanup_attributes`, `cleanup_stripped`). Frontend can render "Understood as: smartphone — ignored: Samsung, Galaxy S25 Ultra, B0DP3GDTCF, …" so users can sanity-check what was stripped.
+  - Two new setup_meta tunables: `MERCHANT_CLEANUP_ENABLED` (flag, default 1), `MERCHANT_CLEANUP_MAX_TOKENS` (default 200). Migration `0007_merchant_cleanup.sql`, idempotent INSERT, with a CHECK constraint on the boolean flag.
+  - New `InterpretationStage` value: `'cleaned'` (stage shows the cleanup ran and produced a usable rewrite). `'researched'`/`'unknown'`/`'passthrough'` semantics unchanged.
+- **Consequences:**
+  - **Latency:** zero added on already-clean inputs (deterministic skip). ~1.5s added on noisy inputs (Haiku round-trip). Net effect on average request: negligible. On the 5–10% of pathological inputs that today either misclassify or fall through to best-effort: huge — they now classify cleanly.
+  - **Cost:** +1 Haiku call on ~22% of describe traffic. Haiku is ~10× cheaper than Sonnet, so total LLM cost rises by < 5% in expectation.
+  - **Wire-format addition:** `interpretation` block grows four optional fields. Frontend type updated. Existing consumers ignore unknown fields, so no breaking change.
+  - **Observability:** event log now records `cleanup_invoked`, `cleanup_kind`, `cleanup_effective`, attribute/stripped counts, and `cleanup_latency_ms`. Lets us A/B the cleanup phase against accuracy/latency without re-running the pipeline.
+  - **Composes with existing researcher.** Cleanup handles noisy-but-grounded ("Samsung Galaxy …" → "smartphone"). Researcher handles ungrounded shorthand ("Arizona BFBC Mocca43" → world-knowledge resolution). Cleanup's `kind=merchant_shorthand` output is what tells the existing pipeline to fire the researcher — so the two are explicitly coordinated, not redundant.
+- **Rejected alternatives:**
+  - **Run the researcher on every input.** Rejected: Sonnet is ~3-5s and ~10× more expensive than Haiku, and the researcher is overkill for "strip Samsung from a smartphone listing". Cleanup is the cheaper proactive layer; the researcher remains the expensive reactive layer.
+  - **Regex/heuristic-only cleanup (no LLM).** Rejected: brand lists go stale, marketing copy is too varied to capture deterministically, and the structured-attribute extraction (Bluetooth, over-ear, ANC) needs language understanding. We DO use heuristics for the short-circuit, but the cleanup step itself is LLM-based.
+  - **Run cleanup unconditionally.** Rejected: 78% of inputs don't need it, and adding 1.5s to every short stub input hurts batch-classification UX disproportionately.
+- **Revisit if:**
+  - Cleanup misclassifies a meaningful fraction of inputs as `ungrounded` when they're actually products (the "false ungrounded" rate). Tune the prompt's example set or shift the bias toward `kind: product` more aggressively.
+  - We add `/classify/expand` cleanup. The current implementation only wires Stage 0 into `/describe` because `/expand` already takes a parent prefix that anchors the legal family — cleanup matters less when the chapter is already chosen.
+  - Token cost goes up materially. The `MERCHANT_CLEANUP_MAX_TOKENS` cap exists for this; tune from setup_meta.

@@ -35,8 +35,9 @@ import { researchInput, type ResearchOutcome } from '../preprocess/research.js';
 import { bestEffortHeading, type BestEffortOutcome } from '../decision/best-effort-fallback.js';
 import { filterAlternatives } from '../decision/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
+import { cleanMerchantInput, type MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 
-type InterpretationStage = 'passthrough' | 'researched' | 'unknown';
+type InterpretationStage = 'passthrough' | 'cleaned' | 'researched' | 'unknown';
 
 export async function describeRoute(app: FastifyInstance): Promise<void> {
   app.post('/classify/describe', async (req, reply) => {
@@ -51,8 +52,40 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     const known = await loadKnownPrefixes();
     const t = await loadThresholds();
 
-    // ---- Stage 1: retrieve top-K on the original input -------------------
-    const norm1 = digitNormalize(description, known);
+    let stage: InterpretationStage = 'passthrough';
+    let effectiveDescription = description;
+    let research: ResearchOutcome | null = null;
+    let cleanup: MerchantCleanupResult | null = null;
+
+    // ---- Stage 0: merchant-input cleanup (Phase 1.5, ADR-0012) -----------
+    // Strips brand/SKU/marketing noise from raw merchant strings BEFORE
+    // retrieval. Deterministically skipped on inputs that already look
+    // clean (≤4 tokens, no SKU pattern, no marketing punctuation) — saves
+    // an LLM call on the ~80% of merchant descriptions that are already
+    // 1–3 word stubs. On noisy inputs, fires Haiku to extract a clean
+    // product noun and customs-relevant attributes.
+    if (t.MERCHANT_CLEANUP_ENABLED === 1) {
+      cleanup = await cleanMerchantInput(description, {
+        maxTokens: t.MERCHANT_CLEANUP_MAX_TOKENS,
+      });
+      if (cleanup.invoked === 'llm' && cleanup.kind === 'product') {
+        // The cleanup gave us a recognisable product type. Use that as the
+        // retrieval input. Attributes (Bluetooth, over-ear, ANC, …) are
+        // appended as a hint string so retrieval picks up signal from them
+        // without anchoring on brand/SKU noise.
+        const attrPart = cleanup.attributes.length > 0 ? ` ${cleanup.attributes.join(' ')}` : '';
+        effectiveDescription = `${cleanup.effective}${attrPart}`.trim();
+        stage = 'cleaned';
+      }
+      // For kind === 'merchant_shorthand' or 'ungrounded' we leave
+      // effectiveDescription as the raw input. Stage 2 below will route
+      // shorthand to the researcher; ungrounded falls through to the gate
+      // which will refuse it. No need to short-circuit here — the
+      // existing control flow handles both.
+    }
+
+    // ---- Stage 1: retrieve top-K on the (possibly cleaned) input ---------
+    const norm1 = digitNormalize(effectiveDescription, known);
     let candidates: Candidate[] = await retrieveCandidates(norm1.cleanedText, {
       leavesOnly: true,
       ...(norm1.prefixBias ? { prefixBias: norm1.prefixBias } : {}),
@@ -65,12 +98,12 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       topK: t.UNDERSTOOD_TOP_K_describe,
     });
 
-    let stage: InterpretationStage = 'passthrough';
-    let effectiveDescription = description;
-    let research: ResearchOutcome | null = null;
-
     if (!understanding.understood) {
       // ---- Stage 2b: researcher --------------------------------------------
+      // Always research on the original input — the researcher is what
+      // resolves merchant shorthand like "Arizona BFBC Mocca43" by world
+      // knowledge, and feeding it the cleaned (likely empty) text would
+      // strip the very signal it needs.
       research = await researchInput(description);
 
       if (research.kind === 'recognised') {
@@ -89,8 +122,8 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         // Whether we attempt best-effort here depends on the feature flag —
         // see the unified post-picker tail below.
       }
-      // research.kind === 'failed' → stage stays 'passthrough'; the gate
-      // will likely refuse on the original retrieval, which is the correct
+      // research.kind === 'failed' → stage stays 'cleaned'/'passthrough';
+      // the gate will likely refuse on the retrieval, which is the correct
       // degraded mode.
     }
 
@@ -222,6 +255,16 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         research_latency_ms: research?.latencyMs ?? null,
         best_effort_invoked: needsFallback,
         best_effort_specificity: accepted ? accepted.specificity : null,
+        // Phase 1.5 — cleanup observability. invoked is one of
+        // 'skipped_clean' | 'llm' | 'llm_failed' | 'llm_unparseable' so we
+        // can A/B the cleanup phase against accuracy/latency without
+        // re-running the whole pipeline.
+        cleanup_invoked: cleanup?.invoked ?? null,
+        cleanup_kind: cleanup?.invoked === 'llm' ? cleanup.kind : null,
+        cleanup_effective: cleanup?.invoked === 'llm' ? cleanup.effective : null,
+        cleanup_attributes_count: cleanup?.attributes.length ?? 0,
+        cleanup_stripped_count: cleanup?.stripped.length ?? 0,
+        cleanup_latency_ms: cleanup?.latencyMs ?? 0,
       },
       languageDetected: lang,
       decisionStatus: loggedStatus,
@@ -237,6 +280,15 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       llmStatus: llm?.llmStatus ?? null,
       guardTripped: llm?.guardTripped ?? false,
       modelCalls: [
+        ...(cleanup && cleanup.invoked === 'llm' && cleanup.model
+          ? [
+              {
+                model: cleanup.model,
+                latency_ms: cleanup.latencyMs,
+                status: 'ok' as const,
+              },
+            ]
+          : []),
         ...(research && research.kind !== 'failed'
           ? [{ model: research.model, latency_ms: research.latencyMs, status: 'ok' as const }]
           : []),
@@ -277,19 +329,15 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         },
         rationale: accepted.rationale,
         alternatives,
-        interpretation: {
-          original: description,
-          stage,
-          ...(stage === 'researched' && { rewritten_as: effectiveDescription }),
-          ...(stage === 'unknown' && research && research.kind === 'unknown'
-            ? { researcher_note: research.reason }
-            : {}),
-        },
+        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
         model: {
           embedder: EMBEDDER_VERSION(),
           llm: llm?.llmModel ?? null,
           best_effort: accepted.model,
           ...(research && research.kind === 'recognised' ? { researcher: research.model } : {}),
+          ...(cleanup && cleanup.invoked === 'llm' && cleanup.model
+            ? { cleanup: cleanup.model }
+            : {}),
         },
       };
     }
@@ -300,15 +348,14 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         decision_status: 'needs_clarification' as const,
         decision_reason: 'brand_not_recognised' as const,
         alternatives: [],
-        interpretation: {
-          original: description,
-          stage,
-          researcher_note: research.reason,
-        },
+        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
         model: {
           embedder: EMBEDDER_VERSION(),
           llm: null,
           researcher: research.model,
+          ...(cleanup && cleanup.invoked === 'llm' && cleanup.model
+            ? { cleanup: cleanup.model }
+            : {}),
         },
       };
     }
@@ -335,16 +382,65 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       ...(decision.missingAttributes.length > 0 && {
         missing_attributes: decision.missingAttributes,
       }),
-      interpretation: {
-        original: description,
-        stage,
-        ...(stage === 'researched' && { rewritten_as: effectiveDescription }),
-      },
+      interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
       model: {
         embedder: EMBEDDER_VERSION(),
         llm: llm?.llmModel ?? null,
         ...(research && research.kind === 'recognised' ? { researcher: research.model } : {}),
+        ...(cleanup && cleanup.invoked === 'llm' && cleanup.model
+          ? { cleanup: cleanup.model }
+          : {}),
       },
     };
   });
+}
+
+/**
+ * Centralise the interpretation block so all three response shapes
+ * (best-effort, researcher-declined, standard envelope) emit it identically.
+ * The block surfaces every transformation we did to the user's input —
+ * `cleaned_as` if cleanup ran and produced a different effective string,
+ * `rewritten_as` if the researcher rewrote it, plus a researcher note when
+ * the input couldn't be identified. Frontend uses this to render an
+ * "Understood as: …" line so the user can spot misinterpretation.
+ */
+function buildInterpretation(params: {
+  description: string;
+  stage: InterpretationStage;
+  effectiveDescription: string;
+  research: ResearchOutcome | null;
+  cleanup: MerchantCleanupResult | null;
+}): {
+  original: string;
+  stage: InterpretationStage;
+  cleaned_as?: string;
+  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded';
+  cleanup_attributes?: string[];
+  cleanup_stripped?: string[];
+  rewritten_as?: string;
+  researcher_note?: string;
+} {
+  const { description, stage, effectiveDescription, research, cleanup } = params;
+  const out: ReturnType<typeof buildInterpretation> = {
+    original: description,
+    stage,
+  };
+
+  // Surface cleanup outcome whenever the LLM ran (regardless of whether the
+  // result was used as the retrieval input). The frontend can show "we
+  // ignored: Samsung, Galaxy S25 Ultra, …" so the user can sanity-check.
+  if (cleanup && cleanup.invoked === 'llm') {
+    if (cleanup.kind === 'product' && cleanup.effective !== description) {
+      out.cleaned_as = cleanup.effective;
+    }
+    out.cleanup_kind = cleanup.kind;
+    if (cleanup.attributes.length > 0) out.cleanup_attributes = cleanup.attributes;
+    if (cleanup.stripped.length > 0) out.cleanup_stripped = cleanup.stripped;
+  }
+
+  if (stage === 'researched') out.rewritten_as = effectiveDescription;
+  if (stage === 'unknown' && research && research.kind === 'unknown') {
+    out.researcher_note = research.reason;
+  }
+  return out;
 }
