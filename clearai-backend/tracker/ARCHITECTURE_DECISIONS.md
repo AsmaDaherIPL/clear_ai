@@ -601,3 +601,113 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
   - Real traffic shows a meaningful number of users refining heading-level matches into sub-heading leaves manually. That's a signal we should be doing it for them — possibly via a follow-up "do you want to refine?" mini-flow that prompts for the missing attribute and re-runs classification.
   - ZATCA tightens the policy and starts rejecting heading-padded codes at certain headings. We'd need to track per-heading acceptance and only promote where ZATCA's table allows.
   - Web search Stage 2b lands. With external evidence, more cases that today produce `heading_level_match` would commit to a real leaf — promotion would still be the right floor when web evidence isn't conclusive enough for a full leaf.
+
+---
+
+## ADR-0020 — V3 architecture: stronger understanding, real gate, bounded heading injection
+
+- **Date:** 2026-04-28
+- **Status:** Shipped (Phases A–E). Phase F (web search) deferred.
+- **Context:** A design review of the V2 pipeline (post-Phase 7) flagged two
+  architectural contradictions the test cases exposed:
+  1. **Coherent-but-wrong-family retrieval was being laundered.** "Loewe
+     Puzzle bag" retrieval converged on chapter 42 (chapter-coherent →
+     Stage 2a said "understood") but on the wrong heading (4205 leather
+     articles, not 4202 bags). Stage 2c then injected `420500000000` as
+     a synthetic candidate. The gate soft-refused. The picker ran anyway
+     because of the injected heading. Best-effort then rescued the
+     answer from outside retrieval. The audit trail looked clean
+     ("accepted / heading_level_match / 420200000000") but the path was
+     a chain of progressively weaker signals each rescuing the previous
+     one.
+  2. **The "evidence gate" had an escape hatch.** Soft-refuse with a
+     heading-padded code in the candidate set bypassed the gate. That's
+     not a gate; it's a warning layer. The architecture language was
+     stricter than the behaviour.
+- **Decision (V3 redesign, 5 phases):**
+
+  **Phase A — Strengthen Stage 2a (`checkUnderstanding`).** Composite
+  signal across three dimensions instead of chapter coherence alone:
+    - Chapter coherence (existing)
+    - **Noun-family alignment** (new): when cleanup extracted a customs
+      noun, check whether retrieval's top-N descriptions contain that
+      noun (or a synonym from a small curated table covering bag,
+      shoe, perfume, watch, phone, trousers, shirt, headphones).
+    - Tri-state strength: `strong | weak | scattered`. `weak` is the
+      new state that catches "coherent but wrong family"; routes to the
+      researcher just like `scattered` does.
+  Backwards-compatible `understood` boolean preserved (true ↔ strong).
+
+  **Phase B — Non-destructive cleanup.** Cleanup output now used
+  ADDITIVELY in retrieval, not as a replacement. Previously
+  `effectiveDescription = "<noun> <attributes>"`. Now
+  `effectiveDescription = "<raw input> <noun> <attributes>"`. The raw
+  input keeps the lexical anchors that may be useful even when not in
+  the cleaned form ("Puzzle" reinforces handbag-family signal even
+  though Sonnet doesn't recognise it as a model name).
+
+  **Phase C — Demoted Stage 2c heading-padded injection.** Now fires
+  ONLY when:
+    - `understanding.strength === 'strong'` (Stage 2a fully satisfied
+      including noun-alignment), AND
+    - the customs noun (when known) appears in the heading-padded
+      row's description.
+  Both gates must pass; either failure → no injection. With Stage 2a's
+  V3 strength, the wrong-family case never reaches Stage 2c at all.
+
+  **Phase D — Real gate.** Removed `runPickerOnSoftRefuse` /
+  `effectiveGate` escape hatch. The picker runs IFF (`!skipPicker AND
+  candidates.length > 0 AND gate.passed`). The gate is now binary
+  again. The escape hatch existed to compensate for Stage 2a's
+  weakness; with Phase A in place, it's not needed.
+
+  **Phase E — Tightened heading-level promotion.** ADR-0019's promotion
+  (best_effort → accepted/heading_level_match) now requires a
+  family-agreement gate: retrieval must have surfaced at least one
+  candidate sharing the same 4-digit prefix as best-effort's heading.
+  This blocks the laundering path the reviewer flagged: when retrieval
+  goes to 4205 and best-effort overrules with 4202, those are
+  different families and Stage 7 is overruling retrieval — promotion
+  is suppressed and the result stays `best_effort`.
+
+- **Consequences:**
+  - **Loewe Puzzle bag** now reaches `accepted / heading_level_match /
+    420200000000` (medium) through a clean V3 path: Stage 2a's
+    noun-alignment catches the wrong-family retrieval → researcher
+    recognises it as a handbag → retrieval re-runs on canonical phrase
+    → 4202 family surfaces → gate passes → picker accepts. No more
+    "rescued by best-effort" laundering. Same final code, principled
+    derivation.
+  - **Arizona BFBC Mocca43** continues to abstain (`best_effort / 00`).
+    Family-agreement gate confirms there's no retrieval candidate for
+    a chapter best-effort even hinted at (it returned `00`), so no
+    promotion. Honest unresolved state.
+  - **cotton t-shirt** and **Colección LOEWE Perfumes Landscape**
+    unchanged — clean path was already clean.
+  - **97/97 backend tests green.** No new dependencies, no new
+    migrations, no new LLM calls. Pure prompt + routing improvements.
+- **Phase F deferred:** Web-search-augmented researcher (probed and
+  confirmed Foundry passes through Anthropic's hosted Web Search tool).
+  Not built in this round — the V3 backbone is stronger than V2 even
+  without it, and the Arizona case stays honestly unresolved rather
+  than wrongly classified. Web search becomes the natural next step
+  when feedback rows accumulate enough to identify which long-tail
+  brands actually matter.
+- **Rejected alternatives (from the reviewer's plan):**
+  - **Remove Stage 8 entirely.** Rejected — heading-padded codes are
+    legitimate ZATCA classifications with published duty rates; the
+    fix is the family-agreement gate (Phase E), not deletion of the
+    promotion path.
+  - **Constrain branch-rank to never jump headings.** No-op — branch-rank
+    today only ranks within the chosen HS-8 branch and can't reach a
+    different heading. Constraint already holds.
+  - **Restructure the picker to decide at coarser level.** Rejected
+    until measurement — speculative restructuring without feedback rows.
+- **Revisit if:**
+  - Real traffic shows the noun-synonym table missing important
+    customs nouns. Easy fix: append to `NOUN_SYNONYMS` in
+    check-understanding.ts (no migration, no LLM).
+  - The V3 strength tri-state needs a fourth state (e.g. "ambiguous"
+    where chapter coherence is borderline). Defer until data justifies.
+  - Phase F lands. Then web evidence flows into the researcher and
+    Stage 2a's noun alignment can fire on a richer canonical phrase.

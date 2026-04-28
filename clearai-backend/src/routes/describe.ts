@@ -75,12 +75,18 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         maxTokens: t.MERCHANT_CLEANUP_MAX_TOKENS,
       });
       if (cleanup.invoked === 'llm' && cleanup.kind === 'product') {
-        // The cleanup gave us a recognisable product type. Use that as the
-        // retrieval input. Attributes (Bluetooth, over-ear, ANC, …) are
-        // appended as a hint string so retrieval picks up signal from them
-        // without anchoring on brand/SKU noise.
+        // V3 (ADR-0020) non-destructive cleanup. Previously the cleaned
+        // noun + attributes REPLACED the retrieval query. That stripped
+        // useful signal: for "Loewe Puzzle bag" → effective = "bag" lost
+        // "Puzzle" (a strong lexical anchor for handbag-family content
+        // even if Sonnet's pre-training doesn't know the model). Now we
+        // build a CONCATENATED query that keeps the raw input AND adds
+        // the cleaned noun + attributes as an explicit hint suffix. The
+        // retrieval index sees both signals and weights its own way; we
+        // don't pre-decide which is more important.
         const attrPart = cleanup.attributes.length > 0 ? ` ${cleanup.attributes.join(' ')}` : '';
-        effectiveDescription = `${cleanup.effective}${attrPart}`.trim();
+        const cleanedHint = `${cleanup.effective}${attrPart}`.trim();
+        effectiveDescription = `${description.trim()} ${cleanedHint}`.trim();
         stage = 'cleaned';
       }
       // For kind === 'merchant_shorthand' or 'ungrounded' we leave
@@ -99,9 +105,20 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     });
 
     // ---- Stage 2: did retrieval understand? ------------------------------
+    // V3 (ADR-0020): composite signal. Chapter coherence alone missed the
+    // "coherent but wrong-family" failure mode (Loewe Puzzle bag → 4205
+    // leather articles). Adding noun-alignment catches it: cleanup
+    // extracted "bag", retrieval surfaced "leather articles / desk pads /
+    // buckle parts" — none mention "bag" → understanding returns weak,
+    // researcher runs.
+    const customsNoun =
+      cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'product'
+        ? cleanup.effective
+        : null;
     const understanding = checkUnderstanding(candidates, {
       maxDistinctChapters: t.UNDERSTOOD_MAX_DISTINCT_CHAPTERS,
       topK: t.UNDERSTOOD_TOP_K_describe,
+      ...(customsNoun ? { customsNoun } : {}),
     });
 
     if (!understanding.understood) {
@@ -133,17 +150,22 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       // degraded mode.
     }
 
-    // ---- Stage 2c: heading-padded code injection ------------------------
-    // Retrieval often misses the heading-level row (xxxx00000000) because
-    // its description is long and generic — the embedder dilutes it
-    // against a short input. But the picker's heading-fallback rule can
-    // only fire when the heading-padded code is in the candidate set. So:
-    // if the retrieval's top candidate's chapter+heading has a
-    // corresponding heading-padded row in hs_codes, splice it into the
-    // candidate list. We give it a synthetic RRF score equal to the
-    // current top so it visibly competes; the picker decides whether to
-    // pick it (heading-level commit) or a leaf below it.
-    if (candidates.length > 0) {
+    // ---- Stage 2c: heading-padded code injection (V3 — bounded assist) ---
+    // V3 (ADR-0020) demotes this from "synthetic fallback that keeps the
+    // picker alive" to "bounded assist". Reviewer's concern: previously
+    // injection fired whenever retrieval had any top result, which could
+    // add a wrong heading (Loewe Puzzle bag's top result was 4205 —
+    // wrong family — and we were injecting 420500000000). Stage 2a's V3
+    // composite signal would now route Loewe Puzzle bag through the
+    // researcher first, but as a defence-in-depth measure injection only
+    // fires when:
+    //   1. understanding strength === 'strong' (Stage 2a is fully
+    //      satisfied — chapter coherent AND noun-aligned), AND
+    //   2. the customs noun (if known) appears in the heading-padded
+    //      row's description.
+    // Both gates are satisfied → inject. Either fails → skip injection
+    // and let retrieval/picker decide on real candidates only.
+    if (candidates.length > 0 && understanding.strength === 'strong') {
       const top = candidates[0]!;
       const headingPrefix = top.code.slice(0, 4); // e.g. "4202"
       const candidateHeadingCode = `${headingPrefix}00000000`;
@@ -160,22 +182,32 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         );
         const row = r.rows[0];
         if (row) {
-          candidates = [
-            ...candidates,
-            {
-              code: row.code,
-              description_en: row.description_en,
-              description_ar: row.description_ar,
-              parent10: row.code.slice(0, 10),
-              vec_rank: null,
-              bm25_rank: null,
-              trgm_rank: null,
-              vec_score: null,
-              bm25_score: null,
-              trgm_score: null,
-              rrf_score: top.rrf_score, // tied with the top so it visibly competes
-            },
-          ];
+          // Second gate: when we have a customs noun, ensure THE HEADING
+          // ITSELF describes that noun. The heading description is the
+          // long generic enumeration of every product type at this
+          // heading; if "bag" / "perfume" / etc isn't anywhere in it,
+          // injection would still be misaligned and we skip.
+          const headingText = `${row.description_en ?? ''} ${row.description_ar ?? ''}`.toLowerCase();
+          const nounAlignsWithHeading =
+            !customsNoun || headingText.includes(customsNoun.toLowerCase());
+          if (nounAlignsWithHeading) {
+            candidates = [
+              ...candidates,
+              {
+                code: row.code,
+                description_en: row.description_en,
+                description_ar: row.description_ar,
+                parent10: row.code.slice(0, 10),
+                vec_rank: null,
+                bm25_rank: null,
+                trgm_rank: null,
+                vec_score: null,
+                bm25_score: null,
+                trgm_score: null,
+                rrf_score: top.rrf_score, // tied with the top so it visibly competes
+              },
+            ];
+          }
         }
       }
     }
@@ -187,31 +219,21 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     });
 
     let llm = null;
-    // Run the picker when:
-    //   - the gate passed (strong retrieval), OR
-    //   - the gate refused for soft reasons (weak_retrieval /
-    //     ambiguous_top_candidates) BUT we have candidates AND the
-    //     candidate set includes a heading-padded code in the same family.
-    //     The picker's heading-fallback rule will commit to that heading,
-    //     which is a legitimate ZATCA-accepted classification rather than
-    //     forcing the input through best-effort fallback.
-    //   - never when the researcher flagged the input as unknown — we
-    //     already know retrieval doesn't have the right product.
-    //   - never on `invalid_prefix` (the candidate set is empty).
+    // V3 (ADR-0020): Stage 3 is a real gate again. The picker runs IFF
+    // the gate passed. Previously a soft-refuse-with-heading-padded
+    // escape hatch let the picker run on weak retrieval, which the
+    // reviewer correctly diagnosed as a trust-boundary contradiction
+    // ("the gate fails, but here's a synthetic candidate to make the
+    // picker run anyway"). With Stage 2a's V3 composite signal catching
+    // the wrong-family case earlier, the escape hatch isn't needed.
+    //
+    // Picker runs when ALL of:
+    //   - researcher didn't flag the input as unknown
+    //   - we have candidates
+    //   - the gate passed
+    // Otherwise: route to best-effort fallback.
     const skipPicker = stage === 'unknown';
-    const gateSoftRefuse =
-      !gate.passed &&
-      'reason' in gate &&
-      (gate.reason === 'weak_retrieval' || gate.reason === 'ambiguous_top_candidates');
-    const hasHeadingPadded = candidates.some(
-      (c) => /^\d{4}0{8}$/.test(c.code), // 4 digits + 8 zeros
-    );
-    const runPickerOnSoftRefuse = gateSoftRefuse && hasHeadingPadded;
-    if (
-      !skipPicker &&
-      candidates.length > 0 &&
-      (gate.passed || runPickerOnSoftRefuse)
-    ) {
+    if (!skipPicker && candidates.length > 0 && gate.passed) {
       llm = await llmPick({
         kind: 'describe',
         query: effectiveDescription,
@@ -220,15 +242,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // If the picker ran on a soft-refused gate AND committed to a code,
-    // we treat the gate as "passed" for resolve()'s purposes — the picker's
-    // commit (per its heading-fallback rule) is the authoritative signal,
-    // and the heading-level commit is a legitimate accepted ZATCA code.
-    const effectiveGate =
-      runPickerOnSoftRefuse && llm && llm.chosenCode
-        ? { ...gate, passed: true as const }
-        : gate;
-    const decision = resolve({ gate: effectiveGate, llm });
+    const decision = resolve({ gate, llm });
 
     // ---- Stage 5: best-effort fallback tail ------------------------------
     // Trigger when the route has not produced an accepted code AND the
@@ -254,22 +268,28 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     let accepted: Extract<BestEffortOutcome, { kind: 'ok' }> | null =
       bestEffort && bestEffort.kind === 'ok' ? bestEffort : null;
 
-    // ---- Heading-level acceptance promotion (ADR-0019) -------------------
+    // ---- Heading-level acceptance promotion (ADR-0019, V3-tightened) -----
     // ZATCA recognises heading-padded 12-digit codes (e.g. `420200000000`,
     // `640300000000`) as valid customs declarations with published duty
-    // rates. When best-effort identified a 4-digit HS heading we'd
-    // otherwise wrap it in a "verify before use" warning card — but the
-    // 12-digit form of that same heading IS a legitimate accepted code.
-    // Look up `<heading>00000000` in hs_codes; if it exists as a leaf,
+    // rates. When best-effort identified a 4-digit HS heading we can
     // promote the response from best_effort → accepted with confidence
-    // band 'medium' and decision_reason 'heading_level_match'. The
-    // promotion only fires when:
-    //   - best-effort produced a 4-digit code AND the gate failed
-    //     upstream (i.e. the standard accepted path didn't already
-    //     produce a 12-digit pick).
-    //   - the heading-padded row exists in hs_codes as is_leaf=true.
-    // Either condition unmet → leave the response as best_effort, the
-    // existing verify-toggle UI applies.
+    // band 'medium' and decision_reason 'heading_level_match'.
+    //
+    // V3 (ADR-0020) tightens promotion to prevent the trust-laundering
+    // path the reviewer flagged: previously we promoted any 4-digit
+    // best-effort result as long as <heading>00000000 was a leaf, which
+    // could turn a Stage-7-rescued wrong-family answer into "accepted".
+    // The V3 rule only promotes when retrieval ALSO pointed at the same
+    // heading family — that's our evidence that best-effort isn't
+    // overruling retrieval but agreeing with it. If retrieval went to
+    // 4205 and best-effort went to 4202, those are different families
+    // and we leave the result as best_effort (verify-toggle gating).
+    //
+    // The check is cheap: does any retrieval candidate share the same
+    // 4-digit prefix as best-effort's heading? When the gate failed and
+    // candidates were weak, this still validates the family-agreement.
+    // When retrieval was empty or pointed to a different family, no
+    // promotion.
     let headingLevelPromoted: {
       code: string;
       description_en: string | null;
@@ -278,6 +298,12 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       missingHint: string;
     } | null = null;
     if (accepted && accepted.specificity === 4 && /^\d{4}$/.test(accepted.code)) {
+      // V3 family-agreement gate: retrieval must have surfaced at least
+      // one candidate in the same heading family that best-effort picked.
+      // This is what stops Loewe Puzzle bag's old failure mode (retrieval
+      // converged on 4205, best-effort overruled with 4202, promotion
+      // would have laundered that override into accepted).
+      const familyAgreement = candidates.some((c) => c.code.slice(0, 4) === accepted!.code);
       const headingCode = `${accepted.code}00000000`;
       const pool = getPool();
       const r = await pool.query<{
@@ -288,7 +314,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         [headingCode],
       );
       const row = r.rows[0];
-      if (row) {
+      if (row && familyAgreement) {
         // Promote. We synthesise a rationale that explains the
         // heading-level commit honestly: it's a real ZATCA leaf,
         // duty is published, but a sub-heading would be more
