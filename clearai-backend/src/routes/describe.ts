@@ -387,7 +387,12 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     // `branch_rank_picker_choice` for offline review.
     const loggedChosen = accepted ? accepted.code : effectiveChosenCode;
 
-    logEvent({
+    // We await logEvent so we get the inserted row's UUID back as the
+    // request_id we expose on the response. logEvent returns null (not
+    // throws) on DB failure, so a logging outage degrades to "no
+    // request_id on the response" rather than "the whole classification
+    // 500s". The user's classification still ships normally.
+    const requestId = await logEvent({
       endpoint: 'describe',
       request: {
         description,
@@ -491,13 +496,17 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       llmModel: accepted ? accepted.model : (llm?.llmModel ?? null),
       totalLatencyMs: totalLatency,
       error: null,
-    }).catch((err) => app.log.error({ err }, 'logEvent failed'));
+    });
 
     // ---- Response shape --------------------------------------------------
 
     // Best-effort response (verify-toggle gated on the frontend).
     if (accepted) {
       return {
+        // Phase 4 — request id surfaced on every response so the frontend
+        // can deep-link to /trace/:id and POST feedback. Null when logging
+        // failed (degraded mode); UI hides the trace link in that case.
+        ...(requestId ? { request_id: requestId } : {}),
         decision_status: 'best_effort' as const,
         decision_reason: 'best_effort_heading' as const,
         confidence_band: 'low' as const,
@@ -527,6 +536,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     // Researcher-declined response (no fallback — feature flag off).
     if (stage === 'unknown' && research && research.kind === 'unknown') {
       return {
+        ...(requestId ? { request_id: requestId } : {}),
         decision_status: 'needs_clarification' as const,
         decision_reason: 'brand_not_recognised' as const,
         alternatives: [],
@@ -544,6 +554,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
 
     // Standard envelope (accepted / needs_clarification / degraded).
     return {
+      ...(requestId ? { request_id: requestId } : {}),
       decision_status: decision.decisionStatus,
       decision_reason: decision.decisionReason,
       ...(decision.confidenceBand && { confidence_band: decision.confidenceBand }),

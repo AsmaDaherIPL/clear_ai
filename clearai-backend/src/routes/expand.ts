@@ -31,7 +31,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
 
     if (branchSize === 0) {
       const totalLatency = Date.now() - t0;
-      logEvent({
+      const requestId = await logEvent({
         endpoint: 'expand',
         request: { code: parentPrefix, description },
         languageDetected: lang,
@@ -52,8 +52,9 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
-      }).catch((err) => app.log.error({ err }, 'logEvent failed'));
+      });
       return {
+        ...(requestId ? { request_id: requestId } : {}),
         decision_status: 'needs_clarification',
         decision_reason: 'invalid_prefix',
         alternatives: [],
@@ -113,7 +114,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
 
     const totalLatency = Date.now() - t0;
 
-    logEvent({
+    const requestId = await logEvent({
       endpoint: 'expand',
       request: { code: parentPrefix, description },
       languageDetected: lang,
@@ -136,9 +137,10 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       llmModel: llm?.llmModel ?? null,
       totalLatencyMs: totalLatency,
       error: null,
-    }).catch((err) => app.log.error({ err }, 'logEvent failed'));
+    });
 
     return {
+      ...(requestId ? { request_id: requestId } : {}),
       decision_status: decision.decisionStatus,
       decision_reason: decision.decisionReason,
       ...(decision.confidenceBand && { confidence_band: decision.confidenceBand }),

@@ -28,10 +28,19 @@ export interface EventInsert {
   error: string | null;
 }
 
-export async function logEvent(e: EventInsert): Promise<void> {
+/**
+ * Insert one classification event row and return the auto-generated UUID
+ * primary key. The id is surfaced on the response (`request_id`) so the
+ * frontend can deep-link to /trace/:id and POST feedback against the same
+ * row. Returning null instead of throwing on DB failure means logging is
+ * best-effort — we never break a successful classification because logging
+ * happened to fail.
+ */
+export async function logEvent(e: EventInsert): Promise<string | null> {
   const pool = getPool();
-  await pool.query(
-    `INSERT INTO classification_events (
+  try {
+    const r = await pool.query<{ id: string }>(
+      `INSERT INTO classification_events (
       endpoint, request, language_detected,
       decision_status, decision_reason, confidence_band,
       chosen_code, alternatives,
@@ -45,28 +54,34 @@ export async function logEvent(e: EventInsert): Promise<void> {
       $9, $10, $11, $12,
       $13, $14, $15,
       $16, $17, $18, $19, $20
-    )`,
-    [
-      e.endpoint,
-      JSON.stringify(e.request),
-      e.languageDetected,
-      e.decisionStatus,
-      e.decisionReason,
-      e.confidenceBand,
-      e.chosenCode,
-      e.alternatives === null ? null : JSON.stringify(e.alternatives),
-      e.topRetrievalScore,
-      e.top2Gap,
-      e.candidateCount,
-      e.branchSize,
-      e.llmUsed,
-      e.llmStatus,
-      e.guardTripped,
-      e.modelCalls === null ? null : JSON.stringify(e.modelCalls),
-      e.embedderVersion,
-      e.llmModel,
-      e.totalLatencyMs,
-      e.error,
-    ]
-  );
+    ) RETURNING id`,
+      [
+        e.endpoint,
+        JSON.stringify(e.request),
+        e.languageDetected,
+        e.decisionStatus,
+        e.decisionReason,
+        e.confidenceBand,
+        e.chosenCode,
+        e.alternatives === null ? null : JSON.stringify(e.alternatives),
+        e.topRetrievalScore,
+        e.top2Gap,
+        e.candidateCount,
+        e.branchSize,
+        e.llmUsed,
+        e.llmStatus,
+        e.guardTripped,
+        e.modelCalls === null ? null : JSON.stringify(e.modelCalls),
+        e.embedderVersion,
+        e.llmModel,
+        e.totalLatencyMs,
+        e.error,
+      ],
+    );
+    return r.rows[0]?.id ?? null;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[logEvent] insert failed:', err);
+    return null;
+  }
 }

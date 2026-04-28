@@ -411,3 +411,37 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
   - ZATCA tightens the rule (e.g. "must differ by ≥ 2 tokens" or "near-duplicate after stemming"). Tighten the post-check; architecture stays the same.
   - We need to generate the EN line as a strict translation of the AR rather than independently. Add a `SUBMISSION_DESC_EN_AS_TRANSLATION` flag.
   - Token cost goes up materially. The `SUBMISSION_DESC_MAX_TOKENS` cap exists for this; tune from setup_meta.
+
+---
+
+## ADR-0017 — Phase 4: per-request trace page + user feedback collection
+
+- **Date:** 2026-04-28
+- **Status:** Shipped (backend + frontend; auth deferred to a later phase).
+- **Context:**
+  - Through Phases 0–5 we shipped 5 new sub-systems (filter-alternatives, branch enumeration, branch-rank, merchant cleanup, submission description) — each behind a feature flag, each adding observability fields to the event log. We had no UI surface to inspect a single request end-to-end, and no surface for users to push back on classifications. Both gaps blocked the next round of tuning: we couldn't decide which flags to flip on without a way to see what each phase actually did per request, and we couldn't measure accuracy without human-confirmed labels.
+  - The aggregate-metrics dashboard idea was rejected explicitly — showing brokers "we got 87% right" implies "13% of YOUR work was wrong" and is bad UX. Per-request traces sidestep that: each trace is the user's own request by definition.
+- **Decision:**
+  - **Per-request trace page** at `/trace/:id`. Renders the full `classification_events` row (request, decision, retrieval signals, model timeline, alternatives, llm_used, guard tripped, latency) and any `classification_feedback` rows attached to it. Astro shell + React island; same auth + CORS path as the main app.
+  - **Auth model: share-link-with-UUID.** The trace id is the event row's primary key, generated server-side as `gen_random_uuid()`. Anyone with the link can view the trace and submit feedback. UUIDs are unguessable; the trace is "your own request" by definition. When real user auth lands later, we tighten via the `user_id` column on `classification_feedback` (already in the schema, null-permitting today).
+  - **`request_id` on every classify response.** `logEvent` was changed to RETURNING id and called with `await`. The id is surfaced as `request_id` on all three response shapes from `/classify/describe`, `/classify/expand`, and `/boost`. logEvent failures degrade to "no request_id, trace link hidden" rather than 500'ing the classification.
+  - **Feedback table** `classification_feedback` (migration 0011): event_id (FK, ON DELETE CASCADE), kind ∈ {confirm, reject, prefer_alternative}, rejected_code, corrected_code, reason ≤ 500 chars, user_id (null today). UNIQUE on (event_id, COALESCE(user_id, '')) so a user UPSERTs their feedback rather than spamming duplicates. CHECK constraint enforces the corrected_code/kind invariants in addition to the route-level checks.
+  - **Two new endpoints**:
+    - `GET /trace/:eventId` — returns `{event, feedback[]}`. 404 on bad UUID.
+    - `POST /trace/:eventId/feedback` — UPSERTs one row. Validates kind/corrected_code combinations server-side; defaults rejected_code to the event's chosen_code when omitted (the typical "this is wrong" click on the result card).
+  - **Frontend MetaPanel removed** from the main result page. The model + latency dev-view it carried is now part of the trace page (richer: every model call with per-call latency + status, not just "the picker model"). A new `TraceLink` component renders a small footer at the bottom of the result block — `Round-trip: 7.6s · View full trace →` — that links to `/trace/:id`. Renders `Trace unavailable` (no link) when `request_id` is absent.
+- **Consequences:**
+  - **Per-request debugging is now a one-click operation.** Customer reports a classification that looked weird? Open `/trace/<id>`, see the full pipeline state, decide if it's a picker error, a retrieval miss, a cleanup mistake, or a branch-rank disagreement. Massively reduces the cost of investigating edge cases.
+  - **Feedback rows = ground-truth training data.** Every "wrong, should be X" click is a labelled correction that can drive picker prompt tuning, threshold calibration, or per-customer specialisation. The schema already includes `user_id` for when auth lands, so the data we collect today is forward-compatible.
+  - **logEvent is now blocking.** The `await` adds 5–15ms p95 to every classification (single INSERT against a hot table with autoincrementing UUID PK + jsonb columns). Acceptable: typical classification is 4–10s anyway. If this ever becomes the bottleneck we can move logging back to fire-and-forget via a Postgres `LISTEN/NOTIFY` queue or an in-memory ring buffer with a flusher task.
+  - **Wire-format addition**: `DecisionEnvelopeBase.request_id?: string`. Optional for backward compat; absent on cached/legacy responses or DB-failure paths.
+  - **Main result page is cleaner.** Dev/meta noise gone. Brokers see chosen code → submission text → alternatives → trace link. Trace is opt-in.
+- **Rejected alternatives:**
+  - **Aggregate metrics dashboard.** Rejected as the primary surface — wrong audience (brokers, not operators), bad framing ("X% wrong" implies broker error), and gameable. We'll build one for ops use only after we have feedback rows to compute meaningful accuracy.
+  - **APIM-key auth on the trace endpoint.** Rejected for now: the frontend bundle has the key baked in anyway, so requiring it doesn't add real security; UUIDs are the actual access control. We'll layer real auth on the same surface when user accounts land.
+  - **Soft-delete for feedback rows.** Rejected: feedback is small + auditable + not user-reversible (the intent is "I corrected this once" not "I take it back"). If a user changes their mind, they UPSERT a different `kind` against the same (event_id, user_id) pair.
+  - **History view of all past requests.** Defer. Per-request trace is enough for the current debug story; a "your last 20 classifications" panel is a separate Phase 4.5 if/when needed.
+- **Revisit if:**
+  - Trace endpoint becomes a hotspot (unlikely — point lookup by indexed UUID). Add an in-memory cache keyed on event id with a short TTL.
+  - Feedback rows reveal a systematic disagreement pattern (e.g. picker chose code X but brokers consistently correct to Y for the same input class). Surface it via a Phase 4.5 admin metrics view, then loop back into prompt tuning.
+  - We add user accounts. The user_id column is ready; auth wiring is the only missing piece.

@@ -43,7 +43,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
 
     if (declaredRow.rowCount === 0) {
       const totalLatency = Date.now() - t0;
-      logEvent({
+      const requestId = await logEvent({
         endpoint: 'boost',
         request: { code },
         languageDetected: null,
@@ -64,8 +64,9 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
-      }).catch((err) => app.log.error({ err }, 'logEvent failed'));
+      });
       return {
+        ...(requestId ? { request_id: requestId } : {}),
         decision_status: 'needs_clarification',
         decision_reason: 'invalid_prefix',
         alternatives: [],
@@ -109,7 +110,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
     // If there are no siblings, declared is the only leaf in the parent10 → most specific.
     if (siblings.length === 0) {
       const totalLatency = Date.now() - t0;
-      logEvent({
+      const requestId = await logEvent({
         endpoint: 'boost',
         request: { code },
         languageDetected: null,
@@ -130,8 +131,9 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
-      }).catch((err) => app.log.error({ err }, 'logEvent failed'));
+      });
       return {
+        ...(requestId ? { request_id: requestId } : {}),
         decision_status: 'accepted',
         decision_reason: 'already_most_specific',
         confidence_band: 'high',
@@ -155,7 +157,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
 
     if (margin < t.BOOST_MARGIN) {
       const totalLatency = Date.now() - t0;
-      logEvent({
+      const requestId = await logEvent({
         endpoint: 'boost',
         request: { code },
         languageDetected: null,
@@ -181,8 +183,9 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
-      }).catch((err) => app.log.error({ err }, 'logEvent failed'));
+      });
       return {
+        ...(requestId ? { request_id: requestId } : {}),
         decision_status: 'accepted',
         decision_reason: 'already_most_specific',
         confidence_band: 'high',
@@ -215,7 +218,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
       retrieval_score: Number(s.vec_score.toFixed(4)),
     }));
 
-    logEvent({
+    const requestId = await logEvent({
       endpoint: 'boost',
       request: { code },
       languageDetected: null,
@@ -236,9 +239,10 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
       llmModel: null,
       totalLatencyMs: totalLatency,
       error: null,
-    }).catch((err) => app.log.error({ err }, 'logEvent failed'));
+    });
 
     return {
+      ...(requestId ? { request_id: requestId } : {}),
       decision_status: 'accepted',
       decision_reason: 'strong_match',
       before: {

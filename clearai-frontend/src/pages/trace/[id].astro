@@ -1,0 +1,21 @@
+---
+/**
+ * /trace/:id — full debug trace for a single classification.
+ *
+ * Astro renders the shell server-side; the React island fetches the trace
+ * client-side using the same API client as the main app, so APIM auth and
+ * CORS work uniformly.
+ *
+ * This is also where the "dev mode" surface lives now — moved off the
+ * main result page per Phase 4. The main result page no longer shows
+ * model/latency meta; you click "View full trace →" to drill in.
+ */
+import Layout from '../../layouts/Layout.astro';
+import TracePage from '../../components/TracePage.tsx';
+
+const { id } = Astro.params;
+---
+
+<Layout>
+  <TracePage eventId={id ?? ''} client:load />
+</Layout>

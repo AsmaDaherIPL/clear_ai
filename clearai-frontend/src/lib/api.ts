@@ -192,6 +192,14 @@ export interface SubmissionDescription {
 
 /** Common envelope shared by /classify/describe, /classify/expand, /boost. */
 export interface DecisionEnvelopeBase {
+  /**
+   * Phase 4 — UUID of the classification_events row written for this
+   * request. Surfaced so the frontend can deep-link to /trace/:id and
+   * POST feedback. Optional only because logging is best-effort: if the
+   * DB is briefly unavailable, the classification still ships, but the
+   * trace link won't render.
+   */
+  request_id?: string;
   decision_status: DecisionStatus;
   decision_reason: DecisionReason;
   confidence_band?: ConfidenceBand;
@@ -298,6 +306,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(b),
     }),
+  // Phase 4 — trace + feedback. The trace endpoint returns the raw
+  // classification_events row plus any associated feedback. The feedback
+  // endpoint UPSERTs one row per (event, user) pair.
+  trace: (eventId: string) => request<TraceResponse>(`/trace/${encodeURIComponent(eventId)}`),
+  feedback: (eventId: string, body: PostFeedbackBody) =>
+    request<{ ok: boolean; feedback_id: string | null }>(
+      `/trace/${encodeURIComponent(eventId)}/feedback`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
+    ),
 };
 
 export { ApiError };
@@ -360,3 +380,66 @@ export function statusToTone(status: DecisionStatus): 'good' | 'warn' | 'bad' {
   if (status === 'best_effort') return 'warn';
   return 'bad';
 }
+
+// ---- Phase 4: trace + feedback ---------------------------------------------
+
+/**
+ * Full debug payload for a single classification, returned by GET /trace/:id.
+ * Mirrors the classification_events row plus any associated feedback rows.
+ *
+ * Most fields are jsonb on the DB side and arrive here as `unknown`; the
+ * trace UI renders them defensively (object-aware pretty-print, fall back
+ * to JSON.stringify when the shape isn't recognised).
+ */
+export interface TraceEvent {
+  id: string;
+  created_at: string;
+  endpoint: 'describe' | 'expand' | 'boost';
+  request: unknown;
+  language_detected: string | null;
+  decision_status: string;
+  decision_reason: string;
+  confidence_band: string | null;
+  chosen_code: string | null;
+  alternatives: unknown;
+  top_retrieval_score: number | null;
+  top2_gap: number | null;
+  candidate_count: number | null;
+  branch_size: number | null;
+  llm_used: boolean;
+  llm_status: string | null;
+  guard_tripped: boolean;
+  model_calls: unknown;
+  embedder_version: string | null;
+  llm_model: string | null;
+  total_latency_ms: number | null;
+  error: string | null;
+}
+
+export interface TraceFeedback {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  kind: 'confirm' | 'reject' | 'prefer_alternative';
+  rejected_code: string | null;
+  corrected_code: string | null;
+  reason: string | null;
+  user_id: string | null;
+}
+
+export interface TraceResponse {
+  event: TraceEvent;
+  feedback: TraceFeedback[];
+}
+
+export type FeedbackKind = 'confirm' | 'reject' | 'prefer_alternative';
+
+export interface PostFeedbackBody {
+  kind: FeedbackKind;
+  rejected_code?: string;
+  corrected_code?: string;
+  reason?: string;
+}
+
+// Trace / feedback API methods are wired into the `api` object above
+// (api.trace and api.feedback). The types live here for callers to import.

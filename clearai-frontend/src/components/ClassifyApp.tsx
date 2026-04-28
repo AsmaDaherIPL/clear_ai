@@ -33,7 +33,7 @@ import HSResultCard from './HSResultCard';
 import BestEffortCard from './BestEffortCard';
 import AlternativesCard from './AlternativesCard';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
-import MetaPanel from './MetaPanel';
+import TraceLink from './TraceLink';
 import Footer from './Footer';
 
 type AnyResponse = DescribeResponse | ExpandBoostResponse;
@@ -278,7 +278,17 @@ function ResultBlock({
         {...(status !== 'accepted' && hint ? { remediationHint: hint } : {})}
       />
 
-      <MetaPanel model={body.model} clientLatencyMs={clientLatencyMs} />
+      {/* Phase 4 — "View full trace" deep-link replaces the inline dev/meta
+          panel. The trace page shows model timeline, latency, decision
+          internals, and the feedback form. The link only renders when the
+          backend returned a request_id (best-effort logging — degrades
+          gracefully on a logging outage). clientLatencyMs is rendered
+          alongside as a quick "how slow was this" tell, since users find
+          that useful even without opening the trace. */}
+      <TraceLink
+        requestId={(body as DecisionEnvelopeBase).request_id}
+        clientLatencyMs={clientLatencyMs}
+      />
     </div>
   );
 }
