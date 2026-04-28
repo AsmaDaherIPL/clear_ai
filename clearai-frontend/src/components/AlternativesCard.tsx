@@ -90,7 +90,11 @@ export default function AlternativesCard({
     <div className="cands">
       <div className="cands-head">
         <div className="t">Considered alternatives</div>
-        <div className="s">Top candidates the picker shortlisted</div>
+        <div className="s">
+          Top candidates the picker shortlisted. Similarity is text-match
+          strength to your input — a sibling can outrank the chosen code here
+          and still be the wrong classification.
+        </div>
       </div>
 
       {remediationHint && (
@@ -159,16 +163,28 @@ function CandidateRow({ rank, code, descEn, descAr, score, isTop, onPick }: RowP
       </div>
 
       <div className="cand-r">
-        <div
-          className="cand-sim"
-          title="Reciprocal-rank-fusion retrieval score (vector + BM25 + trigram). Not a classification confidence."
-        >
-          <span className="sim-k">retrieval</span>
-          <span className="sim-v">{pct(score)}</span>
-          <div className="sim-bar">
-            <div className="f" style={{ width: `${Math.min(100, score * 100)}%` }} />
+        {isTop ? (
+          // Deliberately no number on the chosen row. Showing a similarity %
+          // here invites a wrong reading — siblings can have a HIGHER lexical
+          // score yet be the wrong code (the picker overrides retrieval rank
+          // when the runner-up is more specific or matches GIRs better).
+          // A qualitative chip side-steps the false comparison.
+          <div className="cand-picked" title="The picker (LLM + GIR rules) chose this code. Sibling similarity scores below are text-match strength, not correctness.">
+            <span className="picked-dot" />
+            <span>Picker’s choice</span>
           </div>
-        </div>
+        ) : (
+          <div
+            className="cand-sim"
+            title="Lexical + vector similarity to your input. NOT a confidence in the code being correct — a sibling can outrank the chosen code here and still be wrong."
+          >
+            <span className="sim-k">similarity</span>
+            <span className="sim-v">{pct(score)}</span>
+            <div className="sim-bar">
+              <div className="f" style={{ width: `${Math.min(100, score * 100)}%` }} />
+            </div>
+          </div>
+        )}
         <button
           type="button"
           className={`btn-pick ${isTop ? 'primary' : ''}`}

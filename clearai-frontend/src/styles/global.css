@@ -1073,6 +1073,26 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .sim-bar .f { height: 100%; background: var(--grad); }
 .cand.weak .sim-bar .f { background: var(--mute-2); }
 
+/* Picker's-choice chip — replaces the similarity bar on the chosen row.
+   Deliberately qualitative (no number) so users don't read the chosen row
+   and a runner-up's similarity score on the same scale and conclude the
+   runner-up is "better". The picker uses GIRs + LLM judgement on top of
+   retrieval, so the two signals aren't comparable. */
+.cand-picked {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 10px; border-radius: 999px;
+  background: var(--orange-wash);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  font-family: 'Geist Mono', monospace; font-size: 10.5px;
+  letter-spacing: .04em; color: var(--accent-ink, var(--ink));
+  white-space: nowrap;
+}
+.cand-picked .picked-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--grad);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .btn-pick {
   padding: 7px 12px; border: 1px solid var(--line); border-radius: 7px;
   background: var(--paper);
