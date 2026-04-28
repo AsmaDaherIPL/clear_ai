@@ -25,19 +25,9 @@
  * Haiku is faster (~1.5s vs ~3-5s) and ~10× cheaper, and the worst-case
  * failure is a downstream re-classification — bounded blast radius.
  */
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { callLlmWithRetry } from '../llm/client.js';
+import { z } from 'zod';
+import { structuredLlmCall } from '../llm/structured-call.js';
 import { env } from '../config/env.js';
-
-const PROMPT_DIR = join(process.cwd(), 'prompts');
-
-let _cleanupPromptCache: string | null = null;
-async function getCleanupPrompt(): Promise<string> {
-  if (_cleanupPromptCache) return _cleanupPromptCache;
-  _cleanupPromptCache = await readFile(join(PROMPT_DIR, 'merchant-cleanup.md'), 'utf8');
-  return _cleanupPromptCache;
-}
 
 export type MerchantCleanupKind = 'product' | 'merchant_shorthand' | 'ungrounded';
 
@@ -100,25 +90,17 @@ export function looksClean(input: string): boolean {
   return true;
 }
 
-interface ParsedCleanupJson {
-  kind?: unknown;
-  clean_description?: unknown;
-  attributes?: unknown;
-  stripped?: unknown;
-}
-
-function tryExtractJson(text: string): ParsedCleanupJson | null {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const body = fence ? fence[1]! : text;
-  const start = body.indexOf('{');
-  const end = body.lastIndexOf('}');
-  if (start < 0 || end < 0 || end <= start) return null;
-  try {
-    return JSON.parse(body.slice(start, end + 1)) as ParsedCleanupJson;
-  } catch {
-    return null;
-  }
-}
+// Loose schema — fields are validated downstream because the LLM sometimes
+// outputs `null` or omits fields entirely; the post-extraction code coerces
+// to defaults rather than failing the schema.
+const ParsedCleanupSchema = z
+  .object({
+    kind: z.unknown().optional(),
+    clean_description: z.unknown().optional(),
+    attributes: z.unknown().optional(),
+    stripped: z.unknown().optional(),
+  })
+  .passthrough();
 
 const KIND_VALUES = new Set<MerchantCleanupKind>(['product', 'merchant_shorthand', 'ungrounded']);
 
@@ -166,40 +148,40 @@ export async function cleanMerchantInput(
   const model = opts.model ?? e.LLM_MODEL;
   const maxTokens = opts.maxTokens ?? 200;
 
-  const system = await getCleanupPrompt();
-
-  const llm = await callLlmWithRetry({
-    system,
+  const outcome = await structuredLlmCall({
+    promptFile: 'merchant-cleanup.md',
     user: `Input: ${trimmed}\n\nReturn the JSON object only.`,
+    schema: ParsedCleanupSchema,
+    stage: 'cleanup',
     model,
     maxTokens,
-    temperature: 0,
   });
 
-  if (llm.status !== 'ok' || !llm.text) {
+  if (outcome.kind === 'llm_failed') {
     return {
       invoked: 'llm_failed',
       kind: 'product', // benign default — caller will use `effective`
       effective: trimmed, // never block the pipeline on cleanup failure
       attributes: [],
       stripped: [],
-      latencyMs: llm.latencyMs,
+      latencyMs: outcome.trace.latency_ms,
       model,
     };
   }
-
-  const parsed = tryExtractJson(llm.text);
-  if (!parsed) {
+  if (outcome.kind !== 'ok') {
+    // unparseable / schema_invalid — same fallback shape
     return {
       invoked: 'llm_unparseable',
       kind: 'product',
       effective: trimmed,
       attributes: [],
       stripped: [],
-      latencyMs: llm.latencyMs,
+      latencyMs: outcome.trace.latency_ms,
       model,
     };
   }
+  const parsed = outcome.data;
+  const llmTrace = outcome.trace;
 
   const kind: MerchantCleanupKind = KIND_VALUES.has(parsed.kind as MerchantCleanupKind)
     ? (parsed.kind as MerchantCleanupKind)
@@ -223,7 +205,7 @@ export async function cleanMerchantInput(
     effective: effectiveClean || trimmed,
     attributes: coerceStringArray(parsed.attributes, 6),
     stripped: coerceStringArray(parsed.stripped, 16),
-    latencyMs: llm.latencyMs,
+    latencyMs: llmTrace.latency_ms,
     model,
   };
 }

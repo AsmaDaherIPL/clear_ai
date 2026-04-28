@@ -6,33 +6,21 @@
  * in the candidate set, the result is reported as guard_tripped so the
  * decision-resolution layer turns it into needs_clarification.
  */
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { z } from 'zod';
 import { callLlmWithRetry, type LlmCallResult } from '../llm/client.js';
+import { extractJson } from '../llm/parse-json.js';
+import { loadPrompt } from '../llm/structured-call.js';
 import type { Candidate } from '../retrieval/retrieve.js';
 import type { MissingAttribute } from './types.js';
 
-const PROMPT_DIR = join(process.cwd(), 'prompts');
-
-let _girCache: string | null = null;
-async function getGirSystem(): Promise<string> {
-  if (_girCache) return _girCache;
-  _girCache = await readFile(join(PROMPT_DIR, 'gir-system.md'), 'utf8');
-  return _girCache;
-}
-
-let _pickerDescribe: string | null = null;
-let _pickerExpand: string | null = null;
-async function getPicker(kind: 'describe' | 'expand'): Promise<string> {
-  if (kind === 'describe') {
-    if (_pickerDescribe) return _pickerDescribe;
-    _pickerDescribe = await readFile(join(PROMPT_DIR, 'picker-describe.md'), 'utf8');
-    return _pickerDescribe;
-  }
-  if (_pickerExpand) return _pickerExpand;
-  _pickerExpand = await readFile(join(PROMPT_DIR, 'picker-expand.md'), 'utf8');
-  return _pickerExpand;
-}
+/**
+ * The picker is unique among the LLM-calling modules: its system prompt is
+ * the concatenation of two files (`gir-system.md` + `picker-describe.md` or
+ * `picker-expand.md`) — the GIR rules apply to both routes, but the
+ * per-route prompt body differs. Other modules use the single-file
+ * `structuredLlmCall` shape; the picker uses `loadPrompt` (the same shared
+ * cache) twice and assembles the system prompt itself.
+ */
 
 export interface LlmPickResult {
   llmStatus: 'ok' | 'error' | 'timeout';
@@ -55,24 +43,16 @@ const MISSING_ENUM = new Set<MissingAttribute>([
   'composition',
 ]);
 
-interface ParsedJson {
-  chosen_code: unknown;
-  rationale: unknown;
-  missing_attributes: unknown;
-}
-
-function tryExtractJson(text: string): ParsedJson | null {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const body = fence ? fence[1]! : text;
-  const start = body.indexOf('{');
-  const end = body.lastIndexOf('}');
-  if (start < 0 || end < 0 || end <= start) return null;
-  try {
-    return JSON.parse(body.slice(start, end + 1)) as ParsedJson;
-  } catch {
-    return null;
-  }
-}
+// Loose schema — downstream code does its own type-narrowing because the
+// model may emit `null` for chosen_code (legitimate "no pick") or wrap
+// missing_attributes in a non-array shape on edge cases.
+const ParsedPickerSchema = z
+  .object({
+    chosen_code: z.unknown().optional(),
+    rationale: z.unknown().optional(),
+    missing_attributes: z.unknown().optional(),
+  })
+  .passthrough();
 
 function buildUser(query: string, candidates: Candidate[], parentPrefix?: string): string {
   const parentLine = parentPrefix ? `Declared parent prefix: ${parentPrefix}\n\n` : '';
@@ -90,7 +70,11 @@ export async function llmPick(params: {
   parentPrefix?: string;
   model?: string;
 }): Promise<LlmPickResult> {
-  const [gir, picker] = await Promise.all([getGirSystem(), getPicker(params.kind)]);
+  const pickerFile = params.kind === 'describe' ? 'picker-describe.md' : 'picker-expand.md';
+  const [gir, picker] = await Promise.all([
+    loadPrompt('gir-system.md'),
+    loadPrompt(pickerFile),
+  ]);
   const system = `${gir}\n\n---\n\n${picker}`;
   const user = buildUser(params.query, params.candidates, params.parentPrefix);
 
@@ -138,8 +122,8 @@ export async function llmPick(params: {
   // — the early-return guard above is logical, not control-flow analyzable
   // through a const, so TS otherwise still treats `text` as `string | null`.
   const text = llmResult.text!;
-  const parsed = tryExtractJson(text);
-  if (!parsed) {
+  const extract = extractJson(text, ParsedPickerSchema);
+  if (!extract.ok) {
     return {
       llmStatus: 'ok',
       llmModel: llmResult.model,
@@ -152,6 +136,7 @@ export async function llmPick(params: {
       rawText: llmResult.text,
     };
   }
+  const parsed = extract.data;
 
   const codeRaw = parsed.chosen_code;
   const chosen = typeof codeRaw === 'string' && codeRaw.length === 12 ? codeRaw : null;

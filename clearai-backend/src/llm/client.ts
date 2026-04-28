@@ -29,12 +29,32 @@ interface AnthropicResponse {
   stop_reason?: string;
 }
 
+/**
+ * Optional tools forwarded verbatim to the Anthropic-compatible API.
+ * Today only Anthropic's hosted Web Search tool is supported. Foundry's
+ * passthrough exposes it on Sonnet 4.6+ via the same wire format as
+ * anthropic.com — verified by probe.
+ */
+export type LlmTool = {
+  type: 'web_search_20250305';
+  name: 'web_search';
+  max_uses?: number;
+};
+
 export interface LlmCallParams {
   model?: string; // overrides env LLM_MODEL
   system: string;
   user: string;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * Optional tools to enable on this call. Anthropic streams
+   * `server_tool_use` and `web_search_tool_result` blocks before the
+   * final `text` block — we pass them through unchanged. Callers that
+   * want the rich tool-use blocks can read `raw.content`; the typical
+   * caller just reads the final `text` synthesised by the model.
+   */
+  tools?: LlmTool[];
 }
 
 export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
@@ -42,13 +62,20 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
   const model = params.model ?? LLM_MODEL;
   const t0 = Date.now();
 
-  const body = {
+  const body: Record<string, unknown> = {
     model,
     max_tokens: params.maxTokens ?? 1024,
     temperature: params.temperature ?? 0,
     system: params.system,
     messages: [{ role: 'user', content: params.user }],
   };
+  if (params.tools && params.tools.length > 0) {
+    // Anthropic's hosted Web Search tool: streamed as `server_tool_use` +
+    // `web_search_tool_result` blocks. We pass them through and read only
+    // the final `text` block; the model has already synthesised the search
+    // results into its answer.
+    body.tools = params.tools;
+  }
 
   const ctrl = new AbortController();
   const timeout = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);

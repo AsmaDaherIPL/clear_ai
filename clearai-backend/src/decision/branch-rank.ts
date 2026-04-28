@@ -26,20 +26,10 @@
  * dropped a code), we discard the override and return the original picker
  * choice with a `guard_tripped` flag.
  */
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { callLlmWithRetry } from '../llm/client.js';
+import { z } from 'zod';
+import { structuredLlmCall } from '../llm/structured-call.js';
 import { env } from '../config/env.js';
 import type { BranchLeaf } from './branch-enumerate.js';
-
-const PROMPT_DIR = join(process.cwd(), 'prompts');
-
-let _branchRankPromptCache: string | null = null;
-async function getBranchRankPrompt(): Promise<string> {
-  if (_branchRankPromptCache) return _branchRankPromptCache;
-  _branchRankPromptCache = await readFile(join(PROMPT_DIR, 'branch-rank.md'), 'utf8');
-  return _branchRankPromptCache;
-}
 
 export type BranchRankFit = 'fits' | 'partial' | 'excludes';
 
@@ -81,12 +71,9 @@ export interface BranchRankResult {
   model?: string | undefined;
 }
 
-interface ParsedRankingJson {
-  ranking?: unknown;
-  top_pick?: unknown;
-  agrees_with_picker?: unknown;
-}
-
+// Per-row shape — kept loose because the model occasionally drops fields on
+// the long-tail rows (rank=15+ without a reason). Downstream code drops
+// any row missing required fields.
 interface ParsedRankingRow {
   code?: unknown;
   rank?: unknown;
@@ -94,18 +81,13 @@ interface ParsedRankingRow {
   reason?: unknown;
 }
 
-function tryExtractJson(text: string): ParsedRankingJson | null {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const body = fence ? fence[1]! : text;
-  const start = body.indexOf('{');
-  const end = body.lastIndexOf('}');
-  if (start < 0 || end < 0 || end <= start) return null;
-  try {
-    return JSON.parse(body.slice(start, end + 1)) as ParsedRankingJson;
-  } catch {
-    return null;
-  }
-}
+const ParsedRankingSchema = z
+  .object({
+    ranking: z.unknown().optional(),
+    top_pick: z.unknown().optional(),
+    agrees_with_picker: z.unknown().optional(),
+  })
+  .passthrough();
 
 const FIT_VALUES = new Set<BranchRankFit>(['fits', 'partial', 'excludes']);
 
@@ -174,25 +156,21 @@ export async function rankBranch(params: {
 
   const e = env();
   const model = opts.model ?? e.LLM_MODEL_STRONG;
-  const system = await getBranchRankPrompt();
   const user = buildUser(query, chosenCode, leaves);
 
-  const llm = await callLlmWithRetry({
-    system,
+  const outcome = await structuredLlmCall({
+    promptFile: 'branch-rank.md',
     user,
+    schema: ParsedRankingSchema,
+    stage: 'branch_rank',
     model,
     maxTokens,
-    temperature: 0,
   });
 
-  if (llm.status !== 'ok' || !llm.text) {
-    return fallback('llm_failed', { latencyMs: llm.latencyMs, model });
+  if (outcome.kind !== 'ok' || !Array.isArray(outcome.data.ranking)) {
+    return fallback('llm_failed', { latencyMs: outcome.trace.latency_ms, model });
   }
-
-  const parsed = tryExtractJson(llm.text);
-  if (!parsed || !Array.isArray(parsed.ranking)) {
-    return fallback('llm_failed', { latencyMs: llm.latencyMs, model });
-  }
+  const parsed = outcome.data;
 
   // Validate every row, build the typed structure. We require the OUTPUT
   // code set to exactly match the INPUT code set — no inventions, no drops.
@@ -225,7 +203,7 @@ export async function rankBranch(params: {
 
   // Guard: every input code must appear in the validated output.
   if (seen.size !== inputCodes.size) {
-    return fallback('guard_tripped', { latencyMs: llm.latencyMs, model });
+    return fallback('guard_tripped', { latencyMs: outcome.trace.latency_ms, model });
   }
 
   // Sort by rank (model is supposed to do this, but enforce it on our side).
@@ -242,7 +220,7 @@ export async function rankBranch(params: {
     topPick,
     agreesWithPicker,
     effectiveCode: topPick,
-    latencyMs: llm.latencyMs,
+    latencyMs: outcome.trace.latency_ms,
     model,
   };
 }

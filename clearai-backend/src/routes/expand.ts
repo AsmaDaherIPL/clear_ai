@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { expandBody } from './schemas.js';
 import { retrieveCandidates } from '../retrieval/retrieve.js';
-import { loadThresholds } from '../decision/setup-meta.js';
+import { loadThresholds, isEnabled } from '../decision/setup-meta.js';
 import { evaluateGate } from '../decision/evidence-gate.js';
 import { llmPick } from '../decision/llm-pick.js';
 import { resolve } from '../decision/resolve.js';
@@ -30,7 +30,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
     // prefix is in that table, we trust the broker's canonical target over
     // anything retrieval + LLM could derive — this is gold-standard human
     // judgement, not a guess.
-    if (t.BROKER_MAPPING_ENABLED === 1) {
+    if (isEnabled(t, 'BROKER_MAPPING_ENABLED')) {
       const hit = await lookupBrokerMapping(parentPrefix);
       if (hit) {
         // Look up the target code's catalog row for descriptions.

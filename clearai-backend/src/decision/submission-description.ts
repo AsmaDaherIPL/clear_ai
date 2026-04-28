@@ -28,22 +28,9 @@
  * Phase 5 design — but we keep the flag so it can be turned off per-route
  * or for A/B testing without redeploy.
  */
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { callLlmWithRetry } from '../llm/client.js';
+import { z } from 'zod';
+import { structuredLlmCall } from '../llm/structured-call.js';
 import { env } from '../config/env.js';
-
-const PROMPT_DIR = join(process.cwd(), 'prompts');
-
-let _submissionPromptCache: string | null = null;
-async function getSubmissionPrompt(): Promise<string> {
-  if (_submissionPromptCache) return _submissionPromptCache;
-  _submissionPromptCache = await readFile(
-    join(PROMPT_DIR, 'submission-description.md'),
-    'utf8',
-  );
-  return _submissionPromptCache;
-}
 
 export interface SubmissionDescriptionResult {
   /** Whether the LLM ran or we short-circuited. */
@@ -66,24 +53,13 @@ export interface SubmissionDescriptionResult {
   model?: string | undefined;
 }
 
-interface ParsedSubmissionJson {
-  description_ar?: unknown;
-  description_en?: unknown;
-  rationale?: unknown;
-}
-
-function tryExtractJson(text: string): ParsedSubmissionJson | null {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const body = fence ? fence[1]! : text;
-  const start = body.indexOf('{');
-  const end = body.lastIndexOf('}');
-  if (start < 0 || end < 0 || end <= start) return null;
-  try {
-    return JSON.parse(body.slice(start, end + 1)) as ParsedSubmissionJson;
-  } catch {
-    return null;
-  }
-}
+const ParsedSubmissionSchema = z
+  .object({
+    description_ar: z.unknown().optional(),
+    description_en: z.unknown().optional(),
+    rationale: z.unknown().optional(),
+  })
+  .passthrough();
 
 /**
  * Normalise an Arabic string for the "differs from catalog" check:
@@ -217,7 +193,6 @@ export async function generateSubmissionDescription(
 
   const e = env();
   const model = opts.model ?? e.LLM_MODEL_STRONG;
-  const system = await getSubmissionPrompt();
 
   const userPrompt = (extraHint?: string): string => {
     const lines = [
@@ -242,21 +217,20 @@ export async function generateSubmissionDescription(
         ? undefined
         : 'Your previous output was a word-for-word match with the catalog Arabic description. Generate a different phrasing — add at least one customs-relevant word, change word order, or use a synonymous noun-form.';
 
-    const llm = await callLlmWithRetry({
-      system,
+    const outcome = await structuredLlmCall({
+      promptFile: 'submission-description.md',
       user: userPrompt(hint),
+      schema: ParsedSubmissionSchema,
+      stage: 'submission_description',
       model,
       maxTokens,
       temperature: attempt === 1 ? 0 : 0.2,
     });
-    totalLatency += llm.latencyMs;
-    lastModel = llm.model;
+    totalLatency += outcome.trace.latency_ms;
+    lastModel = outcome.trace.model;
 
-    if (llm.status !== 'ok' || !llm.text) {
-      continue; // try once more, or fall through to the deterministic fallback
-    }
-    const parsed = tryExtractJson(llm.text);
-    if (!parsed) continue;
+    if (outcome.kind !== 'ok') continue; // retry or fall through to deterministic fallback
+    const parsed = outcome.data;
 
     const descAr = typeof parsed.description_ar === 'string' ? parsed.description_ar.trim() : '';
     const descEn = typeof parsed.description_en === 'string' ? parsed.description_en.trim() : '';

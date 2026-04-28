@@ -23,7 +23,7 @@ import { digitNormalize } from '../retrieval/digit-normalize.js';
 import { loadKnownPrefixes } from '../retrieval/known-prefixes.js';
 import { retrieveCandidates, type Candidate } from '../retrieval/retrieve.js';
 import { getPool } from '../db/client.js';
-import { loadThresholds } from '../decision/setup-meta.js';
+import { loadThresholds, isEnabled } from '../decision/setup-meta.js';
 import { evaluateGate } from '../decision/evidence-gate.js';
 import { llmPick } from '../decision/llm-pick.js';
 import { resolve } from '../decision/resolve.js';
@@ -70,7 +70,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     // an LLM call on the ~80% of merchant descriptions that are already
     // 1–3 word stubs. On noisy inputs, fires Haiku to extract a clean
     // product noun and customs-relevant attributes.
-    if (t.MERCHANT_CLEANUP_ENABLED === 1) {
+    if (isEnabled(t, 'MERCHANT_CLEANUP_ENABLED')) {
       cleanup = await cleanMerchantInput(description, {
         maxTokens: t.MERCHANT_CLEANUP_MAX_TOKENS,
       });
@@ -250,7 +250,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     // low-confidence heading capped at BEST_EFFORT_MAX_DIGITS digits.
     let bestEffort: BestEffortOutcome | null = null;
     const needsFallback =
-      t.BEST_EFFORT_ENABLED === 1 && decision.decisionStatus !== 'accepted';
+      isEnabled(t, 'BEST_EFFORT_ENABLED') && decision.decisionStatus !== 'accepted';
 
     if (needsFallback) {
       bestEffort = await bestEffortHeading({
@@ -410,7 +410,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         chosenCode: decision.chosenCode,
         leaves: branchLeaves,
         opts: {
-          enabled: t.BRANCH_RANK_ENABLED === 1,
+          enabled: isEnabled(t, 'BRANCH_RANK_ENABLED'),
           maxTokens: t.BRANCH_RANK_MAX_TOKENS,
         },
       });
@@ -511,7 +511,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       isAcceptedFamily &&
       effectiveChosenCode &&
       /^\d{12}$/.test(effectiveChosenCode) &&
-      t.SUBMISSION_DESC_ENABLED === 1
+      isEnabled(t, 'SUBMISSION_DESC_ENABLED')
     ) {
       // Look up the catalog descriptions for the chosen code. Same fallback
       // logic as the response-side `result` block (candidates → branchLeaves).

@@ -14,19 +14,15 @@
  * Returning UNKNOWN is a feature, not a failure: it surfaces honest uncertainty
  * to the user instead of a confident-wrong code with legal consequences.
  */
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { callLlmWithRetry } from '../llm/client.js';
+import { loadPrompt } from '../llm/structured-call.js';
 import { env } from '../config/env.js';
 
-const PROMPT_DIR = join(process.cwd(), 'prompts');
-
-let _researchPromptCache: string | null = null;
-async function getResearchPrompt(): Promise<string> {
-  if (_researchPromptCache) return _researchPromptCache;
-  _researchPromptCache = await readFile(join(PROMPT_DIR, 'research-input.md'), 'utf8');
-  return _researchPromptCache;
-}
+// Researcher returns plain-text (RECOGNISED: ... / UNKNOWN: ...), not JSON,
+// so we use `loadPrompt` for the shared prompt cache but call the LLM
+// client directly rather than going through `structuredLlmCall`.
+// Phase F (web-search-augmented researcher) will adopt a JSON shape and
+// move to `structuredLlmCall` proper.
 
 export type ResearchOutcome =
   | { kind: 'recognised'; canonical: string; latencyMs: number; model: string }
@@ -39,7 +35,7 @@ export type ResearchOutcome =
  * model adds wrapping whitespace or quotes.
  */
 export async function researchInput(rawInput: string): Promise<ResearchOutcome> {
-  const system = await getResearchPrompt();
+  const system = await loadPrompt('research-input.md');
   const result = await callLlmWithRetry(
     {
       model: env().LLM_MODEL_STRONG,

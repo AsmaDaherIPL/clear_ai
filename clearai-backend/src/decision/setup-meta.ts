@@ -213,6 +213,30 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'BROKER_MAPPING_ENABLED',
 ];
 
+/**
+ * Closed-set of boolean flag names. Each one is encoded as 0/1 in
+ * `setup_meta.value_numeric` (the table only allows `number | string`
+ * as value_kind). Using a string-literal union here makes
+ * `isEnabled(t, 'X')` autocomplete and reject typos at compile time.
+ */
+export type BooleanFlag =
+  | 'BEST_EFFORT_ENABLED'
+  | 'MERCHANT_CLEANUP_ENABLED'
+  | 'BRANCH_RANK_ENABLED'
+  | 'SUBMISSION_DESC_ENABLED'
+  | 'BROKER_MAPPING_ENABLED';
+
+/**
+ * Type-safe feature-flag check. Replaces `t.X === 1` magic-numbers
+ * scattered through the route handlers with a self-documenting helper
+ * that's also typo-proof (only valid flag names compile).
+ *
+ * Usage: `if (isEnabled(t, 'BRANCH_RANK_ENABLED')) { ... }`
+ */
+export function isEnabled(t: Thresholds, flag: BooleanFlag): boolean {
+  return t[flag] === 1;
+}
+
 let _cache: Thresholds | null = null;
 
 interface SetupMetaDbRow {

@@ -15,18 +15,8 @@
  * Stateless by design: never reads or writes any product-code cache. Each
  * request is handled from raw input only.
  */
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { callLlmWithRetry } from '../llm/client.js';
-
-const PROMPT_DIR = join(process.cwd(), 'prompts');
-
-let _promptCache: string | null = null;
-async function getBestEffortPrompt(): Promise<string> {
-  if (_promptCache) return _promptCache;
-  _promptCache = await readFile(join(PROMPT_DIR, 'best-effort-heading.md'), 'utf8');
-  return _promptCache;
-}
+import { z } from 'zod';
+import { structuredLlmCall } from '../llm/structured-call.js';
 
 export type BestEffortOutcome =
   | {
@@ -49,24 +39,13 @@ export interface BestEffortParams {
   model: string;
 }
 
-interface ParsedJson {
-  code: unknown;
-  specificity: unknown;
-  rationale: unknown;
-}
-
-function tryExtractJson(text: string): ParsedJson | null {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const body = fence ? fence[1]! : text;
-  const start = body.indexOf('{');
-  const end = body.lastIndexOf('}');
-  if (start < 0 || end < 0 || end <= start) return null;
-  try {
-    return JSON.parse(body.slice(start, end + 1)) as ParsedJson;
-  } catch {
-    return null;
-  }
-}
+const ParsedBestEffortSchema = z
+  .object({
+    code: z.unknown().optional(),
+    specificity: z.unknown().optional(),
+    rationale: z.unknown().optional(),
+  })
+  .passthrough();
 
 const ALLOWED_DIGITS = new Set([2, 4, 6, 8, 10]);
 
@@ -82,41 +61,35 @@ export async function bestEffortHeading(
     };
   }
 
-  const system = await getBestEffortPrompt();
   const user =
     `Max specificity: ${params.maxDigits}\n\n` +
     `User input:\n${params.rawInput.trim()}\n\n` +
     `Return JSON only.`;
 
-  const result = await callLlmWithRetry(
-    {
-      model: params.model,
-      system,
-      user,
-      maxTokens: params.maxTokens,
-      temperature: 0,
-    },
-    1,
-  );
+  const outcome = await structuredLlmCall({
+    promptFile: 'best-effort-heading.md',
+    user,
+    schema: ParsedBestEffortSchema,
+    stage: 'best_effort',
+    model: params.model,
+    maxTokens: params.maxTokens,
+    retries: 1,
+  });
 
-  if (result.status !== 'ok' || !result.text) {
+  if (outcome.kind !== 'ok') {
+    const errMessage =
+      outcome.kind === 'llm_failed'
+        ? outcome.error
+        : `unparseable JSON: ${outcome.rawText.slice(0, 120)}`;
     return {
       kind: 'failed',
-      error: result.error ?? 'no text from best-effort fallback',
-      latencyMs: result.latencyMs,
-      model: result.model,
+      error: errMessage,
+      latencyMs: outcome.trace.latency_ms,
+      model: outcome.trace.model,
     };
   }
-
-  const parsed = tryExtractJson(result.text);
-  if (!parsed) {
-    return {
-      kind: 'failed',
-      error: `unparseable JSON: ${result.text.slice(0, 120)}`,
-      latencyMs: result.latencyMs,
-      model: result.model,
-    };
-  }
+  const parsed = outcome.data;
+  const result = { latencyMs: outcome.trace.latency_ms, model: outcome.trace.model };
 
   // Validate code: must be all digits, length <= maxDigits, length even at
   // the canonical HS levels (2/4/6/8/10) OR exactly 2 for the 'unknown' case.
