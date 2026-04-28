@@ -44,7 +44,28 @@ function isModelCallArray(v: unknown): v is ModelCall[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'object' && x !== null && 'model' in x);
 }
 
-export default function TracePage({ eventId }: Props) {
+/**
+ * Resolve the real event ID at hydration time. On Azure Static Web Apps
+ * the page is built once for a placeholder ID (`__placeholder__`) and
+ * SWA rewrites every `/trace/<uuid>` to the same HTML — so the prop is
+ * always the placeholder. We read the actual UUID from the URL pathname.
+ *
+ * In dev (Astro dev server) the prop is the real ID from `Astro.params`
+ * and the URL also matches, so this function returns the same value
+ * either way. The placeholder check is for the static-built deployment.
+ */
+function resolveEventId(propId: string): string {
+  if (typeof window === 'undefined') return propId; // SSR build phase
+  const path = window.location.pathname;
+  const match = path.match(/\/trace\/([^/?#]+)/);
+  const fromUrl = match?.[1];
+  if (fromUrl && fromUrl !== '__placeholder__') return fromUrl;
+  // Fallback: prop is the source of truth (dev mode).
+  return propId === '__placeholder__' ? '' : propId;
+}
+
+export default function TracePage({ eventId: propEventId }: Props) {
+  const eventId = resolveEventId(propEventId);
   const [data, setData] = useState<TraceResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

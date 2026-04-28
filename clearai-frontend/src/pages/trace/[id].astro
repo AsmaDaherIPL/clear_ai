@@ -2,20 +2,40 @@
 /**
  * /trace/:id — full debug trace for a single classification.
  *
- * Astro renders the shell server-side; the React island fetches the trace
- * client-side using the same API client as the main app, so APIM auth and
- * CORS work uniformly.
+ * Astro static build constraint: dynamic routes (`[id]`) require either
+ * `getStaticPaths()` to list every concrete path at build time, OR
+ * `prerender=false` (which needs a server adapter — incompatible with
+ * Azure Static Web Apps' static-only deploy).
  *
- * This is also where the "dev mode" surface lives now — moved off the
- * main result page per Phase 4. The main result page no longer shows
- * model/latency meta; you click "View full trace →" to drill in.
+ * Trace IDs are UUIDs we can't enumerate at build time, so we use the
+ * "single shell + client-side ID extraction" pattern:
+ *   1. `getStaticPaths()` returns one placeholder path (`__placeholder__`)
+ *      so the static build emits exactly one HTML file at
+ *      `/trace/__placeholder__/index.html`.
+ *   2. Azure SWA's `staticwebapp.config.json` rewrites every `/trace/*`
+ *      request to that one HTML file.
+ *   3. The React island reads the real ID from `window.location.pathname`
+ *      at hydration time (rather than from `Astro.params`, which is stale
+ *      because the file was built once for the placeholder).
+ *
+ * Net result: every `/trace/<uuid>` URL serves the same static shell, the
+ * React component figures out which ID it's looking at on the client.
+ * Same UX as if the route were truly dynamic, zero server runtime needed.
  */
 import Layout from '../../layouts/Layout.astro';
 import TracePage from '../../components/TracePage.tsx';
+
+export function getStaticPaths() {
+  // The single placeholder path. SWA rewrites all /trace/* to this file.
+  return [{ params: { id: '__placeholder__' } }];
+}
 
 const { id } = Astro.params;
 ---
 
 <Layout>
+  <!-- The eventId prop is the build-time placeholder. The component
+       overrides it with the actual ID from window.location.pathname
+       at hydration. -->
   <TracePage eventId={id ?? ''} client:load />
 </Layout>

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/staticwebapp.config.json",
+  "_comment_routes": "Rewrite every /trace/<uuid> request to the single placeholder HTML built by Astro for the [id].astro dynamic route. The TracePage React component reads the real ID from window.location.pathname at hydration. This is the static-build pattern for client-rendered dynamic routes on Azure Static Web Apps.",
+  "routes": [
+    {
+      "route": "/trace/*",
+      "rewrite": "/trace/__placeholder__/index.html"
+    }
+  ],
+  "_comment_navigationFallback": "When a user reloads any other unknown path (or pastes a deep link), serve index.html so client-side routing handles it. This is the standard SPA fallback.",
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/_astro/*",
+      "/assets/*",
+      "/*.{css,js,ico,svg,png,jpg,jpeg,gif,webp,woff,woff2,ttf,eot}"
+    ]
+  }
+}
