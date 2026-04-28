@@ -179,6 +179,23 @@ export interface Thresholds {
    * should be trusted ahead of the LLM where it has an answer.
    */
   BROKER_MAPPING_ENABLED: number;
+
+  /**
+   * Phase F — web-search-augmented researcher feature flag. 1 = on UNKNOWN
+   * from the standard researcher, fire one Anthropic-hosted web_search
+   * tool call to fetch external evidence and re-attempt identification.
+   * 0 = stop at UNKNOWN as today. Default 0 (off) until measurement
+   * justifies the extra Sonnet+tool round-trip on the hard tail of
+   * inputs. Each call adds ~3-5s and ~1 hosted-tool charge.
+   */
+  RESEARCH_WEB_ENABLED: number;
+
+  /**
+   * Cap on tokens the web-augmented researcher may emit. Default 400 —
+   * the JSON payload is small; the budget mostly pays for the model
+   * synthesising search snippets into the canonical description.
+   */
+  RESEARCH_WEB_MAX_TOKENS: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -211,6 +228,8 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'SUBMISSION_DESC_ENABLED',
   'SUBMISSION_DESC_MAX_TOKENS',
   'BROKER_MAPPING_ENABLED',
+  'RESEARCH_WEB_ENABLED',
+  'RESEARCH_WEB_MAX_TOKENS',
 ];
 
 /**
@@ -224,7 +243,8 @@ export type BooleanFlag =
   | 'MERCHANT_CLEANUP_ENABLED'
   | 'BRANCH_RANK_ENABLED'
   | 'SUBMISSION_DESC_ENABLED'
-  | 'BROKER_MAPPING_ENABLED';
+  | 'BROKER_MAPPING_ENABLED'
+  | 'RESEARCH_WEB_ENABLED';
 
 /**
  * Type-safe feature-flag check. Replaces `t.X === 1` magic-numbers

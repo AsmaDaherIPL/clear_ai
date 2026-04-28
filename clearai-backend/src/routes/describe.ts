@@ -33,6 +33,10 @@ import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 import { env } from '../config/env.js';
 import { checkUnderstanding } from '../preprocess/check-understanding.js';
 import { researchInput, type ResearchOutcome } from '../preprocess/research.js';
+import {
+  researchInputWithWeb,
+  type ResearchWithWebOutcome,
+} from '../preprocess/research-with-web.js';
 import { bestEffortHeading, type BestEffortOutcome } from '../decision/best-effort-fallback.js';
 import { filterAlternatives } from '../decision/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
@@ -61,6 +65,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     let stage: InterpretationStage = 'passthrough';
     let effectiveDescription = description;
     let research: ResearchOutcome | null = null;
+    let researchWeb: ResearchWithWebOutcome | null = null;
     let cleanup: MerchantCleanupResult | null = null;
 
     // ---- Stage 0: merchant-input cleanup (Phase 1.5, ADR-0012) -----------
@@ -115,11 +120,29 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'product'
         ? cleanup.effective
         : null;
+    // Cleanup explicitly tagged the input as merchant shorthand → there's
+    // no customs noun to align against. Coherence-only is unsafe in this
+    // case (e.g. "Arizona BFBC Mocca43" can lexically anchor to chapter 01
+    // via "Arab" → Arab horses, with all top results in chapter 01 →
+    // coherence says "understood" — but on a wrong family). Force-route
+    // shorthand inputs to the researcher so the LLM (and on UNKNOWN, web
+    // search) gets a chance to identify the product properly.
+    const cleanupIsShorthand =
+      cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'merchant_shorthand';
     const understanding = checkUnderstanding(candidates, {
       maxDistinctChapters: t.UNDERSTOOD_MAX_DISTINCT_CHAPTERS,
       topK: t.UNDERSTOOD_TOP_K_describe,
       ...(customsNoun ? { customsNoun } : {}),
     });
+    if (cleanupIsShorthand && understanding.understood) {
+      // Override the coherence-only strong verdict for shorthand inputs.
+      // We treat it as `weak` so the researcher fires; if the researcher
+      // recognises, we re-retrieve. If web research is enabled and the
+      // standard researcher returns UNKNOWN, web research fires next.
+      understanding.understood = false;
+      understanding.strength = 'weak';
+      understanding.reason = 'noun_misaligned';
+    }
 
     if (!understanding.understood) {
       // ---- Stage 2b: researcher --------------------------------------------
@@ -139,7 +162,36 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           topK: t.RETRIEVAL_TOP_K_describe,
         });
       } else if (research.kind === 'unknown') {
-        stage = 'unknown';
+        // Phase F escalation: when the standard researcher returns UNKNOWN
+        // (no signal from Sonnet's pre-training memory) AND the feature
+        // flag is on, fire the web-augmented researcher. One Anthropic
+        // hosted web_search call lets Sonnet pull external evidence and
+        // re-attempt identification with citable snippets. Caps at one
+        // search per request — bounded latency (~3-5s) and bounded cost.
+        // If web research recognises the product, we treat the outcome
+        // exactly as if the standard researcher had recognised it:
+        // re-retrieve on the canonical phrase and continue.
+        if (isEnabled(t, 'RESEARCH_WEB_ENABLED')) {
+          researchWeb = await researchInputWithWeb(description, {
+            maxTokens: t.RESEARCH_WEB_MAX_TOKENS,
+          });
+          if (researchWeb.kind === 'recognised') {
+            stage = 'researched';
+            effectiveDescription = researchWeb.canonical;
+            const norm2 = digitNormalize(effectiveDescription, known);
+            candidates = await retrieveCandidates(norm2.cleanedText, {
+              leavesOnly: true,
+              ...(norm2.prefixBias ? { prefixBias: norm2.prefixBias } : {}),
+              topK: t.RETRIEVAL_TOP_K_describe,
+            });
+          } else {
+            // Web research returned 'unknown' or 'failed'. Honest
+            // abstention — same as standard researcher's UNKNOWN path.
+            stage = 'unknown';
+          }
+        } else {
+          stage = 'unknown';
+        }
         // Researcher saw the input and explicitly declined to identify. We
         // do not run the picker on candidates we already know are wrong.
         // Whether we attempt best-effort here depends on the feature flag —
@@ -565,6 +617,11 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         rewritten_as: stage === 'researched' ? effectiveDescription : null,
         research_kind: research?.kind ?? null,
         research_latency_ms: research?.latencyMs ?? null,
+        // Phase F observability: track when web research escalation
+        // fired and what it returned. Lets us tune the escalation
+        // threshold and the prompt without re-running traffic.
+        research_web_kind: researchWeb?.kind ?? null,
+        research_web_latency_ms: researchWeb?.latencyMs ?? null,
         best_effort_invoked: needsFallback,
         best_effort_specificity: accepted ? accepted.specificity : null,
         // Phase 1.5 — cleanup observability. invoked is one of
@@ -621,6 +678,15 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           : []),
         ...(research && research.kind !== 'failed'
           ? [{ model: research.model, latency_ms: research.latencyMs, status: 'ok' as const }]
+          : []),
+        ...(researchWeb && researchWeb.kind !== 'failed'
+          ? [
+              {
+                model: researchWeb.model,
+                latency_ms: researchWeb.latencyMs,
+                status: 'ok' as const,
+              },
+            ]
           : []),
         ...(llm
           ? [{ model: llm.llmModel, latency_ms: llm.latencyMs, status: llm.llmStatus }]
