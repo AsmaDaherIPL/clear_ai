@@ -40,7 +40,21 @@ export type DecisionReason =
    * (capped by `BEST_EFFORT_MAX_DIGITS`, default 4). Always paired with
    * `decision_status = 'best_effort'` and `confidence_band = 'low'`.
    */
-  | 'best_effort_heading';
+  | 'best_effort_heading'
+  /**
+   * Heading-level acceptance — the route confidently identified an HS
+   * heading (4-digit family, e.g. 4202 for bags or 6403 for footwear)
+   * but cannot commit to a sub-heading or leaf without an attribute the
+   * input doesn't supply (typically material). The chosen code is the
+   * heading-padded 12-digit form (e.g. `420200000000`), which ZATCA
+   * accepts as a valid customs declaration with a published duty rate.
+   * Always paired with `decision_status = 'accepted'` and
+   * `confidence_band = 'medium'`. The frontend should render this as a
+   * legitimate accepted classification with a soft "heading-level — add
+   * the material to refine" eyebrow, NOT the verify-toggle gating used
+   * for best_effort.
+   */
+  | 'heading_level_match';
 
 export type ConfidenceBand = 'high' | 'medium' | 'low';
 

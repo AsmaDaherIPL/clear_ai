@@ -251,8 +251,66 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     // We deliberately do not overwrite `decision` for accepted/degraded paths
     // — those still own the response shape. The intermediate `accepted`
     // variable narrows the discriminated union for downstream use.
-    const accepted: Extract<BestEffortOutcome, { kind: 'ok' }> | null =
+    let accepted: Extract<BestEffortOutcome, { kind: 'ok' }> | null =
       bestEffort && bestEffort.kind === 'ok' ? bestEffort : null;
+
+    // ---- Heading-level acceptance promotion (ADR-0019) -------------------
+    // ZATCA recognises heading-padded 12-digit codes (e.g. `420200000000`,
+    // `640300000000`) as valid customs declarations with published duty
+    // rates. When best-effort identified a 4-digit HS heading we'd
+    // otherwise wrap it in a "verify before use" warning card — but the
+    // 12-digit form of that same heading IS a legitimate accepted code.
+    // Look up `<heading>00000000` in hs_codes; if it exists as a leaf,
+    // promote the response from best_effort → accepted with confidence
+    // band 'medium' and decision_reason 'heading_level_match'. The
+    // promotion only fires when:
+    //   - best-effort produced a 4-digit code AND the gate failed
+    //     upstream (i.e. the standard accepted path didn't already
+    //     produce a 12-digit pick).
+    //   - the heading-padded row exists in hs_codes as is_leaf=true.
+    // Either condition unmet → leave the response as best_effort, the
+    // existing verify-toggle UI applies.
+    let headingLevelPromoted: {
+      code: string;
+      description_en: string | null;
+      description_ar: string | null;
+      rationale: string;
+      missingHint: string;
+    } | null = null;
+    if (accepted && accepted.specificity === 4 && /^\d{4}$/.test(accepted.code)) {
+      const headingCode = `${accepted.code}00000000`;
+      const pool = getPool();
+      const r = await pool.query<{
+        description_en: string | null;
+        description_ar: string | null;
+      }>(
+        `SELECT description_en, description_ar FROM hs_codes WHERE code = $1 AND is_leaf = true`,
+        [headingCode],
+      );
+      const row = r.rows[0];
+      if (row) {
+        // Promote. We synthesise a rationale that explains the
+        // heading-level commit honestly: it's a real ZATCA leaf,
+        // duty is published, but a sub-heading would be more
+        // specific if the relevant attribute is documented.
+        headingLevelPromoted = {
+          code: headingCode,
+          description_en: row.description_en,
+          description_ar: row.description_ar,
+          rationale: `${accepted.rationale} Accepted at heading level (${accepted.code}) — ZATCA accepts this code as a valid declaration. Adding the missing classification attribute (typically material) would refine to a sub-heading.`,
+          missingHint:
+            'Adding the material (e.g. leather / textile / plastic) to your input would refine this to a sub-heading.',
+        };
+        // Suppress the best_effort path so downstream code emits the
+        // standard accepted envelope instead.
+        accepted = null;
+        decision.decisionStatus = 'accepted';
+        decision.decisionReason = 'heading_level_match';
+        decision.confidenceBand = 'medium';
+        decision.chosenCode = headingCode;
+        decision.rationale = headingLevelPromoted.rationale;
+      }
+    }
 
     // Alternatives surface — sourced differently per decision status.
     //
@@ -638,15 +696,24 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       ...(effectiveChosenCode && {
         result: {
           code: effectiveChosenCode,
-          // Look up descriptions: branch-rank overrides may have a code that
-          // wasn't in the original RRF top-K, so fall back to branchLeaves
-          // (which is the full HS-8 enumeration). Either source is fine —
-          // both pull from hs_codes.
+          // Look up descriptions in priority order:
+          //   1. Heading-level promotion (ADR-0019) — we already have the
+          //      catalog row from the dedicated lookup; use that.
+          //   2. Original RRF candidates (the picker's normal path).
+          //   3. branchLeaves (covers branch-rank overrides whose code
+          //      may not be in the RRF top-K but IS in the enumerated
+          //      branch).
           description_en:
+            (headingLevelPromoted && headingLevelPromoted.code === effectiveChosenCode
+              ? headingLevelPromoted.description_en
+              : null) ??
             candidates.find((c) => c.code === effectiveChosenCode)?.description_en ??
             branchLeaves?.find((l) => l.code === effectiveChosenCode)?.description_en ??
             null,
           description_ar:
+            (headingLevelPromoted && headingLevelPromoted.code === effectiveChosenCode
+              ? headingLevelPromoted.description_ar
+              : null) ??
             candidates.find((c) => c.code === effectiveChosenCode)?.description_ar ??
             branchLeaves?.find((l) => l.code === effectiveChosenCode)?.description_ar ??
             null,

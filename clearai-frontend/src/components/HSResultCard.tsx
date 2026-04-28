@@ -51,19 +51,45 @@ function copyToClipboard(s: string) {
   }
 }
 
+/**
+ * A heading-padded code (`xxxx00000000`) is a legitimate ZATCA-accepted
+ * declaration but represents a coarser commit than a true 12-digit leaf.
+ * The card shows a small "heading-level — add the material to refine"
+ * eyebrow so users understand the level they're at without the
+ * verify-toggle gating used for best-effort.
+ *
+ * Detection: digits 5-12 are all zeros AND digits 1-4 are non-zero.
+ */
+function isHeadingPaddedCode(code: string): boolean {
+  return /^\d{4}0{8}$/.test(code) && code.slice(0, 4) !== '0000';
+}
+
 export default function HSResultCard({ status, reason, result, beforeCode, rationale }: Props) {
   const segments = splitCode(result.code);
   const tone = statusToTone(status);
+  const isHeadingLevel = reason === 'heading_level_match' || isHeadingPaddedCode(result.code);
 
   return (
     <div className="hs-card">
       <div className="hs-top">
-        <div className="k">SAUDI HS · 12-DIGIT</div>
+        <div className="k">
+          SAUDI HS · 12-DIGIT
+          {isHeadingLevel && <span className="hs-level-tag" title="Heading-level acceptance — ZATCA accepts this code as a valid declaration. Adding the missing classification attribute (typically material) would refine to a sub-heading.">· HEADING LEVEL</span>}
+        </div>
         <div className={`conf-pill conf-${tone}`}>
           <span className="d" />
           <span>{reasonLabel(reason)}</span>
         </div>
       </div>
+
+      {isHeadingLevel && (
+        <div className="hs-heading-note" role="note">
+          <strong>Heading-level acceptance.</strong> ZATCA accepts this 12-digit
+          heading-padded code as a valid declaration. Adding the missing
+          classification attribute (typically material — leather / textile /
+          plastic) would refine to a sub-heading.
+        </div>
+      )}
 
       {beforeCode && beforeCode !== result.code && (
         <div className="before-after">

@@ -564,3 +564,40 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
     input. At that point the operations team edits the xlsx and re-runs
     `db:seed:broker`. (We don't take feedback as authority over the
     broker's curated table — the broker IS the authority.)
+
+---
+
+## ADR-0019 — Heading-level acceptance promotion
+
+- **Date:** 2026-04-28
+- **Status:** Shipped, default-on (no flag — semantic correction, not a feature).
+- **Context:**
+  - Inputs like "Loewe Puzzle bag" or "leather wallet" identify a clear HS heading from the customs noun ("bag", "wallet") but lack the attribute (typically material) that splits the heading into sub-headings. Today's pipeline routed these to `best_effort` with a 4-digit heading prefix and wrapped the response in a verify-toggle "not a final classification" warning card. That's user-hostile when the heading-padded 12-digit form (`420200000000`) is in fact a **valid ZATCA declaration with a published duty rate**.
+  - The user (Asma, brokerage operator) confirmed this directly: heading-padded codes ARE accepted by ZATCA as final declarations. The system was being more conservative than the legal authority. Worse, the system's verify-toggle warning created the impression of doubt on a legally complete classification.
+- **Decision:**
+  - When best-effort returns a 4-digit heading code AND the corresponding `<heading>00000000` row exists in `hs_codes` as `is_leaf = true`, **promote the response from `best_effort` to `accepted`** with:
+    - `decision_status = 'accepted'`
+    - `decision_reason = 'heading_level_match'` (new closed-enum value, migration 0014)
+    - `confidence_band = 'medium'`
+    - `chosenCode = <heading>00000000` (the 12-digit ZATCA-accepted heading-padded form)
+    - `rationale` extended with the heading-level acknowledgement and a refinement hint
+  - Frontend renders the same `HSResultCard` as full-leaf acceptances, but with a small `· HEADING LEVEL` tag in the eyebrow and a soft note: *"ZATCA accepts this 12-digit heading-padded code as a valid declaration. Adding the missing classification attribute (typically material — leather / textile / plastic) would refine to a sub-heading."*
+  - Promotion only fires when:
+    - best-effort actually produced a 4-digit code (so we know the heading was identified, not the chapter or "00").
+    - The exact `<heading>00000000` row exists and is a leaf in `hs_codes`. Catalog rows with content but no heading-padded version (rare) won't be promoted; they stay at best-effort, preserving the "verify before use" gating where the catalog itself doesn't endorse the heading-padded form.
+  - No feature flag — this is a semantic correction. The previous behaviour was wrong (hiding a valid ZATCA classification behind a warning card), and the new behaviour is right. Feature-flagging it would imply we want the option to roll back to misclassifying a legal declaration, which we don't.
+- **Consequences:**
+  - **User-facing UX**: cases like "Loewe Puzzle bag", "leather wallet without material specified", "smart device" now show as clean accepted classifications with the heading-level note instead of as scary "verify before use" warnings. Brokers can submit the code with confidence; refining the input later is optional, not required.
+  - **Wire-format addition**: `decision_reason: 'heading_level_match'`. Existing consumers don't break (closed-enum, but the frontend's `reasonLabel` defaults to a sensible string).
+  - **DB schema**: `events_decision_reason_chk` widened. Migration 0014 is idempotent.
+  - **Confidence band**: `'medium'` is the right level — the heading is correct (high confidence on the 4-digit family), but the leaf-level commit isn't (no attribute info to disambiguate). 'medium' encodes that asymmetry honestly.
+  - **Verify-toggle gating no longer needed for this case.** `BestEffortCard.tsx` still exists and still gates the genuinely-unidentified cases (best-effort returning `'00'` chapter or where the heading-padded row doesn't exist).
+- **Rejected alternatives:**
+  - **Always commit to a sub-heading by guessing the material.** Rejected — re-introduces the Birkenstock-leather-on-canvas-Arizona class of fabrications. ADR-0011's "never invent attributes" rule still stands; we don't auto-fill material.
+  - **Keep best-effort as the only path for missing-material cases, and just rephrase the warning copy.** Rejected — even the best UI copy can't change the fact that the user is being shown a "verify before use" warning on a code that doesn't need that level of doubt. Better to render the truth: it's accepted, just at heading granularity.
+  - **Promote at any specificity (heading OR sub-heading)**: e.g. promote a 6-digit best-effort to `xxxxx0000000`. Rejected for now — the 6-digit padded form is less reliably ZATCA-recognised than the 4-digit heading-padded form, and the test cases don't yet show a need. Revisit if real traffic produces 6-digit best-effort cases that ZATCA also accepts as padded-12.
+  - **Suppress the "View full trace" link on heading-level matches.** Rejected — the trace is exactly the surface a broker would want to inspect when deciding whether the heading-level commit is enough or whether they should refine. Keep it.
+- **Revisit if:**
+  - Real traffic shows a meaningful number of users refining heading-level matches into sub-heading leaves manually. That's a signal we should be doing it for them — possibly via a follow-up "do you want to refine?" mini-flow that prompts for the missing attribute and re-runs classification.
+  - ZATCA tightens the policy and starts rejecting heading-padded codes at certain headings. We'd need to track per-heading acceptance and only promote where ZATCA's table allows.
+  - Web search Stage 2b lands. With external evidence, more cases that today produce `heading_level_match` would commit to a real leaf — promotion would still be the right floor when web evidence isn't conclusive enough for a full leaf.

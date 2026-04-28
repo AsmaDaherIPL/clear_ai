@@ -68,7 +68,18 @@ export type DecisionReason =
   | 'llm_unavailable'
   | 'brand_not_recognised'
   /** v2/ADR-0011: paired with decision_status='best_effort'. */
-  | 'best_effort_heading';
+  | 'best_effort_heading'
+  /**
+   * Heading-level acceptance (ADR-0019). The route promoted a 4-digit
+   * best-effort heading into the heading-padded 12-digit form
+   * (e.g. 4202 → 420200000000), which ZATCA accepts as a valid
+   * declaration. Always paired with decision_status='accepted' and
+   * confidence_band='medium'. Frontend should render this as a
+   * legitimate accepted result with a soft "heading-level — add the
+   * material to refine" eyebrow, not the verify-toggle gating used
+   * for best_effort.
+   */
+  | 'heading_level_match';
 
 export type ConfidenceBand = 'high' | 'medium' | 'low';
 
@@ -341,6 +352,7 @@ export function reasonLabel(reason: DecisionReason): string {
     case 'llm_unavailable': return 'LLM unavailable';
     case 'brand_not_recognised': return 'Brand or product not recognised';
     case 'best_effort_heading': return 'Best-effort heading (verify before use)';
+    case 'heading_level_match': return 'Heading-level match';
   }
 }
 
