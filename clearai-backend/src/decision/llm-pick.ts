@@ -7,7 +7,7 @@
  * decision-resolution layer turns it into needs_clarification.
  */
 import { z } from 'zod';
-import { callLlmWithRetry, type LlmCallResult } from '../llm/client.js';
+import { callLlmWithRetry, type LlmCallResult, type LlmStatus } from '../llm/client.js';
 import { extractJson } from '../llm/parse-json.js';
 import { loadPrompt } from '../llm/structured-call.js';
 import type { Candidate } from '../retrieval/retrieve.js';
@@ -23,7 +23,7 @@ import type { MissingAttribute } from './types.js';
  */
 
 export interface LlmPickResult {
-  llmStatus: 'ok' | 'error' | 'timeout';
+  llmStatus: LlmStatus;
   llmModel: string;
   latencyMs: number;
   guardTripped: boolean;

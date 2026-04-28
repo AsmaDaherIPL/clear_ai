@@ -11,6 +11,8 @@ import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 import { env } from '../config/env.js';
 import { getPool } from '../db/client.js';
 import { lookupBrokerMapping } from '../decision/broker-mapping.js';
+import { round4 } from '../util/score.js';
+import { withRequestId, baseModelInfo } from './_helpers.js';
 
 export async function expandRoute(app: FastifyInstance): Promise<void> {
   app.post('/classify/expand', async (req, reply) => {
@@ -72,10 +74,10 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           llmModel: null,
           totalLatencyMs: totalLatency,
           error: null,
-        });
+        }, req.log);
 
         return {
-          ...(requestId ? { request_id: requestId } : {}),
+          ...withRequestId(requestId),
           decision_status: 'accepted' as const,
           decision_reason: 'strong_match' as const,
           confidence_band: 'high' as const,
@@ -97,7 +99,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
             matched_length: hit.matchedLength,
             source_row_ref: hit.sourceRowRef,
           },
-          model: { embedder: EMBEDDER_VERSION(), llm: null },
+          model: baseModelInfo(),
         };
       }
     }
@@ -133,13 +135,13 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
-      });
+      }, req.log);
       return {
-        ...(requestId ? { request_id: requestId } : {}),
+        ...withRequestId(requestId),
         decision_status: 'needs_clarification',
         decision_reason: 'invalid_prefix',
         alternatives: [],
-        model: { embedder: EMBEDDER_VERSION(), llm: null },
+        model: baseModelInfo(),
       };
     }
 
@@ -190,7 +192,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       code: c.code,
       description_en: c.description_en,
       description_ar: c.description_ar,
-      retrieval_score: Number(c.rrf_score.toFixed(4)),
+      retrieval_score: round4(c.rrf_score),
     }));
 
     const totalLatency = Date.now() - t0;
@@ -218,28 +220,29 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       llmModel: llm?.llmModel ?? null,
       totalLatencyMs: totalLatency,
       error: null,
-    });
+    }, req.log);
 
     return {
-      ...(requestId ? { request_id: requestId } : {}),
+      ...withRequestId(requestId),
       decision_status: decision.decisionStatus,
       decision_reason: decision.decisionReason,
       ...(decision.confidenceBand && { confidence_band: decision.confidenceBand }),
-      ...(decision.chosenCode && {
-        before: { code: parentPrefix },
-        after: {
-          code: decision.chosenCode,
-          description_en: candidates.find((c) => c.code === decision.chosenCode)?.description_en ?? null,
-          description_ar: candidates.find((c) => c.code === decision.chosenCode)?.description_ar ?? null,
-          retrieval_score: Number(
-            (candidates.find((c) => c.code === decision.chosenCode)?.rrf_score ?? 0).toFixed(4)
-          ),
-        },
-      }),
+      ...(decision.chosenCode && (() => {
+        const chosen = candidates.find((c) => c.code === decision.chosenCode);
+        return {
+          before: { code: parentPrefix },
+          after: {
+            code: decision.chosenCode,
+            description_en: chosen?.description_en ?? null,
+            description_ar: chosen?.description_ar ?? null,
+            retrieval_score: round4(chosen?.rrf_score ?? 0),
+          },
+        };
+      })()),
       alternatives,
       ...(decision.rationale && { rationale: decision.rationale }),
       ...(decision.missingAttributes.length > 0 && { missing_attributes: decision.missingAttributes }),
-      model: { embedder: EMBEDDER_VERSION(), llm: llm?.llmModel ?? null },
+      model: baseModelInfo(llm?.llmModel ?? null),
     };
   });
 }

@@ -47,6 +47,8 @@ import {
   type SubmissionDescriptionResult,
 } from '../decision/submission-description.js';
 import { cleanMerchantInput, type MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
+import { round4 } from '../util/score.js';
+import { withRequestId } from './_helpers.js';
 
 type InterpretationStage = 'passthrough' | 'cleaned' | 'researched' | 'unknown';
 
@@ -531,7 +533,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
             code: c.code,
             description_en: c.description_en,
             description_ar: c.description_ar,
-            retrieval_score: Number(c.rrf_score.toFixed(4)),
+            retrieval_score: round4(c.rrf_score),
             source: 'rrf',
           });
           if (alternatives.length >= t.ALTERNATIVES_SHOWN_describe) break;
@@ -547,7 +549,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         code: c.code,
         description_en: c.description_en,
         description_ar: c.description_ar,
-        retrieval_score: Number(c.rrf_score.toFixed(4)),
+        retrieval_score: round4(c.rrf_score),
         source: 'rrf' as const,
       }));
     }
@@ -749,7 +751,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       llmModel: accepted ? accepted.model : (llm?.llmModel ?? null),
       totalLatencyMs: totalLatency,
       error: null,
-    });
+    }, req.log);
 
     // ---- Response shape --------------------------------------------------
 
@@ -759,7 +761,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         // Phase 4 — request id surfaced on every response so the frontend
         // can deep-link to /trace/:id and POST feedback. Null when logging
         // failed (degraded mode); UI hides the trace link in that case.
-        ...(requestId ? { request_id: requestId } : {}),
+        ...withRequestId(requestId),
         decision_status: 'best_effort' as const,
         decision_reason: 'best_effort_heading' as const,
         confidence_band: 'low' as const,
@@ -789,7 +791,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     // Researcher-declined response (no fallback — feature flag off).
     if (stage === 'unknown' && research && research.kind === 'unknown') {
       return {
-        ...(requestId ? { request_id: requestId } : {}),
+        ...withRequestId(requestId),
         decision_status: 'needs_clarification' as const,
         decision_reason: 'brand_not_recognised' as const,
         alternatives: [],
@@ -805,48 +807,45 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       };
     }
 
+    // Look up the chosen code's catalog row once across all three sources.
+    // (Previously this called candidates.find five times in the response
+    // builder — once per field — which obscured intent and re-scanned the
+    // candidate list. Same priority order: heading-promotion → RRF top-K →
+    // enumerated branch leaves.)
+    const chosenCandidate = effectiveChosenCode
+      ? candidates.find((c) => c.code === effectiveChosenCode)
+      : undefined;
+    const chosenLeaf = effectiveChosenCode
+      ? branchLeaves?.find((l) => l.code === effectiveChosenCode)
+      : undefined;
+    const chosenHeadingMatch =
+      headingLevelPromoted && headingLevelPromoted.code === effectiveChosenCode
+        ? headingLevelPromoted
+        : undefined;
+
     // Standard envelope (accepted / needs_clarification / degraded).
     return {
-      ...(requestId ? { request_id: requestId } : {}),
+      ...withRequestId(requestId),
       decision_status: decision.decisionStatus,
       decision_reason: decision.decisionReason,
       ...(decision.confidenceBand && { confidence_band: decision.confidenceBand }),
       ...(effectiveChosenCode && {
         result: {
           code: effectiveChosenCode,
-          // Look up descriptions in priority order:
-          //   1. Heading-level promotion (ADR-0019) — we already have the
-          //      catalog row from the dedicated lookup; use that.
-          //   2. Original RRF candidates (the picker's normal path).
-          //   3. branchLeaves (covers branch-rank overrides whose code
-          //      may not be in the RRF top-K but IS in the enumerated
-          //      branch).
           description_en:
-            (headingLevelPromoted && headingLevelPromoted.code === effectiveChosenCode
-              ? headingLevelPromoted.description_en
-              : null) ??
-            candidates.find((c) => c.code === effectiveChosenCode)?.description_en ??
-            branchLeaves?.find((l) => l.code === effectiveChosenCode)?.description_en ??
+            chosenHeadingMatch?.description_en ??
+            chosenCandidate?.description_en ??
+            chosenLeaf?.description_en ??
             null,
           description_ar:
-            (headingLevelPromoted && headingLevelPromoted.code === effectiveChosenCode
-              ? headingLevelPromoted.description_ar
-              : null) ??
-            candidates.find((c) => c.code === effectiveChosenCode)?.description_ar ??
-            branchLeaves?.find((l) => l.code === effectiveChosenCode)?.description_ar ??
+            chosenHeadingMatch?.description_ar ??
+            chosenCandidate?.description_ar ??
+            chosenLeaf?.description_ar ??
             null,
           // retrieval_score is only meaningful when the chosen code came from
           // the picker (RRF top-K); on a branch-rank override, the code may
-          // not be in `candidates` and the score has no meaning. Null in
-          // that case, matching the AlternativeCandidate convention.
-          retrieval_score:
-            candidates.find((c) => c.code === effectiveChosenCode)
-              ? Number(
-                  (
-                    candidates.find((c) => c.code === effectiveChosenCode)?.rrf_score ?? 0
-                  ).toFixed(4),
-                )
-              : null,
+          // not be in `candidates` and the score has no meaning. Null then.
+          retrieval_score: chosenCandidate ? round4(chosenCandidate.rrf_score) : null,
           // Duty rate + import procedures from the ZATCA catalog. duty is
           // a structured object distinguishing percentages (`rate_percent`)
           // from status words (`status_en` / `status_ar` for "Exempted" /

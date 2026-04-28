@@ -12,6 +12,8 @@ import { embedQuery } from '../embeddings/embedder.js';
 import { loadThresholds } from '../decision/setup-meta.js';
 import { logEvent } from '../decision/log-event.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
+import { round4 } from '../util/score.js';
+import { withRequestId, baseModelInfo } from './_helpers.js';
 
 interface SiblingRow {
   code: string;
@@ -64,13 +66,13 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
-      });
+      }, req.log);
       return {
-        ...(requestId ? { request_id: requestId } : {}),
+        ...withRequestId(requestId),
         decision_status: 'needs_clarification',
         decision_reason: 'invalid_prefix',
         alternatives: [],
-        model: { embedder: EMBEDDER_VERSION(), llm: null },
+        model: baseModelInfo(),
       };
     }
     const declared = declaredRow.rows[0]!;
@@ -131,9 +133,9 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
-      });
+      }, req.log);
       return {
-        ...(requestId ? { request_id: requestId } : {}),
+        ...withRequestId(requestId),
         decision_status: 'accepted',
         decision_reason: 'already_most_specific',
         confidence_band: 'high',
@@ -148,7 +150,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
           description_ar: declared.description_ar,
         },
         alternatives: [],
-        model: { embedder: EMBEDDER_VERSION(), llm: null },
+        model: baseModelInfo(),
       };
     }
 
@@ -169,7 +171,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
           code: s.code,
           description_en: s.description_en,
           description_ar: s.description_ar,
-          retrieval_score: Number(s.vec_score.toFixed(4)),
+          retrieval_score: round4(s.vec_score),
         })),
         topRetrievalScore: declaredScore,
         top2Gap: margin,
@@ -183,9 +185,9 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
-      });
+      }, req.log);
       return {
-        ...(requestId ? { request_id: requestId } : {}),
+        ...withRequestId(requestId),
         decision_status: 'accepted',
         decision_reason: 'already_most_specific',
         confidence_band: 'high',
@@ -203,9 +205,9 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
           code: s.code,
           description_en: s.description_en,
           description_ar: s.description_ar,
-          retrieval_score: Number(s.vec_score.toFixed(4)),
+          retrieval_score: round4(s.vec_score),
         })),
-        model: { embedder: EMBEDDER_VERSION(), llm: null },
+        model: baseModelInfo(),
       };
     }
 
@@ -215,7 +217,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
       code: s.code,
       description_en: s.description_en,
       description_ar: s.description_ar,
-      retrieval_score: Number(s.vec_score.toFixed(4)),
+      retrieval_score: round4(s.vec_score),
     }));
 
     const requestId = await logEvent({
@@ -239,10 +241,10 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
       llmModel: null,
       totalLatencyMs: totalLatency,
       error: null,
-    });
+    }, req.log);
 
     return {
-      ...(requestId ? { request_id: requestId } : {}),
+      ...withRequestId(requestId),
       decision_status: 'accepted',
       decision_reason: 'strong_match',
       before: {
@@ -254,10 +256,10 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         code: topSibling.code,
         description_en: topSibling.description_en,
         description_ar: topSibling.description_ar,
-        retrieval_score: Number(topSibling.vec_score.toFixed(4)),
+        retrieval_score: round4(topSibling.vec_score),
       },
       alternatives: alts,
-      model: { embedder: EMBEDDER_VERSION(), llm: null },
+      model: baseModelInfo(),
     };
   });
 }

@@ -12,7 +12,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { callLlmWithRetry, type LlmTool } from './client.js';
+import { callLlmWithRetry, type LlmStatus, type LlmTool } from './client.js';
 import { extractJson } from './parse-json.js';
 
 const PROMPT_DIR = join(process.cwd(), 'prompts');
@@ -39,7 +39,7 @@ export async function loadPrompt(filename: string): Promise<string> {
 export interface ModelCallTrace {
   model: string;
   latency_ms: number;
-  status: 'ok' | 'error' | 'timeout';
+  status: LlmStatus;
   /** Stage label, e.g. 'cleanup', 'picker', 'branch_rank'. */
   stage: string;
 }

@@ -1,9 +1,19 @@
 import { getPool } from '../db/client.js';
+import type { LlmStatus } from '../llm/client.js';
 import type {
   DecisionStatus,
   DecisionReason,
   ConfidenceBand,
 } from './types.js';
+
+/**
+ * Minimal structural type compatible with Fastify's `req.log` (and any
+ * pino-style logger). Keeps log-event.ts free of a Fastify dependency
+ * while letting routes hand in a real request-scoped logger.
+ */
+export interface LogEventLogger {
+  error(obj: unknown, msg?: string): void;
+}
 
 export interface EventInsert {
   endpoint: 'describe' | 'expand' | 'boost';
@@ -19,7 +29,7 @@ export interface EventInsert {
   candidateCount: number | null;
   branchSize: number | null;
   llmUsed: boolean;
-  llmStatus: 'ok' | 'error' | 'timeout' | null;
+  llmStatus: LlmStatus | null;
   guardTripped: boolean;
   modelCalls: unknown;
   embedderVersion: string;
@@ -35,8 +45,16 @@ export interface EventInsert {
  * row. Returning null instead of throwing on DB failure means logging is
  * best-effort — we never break a successful classification because logging
  * happened to fail.
+ *
+ * Pass `req.log` from a Fastify handler as the second argument so failures
+ * land in the structured request log (with request id correlation). When
+ * omitted (e.g. ErrorHandler outside the route context) we fall back to
+ * `console.error` — still better than swallowing the failure.
  */
-export async function logEvent(e: EventInsert): Promise<string | null> {
+export async function logEvent(
+  e: EventInsert,
+  logger?: LogEventLogger,
+): Promise<string | null> {
   const pool = getPool();
   try {
     const r = await pool.query<{ id: string }>(
@@ -80,8 +98,12 @@ export async function logEvent(e: EventInsert): Promise<string | null> {
     );
     return r.rows[0]?.id ?? null;
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[logEvent] insert failed:', err);
+    if (logger) {
+      logger.error({ err, endpoint: e.endpoint }, '[logEvent] insert failed');
+    } else {
+      // eslint-disable-next-line no-console
+      console.error('[logEvent] insert failed:', err);
+    }
     return null;
   }
 }

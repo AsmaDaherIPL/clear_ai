@@ -38,17 +38,3 @@ export function extractJson<T extends z.ZodTypeAny>(
   }
   return { ok: true, data: parsed.data as z.infer<T> };
 }
-
-/** @deprecated Use {@link extractJson} with a Zod schema. */
-export function extractJsonUnsafe<T = unknown>(text: string): T | null {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const body = fence ? fence[1]! : text;
-  const start = body.indexOf('{');
-  const end = body.lastIndexOf('}');
-  if (start < 0 || end < 0 || end <= start) return null;
-  try {
-    return JSON.parse(body.slice(start, end + 1)) as T;
-  } catch {
-    return null;
-  }
-}
