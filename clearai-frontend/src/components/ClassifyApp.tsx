@@ -106,7 +106,7 @@ export default function ClassifyApp({ runToggle }: ClassifyAppProps = {}) {
     // Per-mode validation (mirrors backend Zod regexes — fail fast on the client
     // so the user sees feedback immediately rather than chasing a 400).
     if (s.mode === 'generate' && !s.text.trim()) return;
-    if (s.mode === 'expand' && (!/^\d{4}$|^\d{6}$|^\d{8}$|^\d{10}$/.test(s.hsCode) || !s.text.trim())) return;
+    if (s.mode === 'expand' && (!/^\d{6,10}$/.test(s.hsCode) || !s.text.trim())) return;
     if (s.mode === 'boost' && !/^\d{12}$/.test(s.hsCode)) return;
 
     clearPhaseTimer();

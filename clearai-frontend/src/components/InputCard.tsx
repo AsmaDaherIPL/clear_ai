@@ -37,7 +37,7 @@ export default function InputCard({
 
   const canRun = (() => {
     if (mode === 'generate') return text.trim().length > 0;
-    if (mode === 'expand') return /^\d{4}$|^\d{6}$|^\d{8}$|^\d{10}$/.test(hsCode) && text.trim().length > 0;
+    if (mode === 'expand') return /^\d{6,10}$/.test(hsCode) && text.trim().length > 0;
     return /^\d{12}$/.test(hsCode); // boost
   })();
 
@@ -55,9 +55,9 @@ export default function InputCard({
   }
 
   const codePlaceholder =
-    mode === 'boost' ? 'e.g. 010121100000 (exactly 12 digits)' : 'e.g. 0101 / 010121 / 01012110';
+    mode === 'boost' ? 'e.g. 010121100000 (exactly 12 digits)' : 'e.g. 010121 / 3304993 / 01012110';
   const codeLabel =
-    mode === 'boost' ? '12-digit ZATCA code under inspection' : 'Parent code (4, 6, 8 or 10 digits)';
+    mode === 'boost' ? '12-digit ZATCA code under inspection' : 'Parent code';
   const codeHint =
     mode === 'boost'
       ? "we'll search siblings under the same parent for a better match"
