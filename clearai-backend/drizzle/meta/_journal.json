@@ -29,6 +29,13 @@
       "when": 1777210300000,
       "tag": "0003_v2_stateless",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777210400000,
+      "tag": "0004_setup_meta_backfill",
+      "breakpoints": true
     }
   ]
 }
