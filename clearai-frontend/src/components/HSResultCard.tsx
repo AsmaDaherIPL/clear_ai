@@ -20,6 +20,15 @@ type Props = {
   result: ResultLine;
   /** "Before" code shown only by /expand and /boost. */
   beforeCode?: string;
+  /**
+   * Picker rationale — short prose (typically 1–3 sentences) explaining
+   * WHY this code was chosen, not WHAT it is. Rendered under the chosen
+   * code grid so users see the reasoning attached to the decision rather
+   * than mistakenly attached to "alternatives below".
+   * Optional; absent on routes that don't compute one (e.g. some
+   * /boost paths) and on the legacy non-rationale-bearing responses.
+   */
+  rationale?: string;
 };
 
 type Segment = { label: string; digits: string; accent: boolean };
@@ -42,7 +51,7 @@ function copyToClipboard(s: string) {
   }
 }
 
-export default function HSResultCard({ status, reason, result, beforeCode }: Props) {
+export default function HSResultCard({ status, reason, result, beforeCode, rationale }: Props) {
   const segments = splitCode(result.code);
   const tone = statusToTone(status);
 
@@ -88,6 +97,13 @@ export default function HSResultCard({ status, reason, result, beforeCode }: Pro
           {result.description_ar || '—'}
         </div>
       </div>
+
+      {rationale && (
+        <div className="hs-rationale">
+          <span className="k">Why this code</span>
+          <p>{rationale}</p>
+        </div>
+      )}
 
       <div className="hs-actions">
         <div className="al">

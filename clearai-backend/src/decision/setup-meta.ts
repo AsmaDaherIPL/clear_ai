@@ -52,6 +52,17 @@ export interface Thresholds {
   /** Number of alternatives surfaced to the user for /describe. Default 5. */
   ALTERNATIVES_SHOWN_describe: number;
 
+  /**
+   * Minimum non-chosen alternatives to surface even when the HS-8 branch
+   * is sparse. The branch enumerator widens HS-8 → HS-6 to satisfy this;
+   * if even HS-6 falls short, the route tops up from filtered RRF
+   * candidates (which still respect MIN_ALT_SCORE so noise stays out).
+   * Default 3 — gives the user a real comparison set without overwhelming
+   * the result card. Tune up to 5 for power users, down to 1 to disable
+   * the widening behaviour entirely.
+   */
+  ALTERNATIVES_MIN_SHOWN: number;
+
   /** Cap on tokens the researcher may emit. Default 250 (JSON output, not prose). */
   RESEARCHER_MAX_TOKENS: number;
 
@@ -140,6 +151,24 @@ export interface Thresholds {
    * Increase if BRANCH_PREFIX_LENGTH is flipped to HS-6 (denser branches).
    */
   BRANCH_RANK_MAX_TOKENS: number;
+
+  /**
+   * Phase 5 — submission description feature flag. 1 = generate a 1–3 word
+   * Arabic submission description (anchored on the effective description,
+   * deterministic distinctness check vs catalog AR, falls back to a
+   * deterministic mutator if the LLM fails twice). 0 = skip; the response
+   * carries no submission_description field. Default 1 because this is the
+   * explicit broker-facing requirement that drove Phase 5; flipping to 0
+   * lets us A/B against a baseline without redeploy.
+   */
+  SUBMISSION_DESC_ENABLED: number;
+
+  /**
+   * Cap on tokens the submission-description LLM may emit. Default 300 —
+   * the JSON is small (3 short fields) but we leave headroom for the
+   * rationale field, which can be a sentence.
+   */
+  SUBMISSION_DESC_MAX_TOKENS: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -156,6 +185,7 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'RETRIEVAL_TOP_K_describe',
   'PICKER_CANDIDATES_describe',
   'ALTERNATIVES_SHOWN_describe',
+  'ALTERNATIVES_MIN_SHOWN',
   'RESEARCHER_MAX_TOKENS',
   'BEST_EFFORT_MAX_TOKENS',
   'BEST_EFFORT_ENABLED',
@@ -168,6 +198,8 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'MERCHANT_CLEANUP_MAX_TOKENS',
   'BRANCH_RANK_ENABLED',
   'BRANCH_RANK_MAX_TOKENS',
+  'SUBMISSION_DESC_ENABLED',
+  'SUBMISSION_DESC_MAX_TOKENS',
 ];
 
 let _cache: Thresholds | null = null;

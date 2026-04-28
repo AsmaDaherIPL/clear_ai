@@ -349,3 +349,65 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
   - Override rate is < 1% with no quality lift — branch-rank's value is mostly in the per-row reasoning, not the override; consider keeping the reasoning UI but skipping the override mechanic.
   - The HS-8 branch sizes are too large (>15 leaves) and `BRANCH_RANK_MAX_TOKENS=800` truncates output. Increase the cap or flip `BRANCH_PREFIX_LENGTH` to HS-6 with the corresponding token bump.
   - We add `/classify/expand` branch-rank. Same pattern but the parent prefix is supplied — no picker call to disagree with, just rank under the supplied parent. Trivial extension once we measure value on `/describe`.
+
+---
+
+## ADR-0015 — Layered alternatives fallback + per-row source labels
+
+- **Date:** 2026-04-28
+- **Status:** Shipped.
+- **Context:**
+  - Phase 1 (ADR-0012) made the alternatives surface deterministic by enumerating leaves under the chosen code's HS-8 branch. Worked great for dense branches (e.g. 8517.62.90 has 11 leaves under it). Failed silently on sparse branches: `1509.20.00` (Extra virgin olive oil) has exactly one leaf at HS-8 — the chosen code itself. The user saw zero alternatives and no signal that the system had thought about anything.
+  - The alternatives surface served two distinct purposes that we had collapsed into one: (1) "show me other valid leaves in the same legal family" (deterministic, branch-local), and (2) "show me what else the system considered" (trust signal, must always have content). Phase 1 nailed (1) but broke (2) on sparse branches.
+- **Decision:**
+  - Layered enumeration with widening prefix. The default scope stays HS-8, but if the HS-8 branch yields fewer than `ALTERNATIVES_MIN_SHOWN` (default 3) non-chosen rows, the enumerator widens to HS-6 automatically. We deliberately stop widening at HS-6 — HS-4 is too broad in dense chapters (a whole heading can span dozens of unrelated leaves).
+  - When even HS-6 falls short, the route layers in **filtered RRF candidates** as a final top-up. The same `MIN_ALT_SCORE` and `STRONG_ALT_RATIO` from Phase 0 still apply, so we never re-introduce noise — just genuinely close hits the catalog tree happens not to surface.
+  - Each alternative carries an explicit `source` field: `branch_8` | `branch_6` | `branch_4` | `rrf`. The frontend renders a per-row badge so the user understands which scope they're looking at — "tightest commercial sibling" vs "widened to same heading" vs "retrieval top-up".
+  - One new setup_meta tunable: `ALTERNATIVES_MIN_SHOWN` (default 3). Migration `0009_alternatives_layered.sql`, idempotent.
+  - Replaced the brittle `others.every(score === null)` heuristic on the frontend with explicit source-based detection. The previous logic short-circuited to false on single-row alternatives lists and showed the wrong subtitle copy.
+- **Consequences:**
+  - **Olive oil case fixed**: `extra virgin olive oil` returns 1 branch_8 (the chosen code) + 4 RRF top-ups (Other virgin / Virgin / Crude pomace / Other olive oils) — exactly the comparison set a customs broker wants.
+  - **Wireless headphones case unchanged**: HS-8 (8517.62.90) is dense (11 leaves), threshold satisfied, no widening, no RRF top-up. All `branch_8`.
+  - **Subtitle copy now adapts deterministically**: all-branch_* → "Branch alternatives"; all-rrf → "Considered alternatives" (legacy retrieval framing); mixed → "Alternatives" with a hybrid subtitle.
+  - **Per-row badges add useful context** at near-zero cost. CSS-only, no JS state.
+- **Rejected alternatives:**
+  - **Always include RRF top-up candidates regardless of branch size.** Rejected: re-introduces the noise we killed in Phase 1 (bathing caps, horses) for queries where the branch already has plenty of siblings. Layered fallback only activates when there's a genuine shortfall.
+  - **Widen all the way to HS-4 by default.** Rejected: HS-4 in dense chapters spans too many unrelated leaves. Stop at HS-6 and let RRF handle the long tail when even that's insufficient.
+- **Revisit if:**
+  - Real-world data shows users frequently want to compare across HS-4 boundaries (e.g. wired vs wireless headphones — 8518 vs 8517). At that point we add HS-4 widening for specific product classes via the broker-mapping lookup (Phase 7).
+  - The RRF top-up surfaces noise that Phase 0's filter doesn't catch. Tighten `MIN_ALT_SCORE` or add a "branch-related" check (must share at least HS-2 chapter with the chosen code).
+
+---
+
+## ADR-0016 — Phase 5: ZATCA-safe submission description
+
+- **Date:** 2026-04-28
+- **Status:** Shipped behind feature flag (default on).
+- **Context:**
+  - ZATCA rejects customs declarations whose Arabic description matches the catalog description for the chosen HS code WORD-FOR-WORD. Brokers manually rewrite the catalog text to add at least one differentiating token before submission. Sample data confirms this is universal — every submitted XML has an Arabic description that differs from the catalog by at least one word (often a redundant transliteration like "أجهزة هاتف ذكية سمارت فون").
+  - Real merchant inputs are dominated by Amazon-listing salad and brand+SKU shorthand. Generating a submission description from the raw user input would re-leak the brand/SKU back into the customs declaration. The submission must anchor on the *cleaned* / *researched* product type, not the raw input.
+  - Without this feature, every broker burns 30 seconds per row rewriting the catalog text by hand. With ~5,000 rows/day (sample-2 distribution), that's >40 hours/day saved across the broker team.
+- **Decision:**
+  - New module `src/decision/submission-description.ts`. Sonnet call (LLM_MODEL_STRONG) with the user's effective description + chosen code + catalog AR + catalog EN as inputs. Returns `{description_ar, description_en, rationale}`.
+  - **Anchored on `effectiveDescription`**, NOT raw input. The cleanup phase (1.5) and the researcher both populate `effectiveDescription`; submission generation reads that. Brand-leak is structurally impossible.
+  - **Two-attempt LLM loop**: attempt 1 at `temperature=0`. If the output AR matches catalog AR (post-normalisation) we retry attempt 2 at `temperature=0.2` with a stricter hint. If both attempts fail the distinctness check, fall through to a deterministic prefix mutator that prepends an attribute-rich word from the user's input to the catalog AR. Always ships *something* — empty submission fields are not an option.
+  - **Deterministic distinctness check** uses Arabic-aware normalisation: NFKC compose (so أ stays a single codepoint), strip diacritics + bidi marks + tree-formatting punctuation, collapse whitespace. The check runs after the LLM, never inside the prompt — we don't trust the model to police itself on the rule that legally matters.
+  - **Both EN and AR generated independently** (not translation). The English line is what non-Arabic operators verify against; if it were a translation of the AR, an operator couldn't catch AR drift.
+  - Surfaced on the response as `submission_description: {description_ar, description_en, rationale, differs_from_catalog, source}`. `source ∈ {llm, llm_failed, guard_fallback}` — the frontend renders an amber "review before submission" banner on the non-`llm` paths.
+  - Two new setup_meta tunables: `SUBMISSION_DESC_ENABLED` (flag, default 1), `SUBMISSION_DESC_MAX_TOKENS` (default 300). Migration `0010_submission_description.sql`, idempotent + CHECK constraint on the boolean.
+  - Frontend new component `SubmissionDescriptionCard.tsx` rendered between `HSResultCard` and `AlternativesCard`. Copy buttons (AR + EN), distinctness pill ("Differs from ZATCA catalog ✓"), rationale block, AI-suggestion disclaimer.
+- **Consequences:**
+  - **Latency:** +1 Sonnet call on the accepted path when enabled (~2-3s). Runs sequentially after branch enumeration. No parallelisation with branch-rank because the latter would block on the picker's choice anyway.
+  - **Cost:** +1 Sonnet call per accepted classification. Output is small (<100 tokens), so cost addition is small.
+  - **Quality**: tested on Extra virgin olive oil — catalog `زيت العصرة الأولى (زيت بكر) إكسترا` → submission `زيت زيتون بكر ممتاز` (distinct, ZATCA-acceptable, accurate to the product). The deterministic post-check guarantees the differs-from-catalog rule is satisfied; the LLM can focus on quality of phrasing.
+  - **Liability**: card always carries an "AI-generated suggestion — verify before submitting" disclaimer. Broker stays in the loop. We're not auto-submitting; we're suggesting copy-and-edit text.
+  - **Wire-format addition**: `DecisionEnvelopeBase.submission_description?: SubmissionDescription`. Optional, only on accepted results.
+- **Rejected alternatives:**
+  - **Translate the catalog AR with one word inserted.** Rejected: produces robotic, often grammatically broken Arabic. The point is fluent customs-grade prose that happens to differ; a deterministic mutator achieves only the latter.
+  - **Use Haiku instead of Sonnet.** Rejected: Haiku produces shallow, repetitive Arabic phrasing — fine for cleanup (extraction) but not for generation. Sonnet's prose quality is the value here.
+  - **LLM self-attests `differs_from_catalog` without our post-check.** Rejected: the deterministic check is cheap, the rule is mechanical, and trusting the model on a legally-critical compliance check is a bad pattern.
+  - **Generate descriptions for `best_effort` results too.** Rejected: best-effort means we have a chapter heading, not a leaf — generating a "submission description" off that would project false precision. Suppress for non-accepted statuses.
+- **Revisit if:**
+  - ZATCA tightens the rule (e.g. "must differ by ≥ 2 tokens" or "near-duplicate after stemming"). Tighten the post-check; architecture stays the same.
+  - We need to generate the EN line as a strict translation of the AR rather than independently. Add a `SUBMISSION_DESC_EN_AS_TRANSLATION` flag.
+  - Token cost goes up materially. The `SUBMISSION_DESC_MAX_TOKENS` cap exists for this; tune from setup_meta.

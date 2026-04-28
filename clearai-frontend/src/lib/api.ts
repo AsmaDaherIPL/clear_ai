@@ -110,6 +110,17 @@ export interface AlternativeLine {
    */
   retrieval_score: number | null;
   /**
+   * Where this alternative came from. Lets the UI render a per-row badge
+   * so the user understands which scope they're looking at.
+   *   branch_8 — same national subheading as the chosen code
+   *   branch_6 — same HS-6 subheading (fallback when HS-8 was sparse)
+   *   branch_4 — same HS-4 heading (rare; only via deeper widening)
+   *   rrf      — filtered retrieval candidate (final fallback or
+   *              non-accepted path)
+   * Optional for backward compat; absent on legacy responses.
+   */
+  source?: 'branch_8' | 'branch_6' | 'branch_4' | 'rrf';
+  /**
    * Phase 3 — populated only when branch-rank ran successfully. `rank` is
    * 1-based (rank=1 is the chosen code after any branch-rank override).
    * `fit` is the model's qualitative judgement; `reason` is one sentence
@@ -157,6 +168,28 @@ export interface Interpretation {
   researcher_note?: string;
 }
 
+/**
+ * Phase 5 — ZATCA-safe submission description. The 1–3 word Arabic phrase
+ * a broker can paste into a customs declaration; differs from the catalog
+ * AR by at least one token (ZATCA rejects word-for-word duplication).
+ *
+ * Only emitted on `accepted` results with a real 12-digit leaf. Always has
+ * a `description_ar` and `description_en` (the LLM falls back to a
+ * deterministic mutator on failure so the field is never empty).
+ *
+ * `source` tells the UI whether this came cleanly from the LLM, from the
+ * deterministic fallback (LLM matched the catalog twice), or from a
+ * generic LLM-fail recovery. The fallback paths warrant a "please review"
+ * warning in the UI; the clean LLM path can ship as-is.
+ */
+export interface SubmissionDescription {
+  description_ar: string;
+  description_en: string;
+  rationale: string;
+  differs_from_catalog: boolean;
+  source: 'llm' | 'llm_failed' | 'guard_fallback';
+}
+
 /** Common envelope shared by /classify/describe, /classify/expand, /boost. */
 export interface DecisionEnvelopeBase {
   decision_status: DecisionStatus;
@@ -167,6 +200,8 @@ export interface DecisionEnvelopeBase {
   missing_attributes?: MissingAttribute[];
   /** Optional on /expand and /boost (which don't run the researcher today). */
   interpretation?: Interpretation;
+  /** Phase 5 — only present on accepted results with the feature flag on. */
+  submission_description?: SubmissionDescription;
   model: ModelInfo;
 }
 

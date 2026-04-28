@@ -32,6 +32,7 @@ import Pipeline, { type StageKey } from './Pipeline';
 import HSResultCard from './HSResultCard';
 import BestEffortCard from './BestEffortCard';
 import AlternativesCard from './AlternativesCard';
+import SubmissionDescriptionCard from './SubmissionDescriptionCard';
 import MetaPanel from './MetaPanel';
 import Footer from './Footer';
 
@@ -232,12 +233,25 @@ function ResultBlock({
   return (
     <div className="result show">
       {status === 'accepted' && line && (
-        <HSResultCard
-          status={status}
-          reason={reason}
-          result={line}
-          {...(beforeCode ? { beforeCode } : {})}
-        />
+        <>
+          <HSResultCard
+            status={status}
+            reason={reason}
+            result={line}
+            {...(beforeCode ? { beforeCode } : {})}
+            {...((body as DecisionEnvelopeBase).rationale
+              ? { rationale: (body as DecisionEnvelopeBase).rationale as string }
+              : {})}
+          />
+          {/* Phase 5 — ZATCA-safe submission description sits right under
+              the chosen-code card. Only renders when the backend emitted
+              one (feature-flagged via SUBMISSION_DESC_ENABLED). */}
+          {(body as DecisionEnvelopeBase).submission_description && (
+            <SubmissionDescriptionCard
+              submission={(body as DecisionEnvelopeBase).submission_description!}
+            />
+          )}
+        </>
       )}
 
       {status === 'best_effort' && line && (
@@ -260,9 +274,6 @@ function ResultBlock({
           : {})}
         {...(line?.description_ar !== undefined
           ? { chosenDescriptionAr: line.description_ar }
-          : {})}
-        {...((body as DecisionEnvelopeBase).rationale
-          ? { rationale: (body as DecisionEnvelopeBase).rationale as string }
           : {})}
         {...(status !== 'accepted' && hint ? { remediationHint: hint } : {})}
       />

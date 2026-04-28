@@ -36,6 +36,10 @@ import { bestEffortHeading, type BestEffortOutcome } from '../decision/best-effo
 import { filterAlternatives } from '../decision/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
 import { rankBranch, type BranchRankResult } from '../decision/branch-rank.js';
+import {
+  generateSubmissionDescription,
+  type SubmissionDescriptionResult,
+} from '../decision/submission-description.js';
 import { cleanMerchantInput, type MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 
 type InterpretationStage = 'passthrough' | 'cleaned' | 'researched' | 'unknown';
@@ -195,6 +199,16 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       description_en: string | null;
       description_ar: string | null;
       retrieval_score: number | null;
+      /**
+       * Where this alternative came from. Lets the UI render a per-row
+       * badge so the user understands which scope they're looking at.
+       *   branch_8 — same national subheading as the chosen code
+       *   branch_6 — same HS-6 subheading (fallback when HS-8 was sparse)
+       *   branch_4 — same HS-4 heading (rare; only via deeper widening)
+       *   rrf      — filtered retrieval candidate (final fallback)
+       *   undefined — non-accepted path; legacy RRF without source label
+       */
+      source?: 'branch_8' | 'branch_6' | 'branch_4' | 'rrf';
       // Phase 3 — populated only when branch-rank ran. Per-row reasoning
       // tells the user why each sibling fits / doesn't fit. `fit` and
       // `reason` are missing on rows that came from branch enumeration
@@ -219,6 +233,11 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       branchLeaves = await enumerateBranch({
         chosenCode: decision.chosenCode,
         prefixLength: t.BRANCH_PREFIX_LENGTH as 4 | 6 | 8,
+        // Show at least 3 non-chosen siblings — gives the user a real
+        // comparison set even when the HS-8 branch is sparse (e.g.
+        // 1509.20.00 = Extra virgin olive oil has 1 leaf at HS-8 but 4
+        // at HS-6). Tunable via setup_meta.ALTERNATIVES_MIN_SHOWN.
+        minSiblings: t.ALTERNATIVES_MIN_SHOWN,
         maxLeaves: t.BRANCH_MAX_LEAVES,
       });
 
@@ -241,10 +260,15 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         effectiveChosenCode = branchRank.effectiveCode;
       }
 
+      // Build a fast source-lookup so we can carry the source label even
+      // through branch-rank's reordered output (branch-rank doesn't know
+      // about source — it just ranks codes).
+      const sourceByCode = new Map(branchLeaves.map((l) => [l.code, l.source]));
+
       // Render the alternatives:
       //   - When branch-rank ran successfully → use its rank order, attach
-      //     fit + reason to each row. The (possibly overridden) chosen
-      //     code is at rank=1.
+      //     fit + reason + source to each row. The (possibly overridden)
+      //     chosen code is at rank=1.
       //   - Otherwise → fall back to catalog order with chosen pinned to
       //     the front, no fit/reason.
       if (branchRank.invoked === 'llm') {
@@ -255,6 +279,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
             description_en: r.description_en,
             description_ar: r.description_ar,
             retrieval_score: null,
+            source: sourceByCode.get(r.code) ?? 'branch_8',
             rank: r.rank,
             fit: r.fit,
             reason: r.reason,
@@ -268,7 +293,35 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           description_en: l.description_en,
           description_ar: l.description_ar,
           retrieval_score: null,
+          source: l.source,
         }));
+      }
+
+      // Layer 3 — RRF fallback. If branch enumeration (even after widening)
+      // produced fewer than ALTERNATIVES_MIN_SHOWN total rows, top up from
+      // the filtered retrieval candidates. Same MIN_ALT_SCORE / cross-chapter
+      // ratio rules as Phase 0 still apply, so we never re-introduce noise
+      // (bathing caps, horses) — just genuinely close hits the catalog tree
+      // doesn't surface.
+      if (alternatives.length < t.ALTERNATIVES_MIN_SHOWN) {
+        const have = new Set(alternatives.map((a) => a.code));
+        const filtered = filterAlternatives(candidates, {
+          chosenCode: effectiveChosenCode,
+          minScore: t.MIN_ALT_SCORE,
+          strongRatio: t.STRONG_ALT_RATIO,
+          maxShown: t.ALTERNATIVES_SHOWN_describe,
+        });
+        for (const c of filtered) {
+          if (have.has(c.code)) continue;
+          alternatives.push({
+            code: c.code,
+            description_en: c.description_en,
+            description_ar: c.description_ar,
+            retrieval_score: Number(c.rrf_score.toFixed(4)),
+            source: 'rrf',
+          });
+          if (alternatives.length >= t.ALTERNATIVES_SHOWN_describe) break;
+        }
       }
     } else {
       alternatives = filterAlternatives(candidates, {
@@ -281,7 +334,41 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         description_en: c.description_en,
         description_ar: c.description_ar,
         retrieval_score: Number(c.rrf_score.toFixed(4)),
+        source: 'rrf' as const,
       }));
+    }
+
+    // ---- Phase 5: ZATCA-safe submission description ----------------------
+    // Generated only on the accepted path with a real 12-digit leaf chosen.
+    // Anchored on `effectiveDescription` (the cleaned/researched product),
+    // not on the raw user input — this prevents brand/SKU leakage into the
+    // customs declaration. Deterministic distinctness check vs catalog AR
+    // runs after the LLM; falls back to a prefix mutator on failure so we
+    // never ship an empty submission field.
+    let submission: SubmissionDescriptionResult | null = null;
+    if (
+      isAcceptedFamily &&
+      effectiveChosenCode &&
+      /^\d{12}$/.test(effectiveChosenCode) &&
+      t.SUBMISSION_DESC_ENABLED === 1
+    ) {
+      // Look up the catalog descriptions for the chosen code. Same fallback
+      // logic as the response-side `result` block (candidates → branchLeaves).
+      const cand = candidates.find((c) => c.code === effectiveChosenCode);
+      const leaf = branchLeaves?.find((l) => l.code === effectiveChosenCode);
+      const catalogAr = cand?.description_ar ?? leaf?.description_ar ?? null;
+      const catalogEn = cand?.description_en ?? leaf?.description_en ?? null;
+
+      submission = await generateSubmissionDescription({
+        effectiveDescription,
+        chosenCode: effectiveChosenCode,
+        catalogDescriptionAr: catalogAr,
+        catalogDescriptionEn: catalogEn,
+        opts: {
+          enabled: true,
+          maxTokens: t.SUBMISSION_DESC_MAX_TOKENS,
+        },
+      });
     }
 
     const totalLatency = Date.now() - t0;
@@ -335,6 +422,13 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         branch_rank_overrode:
           branchRank?.invoked === 'llm' && !branchRank.agreesWithPicker,
         branch_rank_latency_ms: branchRank?.latencyMs ?? 0,
+        // Phase 5 — submission-description observability. Lets us audit
+        // how often the deterministic distinctness check trips the
+        // fallback path, and whether the differs-from-catalog rule is
+        // ever bypassed in production.
+        submission_invoked: submission?.invoked ?? null,
+        submission_differs_from_catalog: submission?.differsFromCatalog ?? null,
+        submission_latency_ms: submission?.latencyMs ?? 0,
       },
       languageDetected: lang,
       decisionStatus: loggedStatus,
@@ -370,6 +464,15 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
               {
                 model: branchRank.model,
                 latency_ms: branchRank.latencyMs,
+                status: 'ok' as const,
+              },
+            ]
+          : []),
+        ...(submission && submission.invoked === 'llm' && submission.model
+          ? [
+              {
+                model: submission.model,
+                latency_ms: submission.latencyMs,
                 status: 'ok' as const,
               },
             ]
@@ -490,6 +593,21 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
             },
           }
         : {}),
+      // Phase 5 — ZATCA-safe submission description. Only emitted on the
+      // accepted path with a real chosen leaf. The frontend renders a
+      // copy-able card under the chosen code with a "differs from catalog"
+      // checkmark and a "review before submission" warning.
+      ...(submission && submission.invoked !== 'disabled'
+        ? {
+            submission_description: {
+              description_ar: submission.descriptionAr,
+              description_en: submission.descriptionEn,
+              rationale: submission.rationale,
+              differs_from_catalog: submission.differsFromCatalog,
+              source: submission.invoked, // 'llm' | 'guard_fallback' | 'llm_failed'
+            },
+          }
+        : {}),
       interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
       model: {
         embedder: EMBEDDER_VERSION(),
@@ -500,6 +618,9 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           : {}),
         ...(branchRank && branchRank.invoked === 'llm' && branchRank.model
           ? { branch_rank: branchRank.model }
+          : {}),
+        ...(submission && submission.invoked === 'llm' && submission.model
+          ? { submission: submission.model }
           : {}),
       },
     };

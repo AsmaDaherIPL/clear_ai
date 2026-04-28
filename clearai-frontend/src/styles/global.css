@@ -1110,6 +1110,174 @@ input, textarea, select { font-family: inherit; color: inherit; }
   background: var(--mute-1);
 }
 
+/* ----- Per-row source badges ------------------------------------------------
+   Each non-chosen row carries a small source badge telling the user where
+   the alternative came from (which scope of the catalog tree, or RRF). The
+   badges are visually muted relative to the picker's-choice chip on the
+   chosen row so the chosen row stays the visual focus.
+
+   Color encoding (intentionally subtle):
+     branch_8 → neutral grey   ("tightest commercial sibling")
+     branch_6 → soft amber     ("widened — same heading family")
+     branch_4 → softer amber   ("widened — same chapter")
+     rrf      → blue-grey      ("retrieval top-up; no tree relationship")
+*/
+.cand-meta {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+}
+.cand-src {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 999px;
+  font-family: 'Geist Mono', monospace; font-size: 10px;
+  letter-spacing: .04em; white-space: nowrap;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.cand-src .src-dot { width: 5px; height: 5px; border-radius: 50%; }
+.cand-src-branch_8        { color: var(--mute-1); border-color: var(--line); }
+.cand-src-branch_8 .src-dot { background: var(--mute-1); }
+.cand-src-branch_6        { color: var(--orange-2); background: color-mix(in srgb, var(--orange-wash) 60%, var(--paper)); border-color: color-mix(in srgb, var(--accent) 18%, var(--line)); }
+.cand-src-branch_6 .src-dot { background: var(--orange-2); }
+.cand-src-branch_4        { color: var(--orange-2); background: color-mix(in srgb, var(--orange-wash) 35%, var(--paper)); border-color: color-mix(in srgb, var(--accent) 12%, var(--line)); }
+.cand-src-branch_4 .src-dot { background: var(--orange-2); }
+.cand-src-rrf             { color: var(--mute-1); background: color-mix(in srgb, var(--paper-2) 100%, transparent); }
+.cand-src-rrf .src-dot    { background: var(--mute-1); border: 1px solid var(--mute-2); }
+
+/* Branch-rank fit chip — only present when the rerank step ran. Strong
+   visual encoding because this IS the broker's primary signal of "is
+   this row even worth considering". */
+.cand-fit {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px; border-radius: 4px;
+  font-family: 'Geist Mono', monospace; font-size: 9.5px;
+  letter-spacing: .08em; text-transform: uppercase; font-weight: 600;
+  white-space: nowrap; border: 1px solid transparent;
+}
+.cand-fit-fits     { color: #1f7a3d; background: color-mix(in srgb, #1f7a3d 12%, var(--paper)); border-color: color-mix(in srgb, #1f7a3d 30%, transparent); }
+.cand-fit-partial  { color: var(--orange-2); background: var(--orange-wash); border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+.cand-fit-excludes { color: var(--mute-1); background: color-mix(in srgb, var(--mute-2) 8%, var(--paper)); border-color: var(--line); }
+
+/* Excludes rows are visually de-emphasised — they're shown for transparency
+   ("the system considered these and ruled them out") but shouldn't compete
+   with fits/partial rows for attention. */
+.cand.fit-excludes { opacity: .72; }
+.cand.fit-excludes:hover { opacity: 1; }
+
+/* Per-row reasoning text (branch-rank only). Anchored under the description
+   so it reads as an explanation of the row, not a separate panel. */
+.cand-reason {
+  margin-top: 8px;
+  font-size: 12.5px; line-height: 1.5; color: var(--ink-2);
+  padding-left: 10px; border-left: 2px solid var(--line);
+  font-style: italic;
+}
+.cand.fit-fits .cand-reason     { color: var(--ink); border-left-color: color-mix(in srgb, #1f7a3d 50%, transparent); }
+.cand.fit-partial .cand-reason  { color: var(--ink-2); border-left-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.cand.fit-excludes .cand-reason { color: var(--mute-1); }
+
+/* ----- SubmissionDescriptionCard (Phase 5) ---------------------------------
+   Sits between HSResultCard and AlternativesCard on the accepted path.
+   Renders the 1–3 word ZATCA-safe Arabic submission text the broker can
+   paste directly into a customs declaration field.
+
+   Two visual states:
+     - LLM-clean (.sub-card)        → green check, copy-and-go
+     - Fallback (.sub-card-warn)    → amber strip, "review before submitting"
+
+   Always shows a small AI-suggestion disclaimer at the bottom — the
+   submitted description is a legal declaration; the human stays in the loop. */
+.sub-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  margin-top: 14px;
+}
+.sub-card-warn {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--orange-wash) 35%, var(--paper));
+}
+.sub-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
+.sub-top .k {
+  font-family: 'Geist Mono', monospace; font-size: 9.5px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--mute-1);
+}
+.sub-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 10px; border-radius: 999px;
+  font-family: 'Geist Mono', monospace; font-size: 10.5px;
+  letter-spacing: .04em; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.sub-pill .sub-dot { width: 6px; height: 6px; border-radius: 50%; }
+.sub-pill-ok      { color: #1f7a3d; background: color-mix(in srgb, #1f7a3d 10%, var(--paper)); border-color: color-mix(in srgb, #1f7a3d 30%, transparent); }
+.sub-pill-ok .sub-dot   { background: #1f7a3d; box-shadow: 0 0 0 3px color-mix(in srgb, #1f7a3d 18%, transparent); }
+.sub-pill-warn    { color: var(--orange-2); background: var(--orange-wash); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.sub-pill-warn .sub-dot { background: var(--orange-2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+
+.sub-banner {
+  margin: 0 0 14px; padding: 10px 12px;
+  background: color-mix(in srgb, var(--orange-wash) 70%, var(--paper));
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  font-size: 13px; color: var(--orange-2); line-height: 1.5;
+}
+
+.sub-body {
+  display: flex; flex-direction: column; gap: 10px;
+  margin-bottom: 14px;
+}
+.sub-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; background: var(--paper-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+}
+.sub-row-ar { font-family: var(--font-ar, 'Geist'), sans-serif; }
+.sub-row-en { font-family: var(--font-en, 'Geist'), sans-serif; color: var(--ink-2); }
+.sub-text   { flex: 1; font-size: 16px; line-height: 1.5; color: var(--ink); }
+.sub-row-en .sub-text { font-size: 14px; }
+.sub-copy   { flex-shrink: 0; }
+
+.sub-rationale {
+  margin: 0 0 14px;
+  font-size: 13px; line-height: 1.55; color: var(--ink-2);
+}
+.sub-rationale .k {
+  display: block; font-family: 'Geist Mono', monospace;
+  font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--mute-1); margin-bottom: 5px;
+}
+
+.sub-disclaimer {
+  font-size: 11.5px; line-height: 1.55; color: var(--mute-1);
+  padding-top: 12px; border-top: 1px dashed var(--line-2);
+  font-style: italic;
+}
+
+/* ----- HSResultCard rationale block ----------------------------------------
+   Lives at the bottom of the orange/cream chosen-code card, between the
+   description grid and the action buttons. Same visual register as the
+   description cells (label-above-body) so the result card feels cohesive. */
+.hs-rationale {
+  margin: 18px 20px 0;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--orange-wash) 50%, var(--paper));
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line));
+}
+.hs-rationale .k {
+  display: block; font-family: 'Geist Mono', monospace;
+  font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--orange-2); margin-bottom: 8px;
+}
+.hs-rationale p {
+  margin: 0; font-size: 14px; line-height: 1.6; color: var(--ink);
+}
+
 .btn-pick {
   padding: 7px 12px; border: 1px solid var(--line); border-radius: 7px;
   background: var(--paper);

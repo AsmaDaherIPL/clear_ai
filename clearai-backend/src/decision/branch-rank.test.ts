@@ -19,9 +19,9 @@ import { rankBranch } from './branch-rank.js';
 import type { BranchLeaf } from './branch-enumerate.js';
 
 const baseLeaves: BranchLeaf[] = [
-  { code: '851762900009', description_en: 'wireless headphones', description_ar: null },
-  { code: '851762900002', description_en: 'smart watch w/ sim', description_ar: null },
-  { code: '851762900007', description_en: 'GPS vehicle tracker', description_ar: null },
+  { code: '851762900009', description_en: 'wireless headphones', description_ar: null, source: 'branch_8' },
+  { code: '851762900002', description_en: 'smart watch w/ sim', description_ar: null, source: 'branch_8' },
+  { code: '851762900007', description_en: 'GPS vehicle tracker', description_ar: null, source: 'branch_8' },
 ];
 
 beforeEach(() => {
