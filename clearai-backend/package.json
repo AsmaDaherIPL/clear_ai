@@ -41,7 +41,11 @@
       "sharp",
       "esbuild",
       "protobufjs"
-    ]
+    ],
+    "//": "Force protobufjs >= 7.5.5 to remediate GHSA arbitrary-code-execution in <7.5.5. The vuln is in the type-field handling of compiled definitions; we don't compile untrusted definitions ourselves but the transitive (onnx-proto -> protobufjs) is flagged by Dependabot. Override at the lockfile level rather than swapping @xenova/transformers (which would require switching to @huggingface/transformers — different API surface, retest cost).",
+    "overrides": {
+      "protobufjs@<7.5.5": ">=7.5.5"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
