@@ -55,6 +55,14 @@ export interface LlmCallParams {
    * caller just reads the final `text` synthesised by the model.
    */
   tools?: LlmTool[];
+  /**
+   * Per-call timeout override (ms). Defaults to env LLM_TIMEOUT_MS.
+   * Web-search calls legitimately need a longer ceiling (Anthropic's
+   * hosted search adds 5-15s); short extraction calls (cleanup,
+   * best-effort) want a tighter ceiling so we fail fast on stuck
+   * connections rather than burn the full default.
+   */
+  timeoutMs?: number;
 }
 
 export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
@@ -78,7 +86,7 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
   }
 
   const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);
+  const timeout = setTimeout(() => ctrl.abort(), params.timeoutMs ?? LLM_TIMEOUT_MS);
 
   try {
     const res = await fetch(ANTHROPIC_BASE_URL, {

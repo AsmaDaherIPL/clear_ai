@@ -143,7 +143,11 @@ export async function generateSubmissionDescription(
   params: GenerateSubmissionParams,
 ): Promise<SubmissionDescriptionResult> {
   const { effectiveDescription, chosenCode, catalogDescriptionAr, catalogDescriptionEn, opts = {} } = params;
-  const { enabled = true, maxTokens = 300 } = opts;
+  // 150 tokens fits the JSON envelope (description_ar + description_en +
+  // rationale, all short product-text). Lower max_tokens reduces both the
+  // generation budget and Anthropic's TTFT — submission is one of two LLM
+  // calls on the accepted path's critical path, so trimming it pays back.
+  const { enabled = true, maxTokens = 150 } = opts;
 
   if (!enabled) return disabled();
 

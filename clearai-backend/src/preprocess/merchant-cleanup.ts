@@ -109,6 +109,11 @@ export async function cleanMerchantInput(
     stage: 'cleanup',
     model,
     maxTokens,
+    // Cleanup is short Haiku extraction; if it stalls past 8s something
+    // is wrong upstream. Fail fast and let the pipeline fall through to
+    // the raw input (looksClean path) rather than blocking the whole
+    // request on a hung connection.
+    timeoutMs: 8_000,
   });
 
   // On any non-ok outcome, fall back to the raw input. Pipeline never blocks on cleanup.

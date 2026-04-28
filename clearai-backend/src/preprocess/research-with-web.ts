@@ -75,6 +75,11 @@ export async function researchInputWithWeb(
     maxTokens,
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches }],
     retries: 0, // web search is expensive; transient failures abstain rather than retry
+    // Web search legitimately takes longer than the default LLM timeout
+    // (Anthropic's hosted search adds 5-15s on top of generation). Lift
+    // the per-call ceiling to 30s so we don't kill a healthy slow call;
+    // the in-flight request will abandon naturally if it stalls past that.
+    timeoutMs: 30_000,
   });
 
   if (outcome.kind !== 'ok') {

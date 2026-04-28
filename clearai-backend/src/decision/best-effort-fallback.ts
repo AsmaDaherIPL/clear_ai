@@ -64,6 +64,10 @@ export async function bestEffortHeading(
     model: params.model,
     maxTokens: params.maxTokens,
     retries: 1,
+    // Short Haiku extraction; fail fast at 8s. Best-effort is the
+    // last-resort tail and should never be the bottleneck on a request
+    // that already failed every other gate.
+    timeoutMs: 8_000,
   });
 
   if (outcome.kind !== 'ok') {

@@ -37,7 +37,6 @@ import {
   researchInputWithWeb,
   type ResearchWithWebOutcome,
 } from '../preprocess/research-with-web.js';
-import { bestEffortHeading, type BestEffortOutcome } from '../decision/best-effort-fallback.js';
 import { filterAlternatives } from '../decision/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
 import { parseDutyInfo } from '../decision/duty-info.js';
@@ -46,11 +45,14 @@ import {
   generateSubmissionDescription,
   type SubmissionDescriptionResult,
 } from '../decision/submission-description.js';
-import { cleanMerchantInput, type MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
+import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 import { round4 } from '../util/score.js';
 import { withRequestId } from './_helpers.js';
-
-type InterpretationStage = 'passthrough' | 'cleaned' | 'researched' | 'unknown';
+import type { ModelCallTrace } from '../llm/structured-call.js';
+import type { LlmStatus } from '../llm/client.js';
+import { buildInterpretation, type InterpretationStage } from '../decision/interpretation.js';
+import { runCleanupStage } from '../decision/stages/cleanup-stage.js';
+import { runBestEffortStage } from '../decision/stages/best-effort-stage.js';
 
 export async function describeRoute(app: FastifyInstance): Promise<void> {
   app.post('/classify/describe', async (req, reply) => {
@@ -71,38 +73,40 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     let researchWeb: ResearchWithWebOutcome | null = null;
     let cleanup: MerchantCleanupResult | null = null;
 
-    // ---- Stage 0: merchant-input cleanup (Phase 1.5, ADR-0012) -----------
-    // Strips brand/SKU/marketing noise from raw merchant strings BEFORE
-    // retrieval. Deterministically skipped on inputs that already look
-    // clean (≤4 tokens, no SKU pattern, no marketing punctuation) — saves
-    // an LLM call on the ~80% of merchant descriptions that are already
-    // 1–3 word stubs. On noisy inputs, fires Haiku to extract a clean
-    // product noun and customs-relevant attributes.
-    if (isEnabled(t, 'MERCHANT_CLEANUP_ENABLED')) {
-      cleanup = await cleanMerchantInput(description, {
-        maxTokens: t.MERCHANT_CLEANUP_MAX_TOKENS,
-      });
-      if (cleanup.invoked === 'llm' && cleanup.kind === 'product') {
-        // V3 (ADR-0020) non-destructive cleanup. Previously the cleaned
-        // noun + attributes REPLACED the retrieval query. That stripped
-        // useful signal: for "Loewe Puzzle bag" → effective = "bag" lost
-        // "Puzzle" (a strong lexical anchor for handbag-family content
-        // even if Sonnet's pre-training doesn't know the model). Now we
-        // build a CONCATENATED query that keeps the raw input AND adds
-        // the cleaned noun + attributes as an explicit hint suffix. The
-        // retrieval index sees both signals and weights its own way; we
-        // don't pre-decide which is more important.
-        const attrPart = cleanup.attributes.length > 0 ? ` ${cleanup.attributes.join(' ')}` : '';
-        const cleanedHint = `${cleanup.effective}${attrPart}`.trim();
-        effectiveDescription = `${description.trim()} ${cleanedHint}`.trim();
-        stage = 'cleaned';
-      }
-      // For kind === 'merchant_shorthand' or 'ungrounded' we leave
-      // effectiveDescription as the raw input. Stage 2 below will route
-      // shorthand to the researcher; ungrounded falls through to the gate
-      // which will refuse it. No need to short-circuit here — the
-      // existing control flow handles both.
-    }
+    /**
+     * Per-request trace of every LLM call that fired, in the order they
+     * fired. Each stage pushes a ModelCallTrace when it actually invokes
+     * the LLM (skipped stages — e.g. cleanup short-circuited by
+     * looksClean — push nothing). The aggregator replaces the older
+     * 50-line conditional-spread block in the logEvent payload, where
+     * one branch per stage was needed to decide whether each trace was
+     * present.
+     *
+     * `recordCall` is a tiny helper rather than a class so any module
+     * that wants to push (current: this file only) can do so with one
+     * line. If H2 splits this file into stage modules, each stage will
+     * accept the array and push directly — same shape, no new type.
+     */
+    const modelCalls: ModelCallTrace[] = [];
+    const recordCall = (
+      model: string | null | undefined,
+      latency_ms: number,
+      stageLabel: string,
+      status: LlmStatus = 'ok',
+    ): void => {
+      if (!model) return;
+      modelCalls.push({ model, latency_ms, stage: stageLabel, status });
+    };
+
+    // ---- Stage 0: merchant-input cleanup (decision/stages/cleanup-stage.ts) -
+    const cleanupStage = await runCleanupStage({
+      description,
+      thresholds: t,
+      modelCalls,
+    });
+    cleanup = cleanupStage.cleanup;
+    effectiveDescription = cleanupStage.effectiveDescription;
+    stage = cleanupStage.stage;
 
     // ---- Stage 1: retrieve top-K on the (possibly cleaned) input ---------
     const norm1 = digitNormalize(effectiveDescription, known);
@@ -154,6 +158,9 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       // knowledge, and feeding it the cleaned (likely empty) text would
       // strip the very signal it needs.
       research = await researchInput(description);
+      if (research.kind !== 'failed') {
+        recordCall(research.model, research.latencyMs, 'research');
+      }
 
       if (research.kind === 'recognised') {
         stage = 'researched';
@@ -178,6 +185,9 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           researchWeb = await researchInputWithWeb(description, {
             maxTokens: t.RESEARCH_WEB_MAX_TOKENS,
           });
+          if (researchWeb.kind !== 'failed') {
+            recordCall(researchWeb.model, researchWeb.latencyMs, 'research_web');
+          }
           if (researchWeb.kind === 'recognised') {
             stage = 'researched';
             effectiveDescription = researchWeb.canonical;
@@ -295,115 +305,41 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         candidates: candidates.slice(0, t.PICKER_CANDIDATES_describe),
         model: env().LLM_MODEL_STRONG,
       });
+      recordCall(llm.llmModel, llm.latencyMs, 'picker', llm.llmStatus);
     }
 
     const decision = resolve({ gate, llm });
 
-    // ---- Stage 5: best-effort fallback tail ------------------------------
-    // Trigger when the route has not produced an accepted code AND the
-    // feature flag is on. Stateless, never stores anything. Returns a
-    // low-confidence heading capped at BEST_EFFORT_MAX_DIGITS digits.
-    let bestEffort: BestEffortOutcome | null = null;
-    const needsFallback =
-      isEnabled(t, 'BEST_EFFORT_ENABLED') && decision.decisionStatus !== 'accepted';
-
-    if (needsFallback) {
-      bestEffort = await bestEffortHeading({
-        rawInput: description,
-        maxDigits: t.BEST_EFFORT_MAX_DIGITS,
-        maxTokens: t.BEST_EFFORT_MAX_TOKENS,
-        model: env().LLM_MODEL_STRONG,
-      });
+    // ---- Stage 5 + heading-level promotion (decision/stages/best-effort-stage.ts) -
+    const bestEffortStage = await runBestEffortStage({
+      description,
+      thresholds: t,
+      decision,
+      candidates,
+      modelCalls,
+    });
+    const bestEffort = bestEffortStage.bestEffort;
+    let accepted = bestEffortStage.accepted;
+    const noSignalBestEffort = bestEffortStage.noSignalBestEffort;
+    const headingLevelPromoted = bestEffortStage.headingLevelPromoted;
+    // Apply the patch the stage returned. Mutating `decision` here (rather
+    // than inside the stage) keeps the side effect explicit at the route
+    // level — this is the only place `decision` ever changes after it's
+    // returned by `resolve()`.
+    if (bestEffortStage.decisionPatch.decisionStatus) {
+      decision.decisionStatus = bestEffortStage.decisionPatch.decisionStatus;
     }
-
-    // If the fallback succeeded, swap the decision to a 'best_effort' envelope.
-    // We deliberately do not overwrite `decision` for accepted/degraded paths
-    // — those still own the response shape. The intermediate `accepted`
-    // variable narrows the discriminated union for downstream use.
-    let accepted: Extract<BestEffortOutcome, { kind: 'ok' }> | null =
-      bestEffort && bestEffort.kind === 'ok' ? bestEffort : null;
-
-    // "No-signal" guard: best-effort returned an all-zero code (e.g. "00",
-    // "0000", "000000000000") — that's the LLM's way of saying "no product
-    // cue here" (typical for a personal name or empty marketing string).
-    // It's NOT a useful classification — show it as needs_clarification
-    // (brand_not_recognised), not as a verify-gated best-effort. Suppresses
-    // the noisy "considered alternatives" block too: RRF hits against a
-    // personal name are guaranteed to be irrelevant (donkeys, etc.).
-    let noSignalBestEffort = false;
-    if (accepted && /^0+$/.test(accepted.code)) {
-      noSignalBestEffort = true;
-      accepted = null;
+    if (bestEffortStage.decisionPatch.decisionReason) {
+      decision.decisionReason = bestEffortStage.decisionPatch.decisionReason;
     }
-
-    // ---- Heading-level acceptance promotion (ADR-0019, V3-tightened) -----
-    // ZATCA recognises heading-padded 12-digit codes (e.g. `420200000000`,
-    // `640300000000`) as valid customs declarations with published duty
-    // rates. When best-effort identified a 4-digit HS heading we can
-    // promote the response from best_effort → accepted with confidence
-    // band 'medium' and decision_reason 'heading_level_match'.
-    //
-    // V3 (ADR-0020) tightens promotion to prevent the trust-laundering
-    // path the reviewer flagged: previously we promoted any 4-digit
-    // best-effort result as long as <heading>00000000 was a leaf, which
-    // could turn a Stage-7-rescued wrong-family answer into "accepted".
-    // The V3 rule only promotes when retrieval ALSO pointed at the same
-    // heading family — that's our evidence that best-effort isn't
-    // overruling retrieval but agreeing with it. If retrieval went to
-    // 4205 and best-effort went to 4202, those are different families
-    // and we leave the result as best_effort (verify-toggle gating).
-    //
-    // The check is cheap: does any retrieval candidate share the same
-    // 4-digit prefix as best-effort's heading? When the gate failed and
-    // candidates were weak, this still validates the family-agreement.
-    // When retrieval was empty or pointed to a different family, no
-    // promotion.
-    let headingLevelPromoted: {
-      code: string;
-      description_en: string | null;
-      description_ar: string | null;
-      rationale: string;
-      missingHint: string;
-    } | null = null;
-    if (accepted && accepted.specificity === 4 && /^\d{4}$/.test(accepted.code)) {
-      // V3 family-agreement gate: retrieval must have surfaced at least
-      // one candidate in the same heading family that best-effort picked.
-      // This is what stops Loewe Puzzle bag's old failure mode (retrieval
-      // converged on 4205, best-effort overruled with 4202, promotion
-      // would have laundered that override into accepted).
-      const familyAgreement = candidates.some((c) => c.code.slice(0, 4) === accepted!.code);
-      const headingCode = `${accepted.code}00000000`;
-      const pool = getPool();
-      const r = await pool.query<{
-        description_en: string | null;
-        description_ar: string | null;
-      }>(
-        `SELECT description_en, description_ar FROM hs_codes WHERE code = $1 AND is_leaf = true`,
-        [headingCode],
-      );
-      const row = r.rows[0];
-      if (row && familyAgreement) {
-        // Promote. We synthesise a rationale that explains the
-        // heading-level commit honestly: it's a real ZATCA leaf,
-        // duty is published, but a sub-heading would be more
-        // specific if the relevant attribute is documented.
-        headingLevelPromoted = {
-          code: headingCode,
-          description_en: row.description_en,
-          description_ar: row.description_ar,
-          rationale: `${accepted.rationale} Accepted at heading level (${accepted.code}) — ZATCA accepts this code as a valid declaration. Adding the missing classification attribute (typically material) would refine to a sub-heading.`,
-          missingHint:
-            'Adding the material (e.g. leather / textile / plastic) to your input would refine this to a sub-heading.',
-        };
-        // Suppress the best_effort path so downstream code emits the
-        // standard accepted envelope instead.
-        accepted = null;
-        decision.decisionStatus = 'accepted';
-        decision.decisionReason = 'heading_level_match';
-        decision.confidenceBand = 'medium';
-        decision.chosenCode = headingCode;
-        decision.rationale = headingLevelPromoted.rationale;
-      }
+    if (bestEffortStage.decisionPatch.confidenceBand) {
+      decision.confidenceBand = bestEffortStage.decisionPatch.confidenceBand;
+    }
+    if (bestEffortStage.decisionPatch.chosenCode) {
+      decision.chosenCode = bestEffortStage.decisionPatch.chosenCode;
+    }
+    if (bestEffortStage.decisionPatch.rationale) {
+      decision.rationale = bestEffortStage.decisionPatch.rationale;
     }
 
     // Alternatives surface — sourced differently per decision status.
@@ -449,6 +385,8 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     let alternatives: Alt[];
     let branchLeaves: BranchLeaf[] | null = null;
     let branchRank: BranchRankResult | null = null;
+    /** Phase 5 submission description — generated in parallel with branch-rank above. */
+    let submission: SubmissionDescriptionResult | null = null;
     /**
      * The code we ship to the user. Defaults to the picker's pick. If
      * branch-rank is enabled AND ran successfully AND its #1 differs from
@@ -470,10 +408,17 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         maxLeaves: t.BRANCH_MAX_LEAVES,
       });
 
-      // Phase 3 — Sonnet rerank with per-row reasoning, optionally
-      // overriding the picker. Feature-flagged off by default; flip
-      // BRANCH_RANK_ENABLED in setup_meta to enable.
-      branchRank = await rankBranch({
+      // Latency optimisation: branch-rank and submission-description are
+      // both LLM calls (~5-10s each) that happen on the accepted path,
+      // and they have no data dependency on each other. Branch-rank
+      // consumes `branchLeaves`; submission consumes the picker's
+      // chosen-code catalog text. Running them in parallel saves the
+      // smaller of the two latencies (~5-8s on the typical accepted
+      // path). Submission anchors on the picker's pick rather than
+      // branch-rank's potentially-overridden one — within an HS-8 branch
+      // the AR catalog text is near-identical between siblings, so the
+      // generated submission is functionally the same code either way.
+      const branchRankPromise = rankBranch({
         query: effectiveDescription,
         chosenCode: decision.chosenCode,
         leaves: branchLeaves,
@@ -482,6 +427,37 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           maxTokens: t.BRANCH_RANK_MAX_TOKENS,
         },
       });
+
+      // Pre-resolve catalog descriptions for the picker's pick so the
+      // parallel submission call has what it needs. We use the picker's
+      // chosen code here (decision.chosenCode), not branch-rank's
+      // possibly-overridden one — see comment above.
+      const submissionPromise: Promise<SubmissionDescriptionResult | null> =
+        /^\d{12}$/.test(decision.chosenCode) && isEnabled(t, 'SUBMISSION_DESC_ENABLED')
+          ? (() => {
+              const cand = candidates.find((c) => c.code === decision.chosenCode);
+              const leaf = branchLeaves!.find((l) => l.code === decision.chosenCode);
+              return generateSubmissionDescription({
+                effectiveDescription,
+                chosenCode: decision.chosenCode!,
+                catalogDescriptionAr: cand?.description_ar ?? leaf?.description_ar ?? null,
+                catalogDescriptionEn: cand?.description_en ?? leaf?.description_en ?? null,
+                opts: {
+                  enabled: true,
+                  maxTokens: t.SUBMISSION_DESC_MAX_TOKENS,
+                },
+              });
+            })()
+          : Promise.resolve(null);
+
+      [branchRank, submission] = await Promise.all([branchRankPromise, submissionPromise]);
+
+      if (branchRank.invoked === 'llm') {
+        recordCall(branchRank.model, branchRank.latencyMs, 'branch_rank');
+      }
+      if (submission && submission.invoked === 'llm') {
+        recordCall(submission.model, submission.latencyMs, 'submission');
+      }
 
       if (branchRank.invoked === 'llm' && !branchRank.agreesWithPicker) {
         // Branch-rank is overriding the picker. We trust it because it
@@ -567,38 +543,9 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       }));
     }
 
-    // ---- Phase 5: ZATCA-safe submission description ----------------------
-    // Generated only on the accepted path with a real 12-digit leaf chosen.
-    // Anchored on `effectiveDescription` (the cleaned/researched product),
-    // not on the raw user input — this prevents brand/SKU leakage into the
-    // customs declaration. Deterministic distinctness check vs catalog AR
-    // runs after the LLM; falls back to a prefix mutator on failure so we
-    // never ship an empty submission field.
-    let submission: SubmissionDescriptionResult | null = null;
-    if (
-      isAcceptedFamily &&
-      effectiveChosenCode &&
-      /^\d{12}$/.test(effectiveChosenCode) &&
-      isEnabled(t, 'SUBMISSION_DESC_ENABLED')
-    ) {
-      // Look up the catalog descriptions for the chosen code. Same fallback
-      // logic as the response-side `result` block (candidates → branchLeaves).
-      const cand = candidates.find((c) => c.code === effectiveChosenCode);
-      const leaf = branchLeaves?.find((l) => l.code === effectiveChosenCode);
-      const catalogAr = cand?.description_ar ?? leaf?.description_ar ?? null;
-      const catalogEn = cand?.description_en ?? leaf?.description_en ?? null;
-
-      submission = await generateSubmissionDescription({
-        effectiveDescription,
-        chosenCode: effectiveChosenCode,
-        catalogDescriptionAr: catalogAr,
-        catalogDescriptionEn: catalogEn,
-        opts: {
-          enabled: true,
-          maxTokens: t.SUBMISSION_DESC_MAX_TOKENS,
-        },
-      });
-    }
+    // Phase 5 submission description was generated in parallel with branch-rank
+    // above (see the Promise.all block) — keeps the accepted-path latency from
+    // adding both LLM calls back-to-back.
 
     // ---- Duty + procedures lookup ----------------------------------------
     // ZATCA's catalog stores duty rate (e.g. "5 %") and an import procedures
@@ -663,7 +610,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         // threshold and the prompt without re-running traffic.
         research_web_kind: researchWeb?.kind ?? null,
         research_web_latency_ms: researchWeb?.latencyMs ?? null,
-        best_effort_invoked: needsFallback,
+        best_effort_invoked: bestEffort !== null,
         best_effort_specificity: accepted ? accepted.specificity : null,
         // Phase 1.5 — cleanup observability. invoked is one of
         // 'skipped_clean' | 'llm' | 'llm_failed' | 'llm_unparseable' so we
@@ -707,59 +654,10 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       llmUsed: !!llm || !!accepted,
       llmStatus: llm?.llmStatus ?? null,
       guardTripped: llm?.guardTripped ?? false,
-      modelCalls: [
-        ...(cleanup && cleanup.invoked === 'llm' && cleanup.model
-          ? [
-              {
-                model: cleanup.model,
-                latency_ms: cleanup.latencyMs,
-                status: 'ok' as const,
-              },
-            ]
-          : []),
-        ...(research && research.kind !== 'failed'
-          ? [{ model: research.model, latency_ms: research.latencyMs, status: 'ok' as const }]
-          : []),
-        ...(researchWeb && researchWeb.kind !== 'failed'
-          ? [
-              {
-                model: researchWeb.model,
-                latency_ms: researchWeb.latencyMs,
-                status: 'ok' as const,
-              },
-            ]
-          : []),
-        ...(llm
-          ? [{ model: llm.llmModel, latency_ms: llm.latencyMs, status: llm.llmStatus }]
-          : []),
-        ...(branchRank && branchRank.invoked === 'llm' && branchRank.model
-          ? [
-              {
-                model: branchRank.model,
-                latency_ms: branchRank.latencyMs,
-                status: 'ok' as const,
-              },
-            ]
-          : []),
-        ...(submission && submission.invoked === 'llm' && submission.model
-          ? [
-              {
-                model: submission.model,
-                latency_ms: submission.latencyMs,
-                status: 'ok' as const,
-              },
-            ]
-          : []),
-        ...(accepted
-          ? [
-              {
-                model: accepted.model,
-                latency_ms: accepted.latencyMs,
-                status: 'ok' as const,
-              },
-            ]
-          : []),
-      ],
+      // Aggregated by `recordCall(...)` at each LLM site upstream, in
+      // the order calls fired. Replaces a former 50-line conditional
+      // block where every stage had its own spread + null check.
+      modelCalls,
       embedderVersion: EMBEDDER_VERSION(),
       llmModel: accepted ? accepted.model : (llm?.llmModel ?? null),
       totalLatencyMs: totalLatency,
@@ -931,52 +829,3 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
   });
 }
 
-/**
- * Centralise the interpretation block so all three response shapes
- * (best-effort, researcher-declined, standard envelope) emit it identically.
- * The block surfaces every transformation we did to the user's input —
- * `cleaned_as` if cleanup ran and produced a different effective string,
- * `rewritten_as` if the researcher rewrote it, plus a researcher note when
- * the input couldn't be identified. Frontend uses this to render an
- * "Understood as: …" line so the user can spot misinterpretation.
- */
-function buildInterpretation(params: {
-  description: string;
-  stage: InterpretationStage;
-  effectiveDescription: string;
-  research: ResearchOutcome | null;
-  cleanup: MerchantCleanupResult | null;
-}): {
-  original: string;
-  stage: InterpretationStage;
-  cleaned_as?: string;
-  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded';
-  cleanup_attributes?: string[];
-  cleanup_stripped?: string[];
-  rewritten_as?: string;
-  researcher_note?: string;
-} {
-  const { description, stage, effectiveDescription, research, cleanup } = params;
-  const out: ReturnType<typeof buildInterpretation> = {
-    original: description,
-    stage,
-  };
-
-  // Surface cleanup outcome whenever the LLM ran (regardless of whether the
-  // result was used as the retrieval input). The frontend can show "we
-  // ignored: Samsung, Galaxy S25 Ultra, …" so the user can sanity-check.
-  if (cleanup && cleanup.invoked === 'llm') {
-    if (cleanup.kind === 'product' && cleanup.effective !== description) {
-      out.cleaned_as = cleanup.effective;
-    }
-    out.cleanup_kind = cleanup.kind;
-    if (cleanup.attributes.length > 0) out.cleanup_attributes = cleanup.attributes;
-    if (cleanup.stripped.length > 0) out.cleanup_stripped = cleanup.stripped;
-  }
-
-  if (stage === 'researched') out.rewritten_as = effectiveDescription;
-  if (stage === 'unknown' && research && research.kind === 'unknown') {
-    out.researcher_note = research.reason;
-  }
-  return out;
-}

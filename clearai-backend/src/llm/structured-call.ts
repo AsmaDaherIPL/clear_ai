@@ -68,6 +68,12 @@ export interface StructuredLlmCallParams<TSchema extends z.ZodTypeAny> {
   tools?: LlmTool[];
   /** Transient-failure retries. Default 2. Schema failures are NOT retried. */
   retries?: number;
+  /**
+   * Per-call timeout override (ms). Forwarded to the LLM client. Default
+   * is env LLM_TIMEOUT_MS. Web-search stages should pass a higher value;
+   * short extraction stages should pass a lower one to fail fast.
+   */
+  timeoutMs?: number;
 }
 
 export async function structuredLlmCall<TSchema extends z.ZodTypeAny>(
@@ -83,6 +89,7 @@ export async function structuredLlmCall<TSchema extends z.ZodTypeAny>(
       maxTokens: params.maxTokens ?? 1024,
       temperature: params.temperature ?? 0,
       ...(params.tools ? { tools: params.tools } : {}),
+      ...(params.timeoutMs ? { timeoutMs: params.timeoutMs } : {}),
     },
     params.retries ?? 2,
   );
