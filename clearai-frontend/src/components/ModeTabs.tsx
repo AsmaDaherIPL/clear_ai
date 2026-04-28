@@ -1,89 +1,81 @@
 /**
- * ModeTabs — product modes mapped to backend endpoints.
+ * ModeTabs.tsx — Generate / Expand / Batch mode switcher
  *
- *   generate → POST /classify/describe   (free-text → 12-digit code)
- *   expand   → POST /classify/expand     (partial code + description → 12-digit)
- *   boost    → POST /boost               (12-digit → check for better sibling)
+ * RESPONSIBILITIES:
+ *   - Renders the three mode pills (Generate, Expand, Batch).
+ *   - Tracks active mode and calls onModeChange when the user switches.
+ *   - Displays the mode number in monospace and an optional "BETA" badge.
+ *   - All labels driven by useT() for EN/AR.
  *
- * The third visible tile is intentionally a non-interactive "Validate ·
- * coming soon" teaser. Boost is hidden from the UI for now (the endpoint
- * still works programmatically; the Mode union keeps it for type safety
- * and any future re-exposure). When the validate endpoint ships we'll
- * promote this tile to a real tab.
+ * STATE OWNED: none — controlled via props (parent ClassifyApp owns mode).
+ *
+ * NOT YET IMPLEMENTED:
+ *   - Active indicator animation (CSS transition on the white pill).
+ *   - Keyboard navigation (arrow keys between tabs per ARIA tablist spec).
  */
 
-export type Mode = 'generate' | 'expand' | 'boost';
+import { useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
-type ModeDef = {
-  key: Mode;
-  tag: string;
-  ttl: string;
-  sub: string;
-};
+export type ClassifyMode = 'generate' | 'expand' | 'batch';
 
-/** Selectable modes — boost is currently hidden behind the Validate teaser. */
-export const MODES: ModeDef[] = [
-  {
-    key: 'generate',
-    tag: '01 · CREATE',
-    ttl: 'Generate',
-    sub: 'Free-text description → full 12-digit ZATCA code',
-  },
-  {
-    key: 'expand',
-    tag: '02 · EXPAND',
-    ttl: 'Expand',
-    sub: 'Partial code (4/6/8/10 digits) + description → 12-digit code',
-  },
+interface ModeTabsProps {
+  mode: ClassifyMode;
+  onModeChange: (mode: ClassifyMode) => void;
+  className?: string;
+}
+
+const MODES: Array<{ id: ClassifyMode; num: string; labelKey: 'mode_generate' | 'mode_expand' | 'mode_batch'; badge?: string }> = [
+  { id: 'generate', num: '01', labelKey: 'mode_generate' },
+  { id: 'expand',   num: '02', labelKey: 'mode_expand' },
+  { id: 'batch',    num: '03', labelKey: 'mode_batch', badge: 'BETA' },
 ];
 
-/** Long-form tooltip copy for the Validate teaser. Native `title=` so we
- *  don't pull in a popover dep just for one tile. */
-const VALIDATE_TOOLTIP = [
-  'For declarations that are ready to submit. ClearAI verifies that your',
-  'HS code, description, and declared value tell a consistent story —',
-  'flagging mismatches, implausible values, and suspicious combinations',
-  'before they reach Bayan.',
-  '',
-  'When to use:',
-  '· Final pre-submission coherence check before Bayan',
-  '· Compliance screening for suspicious code-description-value combinations',
-].join('\n');
+export default function ModeTabs({ mode, onModeChange, className }: ModeTabsProps) {
+  const t = useT();
 
-type Props = { mode: Mode; setMode: (m: Mode) => void };
-
-export default function ModeTabs({ mode, setMode }: Props) {
   return (
-    <div className="modes-wrap">
-      <div className="modes">
-        {MODES.map((m) => (
-          <button
-            key={m.key}
-            className={`mode ${mode === m.key ? 'on' : ''}`}
-            onClick={() => setMode(m.key)}
-            type="button"
-          >
-            <div className="mtag">{m.tag}</div>
-            <div className="mttl">{m.ttl}</div>
-            <div className="msub">{m.sub}</div>
-          </button>
-        ))}
-
+    <div
+      role="tablist"
+      aria-label="Classification mode"
+      className={cn(
+        'inline-flex items-center gap-0.5 p-1',
+        'bg-[var(--line-2)] border border-[var(--line)] rounded-full',
+        'mb-[18px]',
+        className,
+      )}
+    >
+      {MODES.map(({ id, num, labelKey, badge }) => (
         <button
-          className="mode soon"
+          key={id}
+          role="tab"
+          aria-selected={mode === id}
           type="button"
-          aria-disabled="true"
-          disabled
-          title={VALIDATE_TOOLTIP}
+          onClick={() => onModeChange(id)}
+          className={cn(
+            'inline-flex items-center gap-2 px-4 py-[7px] rounded-full',
+            'border-0 text-[13px] font-medium transition-colors duration-150',
+            mode === id
+              ? 'bg-[var(--surface)] text-[var(--ink)] shadow-[0_1px_0_rgba(20,16,12,0.04),0_1px_2px_rgba(20,16,12,0.06)]'
+              : 'bg-transparent text-[var(--ink-2)] hover:text-[var(--ink)]',
+          )}
         >
-          <span className="soonchip">COMING NEXT</span>
-          <div className="mtag">03 · VERIFY</div>
-          <div className="mttl">Validate</div>
-          <div className="msub">
-            Pre-Bayan coherence check across HS code, description, and declared value
-          </div>
+          <span
+            className={cn(
+              'font-mono text-[11px] font-medium',
+              mode === id ? 'text-[var(--accent)]' : 'text-[var(--ink-3)]',
+            )}
+          >
+            {num}
+          </span>
+          <span>{t(labelKey)}</span>
+          {badge && (
+            <span className="text-[10.5px] font-medium text-[var(--ink-3)] bg-[var(--line)] px-[7px] py-0.5 rounded-full ms-0.5 uppercase tracking-[0.04em]">
+              {badge}
+            </span>
+          )}
         </button>
-      </div>
+      ))}
     </div>
   );
 }

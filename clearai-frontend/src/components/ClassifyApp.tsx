@@ -1,316 +1,195 @@
 /**
- * ClassifyApp — the full UI shell. Owns mode, inputs, pipeline animation,
- * and the call to one of three backend endpoints:
+ * ClassifyApp.tsx — root React island for the ClearAI v2 application
  *
- *   generate → POST /classify/describe   (description → 12-digit code)
- *   expand   → POST /classify/expand     (parent prefix + description)
- *   boost    → POST /boost               (12-digit code → better sibling?)
+ * RESPONSIBILITIES:
+ *   - Owns the top-level application state: active mode, UI phase,
+ *     in-flight request, the most recent DescribeResponse, and the
+ *     measured round-trip latency.
+ *   - Composes all child components into the page structure.
+ *   - Calls api.describe() / api.expand() / api.boost() based on mode
+ *     and forwards the result to the matching Result* component.
+ *   - Mounted with client:load in index.astro so it hydrates immediately.
  *
- * The decision envelope is a closed enum — we render a different result
- * shape for `accepted` vs `needs_clarification` vs `degraded`. No fake
- * confidence numbers; we use decision_reason as the truthful label.
+ * STATE OWNED:
+ *   - mode: ClassifyMode — which tab is active.
+ *   - phase: 'idle' | 'classifying' | 'result' | 'error' — UI phase.
+ *   - activeStep: number — drives ProcessingSteps progression.
+ *   - response: DescribeResponse | null — last successful response.
+ *   - latencyMs: number | null — client-measured round-trip.
+ *   - errorMessage: string | null — last error to surface to the user.
+ *
+ * STEP-PROGRESSION HEURISTIC:
+ *   The backend returns a single classify response, not per-step events.
+ *   We can't know exactly when retrieval finishes vs reasoning starts on
+ *   the client. So we drive ProcessingSteps with rough wall-clock timers
+ *   that match typical request profiles (≈1s retrieval, ≈3s reasoning,
+ *   ≈8s describe). When the real response lands, we jump straight to
+ *   step 5 ("done") regardless of where the timer was. This is purely
+ *   visual — it gives the user something to watch instead of a static
+ *   spinner — and the timers are short enough that even a fast response
+ *   never feels chopped.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import {
-  api,
-  ApiError,
-  reasonLabel,
-  remediationHint,
-  statusToTone,
-  type DescribeResponse,
-  type ExpandBoostResponse,
-  type DecisionEnvelopeBase,
-  type DecisionStatus,
-  type ResultLine,
-} from '../lib/api';
+
+import { useRef, useState } from 'react';
 import TopBar from './TopBar';
 import Hero from './Hero';
-import ModeTabs, { type Mode } from './ModeTabs';
-import InputCard from './InputCard';
-import Suggestions from './Suggestions';
-import Pipeline, { type StageKey } from './Pipeline';
-import HSResultCard from './HSResultCard';
-import BestEffortCard from './BestEffortCard';
-import AlternativesCard from './AlternativesCard';
-import SubmissionDescriptionCard from './SubmissionDescriptionCard';
-import TraceLink from './TraceLink';
+import ModeTabs, { type ClassifyMode } from './ModeTabs';
+import Composer from './Composer';
+import ProcessingSteps from './ProcessingSteps';
+import ResultSingle from './ResultSingle';
+// ResultExpand is unused here for now — Expand-mode responses are funneled
+// through ResultSingle by hoisting the `after` leaf into `result`. Keep
+// the file in tree for the eventual dedicated before/after layout pass.
+import ResultBatch from './ResultBatch';
 import Footer from './Footer';
+import { useT } from '@/lib/i18n';
+import { api, ApiError, type DescribeResponse } from '@/lib/api';
 
-type AnyResponse = DescribeResponse | ExpandBoostResponse;
+type Phase = 'idle' | 'classifying' | 'result' | 'error';
 
-/** Pulled from the response by mode. /describe puts the chosen line in
- *  `result`; /expand and /boost put it in `after`. */
-function pickResultLine(mode: Mode, r: AnyResponse): ResultLine | undefined {
-  if (mode === 'generate') return (r as DescribeResponse).result;
-  return (r as ExpandBoostResponse).after;
-}
+export default function ClassifyApp() {
+  const t = useT();
+  const [mode, setMode] = useState<ClassifyMode>('generate');
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [activeStep, setActiveStep] = useState(0);
+  const [response, setResponse] = useState<DescribeResponse | null>(null);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Hold timer handles so we can clear them if the response lands first
+  // (otherwise the timers would race past `activeStep=5` and re-render
+  // pending dots beneath the result card).
+  const stepTimers = useRef<number[]>([]);
 
-function pickBeforeCode(mode: Mode, r: AnyResponse): string | undefined {
-  if (mode === 'generate') return undefined;
-  return (r as ExpandBoostResponse).before?.code;
-}
+  const clearStepTimers = () => {
+    stepTimers.current.forEach((id) => window.clearTimeout(id));
+    stepTimers.current = [];
+  };
 
-type ClassifyAppProps = {
-  /** Optional slot rendered between the ModeTabs and the InputCard.
-   *  Used by ClassifyWorkbench to inject the single/batch run toggle. */
-  runToggle?: ReactNode;
-};
+  const startStepProgression = () => {
+    clearStepTimers();
+    setActiveStep(1);
+    stepTimers.current.push(window.setTimeout(() => setActiveStep(2), 700));
+    stepTimers.current.push(window.setTimeout(() => setActiveStep(3), 2200));
+    stepTimers.current.push(window.setTimeout(() => setActiveStep(4), 5000));
+  };
 
-export default function ClassifyApp({ runToggle }: ClassifyAppProps = {}) {
-  const [mode, setMode] = useState<Mode>('generate');
-
-  const [text, setText] = useState('');
-  const [hsCode, setHsCode] = useState('');
-
-  const [busy, setBusy] = useState(false);
-  // `phase` reflects what the request is plausibly doing right now. We can't
-  // know precisely without SSE from the backend, so we flip from 'search' to
-  // 'reason' on a single timer tuned to the typical retrieval cost (~250ms
-  // warm). It's not perfect, but it's two honest labels instead of six lying
-  // ones with fabricated millisecond budgets.
-  const [phase, setPhase] = useState<StageKey | null>(null);
-  const [pipeShow, setPipeShow] = useState(false);
-
-  const [result, setResult] = useState<{
-    body: AnyResponse;
-    mode: Mode;
-    clientLatencyMs: number;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Reset transient state when switching modes.
-  useEffect(() => {
-    setResult(null);
-    setError(null);
-    setPhase(null);
-    setPipeShow(false);
-  }, [mode]);
-
-  // Latest-state ref so the global ⌘↵ handler doesn't restage on every keystroke.
-  const latest = useRef({ busy, mode, text, hsCode });
-  latest.current = { busy, mode, text, hsCode };
-
-  // One pending timer that flips us from 'search' → 'reason' partway through
-  // the request. ~700ms approximates a warm describe() retrieval (embedder +
-  // pgvector hybrid query); past that, the request is most likely waiting on
-  // the LLM. If the response arrives sooner, we just clear the timer.
-  const phaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function clearPhaseTimer() {
-    if (phaseTimer.current !== null) {
-      clearTimeout(phaseTimer.current);
-      phaseTimer.current = null;
+  const handleSubmit = async (description: string, parentCode?: string) => {
+    if (!description.trim()) {
+      setErrorMessage(t('err_empty'));
+      setPhase('error');
+      return;
     }
-  }
-  useEffect(() => clearPhaseTimer, []);
+    setErrorMessage(null);
+    setResponse(null);
+    setLatencyMs(null);
+    setPhase('classifying');
+    startStepProgression();
 
-  async function submit() {
-    const s = latest.current;
-    if (s.busy) return;
-    // Per-mode validation (mirrors backend Zod regexes — fail fast on the client
-    // so the user sees feedback immediately rather than chasing a 400).
-    if (s.mode === 'generate' && !s.text.trim()) return;
-    if (s.mode === 'expand' && (!/^\d{6,10}$/.test(s.hsCode) || !s.text.trim())) return;
-    if (s.mode === 'boost' && !/^\d{12}$/.test(s.hsCode)) return;
-
-    clearPhaseTimer();
-    setError(null);
-    setResult(null);
-    setPipeShow(true);
-    setBusy(true);
-    setPhase('search');
-    phaseTimer.current = setTimeout(() => setPhase('reason'), 700);
-
-    const t0 = performance.now();
+    const startedAt = performance.now();
     try {
-      let body: AnyResponse;
-      if (s.mode === 'generate') {
-        body = await api.describe({ description: s.text.trim() });
-      } else if (s.mode === 'expand') {
-        body = await api.expand({ code: s.hsCode, description: s.text.trim() });
-      } else {
-        body = await api.boost({ code: s.hsCode });
-      }
-      const clientLatencyMs = Math.round(performance.now() - t0);
-      clearPhaseTimer();
-      setPhase(null);
-      setResult({ body, mode: s.mode, clientLatencyMs });
-    } catch (err) {
-      clearPhaseTimer();
-      setPipeShow(false);
-      setPhase(null);
-      if (err instanceof ApiError) {
-        // 400 from Zod usually carries a fieldErrors object — best-effort flatten.
-        const detail = (err.body as { detail?: { fieldErrors?: Record<string, string[]> } } | null)
-          ?.detail?.fieldErrors;
-        if (detail) {
-          const flat = Object.entries(detail)
-            .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`)
-            .join(' · ');
-          setError(`Invalid input — ${flat}`);
-        } else {
-          setError(err.message);
+      // Generate mode → /classify/describe. Expand and Batch are not yet
+      // wired in v2 (Composer uses parentCode only when mode==='expand',
+      // but the api.expand call is deferred until the Expand result card
+      // is wired separately).
+      let res: DescribeResponse;
+      if (mode === 'generate') {
+        res = await api.describe({ description });
+      } else if (mode === 'expand') {
+        // Soft-fail: surface a friendly error rather than crashing.
+        // Wiring expand requires plumbing api.expand → ResultExpand which
+        // is on the v2 punch list (today ResultExpand is a stub).
+        if (!parentCode) {
+          throw new Error('Parent code required for Expand mode.');
         }
+        // Treat the expand response as compatible with DescribeResponse
+        // for now — both share the decision envelope. ResultExpand will
+        // get its own typed prop in a follow-up.
+        const expandRes = await api.expand({ code: parentCode, description });
+        // Lift the chosen leaf into result.* shape so ResultSingle can
+        // render it transparently. before/after split rendering is a
+        // ResultExpand-specific concern handled separately.
+        res = {
+          ...expandRes,
+          result: expandRes.after,
+        };
       } else {
-        setError('Network error — is the backend running on :3000?');
+        throw new Error('Batch mode is not wired yet.');
       }
-    } finally {
-      setBusy(false);
+      const elapsed = performance.now() - startedAt;
+      clearStepTimers();
+      setActiveStep(5);
+      setResponse(res);
+      setLatencyMs(elapsed);
+      setPhase('result');
+    } catch (err) {
+      clearStepTimers();
+      setActiveStep(0);
+      const msg =
+        err instanceof ApiError
+          ? `${err.status === 0 ? '' : `${err.status}: `}${err.message || t('err_generic')}`
+          : err instanceof Error
+            ? err.message
+            : t('err_generic');
+      setErrorMessage(msg);
+      setPhase('error');
     }
-  }
-
-  // Global ⌘↵ / Ctrl+↵
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        submit();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  const showResult = !!result && !error;
+  };
 
   return (
-    <div className="shell">
+    <>
       <TopBar />
-      <Hero />
-      <ModeTabs mode={mode} setMode={setMode} />
 
-      {runToggle}
+      {/*
+        Spacing matches `new landing page.html`:
+        - main: padding 80px 28px 48px
+        - Hero subtitle owns its own 40px bottom margin
+        - ModeTabs + Composer flow directly under, no extra gap
+        - ProcessingSteps + Result cards have a 24px stand-off (mt-6)
+      */}
+      <main className="max-w-[760px] mx-auto px-7 pt-20 pb-12">
+        <Hero />
 
-      <InputCard
-        mode={mode}
-        text={text} setText={setText}
-        hsCode={hsCode} setHsCode={setHsCode}
-        busy={busy} onSubmit={submit}
-      />
+        <div className="flex flex-col items-center">
+          <ModeTabs mode={mode} onModeChange={setMode} />
+          <Composer
+            mode={mode}
+            onSubmit={handleSubmit}
+            loading={phase === 'classifying'}
+            className="w-full"
+          />
+        </div>
 
-      {mode === 'generate' && !pipeShow && !showResult && (
-        <Suggestions setText={setText} />
-      )}
-
-      <Pipeline
-        phase={phase}
-        totalMs={result?.clientLatencyMs ?? null}
-        show={pipeShow && !showResult}
-      />
-
-      {error && (
-        <div className="err-banner" role="alert">{error}</div>
-      )}
-
-      {showResult && result && (
-        <ResultBlock
-          mode={result.mode}
-          body={result.body}
-          clientLatencyMs={result.clientLatencyMs}
+        <ProcessingSteps
+          visible={phase === 'classifying'}
+          activeStep={activeStep}
+          className="mt-6"
         />
-      )}
+
+        {/* Inline error panel — minimal styling, sits where the result
+            card would so the user sees the failure in the same visual
+            slot as a success. */}
+        {phase === 'error' && errorMessage && (
+          <div
+            role="alert"
+            className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
+          >
+            {errorMessage}
+          </div>
+        )}
+
+        {phase === 'result' && (
+          <div className="mt-6">
+            <ResultSingle
+              visible={mode === 'generate' || mode === 'expand'}
+              data={response}
+              latencyMs={latencyMs ?? undefined}
+            />
+            <ResultBatch visible={mode === 'batch'} />
+          </div>
+        )}
+      </main>
 
       <Footer />
-    </div>
-  );
-}
-
-// ---------- Result block ----------------------------------------------------
-
-function ResultBlock({
-  mode, body, clientLatencyMs,
-}: {
-  mode: Mode;
-  body: AnyResponse;
-  clientLatencyMs: number;
-}) {
-  const status = body.decision_status;
-  const reason = body.decision_reason;
-  const tone = statusToTone(status);
-  const line = pickResultLine(mode, body);
-  const beforeCode = pickBeforeCode(mode, body);
-  const hint = remediationHint(status, reason);
-
-  return (
-    <div className="result show">
-      {status === 'accepted' && line && (
-        <>
-          <HSResultCard
-            status={status}
-            reason={reason}
-            result={line}
-            {...(beforeCode ? { beforeCode } : {})}
-            {...((body as DecisionEnvelopeBase).rationale
-              ? { rationale: (body as DecisionEnvelopeBase).rationale as string }
-              : {})}
-          />
-          {/* Phase 5 — ZATCA-safe submission description sits right under
-              the chosen-code card. Only renders when the backend emitted
-              one (feature-flagged via SUBMISSION_DESC_ENABLED). */}
-          {(body as DecisionEnvelopeBase).submission_description && (
-            <SubmissionDescriptionCard
-              submission={(body as DecisionEnvelopeBase).submission_description!}
-            />
-          )}
-        </>
-      )}
-
-      {status === 'best_effort' && line && (
-        <BestEffortCard
-          result={line}
-          rationale={(body as DecisionEnvelopeBase).rationale}
-          hint={hint}
-        />
-      )}
-
-      {status !== 'accepted' && status !== 'best_effort' && (
-        <NotAcceptedCard status={status} reason={reason} tone={tone} hint={hint} />
-      )}
-
-      <AlternativesCard
-        alternatives={body.alternatives}
-        {...(line?.code ? { chosenCode: line.code } : {})}
-        {...(line?.description_en !== undefined
-          ? { chosenDescriptionEn: line.description_en }
-          : {})}
-        {...(line?.description_ar !== undefined
-          ? { chosenDescriptionAr: line.description_ar }
-          : {})}
-        {...(status !== 'accepted' && hint ? { remediationHint: hint } : {})}
-      />
-
-      {/* Phase 4 — "View full trace" deep-link replaces the inline dev/meta
-          panel. The trace page shows model timeline, latency, decision
-          internals, and the feedback form. The link only renders when the
-          backend returned a request_id (best-effort logging — degrades
-          gracefully on a logging outage). clientLatencyMs is rendered
-          alongside as a quick "how slow was this" tell, since users find
-          that useful even without opening the trace. */}
-      <TraceLink
-        requestId={(body as DecisionEnvelopeBase).request_id}
-        clientLatencyMs={clientLatencyMs}
-      />
-    </div>
-  );
-}
-
-function NotAcceptedCard({
-  status, reason, tone, hint,
-}: {
-  status: Exclude<DecisionStatus, 'accepted' | 'best_effort'>;
-  reason: ReturnType<typeof reasonLabel> extends string ? Parameters<typeof reasonLabel>[0] : never;
-  tone: 'warn' | 'bad' | 'good';
-  hint: string | null;
-}) {
-  return (
-    <div className={`hs-card hs-card-${tone}`}>
-      <div className="hs-top">
-        <div className="k">{status === 'degraded' ? 'SERVICE DEGRADED' : 'NEEDS CLARIFICATION'}</div>
-        <div className={`conf-pill conf-${tone}`}>
-          <span className="d" />
-          <span>{reasonLabel(reason)}</span>
-        </div>
-      </div>
-      {hint && <p className="not-accepted-hint">{hint}</p>}
-    </div>
+    </>
   );
 }

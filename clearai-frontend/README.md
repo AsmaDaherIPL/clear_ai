@@ -1,91 +1,91 @@
-# clearai-frontend
+# ClearAI Frontend v2
 
-The classification UI for ClearAI — an Astro site with a single React
-island that talks to the **Fastify backend** in `../clearai-backend/`.
+Sibling rebuild on `feat/v2-shadcn-rebuild`. Lives in `clearai-frontend-v2/` alongside
+the original `clearai-frontend/` (v1, still in production).
 
-Deploys to Cloudflare Pages as a static build.
+## Why this exists alongside v1
+
+The new design (see `new landing page.html` in the repo root) introduces proper i18n/RTL
+support, shadcn/ui primitives, self-hosted IBM Plex fonts, and a richer classification
+result layout. Rather than modify v1 in place — risking the live Azure deployment —
+this sibling folder lets the rebuild progress independently until it reaches feature
+parity, at which point the deploy workflow is swapped to point at `clearai-frontend-v2/dist`.
 
 ## Stack
 
-- **Astro 6** — static shell, islands architecture
-- **React 19** — the `ClassifyApp` island (form + result)
-- **Tailwind 4** — via `@tailwindcss/vite`
-- **TypeScript** — strict; contract types hand-mirrored from
-  `clearai-backend/src/decision/types.ts` and `src/routes/*.ts` in
-  `src/lib/api.ts`
+- **Astro 6** — static-site generator with island architecture
+- **React 19** — for interactive islands (`client:load`)
+- **Tailwind v4** — via `@tailwindcss/vite` plugin (no PostCSS required)
+- **shadcn/ui** — initialized; add components on demand (`npx shadcn@latest add <name>`)
+- **IBM Plex Sans + IBM Plex Sans Arabic + IBM Plex Mono** — self-hosted via `@fontsource`
 
-## Endpoints we hit
+## Locale strategy
 
-| Mode | Endpoint | Backend route |
-|---|---|---|
-| Generate | `POST /classify/describe` | `clearai-backend/src/routes/describe.ts` |
-| Expand   | `POST /classify/expand`   | `clearai-backend/src/routes/expand.ts` |
-| Boost    | `POST /boost`             | `clearai-backend/src/routes/boost.ts` |
+Language is determined by a `lang` cookie (`en` | `ar`). Two mechanisms set it:
 
-The batch lane is **not** wired in v1 — the Fastify backend has no
-`/api/batch/*` endpoints yet. When that lands we'll re-add the lane
-switch + batch UI from git history (commit before this rewrite).
+1. **`?lang=ar` query param** — sets the cookie for this and future visits.
+   See `src/layouts/Layout.astro` lines 21-45 for the server-side logic.
+2. **`LanguageToggle` button** — calls `setLocale()` in `src/lib/i18n.ts`, which
+   writes the cookie and hot-flips `html[lang/dir]` without a page reload.
 
-## Dev
+A pre-hydrate `<script is:inline>` (Layout.astro lines 72-82) re-reads the cookie
+before any React island hydrates, preventing a left-to-right flash for Arabic users
+when the statically-built HTML defaulted to `lang="en"`.
 
-Backend must be up first on port 3000 (its default and prod port):
+SEO: `<link rel="alternate" hreflang>` tags in the `<head>` signal the alternate language to search engines.
 
-```sh
-# terminal 1 — backend
-cd ../clearai-backend && pnpm dev      # http://localhost:3000
+## Logical-CSS rule
 
-# terminal 2 — frontend
+See the comment block at the top of `src/styles/global.css`.
+
+Never write `padding-left/right`, `margin-left/right`, `border-left/right`, or
+`text-align: left/right`. Always use logical properties (`inline-start/end`) so RTL
+works without per-locale overrides. In Tailwind: `ps-*`, `pe-*`, `ms-*`, `me-*`,
+`border-s`, `border-e`, `text-start`, `text-end`.
+
+## How to run
+
+```bash
+cd clearai-frontend-v2
 npm install
-npm run dev                            # http://localhost:5173
+npm run dev        # http://localhost:5180
 ```
 
-CORS is configured server-side to allow `http://localhost:5173` by default
-(see `clearai-backend/src/config/env.ts` → `CORS_ORIGINS`). Override
-`CORS_ORIGINS` in the backend's `.env` for prod.
+v1 remains on port 5173-5175 so both can run simultaneously.
 
-## Env
+## How to add a shadcn component
 
-| Var | Default | Notes |
-|---|---|---|
-| `PUBLIC_CLEARAI_API_BASE` | `http://localhost:3000` | Browser-exposed (Astro `PUBLIC_` prefix). Set to the Container App FQDN in prod. |
-
-## Project layout
-
-```
-src/
-├── layouts/Layout.astro          # root layout, font preload
-├── pages/index.astro             # mounts ClassifyWorkbench
-├── lib/api.ts                    # typed API client (single source of truth for the contract)
-└── components/
-    ├── ClassifyWorkbench.tsx     # passthrough wrapper
-    ├── ClassifyApp.tsx           # the React island — owns mode, inputs, dispatch, render
-    ├── ModeTabs.tsx              # generate / expand / boost
-    ├── InputCard.tsx             # mode-aware input surface
-    ├── HSResultCard.tsx          # accepted-decision result + segmented 12-digit code
-    ├── AlternativesCard.tsx      # shortlist with retrieval scores
-    ├── MetaPanel.tsx             # dev-view: model + round-trip
-    ├── Pipeline.tsx              # cosmetic 6-stage progress animation
-    ├── Suggestions.tsx           # preset descriptions for Generate
-    ├── TopBar.tsx / Hero.tsx / Footer.tsx
-    └── styles/global.css
+```bash
+npx shadcn@latest add button
+npx shadcn@latest add dialog
+# etc.
 ```
 
-## Design system
+Generated files land in `src/components/ui/`.
 
-See `src/styles/global.css`. Parchment palette (warm neutrals), Najdi
-green accent, amber stamp for HS codes. Typography: Fraunces (display),
-JetBrains Mono (code), IBM Plex Sans Arabic (RTL). Deliberately avoids
-generic AI-slop defaults (Inter, Roboto, purple gradients).
+## Backend wiring
 
-## Build & deploy
+`src/lib/api.ts` is ported verbatim from v1. It targets `http://localhost:3000` by
+default; set `PUBLIC_CLEARAI_API_BASE` to point at the deployed APIM endpoint:
 
-```sh
-npm run build       # → dist/
+```
+PUBLIC_CLEARAI_API_BASE=https://apim-infp-clearai-be-dev-gwc-01.azure-api.net
+PUBLIC_CLEARAI_API_KEY=your-subscription-key
 ```
 
-Cloudflare Pages config:
-- Build command: `npm run build`
-- Output directory: `dist`
-- Root directory: `clearai-frontend`
-- Env var: `PUBLIC_CLEARAI_API_BASE` → your prod Container App URL
-  (e.g. `https://ca-infp-clearai-be-dev-gwc-01.<env-hash>.<region>.azurecontainerapps.io`)
+Components do not yet call the API — that wiring is the next step.
+
+## What is next
+
+1. **Component bodies** — each file in `src/components/` is a stub; implement the real
+   layout and interactions component by component.
+2. **API wiring** — connect `ClassifyApp.tsx`'s `handleSubmit` to `api.describe`,
+   `api.expand`, and file-upload batch flow.
+3. **shadcn components** — add `Dialog`, `Select`, `Toast`, `Tooltip` etc. as needed.
+4. **Design CSS** — port the exact CSS from `new landing page.html` into Tailwind
+   utility classes within each component.
+5. **CORS update** — if hitting the deployed APIM from `localhost:5180`, the backend
+   CORS allow-list needs `:5180` added alongside v1's origin.
+6. **Deploy** — once feature-parity is reached, update the GitHub Actions workflow to
+   build from `clearai-frontend-v2/` and deploy to Azure Static Web Apps or
+   Cloudflare Pages.

@@ -30,12 +30,13 @@ const EnvSchema = z.object({
    * one stale dev server to another silently breaks fetch with a misleading
    * "Network error" (the browser blocks the preflight; the app surfaces it
    * the same way as a real connection failure).
-   * Set to the deployed Cloudflare Pages URL in prod.
+   * Set to the deployed Azure Static Web Apps URL in prod (and any
+   * Cloudflare Pages origin still kept alive as a rollback target).
    */
   CORS_ORIGINS: z
     .string()
     .default(
-      'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:4321',
+      'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5180,http://localhost:4321',
     )
     .transform((s) =>
       s

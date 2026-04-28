@@ -1,30 +1,99 @@
 ---
 /**
- * Root layout. Imports v5 design tokens + preloads fonts. The TopBar,
- * Hero, and Footer are rendered inside the React app so the entire
- * v5 shell is a single island.
+ * Layout.astro — ClearAI v2 root layout
+ *
+ * LOCALE STRATEGY (lines ~20-55):
+ *   1. Server-side: reads `lang` cookie (set by prior visit or ?lang= param).
+ *      Defaults to 'en' if cookie missing or value not in {en, ar}.
+ *   2. ?lang= query param acts as a one-time override: sets the cookie for
+ *      future visits AND applies to the current render immediately.
+ *   3. Static HTML is always built with 'en' defaults by the SSG pass.
+ *      The inline <script is:inline> below re-reads the cookie BEFORE React
+ *      hydrates, fixing the dir/lang attributes so AR users never see a
+ *      left-to-right flash on first paint (pre-hydrate flash-fix).
+ *   4. SEO: <link rel="alternate" hreflang> tags tell search engines that an
+ *      Arabic version exists at /?lang=ar.
+ *
+ * ADDING PAGES:
+ *   Wrap any new page with <Layout> and pass optional title/description props.
+ *
+ * FLASH-FIX DETAIL (lines ~65-80):
+ *   The inline script is synchronous and runs before any JS module loads.
+ *   It reads document.cookie directly — no async, no module boundary.
+ *   It intentionally catches all errors and fails open (stays LTR/en)
+ *   so a cookie parse failure never breaks the page.
  */
-import '../styles/global.css';
+
+const url = new URL(Astro.request.url);
+const queryLang = url.searchParams.get('lang');
+const cookieLang = Astro.cookies.get('lang')?.value;
+
+const valid = (v: string | null | undefined): v is 'en' | 'ar' =>
+  v === 'en' || v === 'ar';
+
+const locale: 'en' | 'ar' =
+  valid(queryLang) ? queryLang
+  : valid(cookieLang) ? cookieLang
+  : 'en';
+
+// Persist ?lang= override into cookie for subsequent visits.
+if (valid(queryLang) && queryLang !== cookieLang) {
+  Astro.cookies.set('lang', queryLang, {
+    path: '/',
+    maxAge: 60 * 60 * 24 * 365, // 1 year
+    sameSite: 'lax',
+  });
+}
+
+const dir = locale === 'ar' ? 'rtl' : 'ltr';
 
 interface Props {
   title?: string;
+  description?: string;
 }
-const { title = 'Clear AI — Saudi HS Classification' } = Astro.props;
----
 
-<html lang="en">
+const {
+  title = 'ClearAI — Customs classification with confidence',
+  description = 'Saudi HS-code classification grounded in ZATCA. Retrieval + reasoning, not a guess.',
+} = Astro.props;
+---
+<!doctype html>
+<html lang={locale} dir={dir}>
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="generator" content={Astro.generator} />
-    <meta
-      name="description"
-      content="An intelligent platform that improves customs classification accuracy before clearance — reducing manual effort and supporting faster, more consistent processing."
-    />
     <title>{title}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    {/* SEO: hreflang hints so search engines know the alternate language exists. */}
+    <link rel="alternate" hreflang="en" href="/?lang=en" />
+    <link rel="alternate" hreflang="ar" href="/?lang=ar" />
+    <link rel="alternate" hreflang="x-default" href="/" />
+
+    {/*
+      Pre-hydrate flash-fix.
+      Runs synchronously before any React island hydrates.
+      Reads the lang cookie and re-applies dir/lang if they differ from the
+      static HTML (which was built with the 'en' default by the SSG pass).
+      AR users on first paint: the cookie is already set → dir flips to rtl
+      before any paint occurs → zero layout shift.
+      Failure mode: catch swallows all errors → stays LTR/en (safe).
+    */}
+    <script is:inline>
+      (function () {
+        try {
+          var m = document.cookie.match(/(?:^|; )lang=(en|ar)/);
+          var qs = new URLSearchParams(window.location.search);
+          var q = qs.get('lang');
+          var lang = (q === 'en' || q === 'ar') ? q : (m ? m[1] : 'en');
+          if (lang !== document.documentElement.getAttribute('lang')) {
+            document.documentElement.setAttribute('lang', lang);
+            document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+          }
+        } catch (e) { /* fail-open: stay LTR/en */ }
+      })();
+    </script>
   </head>
   <body>
     <slot />
