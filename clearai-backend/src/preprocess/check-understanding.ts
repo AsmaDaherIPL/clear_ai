@@ -1,27 +1,11 @@
 /**
- * Retrieval-grounded "did the system understand this input?" check.
+ * V3 understanding signal (ADR-0020). Composite across chapter coherence
+ * + noun-family alignment. The chapter-only V2 signal silently passed on
+ * "Loewe Puzzle bag" → 4205 leather articles (coherent but wrong family).
  *
- * V3 (ADR-0020): composite signal across THREE dimensions, not just chapter
- * coherence. The original chapter-coherence-only signal failed silently on
- * "Loewe Puzzle bag" — retrieval converged on chapter 42 (coherent!) but on
- * the wrong heading (4205 leather articles instead of 4202 bags). Coherent
- * but wrong-family is a real failure mode and the V2 signal couldn't see
- * it. The V3 signal returns:
- *
- *   strong   — chapter coherent AND noun-aligned (or no noun supplied) AND
- *              retrieval arms agree. Skip the researcher.
- *   weak     — coherent but noun is missing from top results, OR retrieval
- *              arms disagree on the family. Run the researcher; retrieval's
- *              "convergence" may be on the wrong family.
- *   scattered — chapters scattered widely (the V2 case). Run the researcher.
- *
- * The new noun-alignment signal is what catches the Loewe Puzzle bag class:
- * cleanup extracted the customs noun "bag" but retrieval's top results all
- * say "leather articles, desk pads, buckle parts" — none contain "bag". The
- * noun is the strongest evidence the user gave us; if retrieval's top
- * results don't reflect it, retrieval understood the wrong product.
- *
- * Thresholds are loaded from setup_meta so the team can tune without redeploys.
+ *   strong    — coherent AND noun-aligned (or no noun). Skip researcher.
+ *   weak      — coherent but noun missing from top-N. Run researcher.
+ *   scattered — chapters spread too wide. Run researcher.
  */
 import type { Candidate } from '../retrieval/retrieve.js';
 
@@ -30,43 +14,23 @@ export type UnderstandingReason =
   | 'noun_misaligned'
   | 'arms_disagree';
 
-/** Tri-state strength so the caller can route weak vs scattered differently. */
 export type UnderstandingStrength = 'strong' | 'weak' | 'scattered';
 
 export interface UnderstandingResult {
-  /**
-   * Backwards-compat boolean. true ↔ strength === 'strong'. Existing call
-   * sites that branch on `understood` get the safer behaviour automatically:
-   * weak and scattered both route to the researcher.
-   */
+  /** Back-compat: true ↔ strength === 'strong'. */
   understood: boolean;
-  /** New: tri-state. Lets routing distinguish "rerun via researcher" from "abstain". */
   strength: UnderstandingStrength;
   reason: UnderstandingReason | null;
-  /** Distinct HS-2 chapters among top-N candidates. 1 = highly coherent. */
+  /** Distinct HS-2 chapters among top-N. 1 = highly coherent. */
   distinctChapters: number;
-  /** The chapters themselves, sorted, for logging/debugging. */
   chapters: string[];
-  /** Whether the customs noun (if any) appeared in any top-N description. */
   nounAligned: boolean | null;
-  /** The noun that was checked for alignment, if any. */
   nounChecked: string | null;
-  /** The threshold that was applied (max distinct chapters tolerated). */
   threshold: number;
 }
 
-/**
- * Lightweight noun-alignment check: does the customs noun (e.g. "bag",
- * "perfume", "shoes") appear as a substring in any of the top-N retrieval
- * results' EN descriptions? Multilingual: also checks AR descriptions when
- * the noun looks Arabic.
- *
- * Synonym handling is deliberately small and curated — not a model call.
- * Customs nouns are a small closed set in practice and the signal we want
- * is "did retrieval surface things that look like this kind of product?"
- * One synonym layer of indirection is enough; more would mean we're
- * second-guessing retrieval which defeats the point.
- */
+// Curated synonym table for noun-alignment. Customs nouns are a small
+// closed set; one indirection layer is enough.
 const NOUN_SYNONYMS: Record<string, string[]> = {
   bag: ['bag', 'handbag', 'rucksack', 'backpack', 'purse', 'wallet', 'satchel', 'pouch', 'حقيبة', 'حقائب', 'كيس', 'محفظة'],
   shoe: ['shoe', 'footwear', 'sandal', 'boot', 'sneaker', 'حذاء', 'أحذية', 'صندل'],
@@ -98,12 +62,7 @@ function nounMatchesText(nouns: string[], text: string | null): boolean {
 export interface CheckUnderstandingOpts {
   maxDistinctChapters: number;
   topK: number;
-  /**
-   * Optional customs noun extracted by Phase 1.5 cleanup (e.g. "bag",
-   * "perfume"). When provided, the noun-alignment check runs against the
-   * top-N retrieval results. Missing → noun-alignment is skipped (treated
-   * as neither strengthening nor weakening the signal).
-   */
+  /** Optional customs noun from Phase 1.5 cleanup (e.g. "bag", "perfume"). */
   customsNoun?: string | null;
 }
 
@@ -116,8 +75,7 @@ export function checkUnderstanding(
   const distinctChapters = chapters.length;
   const noun = opts.customsNoun?.trim() || null;
 
-  // Edge case: zero or one candidate is already a low-information situation;
-  // we route to the existing evidence gate to handle it. Don't claim "understood"
+  // Edge case: zero or one candidate — let the evidence gate handle it. Don't claim
   // off the back of a single retrieval hit.
   if (window.length < 2) {
     return {
@@ -132,7 +90,7 @@ export function checkUnderstanding(
     };
   }
 
-  // ---- Signal 1: chapter coherence -----------------------------------------
+  // Signal 1: chapter coherence
   if (distinctChapters > opts.maxDistinctChapters) {
     return {
       understood: false,
@@ -146,11 +104,8 @@ export function checkUnderstanding(
     };
   }
 
-  // ---- Signal 2: noun-family alignment -------------------------------------
-  // Only meaningful when cleanup gave us a customs noun. Check if the noun
-  // (or any synonym) appears in any top-N result's EN or AR description.
-  // If not, retrieval converged on a family that doesn't describe the
-  // product the user actually has — the V2 silent failure mode.
+  // Signal 2: noun-family alignment. The V2 silent failure mode —
+  // retrieval coherent on a chapter but on the wrong family.
   let nounAligned: boolean | null = null;
   if (noun) {
     const synonyms = expandNoun(noun);
@@ -173,7 +128,6 @@ export function checkUnderstanding(
     }
   }
 
-  // ---- All signals strong --------------------------------------------------
   return {
     understood: true,
     strength: 'strong',

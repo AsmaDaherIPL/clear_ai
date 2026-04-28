@@ -1,19 +1,9 @@
 /**
- * Best-effort fallback (ADR-0011).
+ * Best-effort fallback (ADR-0011). Last-resort classifier returning a
+ * 2/4/6/8/10-digit heading at confidence_band='low'. Runs when picker
+ * fails (or gate refused) AND setup_meta.BEST_EFFORT_ENABLED=1.
  *
- * Last-resort classifier. Runs only when:
- *   - the primary picker has already been attempted (or skipped because the
- *     gate failed), AND
- *   - `setup_meta.BEST_EFFORT_ENABLED = 1`.
- *
- * Returns a low-specificity heading (2/4/6/8/10 digit, capped by
- * `BEST_EFFORT_MAX_DIGITS`, default 4) with `confidence_band = 'low'`.
- *
- * The frontend MUST gate this output behind a verify-toggle so users do not
- * confuse a best-effort heading with an accepted classification.
- *
- * Stateless by design: never reads or writes any product-code cache. Each
- * request is handled from raw input only.
+ * Frontend MUST gate this behind a verify-toggle.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';

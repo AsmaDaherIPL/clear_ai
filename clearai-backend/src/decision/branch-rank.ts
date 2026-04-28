@@ -1,30 +1,11 @@
 /**
- * Branch-rank — Sonnet ranks every leaf under the picker's chosen branch
- * with one-line per-leaf reasoning, optionally overriding the picker's
- * choice if a sibling fits better.
+ * Phase 3 — branch-rank (ADR-0014). Sonnet reranks every leaf under the
+ * picker's chosen HS-8 branch with per-leaf reasoning, optionally
+ * overriding the picker. Picker only saw PICKER_CANDIDATES_describe RRF
+ * top hits; branch-rank sees the full branch.
  *
- * Phase 3 of the v3 alternatives redesign (ADR-0014). Sits AFTER the
- * picker, BEFORE the response is assembled. Mutually exclusive with the
- * best-effort fallback path (no chosen code → nothing to enumerate under).
- *
- * Why this exists:
- *   The picker (Sonnet) sees only PICKER_CANDIDATES_describe (default 8)
- *   RRF top hits. That can miss a sibling under the chosen branch that
- *   wasn't in retrieval's top-K. Branch-rank gives the model the FULL
- *   HS-8 branch and lets it reconsider with the wider context. Common
- *   case: rank stays the same as the picker, branch-rank adds reasoning
- *   per leaf for the UI. Edge case: branch-rank overrides — logged as
- *   `branch_rank_overrode` for offline review (the picker should
- *   eventually learn from these).
- *
- * Feature-flagged via setup_meta.BRANCH_RANK_ENABLED. Default 0 (off) so
- * common-path latency stays unchanged until we measure quality and decide
- * to flip it on.
- *
- * Hallucination guard: every code in the model's output must appear in
- * the enumerated branch leaves. If the set differs (model invented or
- * dropped a code), we discard the override and return the original picker
- * choice with a `guard_tripped` flag.
+ * Hallucination guard: output code set must equal input code set
+ * (no invented or dropped codes). Guard trip → picker's pick stands.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';
@@ -43,37 +24,19 @@ export interface BranchRankRow {
 }
 
 export interface BranchRankResult {
-  /** Whether the LLM ran or we short-circuited. */
   invoked: 'disabled' | 'not_enough_leaves' | 'llm' | 'llm_failed' | 'guard_tripped';
-  /**
-   * Re-ranked leaves with reasoning. Empty array when invoked is anything
-   * other than 'llm'. Always includes every leaf from the input branch in
-   * rank order (rank 1 is the best fit) when populated.
-   */
+  /** Empty unless invoked='llm'. Rank 1 is the best fit. */
   ranking: BranchRankRow[];
-  /**
-   * The code branch-rank chose as #1. Equals the picker's chosen code on
-   * the common path; differs on overrides.
-   */
   topPick: string | null;
-  /** True when the model's #1 == the picker's chosen code. */
   agreesWithPicker: boolean;
-  /**
-   * Final code to ship to the user. Equals topPick when invoked='llm' and
-   * the guard didn't trip; otherwise equals the picker's chosen code so
-   * branch-rank failures degrade gracefully (the picker's pick is the
-   * safe default).
-   */
+  /** Falls back to picker's pick on any failure mode. */
   effectiveCode: string;
-  /** LLM round-trip latency in ms; 0 when skipped. */
   latencyMs: number;
-  /** Optional model identifier (for logging). */
   model?: string | undefined;
 }
 
-// Per-row shape — kept loose because the model occasionally drops fields on
-// the long-tail rows (rank=15+ without a reason). Downstream code drops
-// any row missing required fields.
+// Per-row shape kept loose; the model occasionally drops fields on long-tail
+// rows. Validation downstream drops any row missing required fields.
 interface ParsedRankingRow {
   code?: unknown;
   rank?: unknown;
@@ -148,9 +111,7 @@ export async function rankBranch(params: {
   if (!enabled) return fallback('disabled');
   if (leaves.length < minLeavesForLlm) return fallback('not_enough_leaves');
   if (!leaves.some((l) => l.code === chosenCode)) {
-    // Defensive: chosen code MUST be in the enumerated branch. If it isn't,
-    // something upstream is broken — bail rather than sending garbage to
-    // the LLM. The picker's pick stands.
+    // Defensive: chosen code must be in the enumerated branch.
     return fallback('not_enough_leaves');
   }
 
@@ -172,8 +133,7 @@ export async function rankBranch(params: {
   }
   const parsed = outcome.data;
 
-  // Validate every row, build the typed structure. We require the OUTPUT
-  // code set to exactly match the INPUT code set — no inventions, no drops.
+  // Validate rows; output code set must equal input code set.
   const inputCodes = new Set(leaves.map((l) => l.code));
   const seen = new Set<string>();
   const rows: BranchRankRow[] = [];
@@ -206,11 +166,8 @@ export async function rankBranch(params: {
     return fallback('guard_tripped', { latencyMs: outcome.trace.latency_ms, model });
   }
 
-  // Sort by rank (model is supposed to do this, but enforce it on our side).
+  // Sort by rank ourselves — don't trust model's self-reported top_pick.
   rows.sort((a, b) => a.rank - b.rank);
-
-  // top_pick from the model — but we trust our sort more than the model's
-  // self-reported field. They should agree; if they don't, the sorted #1 wins.
   const topPick = rows[0]?.code ?? chosenCode;
   const agreesWithPicker = topPick === chosenCode;
 
