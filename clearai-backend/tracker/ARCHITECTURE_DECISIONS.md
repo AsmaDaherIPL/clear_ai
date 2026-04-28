@@ -445,3 +445,122 @@ Entries are append-only. New decisions go at the bottom with a fresh number. Nev
   - Trace endpoint becomes a hotspot (unlikely — point lookup by indexed UUID). Add an in-memory cache keyed on event id with a short TTL.
   - Feedback rows reveal a systematic disagreement pattern (e.g. picker chose code X but brokers consistently correct to Y for the same input class). Surface it via a Phase 4.5 admin metrics view, then loop back into prompt tuning.
   - We add user accounts. The user_id column is ready; auth wiring is the only missing piece.
+
+---
+
+## ADR-0018 — Phase 7: broker-mapping deterministic short-circuit
+
+- **Date:** 2026-04-28
+- **Status:** Shipped, default-on.
+- **Context:**
+  - The broker keeps a hand-curated lookup table in
+    `naqel-shared-data/Naqel_HS_code_mapping_lookup.xlsx` — about 500 rows
+    mapping bad/old/mistyped merchant HS codes to the correct 12-digit ZATCA
+    code + the canonical Arabic submission text. Patterns observed in the
+    source data:
+      - 87% of inputs are 10-digit codes (the merchant's
+        common precision); ~8% are 8-digit; ~3% are 12-digit (already-valid
+        codes the broker still routes elsewhere because the merchant's
+        product class disagrees with the code).
+      - Many entries collapse a swathe of codes onto one canonical leaf —
+        e.g. eight different cotton-clothing merchant codes (`6217900000`,
+        `6204330000`, `6104230000`, etc.) all map to `620442000000`
+        (women's cotton trousers), which is the duty rate / leaf the
+        broker has standardised on for that class.
+      - Source quality is not perfect. 4 rows are sentinel "do not use"
+        markers (client and target columns identical with non-12-digit
+        targets); 1 is a duplicate of an earlier row; 7 have leading-zero
+        loss in target codes (e.g. `10620000007` instead of `010620000007`).
+  - This table embodies the broker's accumulated wisdom — every row is a
+    case where they corrected something the merchant got wrong. It's
+    higher-quality than anything the LLM picker could derive on its own
+    on those inputs, because it IS the labelled-correction set.
+- **Decision:**
+  - **New table `broker_code_mapping`** (migration 0012) keyed on the
+    digit-only-normalised merchant code, with strong CHECKs (target must
+    be exactly 12 digits, no self-maps, client length 4–14). UNIQUE on
+    the client_code_norm so duplicate source rows surface at ingest.
+  - **Ingest script** `pnpm db:seed:broker` reads the xlsx, normalises,
+    validates per-row, TRUNCATEs and bulk-inserts via UNNEST. Source file
+    IS the source of truth — we don't merge or diff. Re-running the
+    script gives idempotent state. Validators reject:
+      - Sentinel rows (client == target with non-12-digit target — broker's
+        "do not use" markers; auto-padding them would manufacture a fake
+        canonical target that doesn't exist).
+      - Duplicate client codes (data error — broker can only canonically
+        map one input to one target).
+      - Non-numeric or out-of-range client lengths.
+    Last run: 495/500 rows accepted, 4 sentinels + 1 duplicate rejected
+    with named reasons logged.
+  - **Lookup module** `src/decision/broker-mapping.ts`. Exact-match by
+    default; prefix walk-up to a configurable `minPrefix` (default 6) so
+    a 12-digit merchant input can match an 8-digit broker entry. Single
+    SQL query with `client_code_norm = ANY($1)` + ORDER BY length DESC
+    LIMIT 1 — longest match wins.
+  - **Wired into `/classify/expand` only** (Phase 7's scope). The lookup
+    runs before retrieval / picker; on a hit, we return immediately with:
+      - `decision_status: accepted`, `confidence_band: high`
+      - `decision_reason: strong_match`
+      - the broker's canonical target as `after.code`
+      - the broker's canonical AR (preferred over catalog AR) as
+        `after.description_ar`
+      - a `rationale` naming the source-row reference for auditability
+      - a top-level `broker_mapping` block: `{matched_client_code,
+        matched_length, source_row_ref}`
+      - `model.llm: null` (no LLM call made)
+    On a miss, the existing retrieval + picker path runs unchanged.
+  - **Feature-flagged** via `BROKER_MAPPING_ENABLED` (default 1, migration
+    0013). Flip to 0 to bypass the lookup entirely — useful for A/B
+    measurement once feedback rows accumulate enough to compare lookup
+    vs LLM accuracy on the same inputs.
+- **Consequences:**
+  - **Latency: ~5ms p95 on hits**, free on misses (one indexed lookup).
+    /expand traffic that hits the table avoids ~3-5s of Haiku + retrieval.
+  - **Cost: zero LLM calls on hits.** Token spend on /expand drops in
+    proportion to the hit rate. Expected hit rate: high on internal data
+    feeds (the broker's table was built FROM that traffic), much lower on
+    fresh inputs.
+  - **Auditability**: every short-circuit response carries the source row
+    reference so a broker can find the originating xlsx row in seconds.
+    The trace page surfaces this too.
+  - **Wire-format additions**:
+    - `broker_mapping?: {matched_client_code, matched_length, source_row_ref}`
+      on the response, only present on hits.
+    - `request.broker_mapping_hit / matched_length / source_row` on the
+      event log for offline analysis.
+  - **Operational**: re-running the ingest takes ~2s. The script is in
+    package.json as `db:seed:broker`. When the broker updates the xlsx,
+    that's the only command they need to run.
+- **Rejected alternatives:**
+  - **Inline broker-mapping check in the LLM prompt.** Rejected: the
+    LLM doesn't need to "decide" whether to use the broker's mapping;
+    when a hit exists, it's authoritative. Wrapping it in an LLM call
+    adds latency and cost for zero quality lift.
+  - **Auto-pad sentinel rows during ingest.** Rejected: the broker put
+    the same code on both sides as a "do not use" marker. Auto-padding
+    would manufacture a canonical target (e.g. `9403896010` →
+    `940389601000`) that the broker never approved. Strictly worse than
+    rejecting the row.
+  - **Walk up to HS-2 (chapter level) on prefix mismatch.** Rejected:
+    HS-2 is too coarse to be authoritative for a code-level lookup —
+    we'd be returning "Chapter 61's canonical target" for any 61.xx
+    merchant code, which obliterates the broker's per-leaf curation.
+    Stop at 6.
+  - **Wire broker-mapping into `/classify/describe`.** Deferred:
+    `/describe` takes free text, not a code, so the table doesn't apply
+    directly. A future phase could check the broker's table against
+    *cleanup output* (after Phase 1.5 normalises the merchant input
+    into a clean noun phrase + attributes), but that's a different
+    integration point.
+- **Revisit if:**
+  - Source xlsx grows past ~5,000 rows. The current schema scales fine
+    to ~100k, but if it gets larger we'd want a partial index on the
+    most-common leaf prefixes.
+  - Hit rate stays low (< 5%) on real traffic for a sustained period.
+    That'd mean the broker's existing table doesn't cover the inputs
+    we actually see, and we should either grow it or focus on tuning
+    the LLM picker instead.
+  - Feedback rows show the broker mapping was wrong for a specific
+    input. At that point the operations team edits the xlsx and re-runs
+    `db:seed:broker`. (We don't take feedback as authority over the
+    broker's curated table — the broker IS the authority.)

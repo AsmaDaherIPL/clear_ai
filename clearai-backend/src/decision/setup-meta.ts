@@ -169,6 +169,16 @@ export interface Thresholds {
    * rationale field, which can be a sentence.
    */
   SUBMISSION_DESC_MAX_TOKENS: number;
+
+  /**
+   * Phase 7 — broker-mapping lookup feature flag. 1 = on `/classify/expand`,
+   * check the broker_code_mapping table first; if the merchant code is
+   * present (or its prefix), short-circuit to the broker's canonical target
+   * without invoking retrieval / picker. 0 = bypass the lookup entirely.
+   * Default 1 — the table embodies the broker's accumulated wisdom and
+   * should be trusted ahead of the LLM where it has an answer.
+   */
+  BROKER_MAPPING_ENABLED: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -200,6 +210,7 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'BRANCH_RANK_MAX_TOKENS',
   'SUBMISSION_DESC_ENABLED',
   'SUBMISSION_DESC_MAX_TOKENS',
+  'BROKER_MAPPING_ENABLED',
 ];
 
 let _cache: Thresholds | null = null;

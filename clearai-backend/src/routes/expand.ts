@@ -10,6 +10,7 @@ import { detectLang } from '../util/lang.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 import { env } from '../config/env.js';
 import { getPool } from '../db/client.js';
+import { lookupBrokerMapping } from '../decision/broker-mapping.js';
 
 export async function expandRoute(app: FastifyInstance): Promise<void> {
   app.post('/classify/expand', async (req, reply) => {
@@ -20,6 +21,86 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
     }
     const { code: parentPrefix, description } = parse.data;
     const lang = detectLang(description);
+    const t = await loadThresholds();
+
+    // ---- Phase 7: broker-mapping short-circuit ---------------------------
+    // The broker maintains a hand-curated table of merchant-supplied codes
+    // that consistently need correction (Naqel_HS_code_mapping_lookup.xlsx,
+    // ingested via `pnpm db:seed:broker`). When the merchant's parent
+    // prefix is in that table, we trust the broker's canonical target over
+    // anything retrieval + LLM could derive — this is gold-standard human
+    // judgement, not a guess.
+    if (t.BROKER_MAPPING_ENABLED === 1) {
+      const hit = await lookupBrokerMapping(parentPrefix);
+      if (hit) {
+        // Look up the target code's catalog row for descriptions.
+        const pool = getPool();
+        const catRes = await pool.query<{
+          description_en: string | null;
+          description_ar: string | null;
+        }>(
+          `SELECT description_en, description_ar FROM hs_codes WHERE code = $1`,
+          [hit.targetCode],
+        );
+        const cat = catRes.rows[0] ?? null;
+        const totalLatency = Date.now() - t0;
+
+        const requestId = await logEvent({
+          endpoint: 'expand',
+          request: {
+            code: parentPrefix,
+            description,
+            broker_mapping_hit: true,
+            broker_mapping_matched_length: hit.matchedLength,
+            broker_mapping_source_row: hit.sourceRowRef,
+          },
+          languageDetected: lang,
+          decisionStatus: 'accepted',
+          decisionReason: 'strong_match',
+          confidenceBand: 'high',
+          chosenCode: hit.targetCode,
+          alternatives: [],
+          topRetrievalScore: 1, // sentinel — broker mapping is non-RRF
+          top2Gap: 1,
+          candidateCount: 0,
+          branchSize: null,
+          llmUsed: false,
+          llmStatus: null,
+          guardTripped: false,
+          modelCalls: null,
+          embedderVersion: EMBEDDER_VERSION(),
+          llmModel: null,
+          totalLatencyMs: totalLatency,
+          error: null,
+        });
+
+        return {
+          ...(requestId ? { request_id: requestId } : {}),
+          decision_status: 'accepted' as const,
+          decision_reason: 'strong_match' as const,
+          confidence_band: 'high' as const,
+          before: { code: parentPrefix },
+          after: {
+            code: hit.targetCode,
+            description_en: cat?.description_en ?? null,
+            // Prefer the broker's curated AR over the catalog AR — the
+            // broker's table has the phrasing they actually submit.
+            description_ar: hit.targetDescriptionAr ?? cat?.description_ar ?? null,
+            retrieval_score: null,
+          },
+          alternatives: [],
+          rationale: `Broker-curated mapping: merchant code ${hit.matchedClientCode} routes to ${hit.targetCode} per the operations team's hand-curated lookup.`,
+          // Surface the source so the trace page can show "broker mapping
+          // hit, source row Rxxx" for full auditability.
+          broker_mapping: {
+            matched_client_code: hit.matchedClientCode,
+            matched_length: hit.matchedLength,
+            source_row_ref: hit.sourceRowRef,
+          },
+          model: { embedder: EMBEDDER_VERSION(), llm: null },
+        };
+      }
+    }
 
     // Branch-size sanity for logging + invalid_prefix detection
     const pool = getPool();
@@ -68,7 +149,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       topK: 12,
     });
 
-    const t = await loadThresholds();
+    // `t` already loaded at the top of the handler for the broker-mapping check.
     const gate = evaluateGate(candidates, {
       minScore: t.MIN_SCORE_expand,
       minGap: t.MIN_GAP_expand,

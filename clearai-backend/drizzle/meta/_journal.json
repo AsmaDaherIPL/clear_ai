@@ -85,6 +85,20 @@
       "when": 1777211100000,
       "tag": "0011_classification_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1777211200000,
+      "tag": "0012_broker_code_mapping",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1777211300000,
+      "tag": "0013_broker_mapping_flag",
+      "breakpoints": true
     }
   ]
 }
