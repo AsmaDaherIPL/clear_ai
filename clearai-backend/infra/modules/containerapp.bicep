@@ -4,7 +4,13 @@
 // - System-assigned managed identity (used to read KV secrets at runtime)
 // - Public image on GHCR — no registry credentials
 // - HTTPS-only ingress on port 3000
-// - Scale: min 0, max 2; rule = concurrentRequests:10
+// - Scale: min 1, max 2; rule = concurrentRequests:10
+//   minReplicas=1 keeps one replica always-on. With min=0 the first request
+//   after idle paid the full cold-start tax (image pull + Node boot + DB
+//   pool + ONNX embedder weights + prompt cache), measured at +15s on a
+//   "men white shirt" describe vs warm local. For a low-traffic broker
+//   workflow that's the dominant latency contributor; one always-on
+//   replica costs ~$15-30/mo for consistent <10s p99.
 // - Resources: 0.5 vCPU, 1 GiB
 // - Probes: liveness + readiness on GET /health
 // - Secrets sourced from Key Vault via secretref
@@ -151,7 +157,10 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       scale: {
-        minReplicas: 0
+        // minReplicas: 1 — keeps one replica warm. See file header for the
+        // cold-start latency rationale. Flip back to 0 only if you want
+        // to optimise cost over latency for an idle dev environment.
+        minReplicas: 1
         maxReplicas: 2
         rules: [
           {

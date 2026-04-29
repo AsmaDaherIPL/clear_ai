@@ -94,3 +94,19 @@ export async function embedPassageBatch(texts: string[]): Promise<number[][]> {
 }
 
 export const EMBEDDER_VERSION = () => env().EMBEDDER_MODEL;
+
+/**
+ * Eagerly load the ONNX pipeline + a tiny throwaway forward-pass so the
+ * very first user request doesn't pay the 5-10s cold-init tax. Called
+ * fire-and-forget at server startup; safe to call multiple times (the
+ * Promise cache deduplicates).
+ *
+ * We do a 1-token forward pass instead of just resolving the pipeline
+ * because the *first* inference also has a graph-compile cost on top of
+ * the weights load. Burning that on a "warmup" string makes the first
+ * real request behave like every subsequent request.
+ */
+export async function warmEmbedder(): Promise<void> {
+  const pipe = await getPipeline();
+  await pipe('query: warmup', { pooling: 'mean', normalize: true });
+}

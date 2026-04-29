@@ -12,6 +12,9 @@ import { boostRoute } from './routes/boost.js';
 import { traceRoute } from './routes/trace.js';
 import { getPool, closeDb } from './db/client.js';
 import { registerErrorHandler } from './server/error-handler.js';
+import { warmEmbedder } from './embeddings/embedder.js';
+import { loadThresholds } from './decision/setup-meta.js';
+import { loadPrompt } from './llm/structured-call.js';
 
 const e = env();
 
@@ -114,6 +117,38 @@ await app.register(traceRoute);
 const start = async (): Promise<void> => {
   try {
     await app.listen({ port: e.PORT, host: '0.0.0.0' });
+
+    // Fire-and-forget warmup. We come up first so the readiness probe
+    // can pass immediately; warming happens in the background. The very
+    // first user request after a cold start otherwise paid:
+    //   - ONNX embedder weights load + graph compile (~5-10s)
+    //   - setup_meta SELECT round-trip (~50-200ms)
+    //   - lazy prompt-file reads on first hit (~200ms total)
+    // All three are now hot by the time any meaningful traffic arrives.
+    void Promise.allSettled([
+      warmEmbedder().then(
+        () => app.log.info('embedder warmed'),
+        (err: unknown) => app.log.warn({ err }, 'embedder warmup failed (non-fatal)'),
+      ),
+      loadThresholds().then(
+        () => app.log.info('setup_meta cache primed'),
+        (err: unknown) => app.log.warn({ err }, 'setup_meta warmup failed (non-fatal)'),
+      ),
+      // Pre-read the prompts the describe path uses on every request.
+      // loadPrompt has its own per-process cache so this is just an
+      // up-front read of the hot files; failures are non-fatal.
+      Promise.all([
+        loadPrompt('merchant-cleanup.md'),
+        loadPrompt('picker-describe.md'),
+        loadPrompt('gir-system.md'),
+        loadPrompt('branch-rank.md'),
+        loadPrompt('submission-description.md'),
+        loadPrompt('best-effort-heading.md'),
+      ]).then(
+        () => app.log.info('prompt cache primed'),
+        (err: unknown) => app.log.warn({ err }, 'prompt warmup failed (non-fatal)'),
+      ),
+    ]);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
