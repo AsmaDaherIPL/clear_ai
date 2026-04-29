@@ -58,6 +58,24 @@ describe('evaluateGate', () => {
     expect(r.passed).toBe(true);
   });
 
+  it('passes when top-2 share a heading even if top-3 wanders', () => {
+    // The face-mask case: top-1 4818.90 (medical) and top-2 4818.90
+    // (general) tied at heading 4818, but top-3 is 6307.90 (textile
+    // dust masks). The strict 3-row rule used to refuse this; the
+    // top-2 rule passes it because the actual ambiguity (top-1 vs
+    // top-2) is within one heading and the picker can resolve it.
+    const r = evaluateGate(
+      [
+        cand('481890000001', 1.0),
+        cand('481890000002', 0.9948),
+        cand('630790970002', 0.9901),
+        cand('630790970003', 0.9797),
+      ],
+      { minScore: 0.3, minGap: 0.04 },
+    );
+    expect(r.passed).toBe(true);
+  });
+
   it('passes on a clear winner', () => {
     const r = evaluateGate([cand('1', 0.8), cand('2', 0.5)], { minScore: 0.3, minGap: 0.04 });
     expect(r.passed).toBe(true);

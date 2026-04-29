@@ -36,13 +36,6 @@ export interface GateThresholds {
   minGap: number;
 }
 
-/**
- * How many of the top-k retrieval rows we inspect for the heading-family
- * check. Three is enough — if rows 1, 2, 3 all share the same heading,
- * they form a clear narrow family even when row 4 wanders.
- */
-const FAMILY_CHECK_DEPTH = 3;
-
 export function evaluateGate(
   candidates: Candidate[],
   t: GateThresholds
@@ -64,12 +57,23 @@ export function evaluateGate(
     // "we have no idea what this is." The HS heading (4-digit prefix) is
     // the right granularity for the family check: chapter (2-digit) is
     // too broad (would let "olive oil" cluster with "live animals" if
-    // both started with 0-1 chapters), HS-6 is too tight (and we want
-    // 1509.20 + 1509.30 + 1509.40 to all count as same family).
-    const topHeadings = new Set(
-      candidates.slice(0, FAMILY_CHECK_DEPTH).map((c) => c.code.slice(0, 4)),
-    );
-    const sameFamily = topHeadings.size === 1;
+    // both started with 0-1 chapters), HS-6 is too tight (would split
+    // 1509.20 + 1509.30 + 1509.40 even though they're all olive oil).
+    //
+    // Family signal we trust: the TOP TWO candidates share a heading.
+    // The gap < MIN_GAP threshold by definition means top-1 and top-2
+    // are statistically tied — that's the actual ambiguity we're being
+    // asked to resolve. If they share a heading, the picker can pick
+    // between them confidently. Top-3+ is irrelevant: the picker sees
+    // top-8 anyway and the rest is just context.
+    //
+    // (Earlier we required top-3 to all share a heading, which was too
+    // strict — "face mask" had top-1 and top-2 both at heading 4818 but
+    // top-3 at 6307, so the strict version refused even though the
+    // picker was perfectly able to choose between the 4818 pair.)
+    const top1Heading = candidates[0]!.code.slice(0, 4);
+    const top2Heading = candidates[1]?.code.slice(0, 4);
+    const sameFamily = top2Heading !== undefined && top1Heading === top2Heading;
     if (!sameFamily) {
       return {
         passed: false,
@@ -78,8 +82,8 @@ export function evaluateGate(
         top2Gap: gap,
       };
     }
-    // Falls through to passed=true. The picker will choose among
-    // siblings; this is exactly the case it was designed for.
+    // Falls through to passed=true. The picker will choose between the
+    // tied top pair; this is exactly the case it was designed for.
   }
 
   return { passed: true, topRetrievalScore: top, top2Gap: gap };
