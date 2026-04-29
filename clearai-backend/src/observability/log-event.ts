@@ -4,7 +4,7 @@ import type {
   DecisionStatus,
   DecisionReason,
   ConfidenceBand,
-} from './types.js';
+} from '../types/domain.js';
 
 /**
  * Minimal structural type compatible with Fastify's `req.log` (and any

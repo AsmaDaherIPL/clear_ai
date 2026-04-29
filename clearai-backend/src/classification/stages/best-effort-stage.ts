@@ -13,7 +13,7 @@
  * + response builders see the promoted state.
  */
 import { bestEffortHeading, type BestEffortOutcome } from '../best-effort-fallback.js';
-import { isEnabled, type Thresholds } from '../setup-meta.js';
+import { isEnabled, type Thresholds } from '../../catalog/setup-meta.js';
 import { env } from '../../config/env.js';
 import { getPool } from '../../db/client.js';
 import type { Candidate } from '../../retrieval/retrieve.js';

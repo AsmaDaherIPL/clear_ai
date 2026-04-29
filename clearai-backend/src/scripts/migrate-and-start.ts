@@ -49,7 +49,7 @@ try {
   process.exit(1);
 }
 
-// Hand off to the regular server entry. Side-effecting import: server.ts
+// Hand off to the regular server entry. Side-effecting import: server/app.ts
 // listens at import time. We do NOT close the pool between the migrator and
 // the server — `getPool()` is a singleton, so the same connections are reused.
-await import('../server.js');
+await import('../server/app.js');

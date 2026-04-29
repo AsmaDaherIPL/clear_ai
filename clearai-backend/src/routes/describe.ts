@@ -23,11 +23,11 @@ import { digitNormalize } from '../retrieval/digit-normalize.js';
 import { loadKnownPrefixes } from '../retrieval/known-prefixes.js';
 import { retrieveCandidates, type Candidate } from '../retrieval/retrieve.js';
 import { getPool } from '../db/client.js';
-import { loadThresholds, isEnabled } from '../decision/setup-meta.js';
-import { evaluateGate } from '../decision/evidence-gate.js';
-import { llmPick } from '../decision/llm-pick.js';
-import { resolve } from '../decision/resolve.js';
-import { logEvent } from '../decision/log-event.js';
+import { loadThresholds, isEnabled } from '../catalog/setup-meta.js';
+import { evaluateGate } from '../classification/evidence-gate.js';
+import { llmPick } from '../classification/llm-pick.js';
+import { resolve } from '../classification/resolve.js';
+import { logEvent } from '../observability/log-event.js';
 import { detectLang } from '../util/lang.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 import { env } from '../config/env.js';
@@ -37,18 +37,18 @@ import {
   researchInputWithWeb,
   type ResearchWithWebOutcome,
 } from '../preprocess/research-with-web.js';
-import { filterAlternatives } from '../decision/filter-alternatives.js';
-import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
-import { parseDutyInfo } from '../decision/duty-info.js';
-import { rankBranch, type BranchRankResult } from '../decision/branch-rank.js';
+import { filterAlternatives } from '../classification/filter-alternatives.js';
+import { enumerateBranch, type BranchLeaf } from '../classification/branch-enumerate.js';
+import { parseDutyInfo } from '../catalog/duty-info.js';
+import { rankBranch, type BranchRankResult } from '../classification/branch-rank.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 import { round4 } from '../util/score.js';
 import { withRequestId, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
 import type { ModelCallTrace } from '../llm/structured-call.js';
 import type { LlmStatus } from '../llm/client.js';
-import { buildInterpretation, type InterpretationStage } from '../decision/interpretation.js';
-import { runCleanupStage } from '../decision/stages/cleanup-stage.js';
-import { runBestEffortStage } from '../decision/stages/best-effort-stage.js';
+import { buildInterpretation, type InterpretationStage } from '../classification/interpretation.js';
+import { runCleanupStage } from '../classification/stages/cleanup-stage.js';
+import { runBestEffortStage } from '../classification/stages/best-effort-stage.js';
 
 export async function describeRoute(app: FastifyInstance): Promise<void> {
   app.post('/classify/describe', async (req, reply) => {
@@ -94,7 +94,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       modelCalls.push({ model, latency_ms, stage: stageLabel, status });
     };
 
-    // ---- Stage 0: merchant-input cleanup (decision/stages/cleanup-stage.ts) -
+    // ---- Stage 0: merchant-input cleanup (classification/stages/cleanup-stage.ts) -
     const cleanupStage = await runCleanupStage({
       description,
       thresholds: t,
@@ -314,7 +314,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
 
     const decision = resolve({ gate, llm });
 
-    // ---- Stage 5 + heading-level promotion (decision/stages/best-effort-stage.ts) -
+    // ---- Stage 5 + heading-level promotion (classification/stages/best-effort-stage.ts) -
     const bestEffortStage = await runBestEffortStage({
       description,
       thresholds: t,
@@ -356,7 +356,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     //                  under — fall back to the cleaned retrieval list.
     //
     // Phase 1 of the v3 alternatives redesign (ADR-0012). See
-    // src/decision/branch-enumerate.ts for the full rationale.
+    // src/classification/branch-enumerate.ts for the full rationale.
     const chosenForAlts = accepted ? accepted.code : decision.chosenCode;
     const isAcceptedFamily =
       decision.decisionStatus === 'accepted' &&

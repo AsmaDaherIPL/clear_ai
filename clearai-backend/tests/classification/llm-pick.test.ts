@@ -9,7 +9,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // Mock the LLM client BEFORE importing llmPick (which captures it at module load).
-vi.mock('../llm/client.js', () => ({
+vi.mock('../../src/llm/client.js', () => ({
   callLlmWithRetry: vi.fn(),
 }));
 
@@ -18,10 +18,10 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue('mock-prompt'),
 }));
 
-import { llmPick } from './llm-pick.js';
-import { callLlmWithRetry } from '../llm/client.js';
-import { resolve } from './resolve.js';
-import type { Candidate } from '../retrieval/retrieve.js';
+import { llmPick } from '../../src/classification/llm-pick.js';
+import { callLlmWithRetry } from '../../src/llm/client.js';
+import { resolve } from '../../src/classification/resolve.js';
+import type { Candidate } from '../../src/retrieval/retrieve.js';
 
 // llmPick only reads `code` / `description_en` / `description_ar` from each
 // candidate, so we cast a minimal-shape literal rather than fabricating every

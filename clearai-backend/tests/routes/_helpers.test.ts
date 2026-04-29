@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { trimCatalogDashes, trimAlternativeDashes } from './_helpers.js';
+import { trimCatalogDashes, trimAlternativeDashes } from '../../src/routes/_helpers.js';
 
 describe('trimCatalogDashes', () => {
   it('strips leading dashes-with-spaces (catalog tree depth indicator)', () => {

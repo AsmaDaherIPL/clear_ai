@@ -20,10 +20,10 @@
  *
  * Extracted from routes/describe.ts as part of H2 — keeps the route a
  * pure orchestrator while the per-stage detail lives next to its peer
- * stages under decision/stages/.
+ * stages under classification/stages/.
  */
 import { cleanMerchantInput, type MerchantCleanupResult } from '../../preprocess/merchant-cleanup.js';
-import { isEnabled, type Thresholds } from '../setup-meta.js';
+import { isEnabled, type Thresholds } from '../../catalog/setup-meta.js';
 import type { ModelCallTrace } from '../../llm/structured-call.js';
 import type { InterpretationStage } from '../interpretation.js';
 

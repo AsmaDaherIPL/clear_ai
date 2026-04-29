@@ -32,7 +32,7 @@
  *      `needs_clarification` outcome.
  */
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { logEvent } from '../decision/log-event.js';
+import { logEvent } from '../observability/log-event.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 
 const CLASSIFY_ENDPOINTS = new Map<string, 'describe' | 'expand' | 'boost'>([

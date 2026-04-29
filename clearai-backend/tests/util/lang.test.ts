@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectLang } from './lang.js';
+import { detectLang } from '../../src/util/lang.js';
 
 describe('detectLang', () => {
   it('detects English', () => {

@@ -6,7 +6,7 @@
  * widen or narrow the bypass set without us noticing.
  */
 import { describe, expect, it } from 'vitest';
-import { looksClean } from './merchant-cleanup.js';
+import { looksClean } from '../../src/preprocess/merchant-cleanup.js';
 
 describe('looksClean — deterministic short-circuit', () => {
   it.each([

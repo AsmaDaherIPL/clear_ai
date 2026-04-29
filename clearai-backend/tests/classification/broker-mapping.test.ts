@@ -12,8 +12,8 @@
  *   - minPrefix guard refuses overly short inputs
  */
 import { describe, expect, it, afterAll } from 'vitest';
-import { lookupBrokerMapping } from './broker-mapping.js';
-import { closeDb } from '../db/client.js';
+import { lookupBrokerMapping } from '../../src/classification/broker-mapping.js';
+import { closeDb } from '../../src/db/client.js';
 
 describe('lookupBrokerMapping (live DB)', () => {
   afterAll(async () => {

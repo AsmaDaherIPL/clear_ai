@@ -12,8 +12,8 @@
  */
 import type { ResearchOutcome } from '../preprocess/research.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
-
-export type InterpretationStage = 'passthrough' | 'cleaned' | 'researched' | 'unknown';
+import type { InterpretationStage } from '../types/domain.js';
+export type { InterpretationStage } from '../types/domain.js';
 
 export interface InterpretationBlock {
   original: string;

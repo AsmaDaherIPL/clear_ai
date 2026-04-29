@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { digitNormalize, type KnownPrefixes } from './digit-normalize.js';
+import { digitNormalize, type KnownPrefixes } from '../../src/retrieval/digit-normalize.js';
 
 const known: KnownPrefixes = {
   chapters: new Set(['01', '61']),

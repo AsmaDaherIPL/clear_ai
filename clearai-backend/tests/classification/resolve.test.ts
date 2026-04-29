@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { resolve } from './resolve.js';
-import type { GateOutcome } from './evidence-gate.js';
-import type { LlmPickResult } from './llm-pick.js';
+import { resolve } from '../../src/classification/resolve.js';
+import type { GateOutcome } from '../../src/classification/evidence-gate.js';
+import type { LlmPickResult } from '../../src/classification/llm-pick.js';
 
 const gatePass: GateOutcome = { passed: true, topRetrievalScore: 0.7, top2Gap: 0.2 };
 const gateFailWeak: GateOutcome = {

@@ -5,7 +5,7 @@
  * Closed-enum columns (`endpoint`, `decision_status`, `decision_reason`,
  * `confidence_band`, `llm_status`, `language_detected`) are constrained by
  * CHECK constraints in 0002_hardening.sql so a typo in TypeScript can't
- * silently land an invalid value. The TS types in `decision/types.ts` are
+ * silently land an invalid value. The TS types in `classification/types.ts` are
  * the single source of truth; the SQL CHECKs mirror them.
  */
 import {

@@ -10,13 +10,13 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-vi.mock('../llm/client.js', () => ({
+vi.mock('../../src/llm/client.js', () => ({
   callLlmWithRetry: vi.fn(),
 }));
 
-import { callLlmWithRetry } from '../llm/client.js';
-import { rankBranch } from './branch-rank.js';
-import type { BranchLeaf } from './branch-enumerate.js';
+import { callLlmWithRetry } from '../../src/llm/client.js';
+import { rankBranch } from '../../src/classification/branch-rank.js';
+import type { BranchLeaf } from '../../src/classification/branch-enumerate.js';
 
 const baseLeaves: BranchLeaf[] = [
   { code: '851762900009', description_en: 'wireless headphones', description_ar: null, source: 'branch_8' },

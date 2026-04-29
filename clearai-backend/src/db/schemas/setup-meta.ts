@@ -4,7 +4,7 @@
  * The `value` column is the legacy text representation (still written for
  * human readability). The authoritative value for numeric tunables is
  * `value_numeric`, with `value_kind` discriminating ('number' | 'string').
- * The fail-closed loader in `decision/setup-meta.ts` reads only the typed
+ * The fail-closed loader in `catalog/setup-meta.ts` reads only the typed
  * column for numeric keys and crashes if a row is missing or malformed —
  * **never** silently substitutes a hard-coded default (see ADR-0009).
  *

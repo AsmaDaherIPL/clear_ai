@@ -1,16 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { expandBody } from './schemas.js';
 import { retrieveCandidates } from '../retrieval/retrieve.js';
-import { loadThresholds, isEnabled } from '../decision/setup-meta.js';
-import { evaluateGate } from '../decision/evidence-gate.js';
-import { llmPick } from '../decision/llm-pick.js';
-import { resolve } from '../decision/resolve.js';
-import { logEvent } from '../decision/log-event.js';
+import { loadThresholds, isEnabled } from '../catalog/setup-meta.js';
+import { evaluateGate } from '../classification/evidence-gate.js';
+import { llmPick } from '../classification/llm-pick.js';
+import { resolve } from '../classification/resolve.js';
+import { logEvent } from '../observability/log-event.js';
 import { detectLang } from '../util/lang.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 import { env } from '../config/env.js';
 import { getPool } from '../db/client.js';
-import { lookupBrokerMapping } from '../decision/broker-mapping.js';
+import { lookupBrokerMapping } from '../classification/broker-mapping.js';
 import { round4 } from '../util/score.js';
 import { withRequestId, baseModelInfo, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
 

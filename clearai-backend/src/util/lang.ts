@@ -1,10 +1,15 @@
 /**
  * Cheap language detection: counts Arabic vs Latin characters. Good enough
  * for logging classification_events.language_detected.
+ *
+ * `LangTag` lives in src/types/domain.ts (single home for cross-cutting
+ * unions). Re-exported here for backwards compatibility with existing
+ * `import type { LangTag } from '../util/lang.js'` call sites.
  */
-export type LangTag = 'en' | 'ar' | 'mixed' | 'unk';
+import type { LangTag } from '../types/domain.js';
+export type { LangTag } from '../types/domain.js';
 
-const ARABIC_RANGE = /[\u0600-\u06FF\u0750-\u077F]/;
+const ARABIC_RANGE = /[؀-ۿݐ-ݿ]/;
 const LATIN_RANGE = /[A-Za-z]/;
 
 export function detectLang(input: string): LangTag {

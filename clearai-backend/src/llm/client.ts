@@ -6,8 +6,8 @@
  * concatenation — but use the Anthropic JSON wire format unchanged.
  */
 import { env } from '../config/env.js';
-
-export type LlmStatus = 'ok' | 'error' | 'timeout';
+import type { LlmStatus } from '../types/domain.js';
+export type { LlmStatus } from '../types/domain.js';
 
 export interface LlmCallResult {
   status: LlmStatus;

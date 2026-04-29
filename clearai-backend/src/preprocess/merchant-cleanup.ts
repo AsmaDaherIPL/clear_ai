@@ -10,8 +10,8 @@
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';
 import { env } from '../config/env.js';
-
-export type MerchantCleanupKind = 'product' | 'merchant_shorthand' | 'ungrounded';
+import type { MerchantCleanupKind } from '../types/domain.js';
+export type { MerchantCleanupKind } from '../types/domain.js';
 
 export interface MerchantCleanupResult {
   invoked: 'skipped_clean' | 'llm' | 'llm_failed' | 'llm_unparseable';

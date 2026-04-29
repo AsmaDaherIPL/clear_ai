@@ -25,8 +25,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../db/client.js';
-import { generateSubmissionDescription } from '../decision/submission-description.js';
-import { loadThresholds } from '../decision/setup-meta.js';
+import { generateSubmissionDescription } from '../classification/submission-description.js';
+import { loadThresholds } from '../catalog/setup-meta.js';
 
 const querySchema = z.object({
   request_id: z.string().uuid({ message: 'request_id must be a UUID' }),

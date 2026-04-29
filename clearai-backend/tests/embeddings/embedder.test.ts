@@ -36,7 +36,7 @@ describe('getPipeline — cold-start race', () => {
       return fakePipe;
     });
 
-    const { embedQuery } = await import('./embedder.js');
+    const { embedQuery } = await import('../../src/embeddings/embedder.js');
 
     // Fire 8 concurrent first-callers before init resolves.
     const inflight = Array.from({ length: 8 }, () => embedQuery('horse'));
@@ -58,7 +58,7 @@ describe('getPipeline — cold-start race', () => {
         vi.fn().mockResolvedValue({ data: new Float32Array([1, 0, 0]), dims: [1, 3] })
       );
 
-    const { embedQuery } = await import('./embedder.js');
+    const { embedQuery } = await import('../../src/embeddings/embedder.js');
 
     await expect(embedQuery('x')).rejects.toThrow(/first-init-fails/);
     // Second call must trigger a fresh init, not re-throw the cached rejection.

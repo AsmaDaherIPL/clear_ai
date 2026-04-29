@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { expandBody, boostBody, describeBody } from './schemas.js';
+import { expandBody, boostBody, describeBody } from '../../src/routes/schemas.js';
 
 describe('expandBody.code regex', () => {
   it.each([

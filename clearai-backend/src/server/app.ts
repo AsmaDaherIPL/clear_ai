@@ -5,17 +5,17 @@ import Fastify from 'fastify';
 import sensible from '@fastify/sensible';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-import { env } from './config/env.js';
-import { describeRoute } from './routes/describe.js';
-import { expandRoute } from './routes/expand.js';
-import { boostRoute } from './routes/boost.js';
-import { traceRoute } from './routes/trace.js';
-import { submissionRoute } from './routes/submission.js';
-import { getPool, closeDb } from './db/client.js';
-import { registerErrorHandler } from './server/error-handler.js';
-import { warmEmbedder } from './embeddings/embedder.js';
-import { loadThresholds } from './decision/setup-meta.js';
-import { loadPrompt } from './llm/structured-call.js';
+import { env } from '../config/env.js';
+import { describeRoute } from '../routes/describe.js';
+import { expandRoute } from '../routes/expand.js';
+import { boostRoute } from '../routes/boost.js';
+import { traceRoute } from '../routes/trace.js';
+import { submissionRoute } from '../routes/submission.js';
+import { getPool, closeDb } from '../db/client.js';
+import { registerErrorHandler } from './error-handler.js';
+import { warmEmbedder } from '../embeddings/embedder.js';
+import { loadThresholds } from '../catalog/setup-meta.js';
+import { loadPrompt } from '../llm/structured-call.js';
 
 const e = env();
 
