@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const describeBody = z.object({
-  description: z.string().min(1).max(2000),
+  description: z.string().min(1).max(250),
 });
 export type DescribeBody = z.infer<typeof describeBody>;
 
@@ -26,7 +26,7 @@ export const expandBody = z.object({
   code: z
     .string()
     .regex(/^\d{4,10}$/, 'parent code must be 4 to 10 digits'),
-  description: z.string().min(1).max(2000),
+  description: z.string().min(1).max(250),
 });
 export type ExpandBody = z.infer<typeof expandBody>;
 

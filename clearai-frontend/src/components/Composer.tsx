@@ -35,10 +35,27 @@ interface ComposerProps {
   className?: string;
 }
 
+// Hard input cap mirrors the backend's zod schema (`describeBody` /
+// `expandBody` in clearai-backend/src/routes/schemas.ts). Keeping the
+// two in lock-step means the user sees the limit before they hit
+// "submit", instead of getting a 400 from the server. If you change
+// this, change the backend at the same time.
+const DESCRIPTION_MAX = 250;
+// Threshold for switching the counter to amber so the user knows
+// they're running out of room. 90% = 225 chars; below that, the
+// counter is muted ink.
+const DESCRIPTION_WARN_AT = Math.floor(DESCRIPTION_MAX * 0.9);
+
 export default function Composer({ mode, onSubmit, loading, className }: ComposerProps) {
   const t = useT();
   const [description, setDescription] = useState('');
   const [parentCode, setParentCode] = useState('');
+  // Char count drives both the counter UI and (conceptually) any
+  // submit-time validation. Keeping it derived from the controlled
+  // textarea state avoids double-counting newlines / paste events.
+  const charCount = description.length;
+  const nearCap = charCount >= DESCRIPTION_WARN_AT;
+  const atCap = charCount >= DESCRIPTION_MAX;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,7 +83,15 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
             <textarea
               rows={2}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              maxLength={DESCRIPTION_MAX}
+              onChange={(e) =>
+                // Belt-and-braces: maxLength on the element already
+                // blocks new keystrokes past the cap, but a paste of
+                // a longer string can still arrive (some browsers /
+                // assistive tech bypass the attribute). Truncating in
+                // state guarantees we never hold > DESCRIPTION_MAX.
+                setDescription(e.target.value.slice(0, DESCRIPTION_MAX))
+              }
               onKeyDown={(e) => {
                 // Enter submits the form — Shift+Enter inserts a newline
                 // so users can still paste / type multi-line descriptions
@@ -108,10 +133,25 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
             </div>
           )}
 
-          {/* Meta bar */}
+          {/* Meta bar — char counter on the start side, submit on the end.
+              Counter swaps from muted ink → amber when within 10% of
+              the cap so the user notices they're nearly out of room
+              before they hit submit and get a 400 from the backend. */}
           <div className="flex items-center justify-between gap-2 px-3.5 pb-3.5 pt-2">
             <div className="flex items-center gap-1.5">
-              <span className="text-[12px] text-[var(--ink-3)]">{t('lang_hint')}</span>
+              <span
+                className={cn(
+                  'font-mono text-[12px] tabular-nums transition-colors duration-150',
+                  atCap
+                    ? 'text-[oklch(0.55_0.18_25)] font-medium' // red at the wall
+                    : nearCap
+                      ? 'text-[oklch(0.62_0.16_60)]'           // amber within 10%
+                      : 'text-[var(--ink-3)]',                  // default muted
+                )}
+                aria-live="polite"
+              >
+                {charCount} / {DESCRIPTION_MAX}
+              </span>
             </div>
             <div className="flex items-center gap-1.5">
               <button
