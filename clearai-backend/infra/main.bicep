@@ -67,6 +67,9 @@ param containerAppName string = 'ca-infp-clearai-be-dev-gwc-01'
 @description('Container image (full ref). Public GHCR image, no registry creds.')
 param containerImage string = 'ghcr.io/asmadaheripl/clearai-backend:latest'
 
+@description('Foundry endpoint full Target URI including /anthropic/v1/messages. Passed through to the Container App ANTHROPIC_BASE_URL env var.')
+param anthropicBaseUrl string = 'https://aif-infp-dev-swc-01.services.ai.azure.com/anthropic/v1/messages'
+
 // ---- APIM -------------------------------------------------------------------
 
 @description('APIM service name. Globally unique.')
@@ -154,6 +157,7 @@ module containerApp 'modules/containerapp.bicep' = {
     containerAppsEnvId: containerAppsEnv.outputs.id
     image: containerImage
     keyVaultName: keyVault.outputs.name
+    anthropicBaseUrl: anthropicBaseUrl
     tags: tags
   }
   dependsOn: [

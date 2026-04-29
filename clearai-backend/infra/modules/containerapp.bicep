@@ -43,6 +43,9 @@ param image string
 @description('Key Vault name (used to construct secret URIs).')
 param keyVaultName string
 
+@description('Foundry endpoint full Target URI including /anthropic/v1/messages. Maps to ANTHROPIC_BASE_URL in the container env.')
+param anthropicBaseUrl string = 'https://aif-infp-dev-swc-01.services.ai.azure.com/anthropic/v1/messages'
+
 @description('Common tags.')
 param tags object
 
@@ -117,13 +120,15 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'DATABASE_URL', secretRef: 'postgres-connection-string' }
             { name: 'ANTHROPIC_API_KEY', secretRef: 'anthropic-api-key' }
             { name: 'APIM_SHARED_SECRET', secretRef: 'apim-shared-secret' }
-            // Foundry / model placeholders — fill once Foundry rename is done.
-            // ANTHROPIC_BASE_URL is set to a syntactically-valid placeholder
-            // so Zod URL validation passes; the actual Anthropic client will
-            // fail at request-time until a real Foundry endpoint is wired in.
-            { name: 'ANTHROPIC_BASE_URL', value: 'https://placeholder.invalid' }
-            { name: 'LLM_MODEL', value: '__REPLACE__' }
-            { name: 'LLM_MODEL_STRONG', value: '__REPLACE__' }
+            // Foundry-hosted Anthropic deployment. ANTHROPIC_BASE_URL is the
+            // FULL Target URI including /anthropic/v1/messages; the deployed
+            // model names match the Foundry deployment IDs documented in
+            // clearai-backend/CLAUDE.md. anthropicBaseUrl is a module
+            // parameter with the Foundry URL as its default so it can be
+            // overridden per environment without touching this file.
+            { name: 'ANTHROPIC_BASE_URL', value: anthropicBaseUrl }
+            { name: 'LLM_MODEL', value: 'claude-haiku-4-5-clearai-dev' }
+            { name: 'LLM_MODEL_STRONG', value: 'claude-sonnet-4-6-clearai-dev' }
             { name: 'LLM_TIMEOUT_MS', value: '15000' }
             // Embedder
             { name: 'EMBEDDER_MODEL', value: 'Xenova/multilingual-e5-small' }
