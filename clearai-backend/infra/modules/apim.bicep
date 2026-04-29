@@ -89,18 +89,22 @@ param tags object
 //   API which has no subscription, `rate-limit` has no effect — defence on
 //   that path comes from the Fastify in-process limiter (allowList exempts
 //   /health for liveness probes) and Container Apps' replica autoscaler.
-// CORS allow-list. The browser-side caller is the SWA; the gateway origin
-// is included so server-to-server smoke tests (curl from CI / from the
-// gateway URL itself) work; the two localhost ports are Vite (5173) and
-// Astro dev (4321) for local browser sessions hitting prod APIM directly.
-// Keep this list in sync with `CORS_ORIGINS` in containerapp.bicep — both
-// layers must allow the same origins or the second layer rejects after
-// APIM passes.
+// CORS allow-list. Browser-side callers are the SWA (auto-hostname and
+// the custom domain); the gateway origin is included so server-to-server
+// smoke tests (curl from CI / from the gateway URL itself) work; the two
+// localhost ports are Vite (5173) and Astro dev (4321) for local browser
+// sessions hitting prod APIM directly. Keep this list in sync with
+// `CORS_ORIGINS` in containerapp.bicep — both layers must allow the same
+// origins or the second layer rejects after APIM passes.
 var corsAllowedOrigins = [
   'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net'
   'http://localhost:5173'
   'http://localhost:4321'
+  // SWA auto-hostname (kept while the custom domain bedds in; can be
+  // dropped later if all clients move to the custom domain).
   'https://yellow-glacier-05e43ee03.7.azurestaticapps.net'
+  // Custom domain attached to the SWA (DNS + cert managed by Azure).
+  'https://clearai-dev.infinitepl.app'
 ]
 
 // Render the <origin> children. `map` + `join` produces the repeated XML

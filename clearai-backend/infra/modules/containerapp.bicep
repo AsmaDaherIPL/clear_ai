@@ -139,10 +139,11 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             //   - APIM gateway (server-to-server / curl smoke tests)
             //   - localhost:5173 (Vite dev), localhost:4321 (Astro dev) for
             //     local browser sessions hitting prod APIM directly
-            //   - SWA frontend (https://yellow-glacier-...azurestaticapps.net)
-            // When a custom domain is added it must be appended HERE and in
-            // apim.bicep's corsAllowedOrigins.
-            { name: 'CORS_ORIGINS', value: 'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net,http://localhost:5173,http://localhost:4321,https://yellow-glacier-05e43ee03.7.azurestaticapps.net' }
+            //   - SWA auto-hostname (yellow-glacier-...azurestaticapps.net)
+            //   - SWA custom domain (clearai-dev.infinitepl.app)
+            // When another custom domain is added it must be appended HERE
+            // AND in apim.bicep's corsAllowedOrigins.
+            { name: 'CORS_ORIGINS', value: 'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net,http://localhost:5173,http://localhost:4321,https://yellow-glacier-05e43ee03.7.azurestaticapps.net,https://clearai-dev.infinitepl.app' }
           ]
           probes: [
             {
