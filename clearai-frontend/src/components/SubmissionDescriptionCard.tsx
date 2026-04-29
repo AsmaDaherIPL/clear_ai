@@ -16,10 +16,13 @@
  *     generate. No need to push that decision back to the parent.
  *
  * STATE OWNED:
- *   - status:    'loading' | 'success' | 'error' | 'not_applicable'
- *   - data:      NewDescriptionResponse | null  (success payload)
- *   - copied:    boolean — controls the brief "Copied" affordance on
- *                the Copy AR button after a successful clipboard write.
+ *   - status:      'loading' | 'success' | 'error' | 'not_applicable'
+ *   - data:        NewDescriptionResponse | null  (success payload)
+ *   - retryNonce:  number — bump from the error-state retry button
+ *                  to force the effect to refetch without changing
+ *                  the parent-supplied requestId.
+ * (The Copy AR button's "Copied" affordance is owned internally by
+ *  CopyChip — see src/components/ui/copy-chip.tsx.)
  *
  * NOT YET IMPLEMENTED:
  *   - Cross-classification cache (would need to live in the parent or
@@ -32,6 +35,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CopyChip } from '@/components/ui/copy-chip';
 import { api, ApiError, type NewDescriptionResponse } from '@/lib/api';
 
 interface SubmissionDescriptionCardProps {
@@ -43,25 +47,10 @@ interface SubmissionDescriptionCardProps {
 
 type Status = 'loading' | 'success' | 'error' | 'not_applicable';
 
-// Inline copy icon — same artwork the rest of ResultSingle uses, kept
-// inline rather than imported so this file is self-contained.
-const CopyIcon = () => (
-  <svg
-    width="12"
-    height="12"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden
-  >
-    <rect x="9" y="9" width="11" height="11" rx="2" />
-    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-  </svg>
-);
-
+// Inline retry icon — used only by the error-state retry button.
+// Copy / check icons used to live here too but moved into the shared
+// CopyChip primitive (src/components/ui/copy-chip.tsx) when the
+// submission card adopted that pill geometry.
 const RetryIcon = () => (
   <svg
     width="12"
@@ -79,22 +68,6 @@ const RetryIcon = () => (
   </svg>
 );
 
-const CheckIcon = () => (
-  <svg
-    width="12"
-    height="12"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden
-  >
-    <path d="M20 6L9 17l-5-5" />
-  </svg>
-);
-
 export default function SubmissionDescriptionCard({
   requestId,
   className,
@@ -102,7 +75,6 @@ export default function SubmissionDescriptionCard({
   const t = useT();
   const [status, setStatus] = useState<Status>('loading');
   const [data, setData] = useState<NewDescriptionResponse | null>(null);
-  const [copied, setCopied] = useState(false);
   // Bumped to force a refetch from the retry button without changing
   // the parent-supplied requestId. The effect depends on (requestId,
   // retryNonce) so any change to either re-runs the request.
@@ -126,7 +98,6 @@ export default function SubmissionDescriptionCard({
 
     setStatus('loading');
     setData(null);
-    setCopied(false);
 
     api
       .newDescription(requestId, controller.signal)
@@ -167,23 +138,6 @@ export default function SubmissionDescriptionCard({
   // 400 invalid_state path — render absolutely nothing. The card
   // never appears in the result layout.
   if (status === 'not_applicable') return null;
-
-  const copy = () => {
-    const text = data?.description_ar;
-    if (!text || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        setCopied(true);
-        // Reset the affordance after 1.5s. If the user clicks again
-        // mid-fade, the same timer would be replaced; cheap enough
-        // to skip the cleanup edge case.
-        window.setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => {
-        /* clipboard denied / unsupported — silent failure is fine */
-      });
-  };
 
   return (
     <div
@@ -226,36 +180,22 @@ export default function SubmissionDescriptionCard({
         </div>
       </div>
 
-      {/* AR row — Copy button on the visual LEFT, Arabic text on the
-          visual RIGHT.
-          Layout: row stays LTR (default flex direction), so the
-          first child renders on the left and the second on the right.
-          The Copy AR button is therefore declared FIRST so it lands
-          on the left edge; the Arabic text comes second and takes the
-          remaining width with `flex-1`. The text node itself carries
-          dir=rtl so cursor / shaping / punctuation behave correctly
-          for Arabic, and uses physical `text-right` (not logical
-          `text-end`) so the alignment locks to the visual right edge
-          regardless of the document direction. */}
+      {/* AR row — Copy AR chip on the visual LEFT, Arabic text on the
+          visual RIGHT. The row stays LTR (default flex), so the first
+          child lands on the visual left. The Arabic text node carries
+          dir=rtl + physical `text-right` so the alignment locks to the
+          right edge regardless of the document direction. */}
       <div className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3 min-h-[44px]">
-        {/* Copy AR — sized to match Strong match / Copy code pills
-            (px-2.5 py-1, text-[12px], rounded-full). Always mounted
-            so the row height is stable; disabled until a real
-            description is available. */}
-        <button
-          type="button"
-          onClick={copy}
+        {/* Copy AR — same CopyChip primitive as the Copy code chip in
+            ResultSingle, so both clipboard actions across the result
+            card share the exact same pill geometry / typography.
+            Disabled until the lazy fetch resolves. */}
+        <CopyChip
+          text={data?.description_ar ?? ''}
+          label="Copy AR"
           disabled={status !== 'success'}
-          className={cn(
-            'flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-[var(--surface)] text-[12px] font-medium transition-colors duration-150',
-            status === 'success'
-              ? 'border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]'
-              : 'border-[var(--line)] text-[var(--ink-3)] cursor-not-allowed opacity-60',
-          )}
-        >
-          {copied ? <CheckIcon /> : <CopyIcon />}
-          <span>{copied ? t('copied') : 'Copy AR'}</span>
-        </button>
+          className="flex-shrink-0"
+        />
 
         <div
           dir="rtl"

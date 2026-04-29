@@ -42,6 +42,7 @@ import {
   type ConfidenceBand,
 } from '@/lib/api';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
+import { CopyChip } from '@/components/ui/copy-chip';
 
 interface ResultSingleProps {
   visible: boolean;
@@ -95,13 +96,10 @@ function splitCodeSegments(code: string) {
   }));
 }
 
-// Inline icons — copy / arrow — small enough to keep beside the JSX.
-const CopyIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <rect x="9" y="9" width="11" height="11" rx="2" />
-    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-  </svg>
-);
+// Inline arrow icon — used for the trace link in the dev footer. The
+// copy icon used to live here too but moved into the shared CopyChip
+// primitive when both Copy code and Copy AR converged on that pill
+// geometry.
 const ArrowIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="rtl:scale-x-[-1]">
     <path d="M5 12h14M13 6l6 6-6 6" />
@@ -263,12 +261,6 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
   // contains no duty data, e.g. heading-level codes).
   const dutyLabel = r.duty ? dutyText(r.duty) : null;
 
-  const copy = (text: string) => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-  };
-
   // Trace link — the backend writes a classification_events row per
   // request and surfaces its UUID as `request_id`. The /trace/:id route
   // exists on the backend; the frontend page is a v2 TODO (port from v1).
@@ -323,35 +315,22 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
           </div>
 
           {/*
-            Code-context strip: Duty chip on the start side, Copy code
-            button on the end. Both share the MetaChip pill geometry
+            Code-context strip: Duty + Copy code chips, sitting next to
+            each other. Both share the MetaChip / CopyChip pill geometry
             (rounded-full, 12px text + 10px mono uppercase label,
             px-2.5 py-1) so they read as one control family. Procedures
-            was previously rendered here too but was dropped — it added
-            noise without users ever acting on it; if a future trace
-            view needs it, it lives in the trace JSON.
+            was previously here too but dropped — users never acted on
+            it; the value still lives in the trace JSON for debugging.
           */}
-          <div className="mt-3 pt-3 border-t border-[var(--line-2)] flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap">
-              {dutyLabel && (
-                <MetaChip label={t('res_duty')} value={dutyLabel} title="ZATCA duty rate" />
-              )}
-            </div>
-            {/* Copy code — chip-shaped to match MetaChip exactly:
-                same padding, same radius, same type scale. The
-                10px mono uppercase "COPY" label mirrors the "DUTY"
-                label on the duty chip so they read as siblings. */}
-            <button
-              type="button"
-              onClick={() => copy(r.code)}
+          <div className="mt-3 pt-3 border-t border-[var(--line-2)] flex items-center gap-2 flex-wrap">
+            {dutyLabel && (
+              <MetaChip label={t('res_duty')} value={dutyLabel} title="ZATCA duty rate" />
+            )}
+            <CopyChip
+              text={r.code}
+              label={t('act_copy')}
               title="Copy 12-digit HS code"
-              className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[12px] hover:border-[var(--ink-3)] transition-colors duration-150"
-            >
-              <span className="font-mono text-[10px] font-medium tracking-[0.08em] uppercase text-[var(--ink-3)]">
-                {t('act_copy')}
-              </span>
-              <CopyIcon />
-            </button>
+            />
           </div>
         </div>
 
