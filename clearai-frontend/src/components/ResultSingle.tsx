@@ -88,16 +88,37 @@ function clampDescription(text: string, max: number = ZATCA_DESC_MAX): string {
 }
 
 /**
- * Split a 12-digit HS code into 6 two-digit segments. Pads with `00` on
- * the right if the backend ever returns a shorter code (defensive — every
- * `accepted` response from /classify/describe is supposed to be exactly
- * 12 digits, but we don't want a runtime crash if the contract drifts).
+ * Canonical 12-digit form of a Saudi HS code. Strips non-digits, pads
+ * the right with `0` to 12 chars, then truncates to 12.
  *
- * The first three segments (HS-6 trunk) are rendered with the
- * orange→rust gradient; the last three (Saudi NSE) stay solid ink.
+ * Why this exists:
+ *   - The backend can legitimately return a SHORTER code on the
+ *     heading-level acceptance path (ADR-0019) — e.g. `4202` for a
+ *     bag whose only confident-enough match was the HS-4 heading.
+ *     ZATCA accepts the heading-padded form `420200000000` as a
+ *     valid declaration, so the FRONTEND is responsible for
+ *     surfacing the padded form to the user (visually AND on the
+ *     clipboard) rather than the bare 4 digits.
+ *   - Both the segment renderer and the Copy code button consume
+ *     this so the digits the user sees on screen are exactly the
+ *     digits that land on their clipboard.
+ *
+ * Defensive against:
+ *   - Backend drift (returning 13+ chars → truncate to 12)
+ *   - Punctuation (returning `4202.00.00.00` → strip non-digits)
+ *   - Missing field (returning `''` / `null` → pad to `000000000000`)
+ */
+function padCodeTo12(code: string | null | undefined): string {
+  return (code ?? '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
+}
+
+/**
+ * Split a 12-digit HS code into 6 two-digit segments. The first three
+ * (HS-6 trunk: chapter / heading / sub) render with the orange→rust
+ * gradient; the last three (Saudi NSE) stay solid ink.
  */
 function splitCodeSegments(code: string) {
-  const padded = (code ?? '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
+  const padded = padCodeTo12(code);
   const labels: Array<{ key: 'seg_chapter' | 'seg_heading' | 'seg_sub' | 'seg_national' | 'seg_stat' | 'seg_ext'; accented: boolean }> = [
     { key: 'seg_chapter', accented: true },
     { key: 'seg_heading', accented: true },
@@ -783,7 +804,13 @@ export default function ResultSingle({
               <MetaChip label={t('res_duty')} value={dutyLabel} title="ZATCA duty rate" />
             )}
             <CopyChip
-              text={r.code}
+              // Always copy the canonical 12-digit form, never the
+              // raw `r.code` string. ZATCA accepts only 12-digit
+              // declarations, so heading-level (4-digit) results
+              // need their trailing zeros pasted along — the
+              // segments renderer already shows the padded form,
+              // and the clipboard must match.
+              text={padCodeTo12(r.code)}
               label={t('act_copy')}
               title="Copy 12-digit HS code"
             />
