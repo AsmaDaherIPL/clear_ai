@@ -41,6 +41,7 @@ import {
   type AlternativeLine,
   type ConfidenceBand,
 } from '@/lib/api';
+import SubmissionDescriptionCard from './SubmissionDescriptionCard';
 
 interface ResultSingleProps {
   visible: boolean;
@@ -252,7 +253,10 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
   const segments = splitCodeSegments(r.code);
   const pill = pillFor(data.decision_status, data.decision_reason, data.confidence_band);
   const interp = data.interpretation;
-  const submission = data.submission_description;
+  // The submission description used to live on `data.submission_description`,
+  // but the backend moved that work to a separate /classify/newDescription
+  // route to cut ~3-5s off the main classify latency. SubmissionDescriptionCard
+  // owns its own fetch lifecycle keyed on the request_id.
   // Resolve duty up-front so the chip's render condition checks a real
   // string, not the truthiness of `r.duty` (which can be a populated
   // object whose fields are all null — i.e. catalog row exists but
@@ -397,53 +401,14 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
             </div>
           </div>
 
-          {/* (b) Suggested ZATCA submission description — only when backend emitted one.
-              Per Phase 5, only `accepted` results with the feature flag get a
-              submission_description; non-accepted paths legitimately omit it.
-              Hide the entire card when absent rather than showing an empty state. */}
-          {submission && (
-            <div className="border border-[var(--line)] rounded-[var(--radius)] p-4 bg-[var(--surface)] flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
-                  {t('res_suggest')}
-                </div>
-                {submission.differs_from_catalog && <TonePill tone="warn">{t('differs')}</TonePill>}
-              </div>
-
-              {/* EN row */}
-              <div className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3">
-                <div className="flex-1 min-w-0 text-[14.5px] text-[var(--ink)] leading-[1.5]">
-                  {submission.description_en}
-                </div>
-              </div>
-
-              {/* AR row — direction-flipped */}
-              <div
-                dir="rtl"
-                className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3"
-              >
-                <div
-                  className="flex-1 min-w-0 text-[14.5px] text-[var(--ink)] leading-[1.5] text-end"
-                  style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-                >
-                  {submission.description_ar}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => copy(submission.description_ar)}
-                  dir="ltr"
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] font-mono text-[11.5px] font-medium text-[var(--ink-2)] tracking-wider hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150"
-                >
-                  <CopyIcon />
-                  <span>Copy AR</span>
-                </button>
-              </div>
-
-              <div className="text-[12.5px] text-[var(--ink-3)] italic leading-[1.5] pt-2 border-t border-[var(--line-2)]">
-                {t('ai_disclaimer')}
-              </div>
-            </div>
-          )}
+          {/* (b) Suggested ZATCA submission description — lazy-loaded via
+              GET /classify/newDescription on mount. The card owns its own
+              fetch lifecycle (loading skeleton → success / error / retry)
+              and self-unmounts on `400 invalid_state` (when the original
+              classification wasn't on the accepted 12-digit path). The
+              describe response no longer carries this block — splitting
+              it out cut ~3-5s off the main classify latency. */}
+          <SubmissionDescriptionCard requestId={data.request_id} />
 
           {/* (c) Why this code — tinted rationale card. Only when present. */}
           {data.rationale && (

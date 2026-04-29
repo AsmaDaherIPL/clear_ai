@@ -244,7 +244,14 @@ export interface DecisionEnvelopeBase {
   missing_attributes?: MissingAttribute[];
   /** Optional on /expand and /boost (which don't run the researcher today). */
   interpretation?: Interpretation;
-  /** Phase 5 — only present on accepted results with the feature flag on. */
+  /**
+   * @deprecated /classify/describe no longer emits this field — the
+   * submission description is fetched lazily via GET
+   * /classify/newDescription?request_id=<id>. The type is retained in
+   * the envelope so /classify/expand and /classify/boost (which still
+   * embed it inline) continue to type-check; new code should consume
+   * NewDescriptionResponse instead.
+   */
   submission_description?: SubmissionDescription;
   model: ModelInfo;
 }
@@ -286,6 +293,34 @@ export interface BoostRequest {
   code: string;
 }
 
+/**
+ * Lazy-loaded ZATCA submission description. Returned by
+ * GET /classify/newDescription?request_id=<uuid>, which the frontend
+ * fires on mount of the submission card AFTER the main /classify/describe
+ * response has landed. Splitting this out lets the result card render
+ * 3-5s sooner (the LLM rewrite is the slowest step on the describe path).
+ *
+ * `source`:
+ *   - 'llm':            Haiku-generated; ship as-is, no review pill needed.
+ *   - 'guard_fallback': deterministic prefix-mutator ran because the LLM
+ *                       guard tripped or the LLM matched the catalog
+ *                       word-for-word. Surface a "Review required" hint.
+ *
+ * Errors (carry through ApiError.status + .body.error):
+ *   400 invalid_query  — malformed request_id (uuid validation failed).
+ *   400 invalid_state  — the original classification wasn't on the
+ *                        accepted 12-digit path (e.g. needs_clarification
+ *                        or best_effort). The submission card SHOULD
+ *                        unmount itself rather than render an error.
+ *   404 not_found      — request_id doesn't exist (trace expired / wrong
+ *                        DB / replayed an old session).
+ */
+export interface NewDescriptionResponse {
+  description_ar: string;
+  description_en: string;
+  source: 'llm' | 'guard_fallback';
+}
+
 // --- Client ---------------------------------------------------------------
 class ApiError extends Error {
   status: number;
@@ -316,6 +351,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     /* non-JSON body — leave body=null */
   }
   if (!res.ok) {
+    // Prefer the typed `error` field (zod-emitted machine-readable code,
+    // e.g. "invalid_query"), fall back to `message`, then HTTP statusText.
     const detail =
       (body as { error?: string; detail?: unknown } | null)?.error ??
       (body as { message?: string } | null)?.message ??
@@ -342,6 +379,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(b),
     }),
+  // Phase 5 (lazy) — fetch the ZATCA submission description after the
+  // main classify response has landed. `signal` lets the caller cancel
+  // an in-flight fetch when the user reclassifies before the previous
+  // submission resolved (avoids stale data landing in the new card).
+  newDescription: (requestId: string, signal?: AbortSignal) =>
+    request<NewDescriptionResponse>(
+      `/classify/newDescription?request_id=${encodeURIComponent(requestId)}`,
+      { method: 'GET', signal },
+    ),
   // Phase 4 — trace + feedback. The trace endpoint returns the raw
   // classification_events row plus any associated feedback. The feedback
   // endpoint UPSERTs one row per (event, user) pair.
