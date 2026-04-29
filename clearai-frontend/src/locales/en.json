@@ -10,7 +10,6 @@
   "mode_expand": "Expand",
   "mode_batch": "Batch",
   "parent_label": "Parent code",
-  "parent_hint": "4 / 6 / 8 / 10 digits",
   "drop_title": "Drop your invoice CSV here",
   "drop_hint": "…or click to browse · CSV or Excel accepted",
   "drop_browse": "Choose file",

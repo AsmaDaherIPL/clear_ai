@@ -10,7 +10,6 @@
   "mode_expand": "توسيع",
   "mode_batch": "دفعة",
   "parent_label": "الرمز الأصل",
-  "parent_hint": "٤ / ٦ / ٨ / ١٠ خانات",
   "drop_title": "أفلِت ملف الفاتورة CSV هنا",
   "drop_hint": "…أو انقر للتصفح · CSV أو Excel",
   "drop_browse": "اختر ملفاً",

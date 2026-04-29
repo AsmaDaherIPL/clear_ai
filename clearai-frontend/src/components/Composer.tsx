@@ -56,11 +56,23 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
   const charCount = description.length;
   const nearCap = charCount >= DESCRIPTION_WARN_AT;
   const atCap = charCount >= DESCRIPTION_MAX;
+  // In Expand mode the backend rejects parent codes shorter than 4
+  // digits with a 400. Block at the form level so the user can't
+  // even submit a too-short code — the only valid HS prefixes are
+  // 4 / 6 / 8 / 10 / 12 digits (regex in clearai-backend's
+  // schemas.ts). Other modes don't use parentCode so this guard
+  // collapses to `true`.
+  const PARENT_CODE_MIN = 4;
+  const parentCodeValid = mode !== 'expand' || parentCode.length >= PARENT_CODE_MIN;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = description.trim();
     if (!trimmed) return;
+    // Block too-short parent codes early. The button's `disabled`
+    // attribute already gates click submits; this guard catches
+    // Enter-key submits + any future programmatic submit() calls.
+    if (!parentCodeValid) return;
     onSubmit?.(trimmed, mode === 'expand' ? parentCode.trim() || undefined : undefined);
   };
 
@@ -115,7 +127,12 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
             />
           </div>
 
-          {/* Expand-only: parent code row */}
+          {/* Expand-only: parent code row.
+              The "4 / 6 / 8 / 10 digits" hint chip used to live on the
+              end side; removed because the same constraint is enforced
+              by `parentCodeValid` (4-digit minimum) — the user gets
+              feedback by the submit button staying disabled until
+              they've typed enough digits, no need for ambient text. */}
           {mode === 'expand' && (
             <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
               <label className="font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase shrink-0">
@@ -129,7 +146,6 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
                 placeholder="e.g. 010121 / 3304993 / 01012110"
                 className="flex-1 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
               />
-              <span className="text-[12px] text-[var(--ink-3)] shrink-0">{t('parent_hint')}</span>
             </div>
           )}
 
@@ -157,7 +173,7 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
               <button
                 type="submit"
                 aria-label="Classify"
-                disabled={loading || !description.trim()}
+                disabled={loading || !description.trim() || !parentCodeValid}
                 className={cn(
                   'w-9 h-9 rounded-full border-0',
                   'bg-[var(--accent)] text-white',

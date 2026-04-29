@@ -451,9 +451,21 @@ export function remediationHint(
     case 'guard_tripped':
       return 'The model proposed a code outside the candidate set. Please refine the description.';
     case 'brand_not_recognised':
-      return 'We could not identify this brand or product code. Describe what the product physically is and does (e.g. "leather sandal with adjustable straps" instead of just the model name).';
+      // Same hint covers two real failure modes:
+      //   (a) the user typed a brand or SKU we don't recognise
+      //       ("Loewe Wōmen perfume", "Boston BWN39")
+      //   (b) the user typed gibberish or near-empty text
+      //       ("test test", "xyz", "asdf 123")
+      // In both cases the underlying problem is the SAME: retrieval
+      // had nothing meaningful to match on. The fix is the same too:
+      // describe what the product physically is.
+      return 'We could not identify a product from your input. Describe what it physically is — material, type, and purpose (e.g. "leather sandal with adjustable straps", "cold-pressed olive oil 500ml bottle").';
     default:
-      return 'Please refine the input and try again.';
+      // Generic "we couldn't classify this" fallback. Same shape as
+      // brand_not_recognised on purpose — both ultimately ask the
+      // user to describe the physical product instead of typing
+      // brand jargon, abbreviations, or unclear text.
+      return 'We could not classify this input. Try describing the product itself — material, type, and purpose (e.g. "leather sandal with adjustable straps").';
   }
 }
 
