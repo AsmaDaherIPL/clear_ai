@@ -71,6 +71,9 @@ param publisherEmail string
 @description('Backend Container App ingress URL (https://...azurecontainerapps.io).')
 param backendUrl string
 
+@description('Log Analytics workspace resource ID. Diagnostic settings forward GatewayLogs and GatewayMetrics here.')
+param logAnalyticsWorkspaceId string
+
 @description('Common tags.')
 param tags object
 
@@ -338,6 +341,43 @@ resource product 'Microsoft.ApiManagement/service/products@2024-05-01' = {
 resource productApiLink 'Microsoft.ApiManagement/service/products/apis@2024-05-01' = {
   parent: product
   name: apiProtected.name
+}
+
+// -----------------------------------------------------------------------------
+// Diagnostic settings — forward APIM logs/metrics to Log Analytics
+// -----------------------------------------------------------------------------
+// GatewayLogs: one row per request reaching the gateway. Includes caller IP,
+//   subscription ID, operation name, backend response time, total time, status.
+// GatewayMetrics: aggregate request rate, capacity, EventHub-friendly counters.
+// AllMetrics: platform metrics (Requests, Capacity, Duration) — already in
+//   Azure Monitor metrics, but emitting them here lets you cross-join with
+//   the log table in a single KQL query.
+//
+// `name` on diagnosticSettings is a child-resource name, not the resource
+// name — keep it short and stable so re-deploys don't create a second one.
+
+resource apimDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  scope: apim
+  name: 'to-log-analytics'
+  properties: {
+    workspaceId: logAnalyticsWorkspaceId
+    logs: [
+      {
+        category: 'GatewayLogs'
+        enabled: true
+      }
+      {
+        category: 'WebSocketConnectionLogs'
+        enabled: true
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+  }
 }
 
 // -----------------------------------------------------------------------------

@@ -24,6 +24,11 @@ param postgresAdminLogin = 'clearai_admin'
 param keyVaultName = 'kv-infp-clearai-dev-gwc'
 // param anthropicApiKey = <injected by deploy.sh; defaults to '__REPLACE__'>
 
+// ---- Log Analytics ----
+param logAnalyticsName = 'log-infp-clearai-dev-gwc'
+param logAnalyticsRetentionDays = 30
+param logAnalyticsDailyQuotaGb = 1
+
 // ---- Container Apps ----
 param containerAppsEnvName = 'cae-infp-clearai-dev-gwc-01'
 param containerAppName = 'ca-infp-clearai-be-dev-gwc-01'

@@ -56,6 +56,19 @@ param keyVaultName string = 'kv-infp-clearai-dev-gwc'
 @secure()
 param anthropicApiKey string = ''
 
+// ---- Log Analytics ----------------------------------------------------------
+
+@description('Log Analytics workspace name. Receives Container App + APIM logs/metrics.')
+param logAnalyticsName string = 'log-infp-clearai-dev-gwc'
+
+@description('Log retention in days (30–730). 30 days is the free retention window.')
+@minValue(30)
+@maxValue(730)
+param logAnalyticsRetentionDays int = 30
+
+@description('Daily ingestion cap in GB. Hard ceiling against runaway log volume.')
+param logAnalyticsDailyQuotaGb int = 1
+
 // ---- Container Apps ---------------------------------------------------------
 
 @description('Container Apps Environment name.')
@@ -138,12 +151,31 @@ module keyVaultSecrets 'modules/keyvault-secrets.bicep' = {
   }
 }
 
-// 4. Container Apps Environment (Consumption-only, no Log Analytics)
+// 4a. Log Analytics workspace — shared observability sink for the env + APIM.
+//     Created BEFORE the Container Apps Environment because the env needs the
+//     workspace's customerId + sharedKey at create time (appLogsConfiguration
+//     can't be added retroactively without an env update that triggers a
+//     revision restart on every app — which we still get on first apply, but
+//     not on subsequent deploys).
+module logAnalytics 'modules/loganalytics.bicep' = {
+  name: 'log-deploy'
+  params: {
+    location: location
+    workspaceName: logAnalyticsName
+    retentionInDays: logAnalyticsRetentionDays
+    dailyQuotaGb: logAnalyticsDailyQuotaGb
+    tags: tags
+  }
+}
+
+// 4b. Container Apps Environment (Consumption-only) — wired to Log Analytics.
 module containerAppsEnv 'modules/containerapps-env.bicep' = {
   name: 'cae-deploy'
   params: {
     location: location
     environmentName: containerAppsEnvName
+    logAnalyticsCustomerId: logAnalytics.outputs.customerId
+    logAnalyticsSharedKey: logAnalytics.outputs.primarySharedKey
     tags: tags
   }
 }
@@ -189,6 +221,7 @@ module apim 'modules/apim.bicep' = {
     publisherName: apimPublisherName
     publisherEmail: apimPublisherEmail
     backendUrl: 'https://${containerApp.outputs.fqdn}'
+    logAnalyticsWorkspaceId: logAnalytics.outputs.id
     tags: tags
   }
 }
@@ -215,3 +248,7 @@ output containerAppPrincipalId string = containerApp.outputs.principalId
 output apimName string = apim.outputs.apimName
 output apimGatewayUrl string = apim.outputs.gatewayUrl
 output apimPrincipalId string = apim.outputs.principalId
+
+output logAnalyticsName string = logAnalytics.outputs.name
+output logAnalyticsId string = logAnalytics.outputs.id
+output logAnalyticsCustomerId string = logAnalytics.outputs.customerId
