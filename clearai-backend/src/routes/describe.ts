@@ -40,6 +40,7 @@ import {
 import { filterAlternatives } from '../classification/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../classification/branch-enumerate.js';
 import { parseDutyInfo } from '../catalog/duty-info.js';
+import { lookupProcedures, type ProcedureInfo } from '../catalog/procedure-codes.js';
 import { rankBranch, type BranchRankResult } from '../classification/branch-rank.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 import { round4 } from '../util/score.js';
@@ -544,13 +545,18 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     // every accepted classification.
 
     // ---- Duty + procedures lookup ----------------------------------------
-    // ZATCA's catalog stores duty rate (e.g. "5 %") and an import procedures
-    // reference per leaf. Brokers need both — duty informs the duty-paid
-    // calculation, procedures hint at SABER / SFDA / etc compliance steps
-    // required at the port. Single SELECT per request; ~5ms. No-op when
-    // we don't have a 12-digit chosen code (e.g. best-effort prefix).
+    // ZATCA's catalog stores duty rate (e.g. "5 %") and a comma-separated
+    // procedures-codes reference per leaf (e.g. "2,28,61"). Brokers need both
+    // — duty informs the duty-paid calculation, procedures hint at SABER /
+    // SFDA / etc compliance steps required at the port.
+    //
+    // Procedures are enriched against the `procedure_codes` table at this
+    // boundary: raw "2,28" becomes [{code:"2", description_ar:"يتطلب…",
+    // is_repealed:false}, ...]. Codes missing from the lookup table are
+    // logged at warn and dropped — a procedures field is supplementary
+    // information, not a hard contract requirement.
     let dutyInfo: ReturnType<typeof parseDutyInfo> = null;
-    let proceduresRaw: string | null = null;
+    let procedures: ProcedureInfo[] = [];
     if (effectiveChosenCode && /^\d{12}$/.test(effectiveChosenCode)) {
       const pool = getPool();
       const r = await pool.query<{
@@ -564,7 +570,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       const row = r.rows[0];
       if (row) {
         dutyInfo = parseDutyInfo(row.duty_en, row.duty_ar);
-        proceduresRaw = row.procedures?.trim() || null;
+        procedures = await lookupProcedures(row.procedures, req.log);
       }
     }
 
@@ -770,10 +776,14 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           // Duty rate + import procedures from the ZATCA catalog. duty is
           // a structured object distinguishing percentages (`rate_percent`)
           // from status words (`status_en` / `status_ar` for "Exempted" /
-          // "Prohibited from Importing"). procedures is the raw reference
-          // code from the catalog (e.g. "21" → SABER conformity).
+          // "Prohibited from Importing"). procedures is an enriched array
+          // resolved from the catalog's comma-separated reference (e.g.
+          // "21" → "Saudi Standards conformity certificate via SABER").
+          // Key is omitted entirely when no procedures apply, so the
+          // frontend can `if (result.procedures)` rather than checking
+          // for an empty array.
           duty: dutyInfo,
-          procedures: proceduresRaw,
+          ...(procedures.length > 0 && { procedures }),
         },
       }),
       alternatives,

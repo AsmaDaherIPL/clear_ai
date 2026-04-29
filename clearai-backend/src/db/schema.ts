@@ -18,3 +18,9 @@ export type {
   ClassificationEventRow,
   NewClassificationEventRow,
 } from './schemas/classification-events.js';
+
+export { procedureCodes } from './schemas/procedure-codes.js';
+export type {
+  ProcedureCodeRow,
+  NewProcedureCodeRow,
+} from './schemas/procedure-codes.js';
