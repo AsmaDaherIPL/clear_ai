@@ -227,21 +227,27 @@ export default function SubmissionDescriptionCard({
       </div>
 
       {/* AR row — text + Copy button on success, skeleton on loading,
-          retry control on error. RTL direction so the Arabic text
-          aligns and the action button sits on the visual end (left). */}
-      <div
-        dir="rtl"
-        className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3 min-h-[44px]"
-      >
+          retry control on error.
+          Layout: the row itself is LTR (so the Copy AR button sits on
+          the visual right, matching the EN row's expected reading
+          order). The Arabic text inside the flex item carries dir=rtl
+          + `text-right` (NOT `text-end`) so it visually right-aligns
+          regardless of the surrounding document direction. Using
+          logical `text-end` was the bug here: under RTL, `end` resolves
+          to the left edge, which flipped the alignment the user
+          wanted to lock to the right. */}
+      <div className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3 min-h-[44px]">
         <div
-          className="flex-1 min-w-0 text-[14.5px] text-[var(--ink)] leading-[1.5] text-end"
+          dir="rtl"
+          lang="ar"
+          className="flex-1 min-w-0 text-[14.5px] text-[var(--ink)] leading-[1.5] text-right"
           style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
         >
           {status === 'loading' && (
-            // RTL row → use ms-auto (margin-inline-start, which becomes
-            // margin-right under RTL) so the skeleton hugs the start
-            // edge of the row, mirroring where actual Arabic text starts.
-            <Skeleton className="h-6 w-1/2 ms-auto" />
+            // Skeleton sits on the visual right (where Arabic text
+            // would start). `ml-auto` pushes it to the right edge
+            // inside the LTR-flex parent.
+            <Skeleton className="h-6 w-1/2 ml-auto" />
           )}
           {status === 'success' && data?.description_ar}
           {status === 'error' && (
@@ -257,16 +263,17 @@ export default function SubmissionDescriptionCard({
           )}
         </div>
 
-        {/* Copy AR — always mounted so the row height is stable, but
-            disabled until we have a real description to copy. The
-            skeleton above conveys loading; no spinner inside the button. */}
+        {/* Copy AR — sized to match the Strong match / Copy code pills
+            in the header (px-2.5 py-1, text-[12px], rounded-full).
+            Always mounted so the row height is stable; disabled until
+            a real description is available to copy. The skeleton row
+            above already conveys loading state, so no spinner here. */}
         <button
           type="button"
           onClick={copy}
           disabled={status !== 'success'}
-          dir="ltr"
           className={cn(
-            'flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-[var(--surface)] font-mono text-[11.5px] font-medium tracking-wider transition-colors duration-150',
+            'flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-[var(--surface)] text-[12px] font-medium transition-colors duration-150',
             status === 'success'
               ? 'border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]'
               : 'border-[var(--line)] text-[var(--ink-3)] cursor-not-allowed opacity-60',
