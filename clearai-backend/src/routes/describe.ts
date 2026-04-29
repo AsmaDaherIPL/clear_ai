@@ -43,7 +43,7 @@ import { parseDutyInfo } from '../decision/duty-info.js';
 import { rankBranch, type BranchRankResult } from '../decision/branch-rank.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 import { round4 } from '../util/score.js';
-import { withRequestId } from './_helpers.js';
+import { withRequestId, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
 import type { ModelCallTrace } from '../llm/structured-call.js';
 import type { LlmStatus } from '../llm/client.js';
 import { buildInterpretation, type InterpretationStage } from '../decision/interpretation.js';
@@ -274,10 +274,18 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     }
 
     // ---- Stage 3 + 4: gate + picker (called at most once) ---------------
-    const gate = evaluateGate(candidates, {
-      minScore: t.MIN_SCORE_describe,
-      minGap: t.MIN_GAP_describe,
-    });
+    // Pass effectiveDescription so the gate can apply the thin-input +
+    // cross-chapter-spread refusal (books/cosmetics confusion). Other
+    // routes (expand/boost) don't need it — they retrieve under a
+    // narrowed prefix and don't suffer the same lexical-spread failure.
+    const gate = evaluateGate(
+      candidates,
+      {
+        minScore: t.MIN_SCORE_describe,
+        minGap: t.MIN_GAP_describe,
+      },
+      effectiveDescription,
+    );
 
     let llm = null;
     // V3 (ADR-0020): Stage 3 is a real gate again. The picker runs IFF
@@ -522,6 +530,13 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       }));
     }
 
+    // Strip catalog tree-depth dashes (e.g. "- - Other :") from every
+    // alternative's EN+AR description before they leave this handler.
+    // Mutates in place so the same array reference flows into both
+    // logEvent (persisted) and the response (shipped) — descriptions
+    // can't drift between trace replay and the original response.
+    trimAlternativeDashes(alternatives);
+
     // Phase 5 submission description used to be generated inline here.
     // It's now lazy: the frontend calls GET /classify/newDescription
     // ?request_id=<uuid> when the user is ready to copy the Arabic text
@@ -639,6 +654,10 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       llmModel: accepted ? accepted.model : (llm?.llmModel ?? null),
       totalLatencyMs: totalLatency,
       error: null,
+      // Best-effort fallback ships its own rationale; otherwise the picker's.
+      // resolve() already maps null-rationale paths (degraded, gate-failed)
+      // to decision.rationale = null, so this single expression covers all.
+      rationale: accepted ? accepted.rationale : (decision.rationale ?? null),
     }, req.log);
 
     // ---- Response shape --------------------------------------------------
@@ -732,16 +751,18 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       ...(effectiveChosenCode && {
         result: {
           code: effectiveChosenCode,
-          description_en:
+          description_en: trimCatalogDashes(
             chosenHeadingMatch?.description_en ??
-            chosenCandidate?.description_en ??
-            chosenLeaf?.description_en ??
-            null,
-          description_ar:
+              chosenCandidate?.description_en ??
+              chosenLeaf?.description_en ??
+              null,
+          ),
+          description_ar: trimCatalogDashes(
             chosenHeadingMatch?.description_ar ??
-            chosenCandidate?.description_ar ??
-            chosenLeaf?.description_ar ??
-            null,
+              chosenCandidate?.description_ar ??
+              chosenLeaf?.description_ar ??
+              null,
+          ),
           // retrieval_score is only meaningful when the chosen code came from
           // the picker (RRF top-K); on a branch-rank override, the code may
           // not be in `candidates` and the score has no meaning. Null then.

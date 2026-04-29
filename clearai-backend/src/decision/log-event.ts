@@ -36,6 +36,13 @@ export interface EventInsert {
   llmModel: string | null;
   totalLatencyMs: number;
   error: string | null;
+  /**
+   * Picker's plain-English explanation of *why* this code was chosen.
+   * Surfaced on /trace/:eventId so trace-replay is as informative as the
+   * original response. Null on paths that don't produce one — best-effort
+   * fallback, degraded, gate-failed-no-llm.
+   */
+  rationale: string | null;
 }
 
 /**
@@ -64,14 +71,16 @@ export async function logEvent(
       chosen_code, alternatives,
       top_retrieval_score, top2_gap, candidate_count, branch_size,
       llm_used, llm_status, guard_tripped,
-      model_calls, embedder_version, llm_model, total_latency_ms, error
+      model_calls, embedder_version, llm_model, total_latency_ms, error,
+      rationale
     ) VALUES (
       $1, $2, $3,
       $4, $5, $6,
       $7, $8,
       $9, $10, $11, $12,
       $13, $14, $15,
-      $16, $17, $18, $19, $20
+      $16, $17, $18, $19, $20,
+      $21
     ) RETURNING id`,
       [
         e.endpoint,
@@ -94,6 +103,7 @@ export async function logEvent(
         e.llmModel,
         e.totalLatencyMs,
         e.error,
+        e.rationale,
       ],
     );
     return r.rows[0]?.id ?? null;

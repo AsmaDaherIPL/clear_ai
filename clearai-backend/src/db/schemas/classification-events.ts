@@ -53,6 +53,11 @@ export const classificationEvents = pgTable(
     llmModel: varchar('llm_model', { length: 64 }),
     totalLatencyMs: integer('total_latency_ms'),
     error: text('error'),
+    // Picker's plain-English explanation of *why* this code was chosen.
+    // Persisted so GET /trace/:eventId can render it after the original
+    // response is gone. Null for paths that don't produce one (degraded,
+    // best-effort fallback, gate-failed-no-llm).
+    rationale: text('rationale'),
   },
   (t) => ({
     createdAtIdx: index('events_created_at_idx').on(t.createdAt),

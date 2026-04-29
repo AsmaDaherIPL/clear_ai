@@ -19,8 +19,34 @@
  * candidates span DIFFERENT HS-4 headings. Within a single heading
  * family any pick is in-the-right-ballpark and the picker is the
  * right tool to disambiguate, not abstention.
+ *
+ * Thin-input refinement (books bug): a single-word query like "books"
+ * could match 4905.20 ("In book form" — under MAPS), 4901.99 (printed
+ * books), 4820 (notebooks), 8543.70 (e-books), all at high RRF scores.
+ * Top-1 vs top-2 had a real lexical gap, so the standard MIN_GAP check
+ * passed and the picker confidently chose the maps-scoped leaf — wrong.
+ * When the input is one token AND retrieval spans multiple chapters,
+ * any "strong match" is illusory: it's lexical similarity, not semantic
+ * confidence. We refuse and route to needs_clarification instead.
  */
 import type { Candidate } from '../retrieval/retrieve.js';
+
+/**
+ * Top-K window we inspect for cross-chapter spread on the thin-input
+ * check. 5 is a balance: large enough to detect a real spread (more
+ * than 2 chapters represented = retrieval is hedging), small enough
+ * that one outlier in position 8 doesn't trip the rule on a
+ * fundamentally-coherent retrieval set.
+ */
+const THIN_INPUT_TOPK = 5;
+/**
+ * Minimum distinct chapters in the top-K window before we treat the
+ * input as too ambiguous to auto-classify. Two chapters is normal
+ * (e.g. 6109 cotton t-shirts vs 6105 knitted shirts both showing up
+ * for "t-shirt"). Three or more = we're hedging across genuinely
+ * different families, which a single-word query cannot disambiguate.
+ */
+const THIN_INPUT_MIN_CHAPTER_SPREAD = 3;
 
 export type GateOutcome =
   | { passed: true; topRetrievalScore: number; top2Gap: number }
@@ -38,7 +64,16 @@ export interface GateThresholds {
 
 export function evaluateGate(
   candidates: Candidate[],
-  t: GateThresholds
+  t: GateThresholds,
+  /**
+   * Optional post-cleanup input the user actually classified on. When
+   * passed, the gate additionally refuses single-token inputs whose
+   * retrieval window spans 3+ chapters — see "thin-input refinement"
+   * in the file header. Omitted (or empty) means the check is skipped,
+   * which preserves backwards compatibility for /expand and /boost
+   * paths that don't pass effective text in.
+   */
+  effectiveDescription?: string,
 ): GateOutcome {
   if (candidates.length === 0) {
     return { passed: false, reason: 'invalid_prefix', topRetrievalScore: 0, top2Gap: 0 };
@@ -46,6 +81,29 @@ export function evaluateGate(
   const top = candidates[0]!.rrf_score;
   const second = candidates[1]?.rrf_score ?? 0;
   const gap = top - second;
+
+  // Thin-input + cross-chapter-spread refusal. This fires BEFORE the
+  // score / gap checks because retrieval can produce a high top score
+  // and a real top1-vs-top2 gap on a thin input by purely lexical means
+  // (e.g. "books" lights up "In book form" under maps with rrf=1.0).
+  // The check guards against false-confident outputs on inputs the
+  // system genuinely cannot disambiguate.
+  if (effectiveDescription) {
+    const tokenCount = effectiveDescription.trim().split(/\s+/).filter(Boolean).length;
+    if (tokenCount <= 1) {
+      const topKChapters = new Set(
+        candidates.slice(0, THIN_INPUT_TOPK).map((c) => c.code.slice(0, 2)),
+      );
+      if (topKChapters.size >= THIN_INPUT_MIN_CHAPTER_SPREAD) {
+        return {
+          passed: false,
+          reason: 'ambiguous_top_candidates',
+          topRetrievalScore: top,
+          top2Gap: gap,
+        };
+      }
+    }
+  }
 
   if (top < t.minScore) {
     return { passed: false, reason: 'weak_retrieval', topRetrievalScore: top, top2Gap: gap };

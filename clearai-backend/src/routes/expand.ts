@@ -12,7 +12,7 @@ import { env } from '../config/env.js';
 import { getPool } from '../db/client.js';
 import { lookupBrokerMapping } from '../decision/broker-mapping.js';
 import { round4 } from '../util/score.js';
-import { withRequestId, baseModelInfo } from './_helpers.js';
+import { withRequestId, baseModelInfo, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
 
 export async function expandRoute(app: FastifyInstance): Promise<void> {
   app.post('/classify/expand', async (req, reply) => {
@@ -46,6 +46,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
         );
         const cat = catRes.rows[0] ?? null;
         const totalLatency = Date.now() - t0;
+        const brokerMappingRationale = `Broker-curated mapping: merchant code ${hit.matchedClientCode} routes to ${hit.targetCode} per the operations team's hand-curated lookup.`;
 
         const requestId = await logEvent({
           endpoint: 'expand',
@@ -74,6 +75,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           llmModel: null,
           totalLatencyMs: totalLatency,
           error: null,
+          rationale: brokerMappingRationale,
         }, req.log);
 
         return {
@@ -84,14 +86,16 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           before: { code: parentPrefix },
           after: {
             code: hit.targetCode,
-            description_en: cat?.description_en ?? null,
+            description_en: trimCatalogDashes(cat?.description_en ?? null),
             // Prefer the broker's curated AR over the catalog AR — the
             // broker's table has the phrasing they actually submit.
-            description_ar: hit.targetDescriptionAr ?? cat?.description_ar ?? null,
+            description_ar: trimCatalogDashes(
+              hit.targetDescriptionAr ?? cat?.description_ar ?? null,
+            ),
             retrieval_score: null,
           },
           alternatives: [],
-          rationale: `Broker-curated mapping: merchant code ${hit.matchedClientCode} routes to ${hit.targetCode} per the operations team's hand-curated lookup.`,
+          rationale: brokerMappingRationale,
           // Surface the source so the trace page can show "broker mapping
           // hit, source row Rxxx" for full auditability.
           broker_mapping: {
@@ -135,6 +139,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
+        rationale: null,
       }, req.log);
       return {
         ...withRequestId(requestId),
@@ -188,12 +193,14 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       decision.decisionReason = 'single_valid_descendant';
     }
 
-    const alternatives = candidates.slice(0, 5).map((c) => ({
-      code: c.code,
-      description_en: c.description_en,
-      description_ar: c.description_ar,
-      retrieval_score: round4(c.rrf_score),
-    }));
+    const alternatives = trimAlternativeDashes(
+      candidates.slice(0, 5).map((c) => ({
+        code: c.code,
+        description_en: c.description_en,
+        description_ar: c.description_ar,
+        retrieval_score: round4(c.rrf_score),
+      })),
+    );
 
     const totalLatency = Date.now() - t0;
 
@@ -220,6 +227,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       llmModel: llm?.llmModel ?? null,
       totalLatencyMs: totalLatency,
       error: null,
+      rationale: decision.rationale ?? null,
     }, req.log);
 
     return {
@@ -233,8 +241,8 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           before: { code: parentPrefix },
           after: {
             code: decision.chosenCode,
-            description_en: chosen?.description_en ?? null,
-            description_ar: chosen?.description_ar ?? null,
+            description_en: trimCatalogDashes(chosen?.description_en ?? null),
+            description_ar: trimCatalogDashes(chosen?.description_ar ?? null),
             retrieval_score: round4(chosen?.rrf_score ?? 0),
           },
         };

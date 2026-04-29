@@ -107,6 +107,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
         llmModel: null,
         totalLatencyMs: 0,
         error: errMsg,
+        rationale: null,
       }).catch((logErr) => req.log.error({ logErr }, 'logEvent failed in error handler'));
 
       return reply.code(503).send(envelope());

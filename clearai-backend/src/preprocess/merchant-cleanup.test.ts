@@ -37,6 +37,10 @@ describe('looksClean — deterministic short-circuit', () => {
     // Mixed alphanumeric model code
     'WH-1000XM5',
     'Arizona BFBC Mocca43', // 3 tokens but the model code Mocca43 trips the rule
+    // Short model-suffix codes ending in a digit (brand-shaped inputs)
+    'Unicskin Body Slim X4', // "X4" is a 2-char product variant suffix
+    'Samsung Galaxy A14',    // "A14" is a model designator
+    'Philips Avent SCF819',  // "SCF819" is a 6-char model code
     // Marketing punctuation
     'Smartphone (International Version)',
     'Storage rack, plastic, 5 tier',

@@ -88,6 +88,7 @@ export async function traceRoute(app: FastifyInstance): Promise<void> {
       llm_model: string | null;
       total_latency_ms: number | null;
       error: string | null;
+      rationale: string | null;
     }>(`SELECT * FROM classification_events WHERE id = $1`, [eventId]);
 
     if (eventRes.rowCount === 0) {
@@ -136,6 +137,7 @@ export async function traceRoute(app: FastifyInstance): Promise<void> {
         llm_model: e.llm_model,
         total_latency_ms: e.total_latency_ms,
         error: e.error,
+        rationale: e.rationale,
       },
       feedback: fbRes.rows,
     };

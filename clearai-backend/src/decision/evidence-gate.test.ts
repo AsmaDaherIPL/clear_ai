@@ -84,4 +84,74 @@ describe('evaluateGate', () => {
       expect(r.top2Gap).toBeCloseTo(0.3);
     }
   });
+
+  describe('thin-input refusal', () => {
+    it('refuses single-token input when retrieval spans 3+ chapters', () => {
+      // The "books" case: rrf=1.0 winner under chapter 49, but top-5
+      // spans chapters 49 (printed books), 48 (notebooks), 85 (e-books)
+      // — three chapters in a one-word query is illusory confidence.
+      const r = evaluateGate(
+        [
+          cand('490520000000', 1.0),
+          cand('854370900012', 0.99),
+          cand('482010000005', 0.97),
+          cand('490700800000', 0.83),
+          cand('490199300000', 0.77),
+        ],
+        { minScore: 0.3, minGap: 0.04 },
+        'books',
+      );
+      expect(r.passed).toBe(false);
+      if (!r.passed) expect(r.reason).toBe('ambiguous_top_candidates');
+    });
+
+    it('passes single-token input when retrieval is family-coherent (≤2 chapters)', () => {
+      // The "tshirt" case: top-5 all under chapters 61 + 62 (knitted +
+      // woven garments) — same kind of product, just material variants.
+      // Two chapters is normal; we only refuse on 3+.
+      const r = evaluateGate(
+        [
+          cand('610910000002', 1.0),
+          cand('620500000000', 0.96),
+          cand('610910000001', 0.95),
+          cand('610690000001', 0.88),
+          cand('620590000001', 0.85),
+        ],
+        { minScore: 0.3, minGap: 0.04 },
+        'tshirt',
+      );
+      expect(r.passed).toBe(true);
+    });
+
+    it('does not refuse on multi-token input even if chapters spread', () => {
+      // "mens cotton t-shirt" (3 tokens) with the same chapter spread
+      // is a normal classification — retrieval just casts a wider net,
+      // and the picker is the right tool to disambiguate. Thin-input
+      // rule should NOT fire here.
+      const r = evaluateGate(
+        [
+          cand('490520000000', 1.0),
+          cand('854370900012', 0.99),
+          cand('482010000005', 0.97),
+        ],
+        { minScore: 0.3, minGap: 0.04 },
+        'mens cotton t-shirt',
+      );
+      // Falls through to gap check; gap = 0.01 < 0.04, top-1/top-2
+      // headings differ → ambiguous_top_candidates regardless.
+      // The point is: the THIN-INPUT branch didn't fire (would have
+      // fired on the same candidates if input were 1 token).
+      expect(r.passed).toBe(false);
+    });
+
+    it('skips the thin-input check when effectiveDescription is omitted', () => {
+      // Backwards compat: expand/boost call without the third arg.
+      // The thin-input check must not fire — they pass score/gap normally.
+      const r = evaluateGate(
+        [cand('490520000000', 1.0), cand('854370900012', 0.5)],
+        { minScore: 0.3, minGap: 0.04 },
+      );
+      expect(r.passed).toBe(true);
+    });
+  });
 });

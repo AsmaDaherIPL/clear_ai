@@ -66,6 +66,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
+        rationale: null,
       }, req.log);
       return {
         ...withRequestId(requestId),
@@ -133,6 +134,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
+        rationale: null,
       }, req.log);
       return {
         ...withRequestId(requestId),
@@ -185,6 +187,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
         llmModel: null,
         totalLatencyMs: totalLatency,
         error: null,
+        rationale: null,
       }, req.log);
       return {
         ...withRequestId(requestId),
@@ -241,6 +244,7 @@ export async function boostRoute(app: FastifyInstance): Promise<void> {
       llmModel: null,
       totalLatencyMs: totalLatency,
       error: null,
+      rationale: null,
     }, req.log);
 
     return {

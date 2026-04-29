@@ -40,11 +40,20 @@ export function looksClean(input: string): boolean {
   if (/B0[A-Z0-9]{8}/.test(trimmed)) return false;
   if (/[,(){}[\]/]/.test(trimmed)) return false;
 
-  // Reject tokens that look like model codes (4+ alphanumerics with digit+letter mix).
+  // Reject tokens that look like model codes (alphanumerics with digit+letter mix).
+  // Short codes like "X4", "S3", "Pro2" need no 4-char floor — any token that
+  // is purely alphanumeric with at least one digit and one letter is a model tag.
+  // Exception: very common short mixed words like "3D", "2D", "1st", "21st" are
+  // allowed by requiring the token to end in a digit (model suffixes always do).
   for (const tok of tokens) {
     const cleaned = tok.replace(/[^A-Za-z0-9]/g, '');
-    if (cleaned.length < 4) continue;
-    if (/\d/.test(cleaned) && /[A-Za-z]/.test(cleaned)) return false;
+    if (cleaned.length < 2) continue;
+    if (/\d/.test(cleaned) && /[A-Za-z]/.test(cleaned)) {
+      // Long codes (4+ chars) are always model codes regardless of position.
+      // Short codes (2-3 chars) only count when they end in a digit — rules out
+      // common ordinals ("1st", "21st") and units ("3D") which end in a letter.
+      if (cleaned.length >= 4 || /\d$/.test(cleaned)) return false;
+    }
   }
   return true;
 }
