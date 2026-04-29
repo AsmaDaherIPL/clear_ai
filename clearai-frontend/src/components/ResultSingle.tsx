@@ -195,16 +195,30 @@ function pillFor(
 }
 
 /**
- * Format the duty into a single chip-ready string. Backend can return
- * either a numeric percent (`rate_percent`) OR a status word
- * (`status_en`/`status_ar` — "Exempted" / "Prohibited"). We prefer the
- * raw_en/raw_ar field because it already carries the trailing "%".
+ * Format the duty into a chip-ready string, or `null` when there's
+ * nothing useful to show. Resolution order is intentional:
+ *   1. `rate_percent` (numeric) — the most common case, render as "5 %".
+ *   2. `status_en`     (words)   — used when the catalog row carries a
+ *                                  status word like "Exempted" /
+ *                                  "Prohibited from Importing" instead
+ *                                  of a numeric duty.
+ *   3. neither populated         → return null so the caller hides the
+ *                                  whole chip (don't render an empty
+ *                                  pill or a fallback dash — the user
+ *                                  shouldn't see a chip that says "no
+ *                                  data" when we genuinely don't know).
+ *
+ * We deliberately do NOT consult `raw_en` here even though it would
+ * usually carry the trailing "%". The user spec pins the ordering to
+ * (rate_percent → status_en → hide) so the rendering is predictable
+ * regardless of how the catalog row got serialised.
  */
-function dutyText(duty: NonNullable<NonNullable<DescribeResponse['result']>['duty']>): string {
-  if (duty.raw_en) return duty.raw_en;
+function dutyText(
+  duty: NonNullable<NonNullable<DescribeResponse['result']>['duty']>,
+): string | null {
   if (duty.rate_percent != null) return `${duty.rate_percent} %`;
   if (duty.status_en) return duty.status_en;
-  return '—';
+  return null;
 }
 
 /**
@@ -239,6 +253,11 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
   const pill = pillFor(data.decision_status, data.decision_reason, data.confidence_band);
   const interp = data.interpretation;
   const submission = data.submission_description;
+  // Resolve duty up-front so the chip's render condition checks a real
+  // string, not the truthiness of `r.duty` (which can be a populated
+  // object whose fields are all null — i.e. catalog row exists but
+  // contains no duty data, e.g. heading-level codes).
+  const dutyLabel = r.duty ? dutyText(r.duty) : null;
 
   const copy = (text: string) => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -320,9 +339,11 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
             rationale. Procedures is a numeric reference into ZATCA's
             procedure-codes table (e.g. "21" = SABER).
           */}
-          {(r.duty || r.procedures) && (
+          {(dutyLabel || r.procedures) && (
             <div className="mt-3 pt-3 border-t border-[var(--line-2)] flex items-center gap-2 flex-wrap">
-              {r.duty && <MetaChip label={t('res_duty')} value={dutyText(r.duty)} title="ZATCA duty rate" />}
+              {dutyLabel && (
+                <MetaChip label={t('res_duty')} value={dutyLabel} title="ZATCA duty rate" />
+              )}
               {r.procedures && (
                 <MetaChip
                   label={t('res_procedures')}
