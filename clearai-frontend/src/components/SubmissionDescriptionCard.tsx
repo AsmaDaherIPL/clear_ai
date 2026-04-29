@@ -226,17 +226,37 @@ export default function SubmissionDescriptionCard({
         </div>
       </div>
 
-      {/* AR row — text + Copy button on success, skeleton on loading,
-          retry control on error.
-          Layout: the row itself is LTR (so the Copy AR button sits on
-          the visual right, matching the EN row's expected reading
-          order). The Arabic text inside the flex item carries dir=rtl
-          + `text-right` (NOT `text-end`) so it visually right-aligns
-          regardless of the surrounding document direction. Using
-          logical `text-end` was the bug here: under RTL, `end` resolves
-          to the left edge, which flipped the alignment the user
-          wanted to lock to the right. */}
+      {/* AR row — Copy button on the visual LEFT, Arabic text on the
+          visual RIGHT.
+          Layout: row stays LTR (default flex direction), so the
+          first child renders on the left and the second on the right.
+          The Copy AR button is therefore declared FIRST so it lands
+          on the left edge; the Arabic text comes second and takes the
+          remaining width with `flex-1`. The text node itself carries
+          dir=rtl so cursor / shaping / punctuation behave correctly
+          for Arabic, and uses physical `text-right` (not logical
+          `text-end`) so the alignment locks to the visual right edge
+          regardless of the document direction. */}
       <div className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3 min-h-[44px]">
+        {/* Copy AR — sized to match Strong match / Copy code pills
+            (px-2.5 py-1, text-[12px], rounded-full). Always mounted
+            so the row height is stable; disabled until a real
+            description is available. */}
+        <button
+          type="button"
+          onClick={copy}
+          disabled={status !== 'success'}
+          className={cn(
+            'flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-[var(--surface)] text-[12px] font-medium transition-colors duration-150',
+            status === 'success'
+              ? 'border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]'
+              : 'border-[var(--line)] text-[var(--ink-3)] cursor-not-allowed opacity-60',
+          )}
+        >
+          {copied ? <CheckIcon /> : <CopyIcon />}
+          <span>{copied ? t('copied') : 'Copy AR'}</span>
+        </button>
+
         <div
           dir="rtl"
           lang="ar"
@@ -244,9 +264,9 @@ export default function SubmissionDescriptionCard({
           style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
         >
           {status === 'loading' && (
-            // Skeleton sits on the visual right (where Arabic text
-            // would start). `ml-auto` pushes it to the right edge
-            // inside the LTR-flex parent.
+            // Skeleton sits on the visual right edge of the text
+            // column (where Arabic text would start), achieved via
+            // `ml-auto` inside the LTR-flex parent.
             <Skeleton className="h-6 w-1/2 ml-auto" />
           )}
           {status === 'success' && data?.description_ar}
@@ -262,26 +282,6 @@ export default function SubmissionDescriptionCard({
             </button>
           )}
         </div>
-
-        {/* Copy AR — sized to match the Strong match / Copy code pills
-            in the header (px-2.5 py-1, text-[12px], rounded-full).
-            Always mounted so the row height is stable; disabled until
-            a real description is available to copy. The skeleton row
-            above already conveys loading state, so no spinner here. */}
-        <button
-          type="button"
-          onClick={copy}
-          disabled={status !== 'success'}
-          className={cn(
-            'flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-[var(--surface)] text-[12px] font-medium transition-colors duration-150',
-            status === 'success'
-              ? 'border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]'
-              : 'border-[var(--line)] text-[var(--ink-3)] cursor-not-allowed opacity-60',
-          )}
-        >
-          {copied ? <CheckIcon /> : <CopyIcon />}
-          <span>{copied ? t('copied') : 'Copy AR'}</span>
-        </button>
       </div>
 
       {/* AI disclaimer — italic, with a top border separator. Always
