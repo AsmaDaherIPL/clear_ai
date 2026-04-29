@@ -165,8 +165,54 @@ fi
 # url-encode for the connection string (used inside Bicep)
 PG_PASSWORD_URLENC="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$PG_PASSWORD")"
 
-# Optional: pass an Anthropic key if you've exported it; otherwise placeholder
-ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-__REPLACE__}"
+# -----------------------------------------------------------------------------
+# Anthropic key resolution (precedence: shell env > existing KV > placeholder)
+# -----------------------------------------------------------------------------
+# The previous one-liner — `ANTHROPIC_KEY="${ANTHROPIC_API_KEY:-__REPLACE__}"` —
+# silently overwrote a real key in KV with the placeholder whenever the operator
+# forgot to `export ANTHROPIC_API_KEY` in their shell. Because Container App
+# secretref binds KV secret values at REVISION CREATION TIME (not at restart),
+# a single re-deploy could break LLM calls without any warning beyond the
+# summary line at the end of the script.
+#
+# New behaviour:
+#   1. If the shell exported ANTHROPIC_API_KEY, use that. (Operator intent —
+#      e.g. rotating the key, or first deploy ever.)
+#   2. Otherwise, if KV already holds a real (non-placeholder, non-empty)
+#      value, reuse it. The bicep deploy will pass the same value back into
+#      the keyvault-secrets module, so the secret is unchanged in practice.
+#   3. Otherwise, fall back to '__REPLACE__'. This is only the first-deploy
+#      case (KV doesn't exist yet OR was wiped).
+#
+# Same rationale and shape as the apim-shared-secret block below — keeping
+# them parallel so a future hand-rotation script knows where to look.
+
+ANTHROPIC_KEY_SOURCE="placeholder"
+
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+  ANTHROPIC_KEY="$ANTHROPIC_API_KEY"
+  ANTHROPIC_KEY_SOURCE="shell"
+elif [[ -n "$EXISTING_KV_ID" ]]; then
+  # KV exists from a prior deploy — see if it has a real value to preserve.
+  EXISTING_ANTHROPIC_KEY="$(az keyvault secret show \
+    --vault-name "$KV_NAME" \
+    --name anthropic-api-key \
+    --query value -o tsv 2>/dev/null || true)"
+  if [[ -n "$EXISTING_ANTHROPIC_KEY" && "$EXISTING_ANTHROPIC_KEY" != "__REPLACE__" ]]; then
+    ANTHROPIC_KEY="$EXISTING_ANTHROPIC_KEY"
+    ANTHROPIC_KEY_SOURCE="kv"
+  else
+    ANTHROPIC_KEY="__REPLACE__"
+  fi
+else
+  ANTHROPIC_KEY="__REPLACE__"
+fi
+
+case "$ANTHROPIC_KEY_SOURCE" in
+  shell)       log "Anthropic key: using value from shell env (will be written to KV)" ;;
+  kv)          log "Anthropic key: reusing existing real value from Key Vault (no overwrite)" ;;
+  placeholder) warn "Anthropic key: no shell env and no real KV value — seeding '__REPLACE__'. LLM calls will fail until you set a real key (see summary at end)." ;;
+esac
 
 # -----------------------------------------------------------------------------
 # 5b. APIM shared secret (generate once, reuse from KV)
@@ -421,7 +467,13 @@ ClearAI dev deploy complete.
   Password       : (stored in Key Vault as 'postgres-password')
 
   Key Vault      : $KV_NAME
-  Anthropic key  : $( [[ "$ANTHROPIC_KEY" == "__REPLACE__" ]] && echo "PLACEHOLDER — update with: az keyvault secret set --vault-name $KV_NAME --name anthropic-api-key --value <REAL_KEY>" || echo "set" )
+  Anthropic key  : $(
+    case "$ANTHROPIC_KEY_SOURCE" in
+      shell)       echo "set (from shell env this run)" ;;
+      kv)          echo "set (preserved from Key Vault — not overwritten)" ;;
+      placeholder) echo "PLACEHOLDER — update with: az keyvault secret set --vault-name $KV_NAME --name anthropic-api-key --value <REAL_KEY>" ;;
+    esac
+  )
 
   Container App  : $CA_NAME
   App URL        : https://$CA_FQDN  (origin — locked to APIM-only)
