@@ -453,6 +453,16 @@ fi
 # Done
 # -----------------------------------------------------------------------------
 
+# Build the Anthropic-key status line up-front. A `$(case ... esac)` directly
+# inside the heredoc below would let the heredoc parser swallow the `;;`
+# terminators as if they were literal text — bash 3.2 (macOS default) chokes
+# on it. Resolving to a plain variable is portable and obvious.
+case "$ANTHROPIC_KEY_SOURCE" in
+  shell)       ANTHROPIC_KEY_STATUS_MSG="set (from shell env this run)" ;;
+  kv)          ANTHROPIC_KEY_STATUS_MSG="set (preserved from Key Vault — not overwritten)" ;;
+  placeholder) ANTHROPIC_KEY_STATUS_MSG="PLACEHOLDER — update with: az keyvault secret set --vault-name $KV_NAME --name anthropic-api-key --value <REAL_KEY>" ;;
+esac
+
 cat <<EOF
 
 ============================================================
@@ -467,13 +477,7 @@ ClearAI dev deploy complete.
   Password       : (stored in Key Vault as 'postgres-password')
 
   Key Vault      : $KV_NAME
-  Anthropic key  : $(
-    case "$ANTHROPIC_KEY_SOURCE" in
-      shell)       echo "set (from shell env this run)" ;;
-      kv)          echo "set (preserved from Key Vault — not overwritten)" ;;
-      placeholder) echo "PLACEHOLDER — update with: az keyvault secret set --vault-name $KV_NAME --name anthropic-api-key --value <REAL_KEY>" ;;
-    esac
-  )
+  Anthropic key  : $ANTHROPIC_KEY_STATUS_MSG
 
   Container App  : $CA_NAME
   App URL        : https://$CA_FQDN  (origin — locked to APIM-only)
