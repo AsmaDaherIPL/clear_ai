@@ -40,6 +40,8 @@ import {
   type DecisionReason,
   type AlternativeLine,
   type ConfidenceBand,
+  reasonLabel,
+  remediationHint,
 } from '@/lib/api';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
 import { CopyChip } from '@/components/ui/copy-chip';
@@ -227,6 +229,168 @@ function dutyText(
  *     branch-rank candidates → render as a word
  *   - Neither → render an em-dash so the column never looks empty
  */
+/**
+ * Card rendered when the backend returned a non-accepted decision —
+ * needs_clarification (most common), best_effort, or degraded. The
+ * shape mirrors the accepted ResultSingle card so the user doesn't
+ * land in a wholly different UI just because the classifier needs
+ * more input: same outer card chrome, same alternatives list at the
+ * bottom, same dev-only latency footer. What's different is the
+ * absence of a chosen 12-digit code — replaced by a tone-coded pill
+ * + reason label + remediation hint that tells the user what to do
+ * next (usually: add more product detail and try again).
+ */
+function ClarifyCard({
+  pillTone,
+  pillLabel,
+  reasonLabel,
+  hint,
+  interpretation,
+  candidates,
+  latencyMs,
+  requestId,
+  labels,
+  className,
+}: {
+  pillTone: PillTone;
+  pillLabel: string;
+  reasonLabel: string;
+  hint: string | null;
+  interpretation: DescribeResponse['interpretation'];
+  candidates: AlternativeLine[];
+  latencyMs?: number;
+  requestId?: string;
+  labels: { alts: string; understood: string; stripped: string; latency: string; trace: string };
+  className?: string;
+}) {
+  const traceHref = requestId ? `/trace/${requestId}` : '#';
+  return (
+    <>
+      <div
+        className={cn(
+          'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
+          'animate-[fadeUp_0.35s_ease_both]',
+          className,
+        )}
+      >
+        {/* Header — tone-coded pill + reason label. The pill carries
+            the colour signal (amber for needs_clarification, red for
+            degraded); the label spells out which case fired. */}
+        <div className="px-[22px] py-[18px] border-b border-[var(--line-2)] flex items-center gap-3 flex-wrap">
+          <TonePill tone={pillTone}>{pillLabel}</TonePill>
+          <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
+            {reasonLabel}
+          </span>
+        </div>
+
+        {/* Interpretation row — if the researcher rewrote the input,
+            show what retrieval actually saw. Useful trust signal: the
+            user can see whether the rewrite matched their intent. */}
+        {interpretation &&
+          interpretation.stage !== 'passthrough' &&
+          (interpretation.cleaned_as || interpretation.rewritten_as) && (
+            <div className="px-[22px] py-3 border-b border-[var(--line-2)] bg-[var(--line-2)]">
+              <div className="text-[12.5px] text-[var(--ink-2)] leading-[1.5]">
+                <span className="font-mono text-[10px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-2">
+                  {labels.understood}
+                </span>
+                <span className="text-[var(--ink)]">
+                  {interpretation.rewritten_as ?? interpretation.cleaned_as}
+                </span>
+                {interpretation.cleanup_stripped && interpretation.cleanup_stripped.length > 0 && (
+                  <span className="ms-2 text-[var(--ink-3)]">
+                    · {labels.stripped}: {interpretation.cleanup_stripped.join(', ')}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+        {/* Body — remediation hint + retrieved candidates. */}
+        <div className="px-[22px] py-[18px] flex flex-col gap-[18px]">
+          {hint && (
+            <div className="text-[14px] text-[var(--ink-2)] leading-[1.6] bg-[var(--line-2)] border border-[var(--line)] rounded-[var(--radius)] px-4 py-3.5">
+              {hint}
+            </div>
+          )}
+          {candidates.length > 0 && (
+            <div>
+              <FieldLabel>{labels.alts}</FieldLabel>
+              <div className="flex flex-col gap-1.5">
+                {candidates.map((a, i) => (
+                  <div
+                    key={`${a.code}-${i}`}
+                    className="flex items-start gap-3.5 px-3.5 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)] hover:border-[var(--ink-3)] transition-colors duration-150"
+                  >
+                    <span className="font-mono text-[12px] text-[var(--ink-3)] w-[18px] flex-shrink-0 pt-[2px]">
+                      {a.rank ?? i + 1}
+                    </span>
+                    <span className="font-mono text-[14px] text-[var(--ink)] font-medium flex-shrink-0 min-w-[120px] pt-[2px]">
+                      {a.code}
+                    </span>
+                    <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                      <span className="text-[13px] text-[var(--ink-2)] leading-[1.4] truncate">
+                        {clampDescription(a.description_en ?? '', ALT_DESC_MAX)}
+                      </span>
+                      {a.description_ar && (
+                        <span
+                          dir="rtl"
+                          lang="ar"
+                          className="text-[13px] text-[var(--ink-3)] leading-[1.5] text-right truncate"
+                          style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
+                        >
+                          {clampDescription(a.description_ar, ALT_DESC_MAX)}
+                        </span>
+                      )}
+                      {a.reason && (
+                        <span className="text-[12px] text-[var(--ink-3)] leading-[1.45] italic truncate">
+                          {a.reason}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono text-[12px] text-[var(--ink-3)] flex-shrink-0 pt-[2px]">
+                      {scoreText(a)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Latency footer — same dev-only panel as the accepted card. */}
+      <div className="mt-3 flex items-center justify-between gap-3 px-[18px] py-3 border border-[var(--line)] rounded-[var(--radius)] bg-[var(--line-2)]">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="font-mono text-[12px] font-semibold tracking-[0.08em] uppercase px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-3)]"
+            title="Development-only diagnostic panel"
+          >
+            DEV
+          </span>
+          <div className="font-mono text-[12px] text-[var(--ink-2)]">
+            <span>{labels.latency}</span>{' '}
+            <b className="text-[var(--ink)] font-medium">
+              {latencyMs != null ? `${(latencyMs / 1000).toFixed(2)} s` : '—'}
+            </b>
+          </div>
+        </div>
+        <a
+          href={traceHref}
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)]',
+            'font-mono text-[12px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] no-underline transition-colors duration-150',
+            !requestId && 'opacity-50 pointer-events-none',
+          )}
+        >
+          <span>{labels.trace}</span>
+          <ArrowIcon />
+        </a>
+      </div>
+    </>
+  );
+}
+
 function scoreText(a: AlternativeLine): string {
   if (typeof a.retrieval_score === 'number') {
     return `${Math.round(a.retrieval_score * 100)}%`;
@@ -241,16 +405,49 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
   const t = useT();
   if (!visible || !data) return null;
 
-  // Accepted responses carry `result`; non-accepted (needs_clarification,
-  // best_effort, degraded) don't — for now we still bail to null on
-  // missing result. The non-accepted UX is a future "ClarifyCard" task;
-  // ClassifyApp surfaces the remediation hint above us in the meantime.
-  const r = data.result;
-  if (!r) return null;
-
-  const segments = splitCodeSegments(r.code);
   const pill = pillFor(data.decision_status, data.decision_reason, data.confidence_band);
   const interp = data.interpretation;
+  const r = data.result;
+
+  // -------------------------------------------------------------------
+  // NON-ACCEPTED PATHS (needs_clarification / best_effort / degraded)
+  //
+  // The backend doesn't always reach an accepted 12-digit code — when
+  // the picker thinks the input is ambiguous, the candidate spread is
+  // too wide, or the LLM is unavailable, we get an envelope without a
+  // `result` block but WITH a populated `alternatives[]` and a
+  // decision_reason that explains what's missing. Render a clarify
+  // card instead of bailing to null (which is what produced the bug
+  // where APIM returned 200 + JSON but the UI showed nothing).
+  // -------------------------------------------------------------------
+  if (!r) {
+    const hint = remediationHint(data.decision_status, data.decision_reason);
+    const candidates = data.alternatives ?? [];
+    return (
+      <ClarifyCard
+        pillTone={pill.tone}
+        pillLabel={t(pill.labelKey)}
+        reasonLabel={reasonLabel(data.decision_reason)}
+        hint={hint}
+        interpretation={interp}
+        candidates={candidates}
+        latencyMs={latencyMs}
+        requestId={data.request_id}
+        className={className}
+        // i18n keys passed through so the child can localise without a
+        // duplicate hook subscription.
+        labels={{
+          alts: t('res_alts'),
+          understood: t('res_understood'),
+          stripped: t('res_stripped'),
+          latency: t('meta_latency'),
+          trace: t('view_trace'),
+        }}
+      />
+    );
+  }
+
+  const segments = splitCodeSegments(r.code);
   // The submission description used to live on `data.submission_description`,
   // but the backend moved that work to a separate /classify/newDescription
   // route to cut ~3-5s off the main classify latency. SubmissionDescriptionCard
