@@ -127,6 +127,13 @@
       "when": 1777211700000,
       "tag": "0017_procedure_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777211800000,
+      "tag": "0018_procedure_codes_seed",
+      "breakpoints": true
     }
   ]
 }
