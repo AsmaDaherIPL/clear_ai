@@ -444,14 +444,19 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       // about source — it just ranks codes).
       const sourceByCode = new Map(branchLeaves.map((l) => [l.code, l.source]));
 
-      // Render the alternatives:
-      //   - When branch-rank ran successfully → use its rank order, attach
-      //     fit + reason + source to each row. The (possibly overridden)
-      //     chosen code is at rank=1.
-      //   - Otherwise → fall back to catalog order with chosen pinned to
-      //     the front, no fit/reason.
+      // Render the alternatives. The chosen code itself is intentionally
+      // EXCLUDED from this list — it's already shipped at top-level on
+      // `result.code`. Including it here led to a frontend bug where
+      // alternatives appeared to start numbering at "2", confusing
+      // users about which row was the chosen one. The chosen code is
+      // the result; alternatives are the things you considered instead.
+      //
+      //   - branch-rank ran successfully → use its rank order minus
+      //     chosen; attach fit + reason + source to each row.
+      //   - Otherwise → catalog order minus chosen, no fit/reason.
       if (branchRank.invoked === 'llm') {
         alternatives = branchRank.ranking
+          .filter((r) => r.code !== effectiveChosenCode)
           .slice(0, t.ALTERNATIVES_SHOWN_describe)
           .map((r) => ({
             code: r.code,
@@ -464,16 +469,16 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
             reason: r.reason,
           }));
       } else {
-        const chosen = branchLeaves.find((l) => l.code === effectiveChosenCode);
-        const others = branchLeaves.filter((l) => l.code !== effectiveChosenCode);
-        const ordered = chosen ? [chosen, ...others] : branchLeaves;
-        alternatives = ordered.slice(0, t.ALTERNATIVES_SHOWN_describe).map((l) => ({
-          code: l.code,
-          description_en: l.description_en,
-          description_ar: l.description_ar,
-          retrieval_score: null,
-          source: l.source,
-        }));
+        alternatives = branchLeaves
+          .filter((l) => l.code !== effectiveChosenCode)
+          .slice(0, t.ALTERNATIVES_SHOWN_describe)
+          .map((l) => ({
+            code: l.code,
+            description_en: l.description_en,
+            description_ar: l.description_ar,
+            retrieval_score: null,
+            source: l.source,
+          }));
       }
 
       // Layer 3 — RRF fallback. If branch enumeration (even after widening)

@@ -61,8 +61,10 @@ export function filterAlternatives(
   const topScore = candidates.reduce((m, c) => (c.rrf_score > m ? c.rrf_score : m), 0);
   const crossChapterBar = topScore * strongRatio;
 
-  // Pin the chosen row to the front (if present in retrieval).
-  const chosen = chosenCode ? candidates.find((c) => c.code === chosenCode) : undefined;
+  // The chosen code is shipped at top-level on `result.code` — never
+  // include it in the alternatives list. Mixing it in led to UI
+  // numbering starting at "2" and confusing users about which row was
+  // the picker's choice.
   const others = candidates.filter((c) => c.code !== chosenCode);
 
   const kept = others.filter((c) => {
@@ -76,7 +78,6 @@ export function filterAlternatives(
   });
 
   const out: Candidate[] = [];
-  if (chosen) out.push(chosen);
   for (const c of kept) {
     if (out.length >= maxShown) break;
     out.push(c);
