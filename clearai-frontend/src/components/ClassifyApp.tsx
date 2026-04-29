@@ -59,6 +59,12 @@ export default function ClassifyApp() {
   // (otherwise the timers would race past `activeStep=5` and re-render
   // pending dots beneath the result card).
   const stepTimers = useRef<number[]>([]);
+  // Last (description, parentCode) we submitted. Lets the result card
+  // expose a "Retry auto-pick" button on degraded responses without
+  // forcing the user to retype. We keep this in a ref instead of state
+  // because reading it doesn't need to trigger a re-render — only the
+  // explicit retry call does.
+  const lastSubmission = useRef<{ description: string; parentCode?: string } | null>(null);
 
   const clearStepTimers = () => {
     stepTimers.current.forEach((id) => window.clearTimeout(id));
@@ -88,6 +94,10 @@ export default function ClassifyApp() {
       setPhase('error');
       return;
     }
+    // Stash for the result card's Retry button. Cleared on successful
+    // accepted-path commit (no point retrying then) and refreshed on
+    // every fresh submit so retry always re-fires the LATEST query.
+    lastSubmission.current = { description, parentCode };
     setErrorMessage(null);
     setResponse(null);
     setLatencyMs(null);
@@ -145,6 +155,63 @@ export default function ClassifyApp() {
     }
   };
 
+  /**
+   * Re-fire the most recent submission. Surfaced on the degraded result
+   * card as "Retry auto-pick" — when the picker LLM was unavailable on
+   * the first attempt but retrieval still produced candidates, the
+   * failure is usually transient (config glitch, rate limit) and a
+   * second attempt succeeds. No-op if nothing has been submitted yet.
+   */
+  const handleRetry = () => {
+    const last = lastSubmission.current;
+    if (!last) return;
+    handleSubmit(last.description, last.parentCode);
+  };
+
+  /**
+   * Promote a manually-picked alternative to the chosen leaf. Called
+   * when the user clicks "Use this code" on a candidate row in the
+   * degraded variant — the picker LLM couldn't choose, so the human
+   * does. We synthesize an `accepted`-shaped envelope locally so the
+   * normal ResultSingle accepted layout takes over (with the chosen
+   * code rendering as the 12-digit segments + duty + alternatives).
+   *
+   * The synthesized envelope keeps the original alternatives list
+   * minus the now-chosen row, and tags the decision_reason with a
+   * sentinel so a future ResultSingle pass could surface "you picked
+   * this manually" if desired. For now it just behaves as a normal
+   * accepted result.
+   */
+  const handleManualPick = (chosenCode: string) => {
+    if (!response || !response.alternatives) return;
+    const chosen = response.alternatives.find((a) => a.code === chosenCode);
+    if (!chosen) return;
+    setResponse({
+      ...response,
+      decision_status: 'accepted',
+      // already_most_specific is the closest existing reason that
+      // doesn't trigger any LLM-rationale rendering. The card reads
+      // it through reasonLabel(); the user-facing impact is the pill
+      // label changes from "Service degraded" to "Already most
+      // specific" — acceptable for now, can be refined when the
+      // backend adds a dedicated 'manual_override' reason.
+      decision_reason: 'already_most_specific',
+      result: {
+        code: chosen.code,
+        description_en: chosen.description_en,
+        description_ar: chosen.description_ar,
+      },
+      // Drop the chosen row from alternatives so it doesn't appear
+      // both as the chosen leaf and as a sibling row.
+      alternatives: response.alternatives.filter((a) => a.code !== chosenCode),
+      // The auto-pick rationale is intentionally absent — the LLM
+      // didn't generate one, and we shouldn't fabricate text on the
+      // user's behalf. Same for submission_description (lazy-loaded
+      // separately; see SubmissionDescriptionCard).
+      rationale: undefined,
+    });
+  };
+
   return (
     <>
       <TopBar />
@@ -193,6 +260,8 @@ export default function ClassifyApp() {
               visible={mode === 'generate' || mode === 'expand'}
               data={response}
               latencyMs={latencyMs ?? undefined}
+              onRetry={handleRetry}
+              onPickAlternative={handleManualPick}
             />
             <ResultBatch visible={mode === 'batch'} />
           </div>

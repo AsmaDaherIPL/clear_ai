@@ -52,6 +52,21 @@ interface ResultSingleProps {
   data: DescribeResponse | null;
   /** Round-trip latency in ms, measured at the call site. */
   latencyMs?: number;
+  /**
+   * Re-fire the most recent classification request. Surfaced on the
+   * degraded-with-candidates manual-pick variant as a "Retry auto-pick"
+   * button — when the picker LLM was transiently unavailable but
+   * retrieval still produced candidates, a second attempt usually
+   * succeeds. Owned by ClassifyApp; ResultSingle just calls it.
+   */
+  onRetry?: () => void;
+  /**
+   * Promote a manually-picked alternative code to the chosen leaf.
+   * Called when the user clicks "Use this code" on a candidate row in
+   * the manual-pick variant. The parent synthesizes an accepted-shaped
+   * envelope so the next render lands on the normal accepted layout.
+   */
+  onPickAlternative?: (code: string) => void;
   className?: string;
 }
 
@@ -105,6 +120,16 @@ function splitCodeSegments(code: string) {
 const ArrowIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="rtl:scale-x-[-1]">
     <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
+
+// Retry icon — circular arrow. Used by ManualPickCard's "Retry
+// auto-pick" button so the affordance reads as "go again" without
+// leaning on the word alone.
+const RetryArrowIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <path d="M3 3v5h5" />
   </svg>
 );
 
@@ -223,22 +248,211 @@ function dutyText(
 }
 
 /**
- * Score chip on alternative rows. Backend returns either:
- *   - A `retrieval_score` (0..1) on RRF candidates → render as percent
- *   - A qualitative `fit` ('fits' | 'partial' | 'excludes') on
- *     branch-rank candidates → render as a word
- *   - Neither → render an em-dash so the column never looks empty
+ * ManualPickCard — special-case render for the picker-down case
+ *
+ * Triggered when:
+ *   decision_status === 'degraded' && decision_reason === 'llm_unavailable'
+ *   && alternatives.length > 0
+ *
+ * Why a separate variant: the regular ClarifyCard pairs a red
+ * "Service degraded" pill with retrieval candidates carrying 100% /
+ * 99% scores, which reads as a contradiction (system says it's
+ * broken, but here are confident-looking matches). In reality
+ * retrieval succeeded, the picker LLM didn't, and `retrieval_score`
+ * is search relevance not classification confidence — so we:
+ *   - Use a calmer "Couldn't auto-select" headline + body.
+ *   - Hide the percentage column entirely (rank-only).
+ *   - Make every row pickable (`Use this code`) so the human can
+ *     choose what the LLM couldn't.
+ *   - Offer a "Retry auto-pick" affordance in the header — picker
+ *     failures are usually transient.
+ *
+ * Heading is "Closest matches", not "Considered alternatives", since
+ * "alternatives" implies "alternatives to the chosen one" and there
+ * is no chosen one in this state.
  */
+function ManualPickCard({
+  candidates,
+  interpretation,
+  latencyMs,
+  requestId,
+  onRetry,
+  onPickAlternative,
+  labels,
+  className,
+}: {
+  candidates: AlternativeLine[];
+  interpretation: DescribeResponse['interpretation'];
+  latencyMs?: number;
+  requestId?: string;
+  onRetry?: () => void;
+  onPickAlternative?: (code: string) => void;
+  labels: {
+    title: string;
+    body: string;
+    closest: string;
+    useCode: string;
+    retry: string;
+    understood: string;
+    stripped: string;
+    latency: string;
+    trace: string;
+  };
+  className?: string;
+}) {
+  const traceHref = requestId ? `/trace/${requestId}` : '#';
+  return (
+    <>
+      <div
+        className={cn(
+          'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
+          'animate-[fadeUp_0.35s_ease_both]',
+          className,
+        )}
+      >
+        {/* Header — calm headline + Retry affordance on the end side.
+            No tone pill: the red "Service degraded" chip was the
+            biggest contributor to the alarming feel of the previous
+            UI; we replace the signal with the headline copy itself. */}
+        <div className="px-[22px] py-[18px] border-b border-[var(--line-2)] flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="text-[15px] font-medium text-[var(--ink)] leading-[1.4]">
+              {labels.title}
+            </div>
+            <div className="mt-1.5 text-[13.5px] text-[var(--ink-2)] leading-[1.55]">
+              {labels.body}
+            </div>
+          </div>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[12px] font-medium text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150"
+              title="Re-fire the same classification request"
+            >
+              <RetryArrowIcon />
+              <span>{labels.retry}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Interpretation row — same trust signal as the accepted card,
+            only when the researcher rewrote the input. */}
+        {interpretation &&
+          interpretation.stage !== 'passthrough' &&
+          (interpretation.cleaned_as || interpretation.rewritten_as) && (
+            <div className="px-[22px] py-3 border-b border-[var(--line-2)] bg-[var(--line-2)]">
+              <div className="text-[12.5px] text-[var(--ink-2)] leading-[1.5]">
+                <span className="font-mono text-[10px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-2">
+                  {labels.understood}
+                </span>
+                <span className="text-[var(--ink)]">
+                  {interpretation.rewritten_as ?? interpretation.cleaned_as}
+                </span>
+                {interpretation.cleanup_stripped && interpretation.cleanup_stripped.length > 0 && (
+                  <span className="ms-2 text-[var(--ink-3)]">
+                    · {labels.stripped}: {interpretation.cleanup_stripped.join(', ')}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+        {/* Candidates — same row geometry as the accepted card's
+            alternatives but with a `Use this code` button on the end
+            instead of the score chip, and a different section label. */}
+        <div className="px-[22px] py-[18px]">
+          <FieldLabel>{labels.closest}</FieldLabel>
+          <div className="flex flex-col gap-1.5">
+            {candidates.map((a, i) => (
+              <div
+                key={`${a.code}-${i}`}
+                className="flex items-start gap-3.5 px-3.5 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)] hover:border-[var(--ink-3)] transition-colors duration-150"
+              >
+                <span className="font-mono text-[12px] text-[var(--ink-3)] w-[18px] flex-shrink-0 pt-[2px]">
+                  {a.rank ?? i + 1}
+                </span>
+                <span className="font-mono text-[14px] text-[var(--ink)] font-medium flex-shrink-0 min-w-[120px] pt-[2px]">
+                  {a.code}
+                </span>
+                <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                  <span className="text-[13px] text-[var(--ink-2)] leading-[1.4] truncate">
+                    {clampDescription(a.description_en ?? '', ALT_DESC_MAX)}
+                  </span>
+                  {a.description_ar && (
+                    <span
+                      dir="rtl"
+                      lang="ar"
+                      className="text-[13px] text-[var(--ink-3)] leading-[1.5] text-right truncate"
+                      style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
+                    >
+                      {clampDescription(a.description_ar, ALT_DESC_MAX)}
+                    </span>
+                  )}
+                </div>
+                {/* Per-row "Use this code" affordance. Same pill
+                    geometry as Copy code / Strong match so the
+                    control language stays consistent. */}
+                {onPickAlternative && (
+                  <button
+                    type="button"
+                    onClick={() => onPickAlternative(a.code)}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[12px] font-medium text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150"
+                  >
+                    {labels.useCode}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Latency footer — same dev-only panel as the accepted card. */}
+      <div className="mt-3 flex items-center justify-between gap-3 px-[18px] py-3 border border-[var(--line)] rounded-[var(--radius)] bg-[var(--line-2)]">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="font-mono text-[12px] font-semibold tracking-[0.08em] uppercase px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-3)]"
+            title="Development-only diagnostic panel"
+          >
+            DEV
+          </span>
+          <div className="font-mono text-[12px] text-[var(--ink-2)]">
+            <span>{labels.latency}</span>{' '}
+            <b className="text-[var(--ink)] font-medium">
+              {latencyMs != null ? `${(latencyMs / 1000).toFixed(2)} s` : '—'}
+            </b>
+          </div>
+        </div>
+        <a
+          href={traceHref}
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)]',
+            'font-mono text-[12px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] no-underline transition-colors duration-150',
+            !requestId && 'opacity-50 pointer-events-none',
+          )}
+        >
+          <span>{labels.trace}</span>
+          <ArrowIcon />
+        </a>
+      </div>
+    </>
+  );
+}
+
 /**
  * Card rendered when the backend returned a non-accepted decision —
- * needs_clarification (most common), best_effort, or degraded. The
- * shape mirrors the accepted ResultSingle card so the user doesn't
- * land in a wholly different UI just because the classifier needs
- * more input: same outer card chrome, same alternatives list at the
- * bottom, same dev-only latency footer. What's different is the
- * absence of a chosen 12-digit code — replaced by a tone-coded pill
- * + reason label + remediation hint that tells the user what to do
- * next (usually: add more product detail and try again).
+ * needs_clarification (most common), best_effort, or degraded with
+ * NO candidates. The shape mirrors the accepted ResultSingle card so
+ * the user doesn't land in a wholly different UI just because the
+ * classifier needs more input: same outer card chrome, same
+ * alternatives list at the bottom, same dev-only latency footer.
+ * What's different is the absence of a chosen 12-digit code —
+ * replaced by a tone-coded pill + reason label + remediation hint
+ * that tells the user what to do next.
+ *
+ * For the degraded-WITH-candidates case, see ManualPickCard above —
+ * that has its own calmer treatment because retrieval succeeded.
  */
 function ClarifyCard({
   pillTone,
@@ -401,28 +615,73 @@ function scoreText(a: AlternativeLine): string {
   return '—';
 }
 
-export default function ResultSingle({ visible, data, latencyMs, className }: ResultSingleProps) {
+export default function ResultSingle({
+  visible,
+  data,
+  latencyMs,
+  onRetry,
+  onPickAlternative,
+  className,
+}: ResultSingleProps) {
   const t = useT();
   if (!visible || !data) return null;
 
   const pill = pillFor(data.decision_status, data.decision_reason, data.confidence_band);
   const interp = data.interpretation;
   const r = data.result;
+  const candidates = data.alternatives ?? [];
 
   // -------------------------------------------------------------------
-  // NON-ACCEPTED PATHS (needs_clarification / best_effort / degraded)
+  // DEGRADED + CANDIDATES → MANUAL-PICK VARIANT
   //
-  // The backend doesn't always reach an accepted 12-digit code — when
-  // the picker thinks the input is ambiguous, the candidate spread is
-  // too wide, or the LLM is unavailable, we get an envelope without a
-  // `result` block but WITH a populated `alternatives[]` and a
-  // decision_reason that explains what's missing. Render a clarify
-  // card instead of bailing to null (which is what produced the bug
-  // where APIM returned 200 + JSON but the UI showed nothing).
+  // When the picker LLM failed but retrieval still returned ranked
+  // candidates, the user needs a calm "we couldn't choose, here's what
+  // we found, you pick" UI — not the alarming "Service degraded" red
+  // chip + no actionable next step. The retrieval scores are search
+  // relevance not classification confidence, so we hide them in this
+  // variant to avoid the contradiction of "100% match" sitting next
+  // to a "couldn't pick" banner.
+  //
+  // Falls through to the regular ClarifyCard for the no-candidates
+  // case (genuine outage where retrieval also failed) and for
+  // needs_clarification / best_effort paths.
+  // -------------------------------------------------------------------
+  const degradedWithCandidates =
+    data.decision_status === 'degraded' &&
+    data.decision_reason === 'llm_unavailable' &&
+    candidates.length > 0;
+
+  if (degradedWithCandidates) {
+    return (
+      <ManualPickCard
+        candidates={candidates}
+        interpretation={interp}
+        latencyMs={latencyMs}
+        requestId={data.request_id}
+        onRetry={onRetry}
+        onPickAlternative={onPickAlternative}
+        className={className}
+        labels={{
+          title: t('manual_pick_title'),
+          body: t('manual_pick_body'),
+          closest: t('res_closest'),
+          useCode: t('act_use_code'),
+          retry: t('act_retry'),
+          understood: t('res_understood'),
+          stripped: t('res_stripped'),
+          latency: t('meta_latency'),
+          trace: t('view_trace'),
+        }}
+      />
+    );
+  }
+
+  // -------------------------------------------------------------------
+  // OTHER NON-ACCEPTED PATHS (needs_clarification / best_effort /
+  // degraded-without-candidates)
   // -------------------------------------------------------------------
   if (!r) {
     const hint = remediationHint(data.decision_status, data.decision_reason);
-    const candidates = data.alternatives ?? [];
     return (
       <ClarifyCard
         pillTone={pill.tone}
