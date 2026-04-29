@@ -109,3 +109,16 @@ input, textarea {
   font: inherit;
   color: inherit;
 }
+
+/*
+ * Skeleton shimmer — used by <Skeleton /> (src/components/ui/skeleton.tsx).
+ * The animation slides a 200%-wide gradient from start to end over the
+ * placeholder block. Defined here (not inside the component) because
+ * Tailwind v4 only auto-generates keyframes for utilities it knows
+ * about; arbitrary `animation: name 1.4s` requires the `@keyframes name`
+ * rule to be present in a global stylesheet to take effect.
+ */
+@keyframes skeleton-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}

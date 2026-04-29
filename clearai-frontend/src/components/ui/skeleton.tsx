@@ -17,14 +17,23 @@ export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivEl
   return (
     <div
       data-slot="skeleton"
-      className={cn(
-        // Subtle stone-tinted block + the canonical shadcn pulse rhythm.
-        // Using the existing --line-2 token keeps the placeholder in the
-        // same neutral family as the input/textarea backgrounds, so the
-        // skeleton reads as "content goes here" not "broken UI".
-        'animate-pulse rounded-md bg-[var(--line-2)]',
-        className,
-      )}
+      // The placeholder needs to read against the slightly-tinted rows
+      // it sits inside (bg-[var(--line-2)] in SubmissionDescriptionCard).
+      // Plain Tailwind `animate-pulse` (opacity 50→100%) on a same-tone
+      // block reads as "nothing happening". We use a custom shimmer
+      // keyframe instead: a left→right gradient sweep over a darker
+      // base, which works against any container colour and reads
+      // unambiguously as "loading" even on stone-on-stone backgrounds.
+      // Keyframes are defined inline via Tailwind's arbitrary
+      // animation API so this primitive stays self-contained — no
+      // dependency on edits to global.css.
+      style={{
+        backgroundImage:
+          'linear-gradient(90deg, oklch(0.90 0.006 70) 0%, oklch(0.96 0.004 70) 50%, oklch(0.90 0.006 70) 100%)',
+        backgroundSize: '200% 100%',
+        animation: 'skeleton-shimmer 1.4s ease-in-out infinite',
+      }}
+      className={cn('rounded-md', className)}
       {...props}
     />
   );
