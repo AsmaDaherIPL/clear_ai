@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 export type StepState = 'pending' | 'active' | 'done';
 
 interface Step {
-  labelKey: 'step_search' | 'step_retrieve' | 'step_reason' | 'step_describe';
+  labelKey: 'step_search' | 'step_reason';
   state: StepState;
   meta?: string;
 }
@@ -33,12 +33,14 @@ interface ProcessingStepsProps {
   className?: string;
 }
 
-const STEP_KEYS: Step['labelKey'][] = [
-  'step_search',
-  'step_retrieve',
-  'step_reason',
-  'step_describe',
-];
+// Two steps map to what /classify/describe actually does end-to-end:
+//   1. Search & retrieve ZATCA candidates  (vector + lexical retrieval)
+//   2. Reason over candidates             (the Sonnet picker call)
+// "Drafting submission description" used to be step 4 here, but moved
+// to its own lazy GET /classify/newDescription route — that fetch is
+// owned by SubmissionDescriptionCard, which renders its own skeleton,
+// so it has no business showing up in this panel any more.
+const STEP_KEYS: Step['labelKey'][] = ['step_search', 'step_reason'];
 
 export default function ProcessingSteps({ visible, activeStep = 0, className }: ProcessingStepsProps) {
   const t = useT();

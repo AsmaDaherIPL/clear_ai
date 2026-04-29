@@ -66,11 +66,20 @@ export default function ClassifyApp() {
   };
 
   const startStepProgression = () => {
+    // Two-step progression: search/retrieve → reason. The previous
+    // four-step sequence was a leftover from when describe also drafted
+    // the submission description; that work moved to a lazy follow-up
+    // request so it no longer belongs in this panel.
+    //
+    // Timing is approximate (the backend doesn't emit per-step events).
+    // Search+retrieve typically completes around 1s; the reasoning step
+    // dominates the total ~3-5s. We move to step 2 quickly so the user
+    // sees forward progress, then jump to "done" (step 3) the moment
+    // the real response lands. handleSubmit clears the timers either
+    // way so we never overshoot.
     clearStepTimers();
     setActiveStep(1);
-    stepTimers.current.push(window.setTimeout(() => setActiveStep(2), 700));
-    stepTimers.current.push(window.setTimeout(() => setActiveStep(3), 2200));
-    stepTimers.current.push(window.setTimeout(() => setActiveStep(4), 5000));
+    stepTimers.current.push(window.setTimeout(() => setActiveStep(2), 1000));
   };
 
   const handleSubmit = async (description: string, parentCode?: string) => {
@@ -117,7 +126,8 @@ export default function ClassifyApp() {
       }
       const elapsed = performance.now() - startedAt;
       clearStepTimers();
-      setActiveStep(5);
+      // Step counter beyond the last step (2) marks every row "done".
+      setActiveStep(3);
       setResponse(res);
       setLatencyMs(elapsed);
       setPhase('result');
