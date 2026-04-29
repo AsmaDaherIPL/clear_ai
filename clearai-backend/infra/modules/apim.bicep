@@ -5,7 +5,8 @@
 // - System-assigned managed identity (used to read the shared secret from KV).
 // - Two APIs:
 //     1. `clearai-backend`         (path '', subscriptionRequired: true)
-//        operations: POST /classify/describe, /classify/expand, /boost
+//        operations: POST /classify/describe, /classify/expand, /boost,
+//                    GET  /classify/newDescription
 //     2. `clearai-backend-public`  (path 'health', subscriptionRequired: false)
 //        operation: GET / (which proxies to {backend}/health)
 //   They MUST live on different paths because APIM rejects two HTTPS APIs
@@ -15,6 +16,7 @@
 //   So the gateway URLs are:
 //     POST https://{apim}.azure-api.net/classify/describe   (sub key required)
 //     POST https://{apim}.azure-api.net/classify/expand     (sub key required)
+//     GET  https://{apim}.azure-api.net/classify/newDescription (sub key required)
 //     POST https://{apim}.azure-api.net/boost               (sub key required)
 //     GET  https://{apim}.azure-api.net/health              (anonymous)
 //
@@ -215,6 +217,36 @@ resource opBoost 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = 
     urlTemplate: '/boost'
     responses: [
       { statusCode: 200, description: 'OK' }
+    ]
+  }
+}
+
+// Lazy ZATCA-safe submission text — generated on demand from a prior
+// classification's request_id so /classify/describe can return without
+// paying ~3-5s of LLM time. Frontend calls this when the user clicks
+// "Copy submission text" (or equivalent).
+resource opNewDescription 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: apiProtected
+  name: 'classify-new-description'
+  properties: {
+    displayName: 'GET /classify/newDescription'
+    method: 'GET'
+    urlTemplate: '/classify/newDescription'
+    templateParameters: []
+    request: {
+      queryParameters: [
+        {
+          name: 'request_id'
+          description: 'UUID of a prior classify/describe response.'
+          type: 'string'
+          required: true
+        }
+      ]
+    }
+    responses: [
+      { statusCode: 200, description: 'OK' }
+      { statusCode: 400, description: 'invalid_query or invalid_state' }
+      { statusCode: 404, description: 'not_found' }
     ]
   }
 }

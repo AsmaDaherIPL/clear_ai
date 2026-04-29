@@ -10,6 +10,7 @@ import { describeRoute } from './routes/describe.js';
 import { expandRoute } from './routes/expand.js';
 import { boostRoute } from './routes/boost.js';
 import { traceRoute } from './routes/trace.js';
+import { submissionRoute } from './routes/submission.js';
 import { getPool, closeDb } from './db/client.js';
 import { registerErrorHandler } from './server/error-handler.js';
 import { warmEmbedder } from './embeddings/embedder.js';
@@ -113,6 +114,7 @@ await app.register(describeRoute);
 await app.register(expandRoute);
 await app.register(boostRoute);
 await app.register(traceRoute);
+await app.register(submissionRoute);
 
 const start = async (): Promise<void> => {
   try {

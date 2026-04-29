@@ -41,10 +41,6 @@ import { filterAlternatives } from '../decision/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../decision/branch-enumerate.js';
 import { parseDutyInfo } from '../decision/duty-info.js';
 import { rankBranch, type BranchRankResult } from '../decision/branch-rank.js';
-import {
-  generateSubmissionDescription,
-  type SubmissionDescriptionResult,
-} from '../decision/submission-description.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 import { round4 } from '../util/score.js';
 import { withRequestId } from './_helpers.js';
@@ -385,8 +381,6 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     let alternatives: Alt[];
     let branchLeaves: BranchLeaf[] | null = null;
     let branchRank: BranchRankResult | null = null;
-    /** Phase 5 submission description — generated in parallel with branch-rank above. */
-    let submission: SubmissionDescriptionResult | null = null;
     /**
      * The code we ship to the user. Defaults to the picker's pick. If
      * branch-rank is enabled AND ran successfully AND its #1 differs from
@@ -408,55 +402,35 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         maxLeaves: t.BRANCH_MAX_LEAVES,
       });
 
-      // Latency optimisation: branch-rank and submission-description are
-      // both LLM calls (~5-10s each) that happen on the accepted path,
-      // and they have no data dependency on each other. Branch-rank
-      // consumes `branchLeaves`; submission consumes the picker's
-      // chosen-code catalog text. Running them in parallel saves the
-      // smaller of the two latencies (~5-8s on the typical accepted
-      // path). Submission anchors on the picker's pick rather than
-      // branch-rank's potentially-overridden one — within an HS-8 branch
-      // the AR catalog text is near-identical between siblings, so the
-      // generated submission is functionally the same code either way.
-      const branchRankPromise = rankBranch({
+      // Option B (confident-pick fast path): skip branch-rank when
+      // retrieval is decisively confident. Branch-rank's value-add is
+      // re-evaluating ambiguous within-branch ties; on an input like
+      // "men white shirt" where retrieval converges sharply on a single
+      // leaf (top-1 RRF score is well above top-2), the rerank almost
+      // always agrees with the picker — wasting 3-5s of Sonnet time on
+      // every confident classification.
+      //
+      // The threshold: top2Gap > 3x the gate's MIN_GAP_describe floor.
+      // Gate accepts at MIN_GAP; "confident" is "more than 3x clearer
+      // than the minimum we'd accept." Empirically separates the
+      // shirt-class inputs (large gaps) from the ambiguous-tie cases
+      // branch-rank is designed to catch.
+      const branchRankConfidentSkip = gate.top2Gap > t.MIN_GAP_describe * 3;
+      const branchRankShouldRun =
+        isEnabled(t, 'BRANCH_RANK_ENABLED') && !branchRankConfidentSkip;
+
+      branchRank = await rankBranch({
         query: effectiveDescription,
         chosenCode: decision.chosenCode,
         leaves: branchLeaves,
         opts: {
-          enabled: isEnabled(t, 'BRANCH_RANK_ENABLED'),
+          enabled: branchRankShouldRun,
           maxTokens: t.BRANCH_RANK_MAX_TOKENS,
         },
       });
 
-      // Pre-resolve catalog descriptions for the picker's pick so the
-      // parallel submission call has what it needs. We use the picker's
-      // chosen code here (decision.chosenCode), not branch-rank's
-      // possibly-overridden one — see comment above.
-      const submissionPromise: Promise<SubmissionDescriptionResult | null> =
-        /^\d{12}$/.test(decision.chosenCode) && isEnabled(t, 'SUBMISSION_DESC_ENABLED')
-          ? (() => {
-              const cand = candidates.find((c) => c.code === decision.chosenCode);
-              const leaf = branchLeaves!.find((l) => l.code === decision.chosenCode);
-              return generateSubmissionDescription({
-                effectiveDescription,
-                chosenCode: decision.chosenCode!,
-                catalogDescriptionAr: cand?.description_ar ?? leaf?.description_ar ?? null,
-                catalogDescriptionEn: cand?.description_en ?? leaf?.description_en ?? null,
-                opts: {
-                  enabled: true,
-                  maxTokens: t.SUBMISSION_DESC_MAX_TOKENS,
-                },
-              });
-            })()
-          : Promise.resolve(null);
-
-      [branchRank, submission] = await Promise.all([branchRankPromise, submissionPromise]);
-
       if (branchRank.invoked === 'llm') {
         recordCall(branchRank.model, branchRank.latencyMs, 'branch_rank');
-      }
-      if (submission && submission.invoked === 'llm') {
-        recordCall(submission.model, submission.latencyMs, 'submission');
       }
 
       if (branchRank.invoked === 'llm' && !branchRank.agreesWithPicker) {
@@ -543,9 +517,11 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
       }));
     }
 
-    // Phase 5 submission description was generated in parallel with branch-rank
-    // above (see the Promise.all block) — keeps the accepted-path latency from
-    // adding both LLM calls back-to-back.
+    // Phase 5 submission description used to be generated inline here.
+    // It's now lazy: the frontend calls GET /classify/newDescription
+    // ?request_id=<uuid> when the user is ready to copy the Arabic text
+    // into the ZATCA declaration form. Cuts ~3-5s of Haiku time off
+    // every accepted classification.
 
     // ---- Duty + procedures lookup ----------------------------------------
     // ZATCA's catalog stores duty rate (e.g. "5 %") and an import procedures
@@ -633,13 +609,9 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
         branch_rank_overrode:
           branchRank?.invoked === 'llm' && !branchRank.agreesWithPicker,
         branch_rank_latency_ms: branchRank?.latencyMs ?? 0,
-        // Phase 5 — submission-description observability. Lets us audit
-        // how often the deterministic distinctness check trips the
-        // fallback path, and whether the differs-from-catalog rule is
-        // ever bypassed in production.
-        submission_invoked: submission?.invoked ?? null,
-        submission_differs_from_catalog: submission?.differsFromCatalog ?? null,
-        submission_latency_ms: submission?.latencyMs ?? 0,
+        // (submission-description observability now lives on the
+        // GET /classify/newDescription route — describe.ts no longer
+        // generates submission text on the critical path.)
       },
       languageDetected: lang,
       decisionStatus: loggedStatus,
@@ -795,21 +767,9 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
             },
           }
         : {}),
-      // Phase 5 — ZATCA-safe submission description. Only emitted on the
-      // accepted path with a real chosen leaf. The frontend renders a
-      // copy-able card under the chosen code with a "differs from catalog"
-      // checkmark and a "review before submission" warning.
-      ...(submission && submission.invoked !== 'disabled'
-        ? {
-            submission_description: {
-              description_ar: submission.descriptionAr,
-              description_en: submission.descriptionEn,
-              rationale: submission.rationale,
-              differs_from_catalog: submission.differsFromCatalog,
-              source: submission.invoked, // 'llm' | 'guard_fallback' | 'llm_failed'
-            },
-          }
-        : {}),
+      // ZATCA-safe submission description is now generated lazily.
+      // When the frontend needs it, it calls GET /classify/newDescription
+      // ?request_id=<request_id from this response>.
       interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
       model: {
         embedder: EMBEDDER_VERSION(),
@@ -820,9 +780,6 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           : {}),
         ...(branchRank && branchRank.invoked === 'llm' && branchRank.model
           ? { branch_rank: branchRank.model }
-          : {}),
-        ...(submission && submission.invoked === 'llm' && submission.model
-          ? { submission: submission.model }
           : {}),
       },
     };
