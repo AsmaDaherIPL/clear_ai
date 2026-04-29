@@ -21,9 +21,16 @@
 //     GET  https://{apim}.azure-api.net/health              (anonymous)
 //
 // - Inbound API policy (applied to BOTH APIs):
-//     a) Strip any client-supplied x-apim-shared-secret header (anti-spoof)
-//     b) Re-inject x-apim-shared-secret from a named-value
-//     c) Rate limit per subscription, 60 req/min  (rate-limit-by-key isn't
+//     a) CORS — allow the SWA frontend, the APIM gateway itself (server-to-
+//        server tests), and the two Astro/Vite dev ports for local browser
+//        sessions. credentials disabled (we use header-based auth, not
+//        cookies). preflight cache 10 min. Allowed methods GET/POST/OPTIONS
+//        only; allowed headers content-type + Ocp-Apim-Subscription-Key.
+//        When a custom domain is added (separate task) it must be appended
+//        to this list AND to the Container App CORS_ORIGINS env var.
+//     b) Strip any client-supplied x-apim-shared-secret header (anti-spoof)
+//     c) Re-inject x-apim-shared-secret from a named-value
+//     d) Rate limit per subscription, 60 req/min  (rate-limit-by-key isn't
 //        supported on Consumption SKU, so we use the simpler rate-limit
 //        policy. /health is anonymous and unaffected — Fastify's in-process
 //        limiter covers that path.)
@@ -82,25 +89,27 @@ param tags object
 //   API which has no subscription, `rate-limit` has no effect — defence on
 //   that path comes from the Fastify in-process limiter (allowList exempts
 //   /health for liveness probes) and Container Apps' replica autoscaler.
-var apiInboundPolicyXml = '''<policies>
-  <inbound>
-    <base />
-    <set-header name="x-apim-shared-secret" exists-action="delete" />
-    <set-header name="x-apim-shared-secret" exists-action="override">
-      <value>{{apim-shared-secret}}</value>
-    </set-header>
-    <rate-limit calls="60" renewal-period="60" />
-  </inbound>
-  <backend>
-    <base />
-  </backend>
-  <outbound>
-    <base />
-  </outbound>
-  <on-error>
-    <base />
-  </on-error>
-</policies>'''
+// CORS allow-list. The browser-side caller is the SWA; the gateway origin
+// is included so server-to-server smoke tests (curl from CI / from the
+// gateway URL itself) work; the two localhost ports are Vite (5173) and
+// Astro dev (4321) for local browser sessions hitting prod APIM directly.
+// Keep this list in sync with `CORS_ORIGINS` in containerapp.bicep — both
+// layers must allow the same origins or the second layer rejects after
+// APIM passes.
+var corsAllowedOrigins = [
+  'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net'
+  'http://localhost:5173'
+  'http://localhost:4321'
+  'https://yellow-glacier-05e43ee03.7.azurestaticapps.net'
+]
+
+// Render the <origin> children. `map` + `join` produces the repeated XML
+// elements; we concat into the policy XML below using regular Bicep string
+// interpolation. Multi-line ('''...''') strings don't do interpolation, so
+// the policy is built as one regular interpolated string.
+var corsOriginXml = join(map(corsAllowedOrigins, o => '      <origin>${o}</origin>'), '\n')
+
+var apiInboundPolicyXml = '<policies>\n  <inbound>\n    <base />\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n        <method>POST</method>\n        <method>OPTIONS</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n        <header>ocp-apim-subscription-key</header>\n      </allowed-headers>\n    </cors>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <set-header name="x-apim-shared-secret" exists-action="override">\n      <value>{{apim-shared-secret}}</value>\n    </set-header>\n    <rate-limit calls="60" renewal-period="60" />\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
 
 // -----------------------------------------------------------------------------
 // APIM service (Consumption)

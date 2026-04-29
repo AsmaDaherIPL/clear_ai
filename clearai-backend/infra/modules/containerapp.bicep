@@ -124,9 +124,16 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             // Embedder
             { name: 'EMBEDDER_MODEL', value: 'Xenova/multilingual-e5-small' }
             { name: 'EMBEDDER_DIM', value: '384' }
-            // CORS origin allowlist — APIM gateway is the only allowed origin
-            // for v1. Localhost is dropped now that we're dev-on-Azure.
-            { name: 'CORS_ORIGINS', value: 'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net' }
+            // CORS origin allowlist (defence-in-depth — APIM enforces CORS
+            // first, this is the second layer). Comma-separated, no spaces.
+            // Must mirror the <allowed-origins> set in apim.bicep:
+            //   - APIM gateway (server-to-server / curl smoke tests)
+            //   - localhost:5173 (Vite dev), localhost:4321 (Astro dev) for
+            //     local browser sessions hitting prod APIM directly
+            //   - SWA frontend (https://yellow-glacier-...azurestaticapps.net)
+            // When a custom domain is added it must be appended HERE and in
+            // apim.bicep's corsAllowedOrigins.
+            { name: 'CORS_ORIGINS', value: 'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net,http://localhost:5173,http://localhost:4321,https://yellow-glacier-05e43ee03.7.azurestaticapps.net' }
           ]
           probes: [
             {
