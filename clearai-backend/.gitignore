@@ -33,3 +33,8 @@ pgdata/
 models/
 
 awesome-claude-code/
+
+# Tracker .docx files — binary, diff badly, bloat the repo.
+# Keep the .md companions (V1_PLAN.md, LESSONS_LEARNED.md, etc.) in git
+# so PR review still has narrative context.
+tracker/*.docx

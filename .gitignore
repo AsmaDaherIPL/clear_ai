@@ -44,3 +44,8 @@ clearai-backend-python/
 
 # MS Office lock files
 ~$*
+
+# Shared client data — large binary files (xlsx/xml/pdf), kept out of
+# repo to avoid bloat and to honour the data-sharing agreement that
+# limits redistribution. Lives locally only.
+naqel-shared-data/
