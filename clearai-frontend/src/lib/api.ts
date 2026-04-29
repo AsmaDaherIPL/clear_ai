@@ -125,11 +125,47 @@ export interface ResultLine {
   /** ZATCA duty rate / status. Null on heading-level / unknown rows. */
   duty?: DutyInfo | null;
   /**
-   * Import-procedures reference from the catalog (e.g. "21", "61"). Maps
-   * to ZATCA's procedure-codes table and signals SABER / SFDA / etc
-   * compliance steps. Optional; null when the catalog row has none.
+   * Required customs procedures attached to this leaf (SFDA approval,
+   * Ministry of Environment quarantine, livestock export approval,
+   * etc). Sourced from ZATCA's `دليل رموز إجراءات فسح وتصدير السلع`
+   * via the catalog.
+   *
+   * Order is meaningful — first item is the most blocking. Consumers
+   * MUST NOT re-sort.
+   *
+   * The KEY IS OMITTED ENTIRELY when the leaf has no procedures
+   * attached, so callers branch on
+   * `if (result.procedures && result.procedures.length)`.
+   *
+   * Earlier versions of this field were a single string (e.g. "61");
+   * the backend swapped to the array-of-objects shape on this
+   * release. There is no migration shim — any caller still expecting
+   * the old string would TypeScript-error on read, which is the
+   * intended early signal.
    */
-  procedures?: string | null;
+  procedures?: ProcedureRef[];
+}
+
+/**
+ * One row from the ZATCA procedure-codes table, attached to an HS leaf
+ * via `ResultLine.procedures`.
+ *
+ * `description_ar` is published by ZATCA only in Arabic — there is no
+ * official EN translation. Render it as `dir="rtl" lang="ar"`.
+ *
+ * `is_repealed = true` when the description ends with `(ملغي)`. ZATCA
+ * keeps repealed procedures in the catalogue for historical reference;
+ * frontends should hide them from the primary "required procedures"
+ * list (they don't apply to current shipments) but expose them behind
+ * a disclosure so trace fidelity is preserved.
+ */
+export interface ProcedureRef {
+  /** ZATCA procedure code, e.g. "2", "28", "61". */
+  code: string;
+  /** Official Arabic description from ZATCA. Always present, never empty. */
+  description_ar: string;
+  /** True when the description ends with "(ملغي)". */
+  is_repealed: boolean;
 }
 
 export interface AlternativeLine {
@@ -509,6 +545,9 @@ export interface TraceEvent {
   llm_model: string | null;
   total_latency_ms: number | null;
   error: string | null;
+  /** Picker's rationale string. Only populated on accepted-path
+   *  responses; null on degraded / needs_clarification / best-effort. */
+  rationale?: string | null;
 }
 
 export interface TraceFeedback {

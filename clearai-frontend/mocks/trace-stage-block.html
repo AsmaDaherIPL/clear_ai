@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <title>Trace stage-block — design preview</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5/index.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5/index.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans-arabic@5/index.css">
+  <style>
+    /* Tokens copied from src/styles/global.css so the mock matches the live app. */
+    :root {
+      --bg: oklch(0.985 0.004 75);
+      --surface: #ffffff;
+      --ink: oklch(0.18 0.01 60);
+      --ink-2: oklch(0.42 0.01 60);
+      --ink-3: oklch(0.62 0.008 60);
+      --line: oklch(0.92 0.006 70);
+      --line-2: oklch(0.96 0.004 70);
+      --accent: #E97B3A;
+      --accent-soft: oklch(0.96 0.025 55);
+      --radius: 14px;
+      --radius-lg: 18px;
+      --good-bg: oklch(0.95 0.05 155);
+      --good-fg: oklch(0.42 0.12 155);
+      --good-dot: oklch(0.55 0.15 155);
+      --warn-bg: oklch(0.95 0.06 75);
+      --warn-fg: oklch(0.42 0.13 60);
+      --warn-dot: oklch(0.62 0.16 60);
+      --bad-bg: oklch(0.94 0.05 25);
+      --bad-fg: oklch(0.42 0.14 25);
+      --bad-dot: oklch(0.55 0.18 25);
+      --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+      --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    }
+    *,*::before,*::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+    body {
+      font-family: var(--font-sans);
+      font-feature-settings: "ss01", "cv11";
+      -webkit-font-smoothing: antialiased;
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 32px 28px 64px;
+      line-height: 1.5;
+    }
+
+    /* ── Spine ─────────────────────────────────────────────────── */
+    .spine {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      margin-bottom: 28px;
+      overflow-x: auto;
+    }
+    .spine-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px 6px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 12.5px;
+      color: var(--ink-2);
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+    .spine-pill:hover { border-color: var(--ink-3); color: var(--ink); }
+    .spine-pill .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .spine-pill.good .dot { background: var(--good-dot); }
+    .spine-pill.warn { border-color: var(--warn-dot); color: var(--warn-fg); }
+    .spine-pill.warn .dot { background: var(--warn-dot); }
+    .spine-pill.current { background: var(--accent-soft); border-color: var(--accent); }
+    .spine-pill .num {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-3);
+      letter-spacing: .08em;
+    }
+    .spine-pill .meta {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--ink-3);
+      margin-inline-start: 6px;
+    }
+    .spine-arrow { color: var(--ink-3); font-family: var(--font-mono); flex-shrink: 0; }
+
+    /* ── Stage block ───────────────────────────────────────────── */
+    .stage {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: 0 1px 0 rgba(20,16,12,0.02), 0 1px 2px rgba(20,16,12,0.04);
+    }
+    .stage + .stage { margin-top: 16px; }
+    .stage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--line-2);
+      flex-wrap: wrap;
+    }
+    .stage-title-group { display: flex; align-items: center; gap: 12px; }
+    .stage-num {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-3);
+      letter-spacing: .1em;
+    }
+    .stage-title {
+      font-size: 17px;
+      font-weight: 500;
+      color: var(--ink);
+      letter-spacing: -.005em;
+      margin: 0;
+    }
+    .stage-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .stage-state.good { background: var(--good-bg); color: var(--good-fg); }
+    .stage-state.good::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--good-dot);
+    }
+    .stage-state.warn { background: var(--warn-bg); color: var(--warn-fg); }
+    .stage-state.warn::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warn-dot);
+    }
+    .stage-meta {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-3);
+    }
+    .stage-body { padding: 8px 22px 20px; }
+    .stage-section { padding-top: 14px; }
+    .stage-section + .stage-section {
+      margin-top: 4px;
+      border-top: 1px solid var(--line-2);
+    }
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: .1em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-body { font-size: 14px; color: var(--ink-2); line-height: 1.55; }
+    .section-body strong { color: var(--ink); font-weight: 500; }
+    .section-body em { color: var(--ink-3); font-style: normal; }
+
+    /* Glossary popover marker */
+    .gloss {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      font-family: var(--font-mono); font-size: 9px;
+      color: var(--ink-3);
+      cursor: help;
+      vertical-align: 1px;
+    }
+    .gloss:hover { border-color: var(--ink-3); color: var(--ink-2); }
+
+    /* Search-method cards (retrieval stage's defining visual) */
+    .methods {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 720px) { .methods { grid-template-columns: 1fr; } }
+    .method {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      background: var(--surface);
+    }
+    .method-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .method-name {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ink-2);
+      font-weight: 500;
+    }
+    .method-time {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--ink-3);
+    }
+    .method-desc {
+      font-size: 12.5px;
+      color: var(--ink-3);
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+    .method-foot {
+      padding-top: 8px;
+      border-top: 1px solid var(--line-2);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 12px;
+    }
+    .method-foot .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .method-foot .stat .label {
+      font-family: var(--font-mono);
+      color: var(--ink-3);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      font-size: 9.5px;
+    }
+    .method-foot .stat .value {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-2);
+    }
+    .method-foot .stat .value .code { color: var(--ink); }
+
+    /* Fusion bar — visual representation of RRF */
+    .fusion {
+      margin-top: 10px;
+      padding: 12px 14px;
+      background: var(--accent-soft);
+      border: 1px solid color-mix(in oklab, var(--accent) 25%, transparent);
+      border-radius: var(--radius);
+    }
+    .fusion-title {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .fusion-body {
+      font-size: 13px;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+
+    /*
+     * Funnel diagram — Option C visualization of the candidate-count math.
+     *
+     * Layout:
+     *   ┌──────────────────────────────────────────────────────┐
+     *   │  Vectors  ●━━━━━━ 50  ╲                              │
+     *   │  BM25     ●━━━━━━ 50  ─→  Fuse + dedup  ─→  ●━━━ 13  │
+     *   │  Trigram  ●━━━━━━ 50  ╱                              │
+     *   └──────────────────────────────────────────────────────┘
+     *
+     * Built with CSS grid + flex. The bar widths are proportional to the
+     * row count (50 → 13 visually shrinks). The "Fuse + dedup" middle
+     * column collapses on narrow viewports.
+     */
+    .funnel {
+      margin-top: 10px;
+      padding: 16px 18px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    .funnel-title {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 12px;
+      font-weight: 500;
+    }
+    .funnel-grid {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto auto;
+      align-items: center;
+      column-gap: 14px;
+      row-gap: 6px;
+    }
+    @media (max-width: 720px) {
+      .funnel-grid {
+        grid-template-columns: 1fr;
+        row-gap: 10px;
+      }
+      .funnel-fuse, .funnel-arrow, .funnel-out { justify-self: stretch !important; }
+    }
+    .funnel-row {
+      display: grid;
+      grid-template-columns: 70px 1fr auto;
+      align-items: center;
+      column-gap: 10px;
+    }
+    .funnel-row .name {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-2);
+      text-align: end;
+    }
+    .funnel-row .bar {
+      height: 6px;
+      background: var(--ink-3);
+      border-radius: 999px;
+      position: relative;
+    }
+    .funnel-row .bar::before {
+      content: "";
+      position: absolute;
+      inset-inline-start: -6px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ink-3);
+    }
+    .funnel-row .count {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-2);
+      tab-size: 2;
+      min-width: 28px;
+      text-align: end;
+    }
+    /* Visually scale the bars so 50 rows look bigger than 13. */
+    .funnel-row.in-50 .bar  { width: 100%; max-width: 220px; }
+    .funnel-row.out-13 .bar { width: 100%; max-width: 60px; background: var(--accent); }
+    .funnel-row.out-13 .bar::before { background: var(--accent); }
+    .funnel-row.out-13 .name { color: var(--accent); }
+    .funnel-row.out-13 .count { color: var(--accent); font-weight: 600; }
+
+    /* Side rail spanning the 3 inputs — the visual "funnel" gather */
+    .funnel-rows {
+      grid-column: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .funnel-arrow {
+      grid-column: 2;
+      font-family: var(--font-mono);
+      color: var(--ink-3);
+      font-size: 18px;
+      line-height: 1;
+      align-self: center;
+      justify-self: center;
+    }
+    html[dir="rtl"] .funnel-arrow { transform: scaleX(-1); }
+    .funnel-fuse {
+      grid-column: 3;
+      padding: 8px 12px;
+      border: 1px dashed var(--accent);
+      border-radius: 999px;
+      background: color-mix(in oklab, var(--accent-soft) 60%, var(--surface));
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: .04em;
+      text-align: center;
+      justify-self: stretch;
+    }
+    .funnel-fuse strong {
+      font-weight: 600;
+      display: block;
+      font-size: 12.5px;
+      letter-spacing: 0;
+      color: var(--accent);
+      text-transform: none;
+    }
+    .funnel-fuse .fuse-sub {
+      font-size: 10.5px;
+      color: var(--ink-3);
+      letter-spacing: .04em;
+      margin-top: 2px;
+      text-transform: uppercase;
+    }
+    .funnel-arrow.right { grid-column: 4; }
+    .funnel-out { grid-column: 5; }
+    .funnel-caption {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line-2);
+      font-size: 12.5px;
+      color: var(--ink-3);
+      line-height: 1.55;
+    }
+    .funnel-caption strong { color: var(--ink-2); font-weight: 500; }
+
+    /* Candidate row — reusable primitive */
+    .candidate-row {
+      display: grid;
+      grid-template-columns: 22px 130px 1fr auto auto;
+      column-gap: 12px;
+      align-items: center;
+      padding: 9px 12px;
+      border: 1px solid var(--line-2);
+      border-radius: 10px;
+      font-size: 13px;
+      background: var(--surface);
+    }
+    .candidate-row + .candidate-row { margin-top: 4px; }
+    .candidate-row .rank {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-3);
+      text-align: center;
+    }
+    .candidate-row .code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .candidate-row .desc {
+      color: var(--ink-2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .candidate-row .src {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: var(--line-2);
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+    .candidate-row .score {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-3);
+      tabular-nums: 1;
+    }
+    /* The two tied tops */
+    .candidate-row.tied {
+      border-color: color-mix(in oklab, var(--warn-dot) 35%, var(--line));
+      background: color-mix(in oklab, var(--warn-bg) 35%, var(--surface));
+    }
+    .candidate-row.tied .src {
+      background: color-mix(in oklab, var(--warn-dot) 22%, var(--surface));
+      color: var(--warn-fg);
+    }
+
+    /* Show-all candidates toggle */
+    .more {
+      margin-top: 6px;
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+    .more:hover { color: var(--ink-2); }
+
+    /* Decision callouts */
+    .decision { border-radius: var(--radius); padding: 14px 16px; margin-top: 10px; }
+    .decision.warn {
+      background: var(--warn-bg);
+      border: 1px solid color-mix(in oklab, var(--warn-dot) 35%, transparent);
+      color: var(--warn-fg);
+    }
+    .decision.good {
+      background: var(--good-bg);
+      border: 1px solid color-mix(in oklab, var(--good-dot) 35%, transparent);
+      color: var(--good-fg);
+    }
+    .decision-title {
+      font-size: 13.5px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .decision-body { font-size: 13.5px; line-height: 1.55; }
+    .decision-body strong { font-weight: 600; }
+
+    /* Evidence checks list — reused on the gate stage */
+    .checks {
+      display: grid;
+      grid-template-columns: 16px 1fr auto;
+      column-gap: 10px;
+      row-gap: 6px;
+      align-items: baseline;
+    }
+    .check-icon { font-family: var(--font-mono); font-size: 13px; line-height: 1; }
+    .check-icon.pass { color: var(--good-fg); }
+    .check-icon.fail { color: var(--bad-fg); }
+    .check-text { font-size: 13.5px; color: var(--ink-2); }
+    .check-text strong { color: var(--ink); }
+    .check-rule {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+
+    /* Next-stage handoff pill */
+    .handoff {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding: 6px 12px 6px 10px;
+      background: var(--line-2);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 12.5px;
+      color: var(--ink-2);
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .handoff:hover { border-color: var(--ink-3); }
+    .handoff-arrow { font-family: var(--font-mono); color: var(--ink-3); }
+
+    /* Show raw output disclosure */
+    .raw {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line-2);
+    }
+    .raw summary {
+      list-style: none;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: .06em;
+      color: var(--ink-3);
+      text-transform: uppercase;
+      user-select: none;
+    }
+    .raw summary::-webkit-details-marker { display: none; }
+    .raw summary::before { content: "▸ "; font-family: var(--font-mono); }
+    .raw[open] summary::before { content: "▾ "; }
+    .raw pre {
+      margin: 12px 0 0;
+      padding: 12px;
+      background: var(--line-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: var(--ink-2);
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+
+    h1.page-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink-3);
+      letter-spacing: -.01em;
+      margin: 0 0 4px;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+    }
+    p.page-blurb {
+      font-size: 13.5px;
+      color: var(--ink-3);
+      margin: 0 0 24px;
+      max-width: 600px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1 class="page-title">Classification trace · stage block previews</h1>
+  <p class="page-blurb">
+    Two consecutive stages from the redesigned trace flow: <strong>retrieval</strong>
+    (which produces the candidate list) and <strong>evidence gate</strong> (which inspects
+    that list before letting the picker run). Each block answers four questions in order:
+    <em>what does this stage check / what did it observe / what did it decide / what happens next</em>.
+  </p>
+
+  <!-- Spine — at-a-glance flow strip -->
+  <nav class="spine" aria-label="Pipeline overview">
+    <span class="spine-pill good"><span class="dot"></span><span class="num">1</span> Understand <span class="meta">340 ms</span></span>
+    <span class="spine-arrow">→</span>
+    <span class="spine-pill good current"><span class="dot"></span><span class="num">2</span> Search <span class="meta">280 ms</span></span>
+    <span class="spine-arrow">→</span>
+    <span class="spine-pill warn"><span class="dot"></span><span class="num">3</span> Evidence gate <span class="meta">tied #1</span></span>
+    <span class="spine-arrow">→</span>
+    <span class="spine-pill good"><span class="dot"></span><span class="num">4</span> Picker <span class="meta">3.41 s</span></span>
+    <span class="spine-arrow">→</span>
+    <span class="spine-pill good"><span class="dot"></span><span class="num">5</span> Result <span class="meta">610910000001</span></span>
+  </nav>
+
+  <!-- ────────────── RETRIEVAL BLOCK (the stage that produces candidates) ────────────── -->
+  <section class="stage" id="stage-2">
+    <header class="stage-header">
+      <div class="stage-title-group">
+        <span class="stage-num">STAGE 2 / 5</span>
+        <h2 class="stage-title">Searching the ZATCA tariff codes library <span class="gloss" title="Three search methods run in parallel against the ZATCA catalog and their rankings are fused via Reciprocal Rank Fusion. The result is one ranked candidate list.">?</span></h2>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="stage-state good">Returned 13 candidates</span>
+        <span class="stage-meta">280 ms</span>
+      </div>
+    </header>
+
+    <div class="stage-body">
+
+      <!-- 1. WHAT THIS STAGE DOES -->
+      <div class="stage-section">
+        <div class="section-label">What this stage does</div>
+        <div class="section-body">
+          Three search methods run against the ZATCA catalog in parallel, each producing
+          its own ranked list. The lists are fused via
+          <strong>Reciprocal Rank Fusion <span class="gloss" title="RRF (Cormack et al., SIGIR 2009): a parameter-free method that ranks items by where they appear across multiple lists, ignoring raw scores. A code at rank #1 in two methods beats a code scored 1.00 in only one. Now the default fuser in Elastic, Vespa, Weaviate, Qdrant, Pinecone.">?</span></strong>
+          into a single ranked candidate list. This list becomes the input to every
+          downstream stage — if a code isn't here, the picker can't choose it.
+        </div>
+      </div>
+
+      <!-- 2. QUERY USED -->
+      <div class="stage-section">
+        <div class="section-label">Query used</div>
+        <div class="section-body">
+          <strong>"men's cotton t-shirt"</strong> <em>(after stage 1's cleanup)</em>
+          · original input was <em>"mens t shirt"</em>
+        </div>
+      </div>
+
+      <!-- 3. SEARCH METHODS -->
+      <div class="stage-section">
+        <div class="section-label">How we searched · 3 methods in parallel</div>
+        <div class="methods">
+
+          <div class="method">
+            <div class="method-head">
+              <span class="method-name">Vectors</span>
+              <span class="method-time">170 ms</span>
+            </div>
+            <div class="method-desc">
+              e5-small embeddings + cosine similarity. Catches semantic matches even
+              when the words don't overlap (Arabic, synonyms, paraphrases).
+            </div>
+            <div class="method-foot">
+              <div class="stat">
+                <span class="label">Its top-1</span>
+                <span class="value"><span class="code">610910000001</span></span>
+              </div>
+              <div class="stat">
+                <span class="label">Returned</span>
+                <span class="value">50 rows</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="method">
+            <div class="method-head">
+              <span class="method-name">BM25 (keyword)</span>
+              <span class="method-time">45 ms</span>
+            </div>
+            <div class="method-desc">
+              Postgres full-text. Ranks by exact word overlap with TF-IDF weighting.
+              Catches brand names, SKUs, technical terms.
+            </div>
+            <div class="method-foot">
+              <div class="stat">
+                <span class="label">Its top-1</span>
+                <span class="value"><span class="code">610910000002</span></span>
+              </div>
+              <div class="stat">
+                <span class="label">Returned</span>
+                <span class="value">50 rows</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="method">
+            <div class="method-head">
+              <span class="method-name">Trigram (fuzzy)</span>
+              <span class="method-time">30 ms</span>
+            </div>
+            <div class="method-desc">
+              Postgres pg_trgm. Three-character n-gram overlap. Catches typos and
+              partial matches the other two methods miss.
+            </div>
+            <div class="method-foot">
+              <div class="stat">
+                <span class="label">Its top-1</span>
+                <span class="value"><span class="code">610910000001</span></span>
+              </div>
+              <div class="stat">
+                <span class="label">Returned</span>
+                <span class="value">50 rows</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Funnel diagram (Option C) ── -->
+        <div class="funnel" aria-label="Candidate funnel from 150 raw rows down to 13 fused candidates">
+          <div class="funnel-title">From 150 raw rows to 13 fused candidates</div>
+
+          <div class="funnel-grid">
+            <!-- Inputs: the three methods, each contributing 50 -->
+            <div class="funnel-rows">
+              <div class="funnel-row in-50">
+                <span class="name">Vectors</span>
+                <span class="bar" aria-hidden></span>
+                <span class="count">50</span>
+              </div>
+              <div class="funnel-row in-50">
+                <span class="name">BM25</span>
+                <span class="bar" aria-hidden></span>
+                <span class="count">50</span>
+              </div>
+              <div class="funnel-row in-50">
+                <span class="name">Trigram</span>
+                <span class="bar" aria-hidden></span>
+                <span class="count">50</span>
+              </div>
+            </div>
+
+            <!-- Arrow into the fuser -->
+            <div class="funnel-arrow" aria-hidden>→</div>
+
+            <!-- Middle: the fuser -->
+            <div class="funnel-fuse">
+              <strong>Fuse + dedup</strong>
+              <div class="fuse-sub">RRF · cutoff · filter</div>
+            </div>
+
+            <!-- Arrow out -->
+            <div class="funnel-arrow right" aria-hidden>→</div>
+
+            <!-- Output: the 13 final -->
+            <div class="funnel-out">
+              <div class="funnel-row out-13">
+                <span class="name">Final</span>
+                <span class="bar" aria-hidden></span>
+                <span class="count">13</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="funnel-caption">
+            <strong>How the count shrinks:</strong>
+            150 raw rows → RRF reranks them → ~87 unique codes after dedup →
+            truncated to the configured top-K → invalid prefix and expand-mode
+            dupes filtered → <strong style="color: var(--accent);">13 final candidates</strong>
+            handed to the evidence gate.
+          </div>
+        </div>
+
+        <div class="fusion">
+          <div class="fusion-title">After fusion · Reciprocal Rank Fusion (Cormack et al., SIGIR 2009)</div>
+          <div class="fusion-body">
+            Each method returned <strong>50 rows</strong> (150 in total). RRF ignores each
+            method's raw score and ranks by where each row appears across the three lists,
+            then deduplicates by code. After dedup and the configured cutoff, <strong>13 unique
+            codes</strong> made it through. Vectors and trigram both put
+            <strong>610910000001</strong> at #1; BM25 put <strong>610910000002</strong>
+            at #1. The two ended up tied at the fused top — the gap to #2 is 0.01, which
+            the evidence gate flags in the next stage.
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. CANDIDATES PRODUCED -->
+      <div class="stage-section">
+        <div class="section-label">Candidates produced · top 5 of 13</div>
+
+        <div class="candidate-row tied">
+          <span class="rank">1</span>
+          <span class="code">610910000001</span>
+          <span class="desc">T-shirts, knitted, of cotton, for men or boys</span>
+          <span class="src">tied #1</span>
+          <span class="score">1.00</span>
+        </div>
+        <div class="candidate-row tied">
+          <span class="rank">2</span>
+          <span class="code">610910000002</span>
+          <span class="desc">T-shirts, knitted, of other materials, for men</span>
+          <span class="src">tied #1</span>
+          <span class="score">0.99</span>
+        </div>
+        <div class="candidate-row">
+          <span class="rank">3</span>
+          <span class="code">610990100000</span>
+          <span class="desc">T-shirts, knitted, of cotton, for women or girls</span>
+          <span class="src">vector</span>
+          <span class="score">0.93</span>
+        </div>
+        <div class="candidate-row">
+          <span class="rank">4</span>
+          <span class="code">611020000001</span>
+          <span class="desc">Sweaters and pullovers, knitted, of cotton, men's</span>
+          <span class="src">vector + bm25</span>
+          <span class="score">0.81</span>
+        </div>
+        <div class="candidate-row">
+          <span class="rank">5</span>
+          <span class="code">620520000000</span>
+          <span class="desc">Shirts, woven, of cotton, for men or boys</span>
+          <span class="src">bm25</span>
+          <span class="score">0.74</span>
+        </div>
+
+        <button class="more" type="button">▸ Show 8 more</button>
+      </div>
+
+      <!-- 5. RANKING SIGNAL — preview of what gate will see -->
+      <div class="stage-section">
+        <div class="section-label">Ranking signal handed to the gate</div>
+        <div class="checks">
+          <span class="check-icon pass">✓</span>
+          <span class="check-text"><strong>Top fused score: 1.00</strong></span>
+          <span class="check-rule">strong</span>
+
+          <span class="check-icon fail">⚠</span>
+          <span class="check-text"><strong>Gap to #2: 0.01</strong></span>
+          <span class="check-rule">tight — possible tie</span>
+
+          <span class="check-icon pass">✓</span>
+          <span class="check-text"><strong>Candidate count: 13</strong></span>
+          <span class="check-rule">healthy</span>
+        </div>
+      </div>
+
+      <!-- 6. WHAT HAPPENS NEXT -->
+      <div class="stage-section">
+        <div class="section-label">What happens next</div>
+        <div class="section-body">
+          The candidate list goes to the evidence gate, which decides whether the
+          ranking is strong enough to send to the picker LLM, or whether the system
+          should fall back to a heading-level answer.
+        </div>
+        <a href="#stage-3" class="handoff">
+          <span>Continues at stage 3 — Evidence gate</span>
+          <span class="handoff-arrow">→</span>
+        </a>
+      </div>
+
+      <!-- 7. RAW -->
+      <details class="raw">
+        <summary>Show raw stage output</summary>
+        <pre>{
+  "stage": "retrieval",
+  "deterministic": true,
+  "embedder_version": "Xenova/multilingual-e5-small",
+  "query": "men's cotton t-shirt",
+  "methods": {
+    "vectors": { "latency_ms": 170, "top1": "610910000001", "top1_score": 0.91 },
+    "bm25":    { "latency_ms":  45, "top1": "610910000002", "top1_score": 0.78 },
+    "trigram": { "latency_ms":  30, "top1": "610910000001", "top1_score": 0.62 }
+  },
+  "fusion": "rrf",
+  "candidate_count": 13,
+  "top_fused_score": 1.00,
+  "top2_gap": 0.01
+}</pre>
+      </details>
+    </div>
+  </section>
+
+  <!-- ────────────── EVIDENCE GATE BLOCK ────────────── -->
+  <section class="stage" id="stage-3">
+    <header class="stage-header">
+      <div class="stage-title-group">
+        <span class="stage-num">STAGE 3 / 5</span>
+        <h2 class="stage-title">Evidence gate <span class="gloss" title="A deterministic check that flags weak retrieval results before the picker runs. Doesn't always block — sometimes it just annotates the candidates with a warning.">?</span></h2>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="stage-state warn">Flagged: tight tie</span>
+        <span class="stage-meta">0 ms</span>
+      </div>
+    </header>
+
+    <div class="stage-body">
+      <div class="stage-section">
+        <div class="section-label">What this gate checks</div>
+        <div class="section-body">
+          Before retrieval results reach the picker, three signals must pass. If any fails,
+          the picker is either skipped or warned.
+        </div>
+      </div>
+
+      <div class="stage-section">
+        <div class="section-label">Evidence from stage 2</div>
+        <div class="checks">
+          <span class="check-icon pass">✓</span>
+          <span class="check-text"><strong>Top score: 1.00</strong></span>
+          <span class="check-rule">required ≥ 0.40</span>
+
+          <span class="check-icon fail">✗</span>
+          <span class="check-text"><strong>Gap to #2: 0.01</strong></span>
+          <span class="check-rule">required ≥ 0.05</span>
+
+          <span class="check-icon pass">✓</span>
+          <span class="check-text"><strong>Candidates: 13</strong></span>
+          <span class="check-rule">required ≥ 3</span>
+        </div>
+      </div>
+
+      <div class="stage-section">
+        <div class="section-label">Decision</div>
+        <div class="decision warn">
+          <div class="decision-title">⚠ Tight top-2 gap</div>
+          <div class="decision-body">
+            <strong>610910000001</strong> and <strong>610910000002</strong> are nearly tied.
+            The picker still gets to decide, but with a flag asking it to disambiguate
+            carefully — typically using GIR rules or unspecified-attribute defaults.
+          </div>
+        </div>
+      </div>
+
+      <div class="stage-section">
+        <div class="section-label">What happens next</div>
+        <a href="#stage-4" class="handoff">
+          <span>Continues at stage 4 — Picker</span>
+          <span class="handoff-arrow">→</span>
+        </a>
+      </div>
+
+      <details class="raw">
+        <summary>Show raw stage output</summary>
+        <pre>{
+  "stage": "evidence_gate",
+  "deterministic": true,
+  "thresholds": { "min_top_score": 0.4, "min_top2_gap": 0.05, "min_candidates": 3 },
+  "observed":   { "top_score": 1.00,    "top2_gap": 0.01,     "candidate_count": 13 },
+  "passed": ["min_top_score", "min_candidates"],
+  "failed": ["min_top2_gap"],
+  "decision": "proceed_with_warning"
+}</pre>
+      </details>
+    </div>
+  </section>
+
+</body>
+</html>

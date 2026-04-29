@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/staticwebapp.config.json",
+  "_comment_navigationFallback": "Standard SPA fallback — when a user reloads any unknown path, serve index.html so client-side routing handles it. Excludes asset paths so static files keep 404'ing cleanly when missing. /trace?id=<uuid> doesn't need a custom rewrite because /trace/index.html is a real file (Astro builds it from src/pages/trace/index.astro); only the ?id= query param is dynamic.",
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/_astro/*",
+      "/assets/*",
+      "/*.{css,js,ico,svg,png,jpg,jpeg,gif,webp,woff,woff2,ttf,eot}"
+    ]
+  }
+}

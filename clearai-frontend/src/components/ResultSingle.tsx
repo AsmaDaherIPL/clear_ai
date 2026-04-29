@@ -14,7 +14,7 @@
  *        c) "Why this code" rationale block (tinted card)
  *        d) Considered alternatives (rank · code · desc · score/fit rows)
  *   4. LATENCY FOOTER (dev-only): client-measured round-trip + View full
- *      trace link → /trace/:request_id.
+ *      trace link → /trace?id=<request_id>.
  *
  * STATE OWNED: none — this is a presentational component. Parent
  * (ClassifyApp) owns the DescribeResponse and round-trip latency.
@@ -28,22 +28,20 @@
  *
  * NOT YET IMPLEMENTED (genuine TODOs):
  *   - Generate ZATCA XML action (no backend endpoint yet).
- *   - /trace/:id page is wired to the backend but not built in v2 yet —
- *     the link target works once that page is ported from v1.
  */
 
-import { useT } from '@/lib/i18n';
+import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
   type DescribeResponse,
   type DecisionStatus,
   type DecisionReason,
   type AlternativeLine,
-  type ConfidenceBand,
   reasonLabel,
   remediationHint,
 } from '@/lib/api';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
+import RequiredProcedures from './RequiredProcedures';
 import { CopyChip } from '@/components/ui/copy-chip';
 
 interface ResultSingleProps {
@@ -220,25 +218,70 @@ const TonePill = ({ tone, children }: { tone: PillTone; children: React.ReactNod
 };
 
 /**
- * Map (status, reason, confidence_band) → (pill tone, label key).
- * Mirrors lib/api.ts statusToTone + reasonLabel but localised through useT().
+ * Map (status, reason) → (pill tone, displayed label).
+ *
+ * The label is either:
+ *   - `labelKey`   : a known i18n key the caller resolves with t(...)
+ *   - `fallback`   : a literal string (already-formatted)
+ *
+ * The fallback path covers two cases:
+ *   1. The backend ships a new `decision_reason` value before the
+ *      frontend has been updated. We don't want to crash or render an
+ *      empty pill — render "snake_case → Title Case" so it's at
+ *      least intelligible (e.g. "future_new_reason" → "Future new
+ *      reason"). The pill tone uses the status-only default.
+ *   2. needs_clarification with no specific reason match — same
+ *      fallback applies.
+ *
+ * `confidence_band` is no longer consulted — the new pill copy is
+ * driven purely by (status, reason) per the spec table.
  */
-function pillFor(
-  status: DecisionStatus,
-  _reason: DecisionReason,
-  band: ConfidenceBand | undefined,
-): { tone: PillTone; labelKey: 'match_strong' | 'match_review' | 'match_best_effort' | 'match_degraded' } {
+type PillSpec =
+  | { tone: PillTone; labelKey: TKey }
+  | { tone: PillTone; fallback: string };
+
+function titleCaseSnake(s: string): string {
+  if (!s) return '';
+  const spaced = s.replace(/_/g, ' ').trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+}
+
+function pillFor(status: DecisionStatus, reason: DecisionReason): PillSpec {
+  // ----- accepted (green/amber by reason) -----
   if (status === 'accepted') {
-    // High band ≈ strong match; medium/low still rendered as accepted but
-    // without the "strong" wording — for now, keep it simple and use
-    // "Strong match" for high, "Needs review" tone-down for medium/low.
-    if (band === 'high' || !band) return { tone: 'good', labelKey: 'match_strong' };
-    return { tone: 'warn', labelKey: 'match_review' };
+    switch (reason) {
+      case 'strong_match':            return { tone: 'good', labelKey: 'match_strong' };
+      case 'single_valid_descendant': return { tone: 'good', labelKey: 'match_only_leaf' };
+      case 'already_most_specific':   return { tone: 'good', labelKey: 'match_most_specific' };
+      case 'heading_level_match':     return { tone: 'warn', labelKey: 'match_family' };
+      default:
+        // Unknown accepted reason — surface it without crashing.
+        return { tone: 'good', fallback: titleCaseSnake(reason) };
+    }
   }
-  if (status === 'best_effort') return { tone: 'warn', labelKey: 'match_best_effort' };
-  if (status === 'degraded')    return { tone: 'bad',  labelKey: 'match_degraded' };
-  // needs_clarification
-  return { tone: 'warn', labelKey: 'match_review' };
+  // ----- best_effort (always amber, "review" suffix) -----
+  if (status === 'best_effort') {
+    if (reason === 'best_effort_heading') return { tone: 'warn', labelKey: 'match_best_effort_review' };
+    return { tone: 'warn', fallback: titleCaseSnake(reason) };
+  }
+  // ----- degraded (always red, generic retry message) -----
+  if (status === 'degraded') {
+    return { tone: 'bad', labelKey: 'match_degraded_retry' };
+  }
+  // ----- needs_clarification (mostly amber, one red) -----
+  switch (reason) {
+    case 'ambiguous_top_candidates': return { tone: 'warn', labelKey: 'match_multi_refine' };
+    // `weak_retrieval` is the spec's name; the api.ts type lists
+    // `low_top_score` as the equivalent. Cover both so a backend
+    // rename in either direction doesn't drop us through to fallback.
+    case 'low_top_score':            return { tone: 'warn', labelKey: 'match_weak_refine' };
+    case 'small_top2_gap':           return { tone: 'warn', labelKey: 'match_weak_refine' };
+    case 'guard_tripped':            return { tone: 'warn', labelKey: 'match_unverifiable' };
+    case 'invalid_prefix':           return { tone: 'bad',  labelKey: 'match_invalid_prefix' };
+    case 'brand_not_recognised':     return { tone: 'warn', labelKey: 'match_brand_unknown' };
+    default:
+      return { tone: 'warn', fallback: titleCaseSnake(reason) };
+  }
 }
 
 /**
@@ -321,7 +364,7 @@ function ManualPickCard({
   };
   className?: string;
 }) {
-  const traceHref = requestId ? `/trace/${requestId}` : '#';
+  const traceHref = requestId ? `/trace?id=${requestId}` : '#';
   return (
     <>
       <div
@@ -498,7 +541,7 @@ function ClarifyCard({
   labels: { alts: string; understood: string; stripped: string; latency: string; trace: string };
   className?: string;
 }) {
-  const traceHref = requestId ? `/trace/${requestId}` : '#';
+  const traceHref = requestId ? `/trace?id=${requestId}` : '#';
   return (
     <>
       <div
@@ -583,9 +626,10 @@ function ClarifyCard({
                         </span>
                       )}
                     </div>
-                    <span className="font-mono text-[12px] text-[var(--ink-3)] flex-shrink-0 pt-[2px]">
-                      {scoreText(a)}
-                    </span>
+                    {/* No relationship chip in ClarifyCard — there's no
+                        chosen code to compare against (that's the whole
+                        reason this card is rendering instead of the
+                        accepted layout). */}
                   </div>
                 ))}
               </div>
@@ -626,15 +670,75 @@ function ClarifyCard({
   );
 }
 
-function scoreText(a: AlternativeLine): string {
-  if (typeof a.retrieval_score === 'number') {
-    return `${Math.round(a.retrieval_score * 100)}%`;
-  }
-  if (a.fit) {
-    return a.fit;
-  }
-  return '—';
+/**
+ * Classify an alternative's relationship to the chosen code based on
+ * the HS hierarchy:
+ *   - same-family    : alternative shares the chosen code's HS-4 heading
+ *                      (most semantic siblings).
+ *   - related-family : alternative shares only the HS-2 chapter.
+ *                      Often a near-miss — same broad commodity group
+ *                      but different heading.
+ *   - cross-family   : different chapter entirely. The amber case —
+ *                      worth pausing over because if the system surfaced
+ *                      a candidate in a different chapter, the user's
+ *                      product description might genuinely belong there.
+ *   - no-chosen      : there's no chosen code (e.g. ClarifyCard /
+ *                      ManualPickCard paths). Caller hides the chip.
+ *
+ * Why this matters for non-customs users:
+ *   The previous UI showed a "partial" / "excludes" chip from the
+ *   branch-rank LLM, which means nothing without HS knowledge.
+ *   "Same family" / "Cross-family" turns the same hierarchical signal
+ *   into vocabulary anyone can read.
+ */
+type Relationship = 'same-family' | 'related-family' | 'cross-family' | 'no-chosen';
+
+function relationshipFor(altCode: string, chosenCode: string | null | undefined): Relationship {
+  if (!chosenCode) return 'no-chosen';
+  const altChapter = altCode.slice(0, 2);
+  const chosenChapter = chosenCode.slice(0, 2);
+  const altHeading = altCode.slice(0, 4);
+  const chosenHeading = chosenCode.slice(0, 4);
+  if (altHeading === chosenHeading) return 'same-family';
+  if (altChapter === chosenChapter) return 'related-family';
+  return 'cross-family';
 }
+
+/**
+ * Pill that renders an alternative's relationship to the chosen code.
+ * Uses the existing TonePill geometry — neutral grey for same/related
+ * (these are background context, not action items), amber for
+ * cross-family (catches the eye because it's the anomaly worth
+ * investigating). Hides itself entirely on `no-chosen`.
+ */
+function RelationshipChip({ rel, label }: { rel: Relationship; label: string }) {
+  if (rel === 'no-chosen') return null;
+  // Same/related-family: neutral grey, sits flat in the row.
+  // Cross-family: warn (amber) — same palette as the result-card pill.
+  const style =
+    rel === 'cross-family'
+      ? { background: TONE_STYLES.warn.bg, color: TONE_STYLES.warn.fg }
+      : { background: 'var(--line-2)', color: 'var(--ink-3)' };
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium font-mono uppercase tracking-[0.04em]"
+      style={style}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Resolve the i18n key for a given relationship. Caller passes the
+ * resolved string into RelationshipChip — keeps the chip component
+ * pure (no useT() hook so it can be cheaply rendered N times).
+ */
+const REL_KEY: Record<Exclude<Relationship, 'no-chosen'>, TKey> = {
+  'same-family': 'rel_same_family',
+  'related-family': 'rel_related_family',
+  'cross-family': 'rel_cross_family',
+};
 
 export default function ResultSingle({
   visible,
@@ -647,7 +751,10 @@ export default function ResultSingle({
   const t = useT();
   if (!visible || !data) return null;
 
-  const pill = pillFor(data.decision_status, data.decision_reason, data.confidence_band);
+  const pill = pillFor(data.decision_status, data.decision_reason);
+  // Resolve the label once — either through useT() for known keys, or
+  // straight to the literal fallback for unknown decision_reasons.
+  const pillLabel = 'labelKey' in pill ? t(pill.labelKey) : pill.fallback;
   const interp = data.interpretation;
   const r = data.result;
   const candidates = data.alternatives ?? [];
@@ -706,7 +813,7 @@ export default function ResultSingle({
     return (
       <ClarifyCard
         pillTone={pill.tone}
-        pillLabel={t(pill.labelKey)}
+        pillLabel={pillLabel}
         reasonLabel={reasonLabel(data.decision_reason)}
         hint={hint}
         interpretation={interp}
@@ -741,7 +848,7 @@ export default function ResultSingle({
   // Trace link — the backend writes a classification_events row per
   // request and surfaces its UUID as `request_id`. The /trace/:id route
   // exists on the backend; the frontend page is a v2 TODO (port from v1).
-  const traceHref = data.request_id ? `/trace/${data.request_id}` : '#';
+  const traceHref = data.request_id ? `/trace?id=${data.request_id}` : '#';
 
   return (
     <>
@@ -762,7 +869,7 @@ export default function ResultSingle({
             <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
               {t('res_code_saudi')}
             </span>
-            <TonePill tone={pill.tone}>{t(pill.labelKey)}</TonePill>
+            <TonePill tone={pill.tone}>{pillLabel}</TonePill>
           </div>
 
           {/*
@@ -839,8 +946,17 @@ export default function ResultSingle({
           </div>
         )}
 
-        {/* ----- BODY: 4 stacked blocks ----- */}
+        {/* ----- BODY: stacked content blocks ----- */}
         <div className="px-[22px] py-[18px] flex flex-col gap-[18px]">
+          {/* (0) Required procedures — only when the chosen leaf has any.
+              Slots above the catalog description because procedures are
+              broker-actionable compliance signals (SFDA approval,
+              quarantine, livestock export rules), and they need to be
+              visible before the user reads the descriptive text below. */}
+          {r.procedures && r.procedures.length > 0 && (
+            <RequiredProcedures procedures={r.procedures} mode="result" />
+          )}
+
           {/* (a) ZATCA catalog description — EN above AR */}
           <div>
             <FieldLabel>{t('res_zatca_desc')}</FieldLabel>
@@ -926,9 +1042,21 @@ export default function ResultSingle({
                           </span>
                         )}
                       </div>
-                      <span className="font-mono text-[12px] text-[var(--ink-3)] flex-shrink-0 pt-[2px]">
-                        {scoreText(a)}
-                      </span>
+                      {/* Relationship-to-chosen chip — replaces the old
+                          retrieval-score percentage and the branch-rank
+                          fit ("partial"/"excludes") chips. Cross-family
+                          rows pop amber so the user notices candidates
+                          from a different chapter. */}
+                      {(() => {
+                        const rel = relationshipFor(a.code, r.code);
+                        if (rel === 'no-chosen') return null;
+                        return (
+                          <RelationshipChip
+                            rel={rel}
+                            label={t(REL_KEY[rel])}
+                          />
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
