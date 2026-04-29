@@ -20,14 +20,18 @@
  *
  * STEP-PROGRESSION HEURISTIC:
  *   The backend returns a single classify response, not per-step events.
- *   We can't know exactly when retrieval finishes vs reasoning starts on
- *   the client. So we drive ProcessingSteps with rough wall-clock timers
- *   that match typical request profiles (≈1s retrieval, ≈3s reasoning,
- *   ≈8s describe). When the real response lands, we jump straight to
- *   step 5 ("done") regardless of where the timer was. This is purely
- *   visual — it gives the user something to watch instead of a static
- *   spinner — and the timers are short enough that even a fast response
- *   never feels chopped.
+ *   We can't know exactly when each phase finishes on the client, so we
+ *   drive ProcessingSteps with rough wall-clock timers matching typical
+ *   request profiles:
+ *     - Step 1 (Understanding your product)            : ~700ms
+ *     - Step 2 (Searching the ZATCA tariff codes lib.) : ~1500ms more
+ *     - Step 3 (Reasoning + applying classification)   : dwell here
+ *       until the real response lands.
+ *   When the response arrives, we jump straight to step 4 ("all done"
+ *   — one past the last index) regardless of where the timers were.
+ *   Timers are cleared on success / error so they never overshoot.
+ *   This is purely visual — gives the user something to watch instead
+ *   of a static spinner.
  */
 
 import { useRef, useState } from 'react';
@@ -72,20 +76,14 @@ export default function ClassifyApp() {
   };
 
   const startStepProgression = () => {
-    // Two-step progression: search/retrieve → reason. The previous
-    // four-step sequence was a leftover from when describe also drafted
-    // the submission description; that work moved to a lazy follow-up
-    // request so it no longer belongs in this panel.
-    //
-    // Timing is approximate (the backend doesn't emit per-step events).
-    // Search+retrieve typically completes around 1s; the reasoning step
-    // dominates the total ~3-5s. We move to step 2 quickly so the user
-    // sees forward progress, then jump to "done" (step 3) the moment
-    // the real response lands. handleSubmit clears the timers either
-    // way so we never overshoot.
+    // Three-step progression: understand → search → reason.
+    // Timings approximate — see the file header for the rationale.
+    // Cleanup of any prior run's timers happens up-front so a rapid
+    // re-submit never lets two progressions race.
     clearStepTimers();
     setActiveStep(1);
-    stepTimers.current.push(window.setTimeout(() => setActiveStep(2), 1000));
+    stepTimers.current.push(window.setTimeout(() => setActiveStep(2), 700));
+    stepTimers.current.push(window.setTimeout(() => setActiveStep(3), 2200));
   };
 
   const handleSubmit = async (description: string, parentCode?: string) => {
@@ -136,8 +134,8 @@ export default function ClassifyApp() {
       }
       const elapsed = performance.now() - startedAt;
       clearStepTimers();
-      // Step counter beyond the last step (2) marks every row "done".
-      setActiveStep(3);
+      // Step counter beyond the last step (3) marks every row "done".
+      setActiveStep(4);
       setResponse(res);
       setLatencyMs(elapsed);
       setPhase('result');

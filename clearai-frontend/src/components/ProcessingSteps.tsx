@@ -2,18 +2,34 @@
  * ProcessingSteps.tsx — animated step-progress during classification
  *
  * RESPONSIBILITIES:
- *   - Renders 4 processing steps: search → retrieve → reason → describe.
+ *   - Renders 3 processing steps: understand → search → reason.
  *   - Each step has three visual states: pending, active (animated dots),
  *     done (filled accent circle + checkmark).
  *   - Hidden when not classifying (controlled by parent via `visible` prop).
- *   - Accessible: aria-live="polite" owned by the parent section; individual
- *     steps use aria-current when active.
+ *   - Accessible: aria-live + role="list" / role="listitem" so screen
+ *     readers announce step transitions; aria-current="step" on the
+ *     active row.
  *
  * STATE OWNED: none — step state driven by parent via `activeStep` prop.
  *
- * NOT YET IMPLEMENTED:
- *   - Real step progression wired to API call lifecycle.
- *   - Per-step latency metadata (the `—` placeholder).
+ * STEP MAPPING (each label reflects real backend work):
+ *   1. Understanding your product
+ *      ← Stage 0 cleanup (brand/SKU/marketing strip), understanding
+ *        check (chapter coherence), optional researcher (web search
+ *        for merchant shorthand). Together these resolve "what did
+ *        the user actually mean to classify."
+ *   2. Searching the ZATCA tariff codes library
+ *      ← RRF over vector embeddings + BM25 + trigram against the
+ *        ZATCA catalog → top-K ranked candidates.
+ *   3. Reasoning over candidates and Applying classification rules
+ *      ← Evidence gate, picker LLM with GIR rules, branch enumerate
+ *        over HS-8 leaves, optional branch-rank, duty + procedures
+ *        lookup. The longest phase by wall-clock.
+ *
+ * "Drafting submission description" used to live here too but moved
+ * to its own lazy GET /classify/newDescription request, owned by
+ * SubmissionDescriptionCard's local skeleton — so it stays out of
+ * this panel.
  */
 
 import { useT } from '@/lib/i18n';
@@ -22,7 +38,7 @@ import { cn } from '@/lib/utils';
 export type StepState = 'pending' | 'active' | 'done';
 
 interface Step {
-  labelKey: 'step_search' | 'step_reason';
+  labelKey: 'step_understand' | 'step_search' | 'step_reason';
   state: StepState;
   meta?: string;
 }
@@ -33,14 +49,7 @@ interface ProcessingStepsProps {
   className?: string;
 }
 
-// Two steps map to what /classify/describe actually does end-to-end:
-//   1. Search & retrieve ZATCA candidates  (vector + lexical retrieval)
-//   2. Reason over candidates             (the Sonnet picker call)
-// "Drafting submission description" used to be step 4 here, but moved
-// to its own lazy GET /classify/newDescription route — that fetch is
-// owned by SubmissionDescriptionCard, which renders its own skeleton,
-// so it has no business showing up in this panel any more.
-const STEP_KEYS: Step['labelKey'][] = ['step_search', 'step_reason'];
+const STEP_KEYS: Step['labelKey'][] = ['step_understand', 'step_search', 'step_reason'];
 
 export default function ProcessingSteps({ visible, activeStep = 0, className }: ProcessingStepsProps) {
   const t = useT();
