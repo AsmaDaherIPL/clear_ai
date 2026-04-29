@@ -54,9 +54,11 @@ await app.register(cors, {
 await app.register(rateLimit, {
   max: e.RATE_LIMIT_MAX,
   timeWindow: e.RATE_LIMIT_WINDOW,
-  // Don't rate-limit /health — Container Apps and APIM probes should
-  // never get 429'd or the replica gets marked unhealthy and recycled.
-  allowList: (req) => req.url.startsWith('/health'),
+  // Don't rate-limit probe paths — Container Apps and APIM probes
+  // should never get 429'd or the replica gets marked unhealthy and
+  // recycled.
+  allowList: (req) =>
+    req.url.startsWith('/health') || req.url.startsWith('/ready'),
 });
 
 // Origin lock — every non-health request must carry the shared secret
@@ -74,7 +76,11 @@ await app.register(rateLimit, {
 //                                          shouldn't need APIM)
 //   /health on any env                  → always allowed (probe path)
 app.addHook('onRequest', async (req, reply) => {
-  if (req.url.startsWith('/health')) return;
+  // Both /health (liveness) and /ready (readiness) are probe paths
+  // exempt from the APIM gateway lock — Azure probes them directly
+  // without going through APIM, so they have no shared secret to
+  // present.
+  if (req.url.startsWith('/health') || req.url.startsWith('/ready')) return;
   if (e.NODE_ENV !== 'production') return;
 
   const expected = e.APIM_SHARED_SECRET;
@@ -99,8 +105,19 @@ app.addHook('onRequest', async (req, reply) => {
 // See src/server/error-handler.ts for the full rationale.
 registerErrorHandler(app);
 
+/**
+ * Liveness probe. Returns 200 as long as the Node process is alive and
+ * Postgres responds. Doesn't check warmup state — Azure should NOT
+ * recycle the replica just because the embedder hasn't finished its
+ * 1-token warmup pass; the process is fine, we just haven't pre-paid
+ * the inference cost yet.
+ *
+ * Used by:
+ *   - Container Apps liveness probe
+ *   - APIM smoke tests (anonymous /health proxy)
+ *   - Manual operator checks
+ */
 app.get('/health', async () => {
-  // Cheap PG ping
   try {
     const r = await getPool().query<{ ok: number }>(`SELECT 1::int AS ok`);
     return { status: 'ok', db: r.rows[0]?.ok === 1 };
@@ -108,6 +125,38 @@ app.get('/health', async () => {
     app.log.error({ err }, 'health PG fail');
     return { status: 'degraded', db: false };
   }
+});
+
+/**
+ * Readiness probe — flipped TRUE only after every cold-start warmup
+ * task resolves (embedder weights loaded + 1-token forward pass run,
+ * setup_meta cache primed, hot prompts pre-read).
+ *
+ * Why this exists separately from /health:
+ *   Container Apps' readiness probe gates *traffic routing*, not
+ *   replica lifecycle. While /ready returns 503, Azure withholds the
+ *   new revision from active rotation — the previous revision keeps
+ *   serving until the new one signals ready. That eliminates the
+ *   "first request after deploy hits a cold replica" tail (~10-15s
+ *   measured on 'men white shirt' classify).
+ *
+ *   /health (liveness) MUST keep returning 200 the whole time, or
+ *   Azure will conclude the replica is broken and recycle it before
+ *   warmup ever completes.
+ *
+ * The probe failureThreshold (3 × periodSeconds=10) gives ~30s for
+ * warmup, which comfortably covers our worst-case ONNX cold init
+ * (~10-15s) plus headroom.
+ */
+let isWarm = false;
+app.get('/ready', async (_req, reply) => {
+  if (!isWarm) {
+    return reply
+      .code(503)
+      .header('retry-after', '5')
+      .send({ status: 'warming', detail: 'in-process caches still cold' });
+  }
+  return { status: 'ready' };
 });
 
 await app.register(describeRoute);
@@ -120,14 +169,21 @@ const start = async (): Promise<void> => {
   try {
     await app.listen({ port: e.PORT, host: '0.0.0.0' });
 
-    // Fire-and-forget warmup. We come up first so the readiness probe
-    // can pass immediately; warming happens in the background. The very
-    // first user request after a cold start otherwise paid:
-    //   - ONNX embedder weights load + graph compile (~5-10s)
-    //   - setup_meta SELECT round-trip (~50-200ms)
-    //   - lazy prompt-file reads on first hit (~200ms total)
-    // All three are now hot by the time any meaningful traffic arrives.
-    void Promise.allSettled([
+    // Warmup. Listener is already up so /health returns 200 (process
+    // is alive); /ready stays 503 until every warmup task settles, so
+    // Container Apps holds traffic on the previous revision until this
+    // one is genuinely hot.
+    //
+    // Cold-start cost without warmup, measured on "men white shirt":
+    //   - ONNX embedder weights + graph compile  ~5-10s
+    //   - setup_meta SELECT round-trip            ~50-200ms
+    //   - 6 prompt-file lazy reads                ~200ms total
+    //
+    // We use Promise.allSettled (not all) so a non-fatal warmup
+    // failure (e.g. one prompt file missing) doesn't permanently stick
+    // /ready at 503. The errors get logged at warn; the rest of the
+    // pipeline still works lazily on first request.
+    Promise.allSettled([
       warmEmbedder().then(
         () => app.log.info('embedder warmed'),
         (err: unknown) => app.log.warn({ err }, 'embedder warmup failed (non-fatal)'),
@@ -136,9 +192,6 @@ const start = async (): Promise<void> => {
         () => app.log.info('setup_meta cache primed'),
         (err: unknown) => app.log.warn({ err }, 'setup_meta warmup failed (non-fatal)'),
       ),
-      // Pre-read the prompts the describe path uses on every request.
-      // loadPrompt has its own per-process cache so this is just an
-      // up-front read of the hot files; failures are non-fatal.
       Promise.all([
         loadPrompt('merchant-cleanup.md'),
         loadPrompt('picker-describe.md'),
@@ -150,7 +203,10 @@ const start = async (): Promise<void> => {
         () => app.log.info('prompt cache primed'),
         (err: unknown) => app.log.warn({ err }, 'prompt warmup failed (non-fatal)'),
       ),
-    ]);
+    ]).then(() => {
+      isWarm = true;
+      app.log.info('readiness probe now passing — instance ready for traffic');
+    });
   } catch (err) {
     app.log.error(err);
     process.exit(1);

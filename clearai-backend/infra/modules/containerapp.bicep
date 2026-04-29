@@ -12,7 +12,11 @@
 //   workflow that's the dominant latency contributor; one always-on
 //   replica costs ~$15-30/mo for consistent <10s p99.
 // - Resources: 0.5 vCPU, 1 GiB
-// - Probes: liveness + readiness on GET /health
+// - Probes:
+//   - Liveness  GET /health  → "process is alive + Postgres responds"
+//   - Readiness GET /ready   → "all in-process caches warm" (gates traffic
+//     routing to the new revision; the previous revision keeps serving
+//     until /ready returns 200, eliminating the post-deploy cold-start tail)
 // - Secrets sourced from Key Vault via secretref
 //
 // NOTE on KV secret access:
@@ -149,16 +153,23 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
               failureThreshold: 3
             }
             {
+              // Readiness gates traffic routing — Azure withholds the
+              // new revision from rotation while this returns 503,
+              // which is exactly what we want to dodge cold-start
+              // tails on first-request-after-deploy. /ready returns
+              // 503 until embedder + setup_meta + prompt cache are
+              // all warm. failureThreshold * periodSeconds = 30s,
+              // headroom for our ~10-15s ONNX cold init.
               type: 'Readiness'
               httpGet: {
-                path: '/health'
+                path: '/ready'
                 port: 3000
                 scheme: 'HTTP'
               }
-              initialDelaySeconds: 15
-              periodSeconds: 10
+              initialDelaySeconds: 5
+              periodSeconds: 5
               timeoutSeconds: 3
-              failureThreshold: 3
+              failureThreshold: 6
             }
           ]
         }
