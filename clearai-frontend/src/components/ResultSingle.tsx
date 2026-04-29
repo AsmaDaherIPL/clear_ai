@@ -284,27 +284,16 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
           className,
         )}
       >
-        {/* ----- HEADER: code-saudi label + match-pill + Copy code + 6-segment digits ----- */}
+        {/* ----- HEADER: code-saudi label + match-pill + 6-segment digits.
+              Copy code button used to live here next to the match pill;
+              it moved down into the meta row alongside Duty so all
+              code-context actions sit in one strip. */}
         <div className="px-[22px] py-[18px] border-b border-[var(--line-2)]">
           <div className="flex items-center justify-between gap-3 mb-2.5">
             <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
               {t('res_code_saudi')}
             </span>
-            <div className="flex items-center gap-2">
-              <TonePill tone={pill.tone}>{t(pill.labelKey)}</TonePill>
-              <button
-                type="button"
-                onClick={() => copy(r.code)}
-                // Sized to match TonePill exactly: px-2.5 py-1, 12px text,
-                // rounded-full. Subtle border distinguishes it as the
-                // interactive sibling of the (non-interactive) match pill.
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[12px] font-medium text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150"
-                title="Copy 12-digit HS code"
-              >
-                <CopyIcon />
-                <span>{t('act_copy')}</span>
-              </button>
-            </div>
+            <TonePill tone={pill.tone}>{t(pill.labelKey)}</TonePill>
           </div>
 
           {/*
@@ -334,29 +323,36 @@ export default function ResultSingle({ visible, data, latencyMs, className }: Re
           </div>
 
           {/*
-            Duty + procedures chip row (only when backend supplied them).
-            Each is rendered as a self-contained pill: a small uppercase
-            mono LABEL on the left, the value on the right, hairline
-            border + subtle surface background. They sit below the
-            digits because both are properties of the chosen leaf, not
-            of the classifier — they belong with the code, not the
-            rationale. Procedures is a numeric reference into ZATCA's
-            procedure-codes table (e.g. "21" = SABER).
+            Code-context strip: Duty chip on the start side, Copy code
+            button on the end. Both share the MetaChip pill geometry
+            (rounded-full, 12px text + 10px mono uppercase label,
+            px-2.5 py-1) so they read as one control family. Procedures
+            was previously rendered here too but was dropped — it added
+            noise without users ever acting on it; if a future trace
+            view needs it, it lives in the trace JSON.
           */}
-          {(dutyLabel || r.procedures) && (
-            <div className="mt-3 pt-3 border-t border-[var(--line-2)] flex items-center gap-2 flex-wrap">
+          <div className="mt-3 pt-3 border-t border-[var(--line-2)] flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               {dutyLabel && (
                 <MetaChip label={t('res_duty')} value={dutyLabel} title="ZATCA duty rate" />
               )}
-              {r.procedures && (
-                <MetaChip
-                  label={t('res_procedures')}
-                  value={r.procedures}
-                  title="ZATCA procedures code"
-                />
-              )}
             </div>
-          )}
+            {/* Copy code — chip-shaped to match MetaChip exactly:
+                same padding, same radius, same type scale. The
+                10px mono uppercase "COPY" label mirrors the "DUTY"
+                label on the duty chip so they read as siblings. */}
+            <button
+              type="button"
+              onClick={() => copy(r.code)}
+              title="Copy 12-digit HS code"
+              className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[12px] hover:border-[var(--ink-3)] transition-colors duration-150"
+            >
+              <span className="font-mono text-[10px] font-medium tracking-[0.08em] uppercase text-[var(--ink-3)]">
+                {t('act_copy')}
+              </span>
+              <CopyIcon />
+            </button>
+          </div>
         </div>
 
         {/* ----- INTERPRETATION (trust signal) -----
