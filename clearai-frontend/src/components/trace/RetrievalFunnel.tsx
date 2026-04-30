@@ -1,24 +1,27 @@
 /**
- * RetrievalFunnel.tsx — retrieval-specific composite for the trace page.
+ * RetrievalFunnel.tsx — retrieval-stage composite for the trace page.
  *
- * Three sub-blocks, all owned here so the retrieval StageBlock body is
- * self-contained:
+ * Intentionally minimal: shows what each retrieval arm DOES (static
+ * documentation — honest, no claims about THIS request) and an
+ * honest one-line flow visualisation that consumes only fields we
+ * actually have on the trace event:
  *
- *   1. <MethodCards/>   — three cards (Vectors / BM25 / Trigram), each
- *                         showing the method's description, latency,
- *                         own top-1, and per-method "Returned" count.
- *   2. <FusionFunnel/>  — the 50→50→50 → fuse → 13 visual + caption.
- *                         Bar widths are qualitative (fixed proportions);
- *                         when the backend exposes per-method counts in
- *                         model_calls or a sibling field, swap the
- *                         hard-coded `50` for real values.
- *   3. <CandidateRows/> — ranked candidate list with rank/code/desc and
- *                         a "Tied" tag on top-2 when retrieval scores
- *                         are within `top2GapMin` of each other.
+ *   Vectors + BM25 + Trigram  →  RRF fuse + dedup + filter  →  N candidates
  *
- * Each one is exported separately in case TracePage wants to compose
- * them differently later, but the default usage is the wrapper
- * `<RetrievalFunnel />` which renders all three in order.
+ * Where N is `event.candidate_count`. We DO NOT show per-arm row
+ * counts (the backend doesn't measure them — see fix #1 in the
+ * trust-fix spec) and we DO NOT show each method's top-1 (we don't
+ * have that either — see fix #2).
+ *
+ * If the backend ever starts persisting per-arm counts on
+ * `event.request.{vec_returned, bm25_returned, trgm_returned}`
+ * (backend coordination B3), this component can be re-extended to
+ * show them — but only when the field is populated, never with
+ * hardcoded fallbacks.
+ *
+ * The candidate-rows preview (top-N candidates with rank/code/desc)
+ * still lives here, since `event.alternatives` is a real measurement
+ * we get from the catalog hit list.
  */
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
@@ -32,29 +35,30 @@ export interface AltRow {
   retrieval_score: number | null;
 }
 
+/**
+ * Per-method static documentation. No measured fields — the previous
+ * shape carried `latencyMs / top1 / returned` which the backend
+ * never measured. Removed entirely.
+ */
 export interface MethodInfo {
   /** Display label, e.g. "Vectors" / "BM25 (keyword)" / "Trigram (fuzzy)". */
   name: string;
   /** Short paragraph explaining what this method does. */
   description: string;
-  /** Latency in ms, or `null` when unavailable. */
-  latencyMs: number | null;
-  /** This method's own top-1 candidate code (independent of fusion). */
-  top1: string | null;
-  /** Number of rows the method returned before fusion. */
-  returned: number | null;
 }
 
 interface RetrievalFunnelProps {
   methods: [MethodInfo, MethodInfo, MethodInfo];
   candidates: AltRow[];
-  /** Total candidate count after fusion + dedup + filter (= event.candidate_count). */
+  /** Total candidate count after fusion + dedup + filter (event.candidate_count). */
   finalCount: number;
   /** event.top2_gap; used to flag the top-2 rows as "tied" when small. */
   top2Gap: number | null;
   /**
-   * Threshold below which we render the top-2 as "tied #1". The mock
-   * uses 0.05 — same as the backend evidence-gate's min_top2_gap.
+   * Threshold below which we flag the top-2 as "tied #1" in the
+   * candidate preview. Provided by the gate config when available;
+   * falls back to a sensible default for the visual cue only —
+   * NOT used to claim "this passes/fails the gate" anywhere.
    */
   top2GapMin?: number;
   /** Initial number of candidate rows shown; rest behind a "Show more" toggle. */
@@ -72,10 +76,7 @@ export function RetrievalFunnel({
   return (
     <div className="flex flex-col gap-3">
       <MethodCards methods={methods} />
-      <FusionFunnel
-        rawTotal={methods.reduce((s, m) => s + (m.returned ?? 0), 0)}
-        finalCount={finalCount}
-      />
+      <FlowStrip finalCount={finalCount} />
       <CandidateRows
         candidates={candidates}
         top2Gap={top2Gap}
@@ -89,7 +90,6 @@ export function RetrievalFunnel({
 /* ───────────────────────────────────────────────────────── */
 
 export function MethodCards({ methods }: { methods: MethodInfo[] }) {
-  const t = useT();
   return (
     <div className="grid gap-2.5 sm:grid-cols-3">
       {methods.map((m, i) => (
@@ -97,39 +97,12 @@ export function MethodCards({ methods }: { methods: MethodInfo[] }) {
           key={`${m.name}-${i}`}
           className="border border-[var(--line)] rounded-[var(--radius)] p-3 bg-[var(--surface)]"
         >
-          <div className="flex items-baseline justify-between mb-1">
-            <span className="font-mono text-[11px] tracking-[0.08em] uppercase text-[var(--ink-2)] font-medium">
-              {m.name}
-            </span>
-            {m.latencyMs != null && (
-              <span className="font-mono text-[10.5px] text-[var(--ink-3)]">
-                {m.latencyMs} ms
-              </span>
-            )}
+          <div className="font-mono text-[11px] tracking-[0.08em] uppercase text-[var(--ink-2)] font-medium mb-1.5">
+            {m.name}
           </div>
-          <p className="text-[12.5px] text-[var(--ink-3)] leading-[1.5] mb-2 mt-0">
+          <p className="text-[12.5px] text-[var(--ink-3)] leading-[1.5] m-0">
             {m.description}
           </p>
-          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-[var(--line-2)]">
-            <div className="flex flex-col gap-0.5 min-w-0">
-              <span className="font-mono text-[9.5px] text-[var(--ink-3)] uppercase tracking-[0.04em]">
-                {t('t2_retrieval_method_top1')}
-              </span>
-              <span className="font-mono text-[11.5px] text-[var(--ink)] truncate">
-                {m.top1 ?? '—'}
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="font-mono text-[9.5px] text-[var(--ink-3)] uppercase tracking-[0.04em]">
-                {t('t2_retrieval_method_returned')}
-              </span>
-              <span className="font-mono text-[11.5px] text-[var(--ink-2)]">
-                {m.returned != null
-                  ? `${m.returned} ${t('t2_retrieval_method_rows_suffix')}`
-                  : '—'}
-              </span>
-            </div>
-          </div>
         </article>
       ))}
     </div>
@@ -138,87 +111,51 @@ export function MethodCards({ methods }: { methods: MethodInfo[] }) {
 
 /* ───────────────────────────────────────────────────────── */
 
-export function FusionFunnel({
-  rawTotal, finalCount,
-}: {
-  rawTotal: number;
-  finalCount: number;
-}) {
+/**
+ * Honest one-line flow strip. Three input names → fuse pill → final
+ * count. No per-arm numbers. No "150 raw rows" math (we don't have
+ * the inputs). Uses ONLY the candidate_count from the event.
+ */
+export function FlowStrip({ finalCount }: { finalCount: number }) {
   const t = useT();
   return (
     <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius)] p-4">
       <div className="font-mono text-[10px] tracking-[0.1em] text-[var(--ink-3)] uppercase mb-3 flex items-center gap-1.5">
-        {t('t2_retrieval_funnel_title')
-          .replace('{raw}', String(rawTotal))
-          .replace('{final}', String(finalCount))}
+        {t('t2_retrieval_flow_title' as Parameters<typeof t>[0])}
         <StageGloss text={t('t2_glossary_rrf')} />
       </div>
 
-      <div className="grid items-center gap-x-3 gap-y-1.5"
-           style={{ gridTemplateColumns: '1fr auto auto auto auto' }}>
-        {/* Inputs column: 3 method bars stacked */}
-        <div className="flex flex-col gap-1.5">
-          <FunnelInputBar name="Vectors" />
-          <FunnelInputBar name="BM25" />
-          <FunnelInputBar name="Trigram" />
-        </div>
+      <div
+        className="flex items-center gap-3 flex-wrap"
+        aria-label="retrieval flow"
+      >
+        <span className="font-mono text-[12.5px] text-[var(--ink-2)] px-3 py-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)]">
+          {t('t2_retrieval_method_vectors')}
+          {' + '}
+          {t('t2_retrieval_method_bm25_short' as Parameters<typeof t>[0])}
+          {' + '}
+          {t('t2_retrieval_method_trigram_short' as Parameters<typeof t>[0])}
+        </span>
 
-        <span aria-hidden className="font-mono text-[var(--ink-3)] text-[18px] leading-none rtl:scale-x-[-1]">→</span>
+        <span aria-hidden className="font-mono text-[var(--ink-3)] text-[18px] leading-none rtl:scale-x-[-1]">
+          →
+        </span>
 
-        <div className="px-3 py-2 rounded-full border border-dashed border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent-soft)_60%,var(--surface))] text-center min-w-[120px]">
-          <div className="font-mono text-[12.5px] font-semibold text-[var(--accent)]">
-            {t('t2_retrieval_funnel_fuse_title')}
-          </div>
-          <div className="font-mono text-[10px] text-[var(--ink-3)] uppercase tracking-[0.04em] mt-0.5">
-            {t('t2_retrieval_funnel_fuse_sub')}
-          </div>
-        </div>
+        <span className="px-3 py-1.5 rounded-full border border-dashed border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent-soft)_60%,var(--surface))] font-mono text-[12.5px] text-[var(--accent)]">
+          {t('t2_retrieval_funnel_fuse_title')}
+        </span>
 
-        <span aria-hidden className="font-mono text-[var(--ink-3)] text-[18px] leading-none rtl:scale-x-[-1]">→</span>
+        <span aria-hidden className="font-mono text-[var(--ink-3)] text-[18px] leading-none rtl:scale-x-[-1]">
+          →
+        </span>
 
-        <FunnelOutputBar finalCount={finalCount} label={t('t2_retrieval_funnel_input_name')} />
+        <span className="font-mono text-[12.5px] font-semibold text-[var(--accent)] px-3 py-1.5 rounded-full border border-[var(--accent)] bg-[var(--surface)]">
+          {finalCount}{' '}
+          <span className="font-normal text-[var(--ink-3)]">
+            {t('t2_retrieval_flow_candidates_label' as Parameters<typeof t>[0])}
+          </span>
+        </span>
       </div>
-
-      <div className="mt-3.5 pt-3 border-t border-[var(--line-2)] text-[12.5px] text-[var(--ink-3)] leading-[1.55]">
-        <strong className="text-[var(--ink-2)] font-medium">{t('t2_retrieval_funnel_caption_prefix')}</strong>{' '}
-        {t('t2_retrieval_funnel_caption')
-          .replace('{raw}', String(rawTotal))
-          .replace('{final}', String(finalCount))}
-      </div>
-    </div>
-  );
-}
-
-function FunnelInputBar({ name }: { name: string }) {
-  // Qualitative — visual width is the same for every input. Default
-  // assumption: each method returned ~50 rows. When the backend ever
-  // exposes per-method counts, the bar can be width-scaled.
-  return (
-    <div className="grid items-center gap-2.5"
-         style={{ gridTemplateColumns: '70px 1fr auto' }}>
-      <span className="font-mono text-[11.5px] text-[var(--ink-2)] text-end">{name}</span>
-      <span className="relative h-1.5 rounded-full bg-[var(--ink-3)] w-full max-w-[200px]" aria-hidden>
-        <span className="absolute -inset-x-1.5 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[var(--ink-3)]" />
-      </span>
-      <span className="font-mono text-[11.5px] text-[var(--ink-2)]">50</span>
-    </div>
-  );
-}
-
-function FunnelOutputBar({
-  finalCount, label,
-}: {
-  finalCount: number;
-  label: string;
-}) {
-  return (
-    <div className="grid items-center gap-2.5"
-         style={{ gridTemplateColumns: '70px 1fr auto' }}>
-      <span className="font-mono text-[11.5px] text-[var(--accent)] text-end">{label}</span>
-      <span className="relative h-1.5 rounded-full bg-[var(--accent)] w-full max-w-[60px]" aria-hidden>
-        <span className="absolute -inset-x-1.5 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[var(--accent)]" />
-      </span>
-      <span className="font-mono text-[11.5px] text-[var(--accent)] font-semibold">{finalCount}</span>
     </div>
   );
 }
@@ -240,6 +177,8 @@ export function CandidateRows({
   const tied = top2Gap != null && top2Gap < top2GapMin;
   const visible = showAll ? candidates : candidates.slice(0, initialRows);
   const hidden = candidates.length - visible.length;
+
+  if (candidates.length === 0) return null;
 
   return (
     <div>

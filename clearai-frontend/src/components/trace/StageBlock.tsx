@@ -47,6 +47,14 @@ interface StageBlockProps {
   stateLabel: string;
   /** Optional latency / metadata string on the right of the header (mono). */
   meta?: string;
+  /**
+   * Optional badge sourced from event.model_calls[] for THIS stage.
+   * Renders inline in the header as e.g. "🤖 Sonnet · 4.22s" so the
+   * user can see at a glance which stages called an LLM and which
+   * didn't. Caller is responsible for filtering model_calls by
+   * stage and passing the model + latency + status here.
+   */
+  llmBadge?: ReactNode;
   /** Optional id for in-page anchoring (#stage-3, etc.). */
   id?: string;
   children: ReactNode;
@@ -54,7 +62,7 @@ interface StageBlockProps {
 }
 
 export function StageBlock({
-  index, total, title, titleGloss, state, stateLabel, meta, id, children, className,
+  index, total, title, titleGloss, state, stateLabel, meta, llmBadge, id, children, className,
 }: StageBlockProps) {
   const pill = STATE_PILL[state];
   return (
@@ -76,7 +84,8 @@ export function StageBlock({
             {titleGloss && <StageGloss text={titleGloss} />}
           </h2>
         </div>
-        <div className="flex items-center gap-[10px]">
+        <div className="flex items-center gap-[10px] flex-wrap">
+          {llmBadge}
           <span
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium"
             style={{ background: pill.bg, color: pill.fg }}
@@ -200,27 +209,45 @@ export function StageRaw({
 /**
  * StageChecks — pass/fail/warn rows shared by the gate and picker.
  * Three columns: icon · label · rule.
+ *
+ * `unknown` is for rows where we don't have enough information to
+ * assert pass or fail — e.g. the gate's pass/fail status when the
+ * backend hasn't recorded the threshold this request was evaluated
+ * against. Renders a muted em-dash icon and dims the label, with
+ * the rule slot showing "(threshold not recorded)" or similar
+ * honest disclosure (caller's responsibility).
  */
-export type CheckState = 'pass' | 'fail' | 'warn';
+export type CheckState = 'pass' | 'fail' | 'warn' | 'unknown';
 
 export function StageChecks({
   rows,
 }: {
-  rows: Array<{ state: CheckState; label: ReactNode; rule?: string }>;
+  rows: Array<{ state: CheckState; label: ReactNode; rule?: ReactNode }>;
 }) {
   return (
     <div className="grid items-baseline gap-y-1.5 gap-x-2.5"
          style={{ gridTemplateColumns: '16px 1fr auto' }}>
       {rows.map((r, i) => {
         const colour =
-          r.state === 'pass' ? 'oklch(0.42 0.12 155)' :
-          r.state === 'fail' ? 'oklch(0.42 0.14 25)' :
-                                'oklch(0.42 0.13 60)';
-        const sym = r.state === 'pass' ? '✓' : r.state === 'fail' ? '✗' : '⚠';
+          r.state === 'pass'    ? 'oklch(0.42 0.12 155)' :
+          r.state === 'fail'    ? 'oklch(0.42 0.14 25)'  :
+          r.state === 'warn'    ? 'oklch(0.42 0.13 60)'  :
+                                  'var(--ink-3)';
+        const sym =
+          r.state === 'pass'    ? '✓' :
+          r.state === 'fail'    ? '✗' :
+          r.state === 'warn'    ? '⚠' :
+                                  '—';
+        const labelMuted = r.state === 'unknown';
         return (
           <div key={i} className="contents">
             <span className="font-mono text-[13px] leading-[1]" style={{ color: colour }}>{sym}</span>
-            <span className="text-[13.5px] text-[var(--ink-2)]">{r.label}</span>
+            <span
+              className="text-[13.5px]"
+              style={{ color: labelMuted ? 'var(--ink-3)' : 'var(--ink-2)' }}
+            >
+              {r.label}
+            </span>
             {r.rule
               ? <span className="font-mono text-[11.5px] text-[var(--ink-3)] whitespace-nowrap">{r.rule}</span>
               : <span />}

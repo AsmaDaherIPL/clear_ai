@@ -224,6 +224,21 @@ export default function SubmissionDescriptionCard({
         </div>
       </div>
 
+      {/* Model footer — surfaces which LLM generated the AR text and
+          how long it took, when the backend supplies that metadata
+          (coordination B2). Only renders on success and when the
+          response actually came from an LLM (source==='llm'). The
+          guard_fallback path doesn't show a model footer because no
+          LLM ran — the deterministic guard generated the text. */}
+      {status === 'success' && data?.source === 'llm' && data.model_call && (
+        <div className="text-[11.5px] text-[var(--ink-3)] font-mono pt-2 border-t border-[var(--line-2)] flex items-center gap-2">
+          <span aria-hidden>🤖</span>
+          <span>{familyOf(data.model_call.model)}</span>
+          <span>·</span>
+          <span>{fmtMs(data.model_call.latency_ms)}</span>
+        </div>
+      )}
+
       {/* AI disclaimer — italic, with a top border separator. Always
           visible; the legal warning matters in every state. */}
       <div className="text-[12.5px] text-[var(--ink-3)] italic leading-[1.5] pt-2 border-t border-[var(--line-2)]">
@@ -231,4 +246,22 @@ export default function SubmissionDescriptionCard({
       </div>
     </div>
   );
+}
+
+/** Pluck the family ("Sonnet" / "Haiku" / "Opus") from a deployment id
+ *  so the footer reads "🤖 Haiku · 487ms" not the full
+ *  "claude-haiku-4-5-clearai-dev". Falls back to the raw model name
+ *  when nothing matches — never shows an em-dash. */
+function familyOf(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes('opus')) return 'Opus';
+  if (m.includes('sonnet')) return 'Sonnet';
+  if (m.includes('haiku')) return 'Haiku';
+  return model;
+}
+
+/** Format milliseconds as either "Xms" (< 1s) or "X.XXs" (≥ 1s). */
+function fmtMs(ms: number | null | undefined): string {
+  if (ms == null) return '—';
+  return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`;
 }

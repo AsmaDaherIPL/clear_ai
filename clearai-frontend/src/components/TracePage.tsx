@@ -125,6 +125,14 @@ type StageAdapterCtx = {
   nextLabel?: string;
   /** Anchor for the next stage's link target. */
   nextHref?: string;
+  /**
+   * When true, an adapter that would normally return null (because
+   * no model_call was logged for its stage) MUST still render — as
+   * a "skipped" placeholder block. Only used by the picker today,
+   * to honestly show "skipped (gate refused)" on heading-level
+   * promoted traces where best-effort owns the rationale.
+   */
+  forceRenderSkipped?: boolean;
   /** i18n hook. */
   t: T;
 };
@@ -145,7 +153,8 @@ function adaptCleanup(ctx: StageAdapterCtx): StageRender | null {
         title={t('t2_cleanup_title')}
         state={call.status === 'ok' ? 'good' : 'bad'}
         stateLabel={t(call.status === 'ok' ? 't2_state_ok' : 't2_state_failed')}
-        meta={fmtMs(call.latency_ms)}
+        meta={undefined}
+        llmBadge={<LLMBadge call={call} />}
       >
         <StageSection
           label={t('t2_section_what_does')}
@@ -190,7 +199,8 @@ function adaptResearch(ctx: StageAdapterCtx): StageRender | null {
         title={t('t2_research_title')}
         state={call.status === 'ok' ? 'good' : 'bad'}
         stateLabel={t(call.status === 'ok' ? 't2_state_ok' : 't2_state_failed')}
-        meta={fmtMs(call.latency_ms)}
+        meta={undefined}
+        llmBadge={<LLMBadge call={call} />}
       >
         <StageSection
           label={t('t2_section_what_does')}
@@ -219,23 +229,24 @@ function adaptRetrieval(ctx: StageAdapterCtx): StageRender {
   const top = event.top_retrieval_score;
   const gap = event.top2_gap;
   const count = event.candidate_count;
-  // Build the 3 method cards with what we have. Per-method counts
-  // aren't on the current backend payload — qualitative funnel for now.
+  // Static documentation only — what each retrieval arm DOES.
+  // We deliberately don't pass per-arm latency / top-1 / returned
+  // counts here because the backend doesn't measure them. Showing
+  // hardcoded numbers would invent data; showing em-dashes would
+  // imply we have data we're choosing not to display. Honest stance:
+  // explain what each method does, don't claim a measurement.
   const methods: [MethodInfo, MethodInfo, MethodInfo] = [
     {
       name: t('t2_retrieval_method_vectors'),
       description: t('t2_retrieval_method_vectors_desc'),
-      latencyMs: null, top1: null, returned: 50,
     },
     {
       name: t('t2_retrieval_method_bm25'),
       description: t('t2_retrieval_method_bm25_desc'),
-      latencyMs: null, top1: null, returned: 50,
     },
     {
       name: t('t2_retrieval_method_trigram'),
       description: t('t2_retrieval_method_trigram_desc'),
-      latencyMs: null, top1: null, returned: 50,
     },
   ];
 
@@ -272,11 +283,17 @@ function adaptRetrieval(ctx: StageAdapterCtx): StageRender {
             candidates={candidates}
             finalCount={count ?? candidates.length}
             top2Gap={gap}
+            // When the gate's gap threshold is recorded on the
+            // event, use it for the candidate-row "tied #1" visual
+            // cue. Falls back to the visual-only default in
+            // RetrievalFunnel (0.05) when absent — that fallback
+            // governs only the amber tint, NOT any pass/fail claim.
+            top2GapMin={event.thresholds?.gate_min_gap ?? undefined}
           />
         </StageSection>
 
         <StageSection label={t('t2_retrieval_signal_label')}>
-          <StageChecks rows={signalChecks(t, top, gap, count)} />
+          <StageChecks rows={signalChecks(t, top, gap, count, event.thresholds)} />
         </StageSection>
 
         {nextHref && nextLabel && (
@@ -318,33 +335,76 @@ function adaptGate(ctx: StageAdapterCtx): StageRender {
   const top = event.top_retrieval_score;
   const gap = event.top2_gap;
   const count = event.candidate_count;
-  const TOP_MIN = 0.4, GAP_MIN = 0.05, COUNT_MIN = 3;
 
-  const topPass   = top != null && top >= TOP_MIN;
-  const gapPass   = gap != null && gap >= GAP_MIN;
-  const countPass = count != null && count >= COUNT_MIN;
-  const allPass = topPass && gapPass && countPass;
-  const onlyGapFailed = topPass && !gapPass && countPass;
+  // Read real thresholds from event.thresholds (backend coordination
+  // B1). When a threshold is absent, we deliberately render the
+  // corresponding row as `unknown` rather than evaluating against a
+  // hardcoded number — the trust-fix spec is explicit: "Don't pretend.
+  // If the backend hasn't sent them yet, show '—' plus a small
+  // '(threshold not recorded)' disclosure."
+  const thr = event.thresholds ?? null;
+  const minScore  = thr?.gate_min_score ?? null;
+  const minGap    = thr?.gate_min_gap ?? null;
+  const minCount  = thr?.gate_min_candidates ?? null;
 
-  const blockState: 'good' | 'warn' | 'bad' = allPass ? 'good' : onlyGapFailed ? 'warn' : 'bad';
-  const stateLabelKey: TKey = allPass ? 't2_state_ok' : onlyGapFailed ? 't2_state_warned' : 't2_state_refused';
+  // Per-check evaluation. Each can be 'pass' / 'fail' / 'unknown'
+  // (when either the observation OR the threshold is missing).
+  const topState: 'pass' | 'fail' | 'unknown' =
+    top == null || minScore == null ? 'unknown' : top >= minScore ? 'pass' : 'fail';
+  const gapState: 'pass' | 'fail' | 'unknown' =
+    gap == null || minGap == null ? 'unknown' : gap >= minGap ? 'pass' : 'fail';
+  const countState: 'pass' | 'fail' | 'unknown' =
+    count == null || minCount == null ? 'unknown' : count >= minCount ? 'pass' : 'fail';
 
-  // Tone of the decision callout matches the block state.
-  const decisionTitleKey: TKey = allPass
-    ? 't2_gate_decision_pass_title'
-    : onlyGapFailed
-      ? 't2_gate_decision_warn_title'
-      : 't2_gate_decision_fail_title';
-  const decisionBodyKey: TKey = allPass
-    ? 't2_gate_decision_pass_body'
-    : onlyGapFailed
-      ? 't2_gate_decision_warn_body'
-      : 't2_gate_decision_fail_body';
-  const nextKey: TKey = allPass
-    ? 't2_gate_next_pass'
-    : onlyGapFailed
-      ? 't2_gate_next_warn'
-      : 't2_gate_next_fail';
+  // Block-level outcome. We can only assert "all pass" when EVERY
+  // check resolved to 'pass'. If any is 'unknown', we treat the
+  // block as warn (we don't know whether the gate would have
+  // refused — honest middle ground). 'bad' is only when at least
+  // one threshold was actually evaluated and failed.
+  const allPass = topState === 'pass' && gapState === 'pass' && countState === 'pass';
+  // "Hard fail" = top score or count failed (both fatal — picker won't run).
+  // gapState alone failing is the soft "tight tie" path which still
+  // proceeds to the picker with a warning, not a refusal.
+  const anyHardFail = topState === 'fail' || countState === 'fail';
+  const onlyGapFailed = gapState === 'fail' && topState === 'pass' && countState === 'pass';
+  const anyUnknown = topState === 'unknown' || gapState === 'unknown' || countState === 'unknown';
+
+  const blockState: 'good' | 'warn' | 'bad' =
+    allPass         ? 'good' :
+    anyHardFail     ? 'bad'  :
+    onlyGapFailed   ? 'warn' :
+    anyUnknown      ? 'warn' :
+                      'warn';
+
+  const stateLabelKey: TKey =
+    allPass         ? 't2_state_ok'      :
+    anyHardFail     ? 't2_state_refused' :
+    onlyGapFailed   ? 't2_state_warned'  :
+                      't2_state_warned';
+
+  const decisionTitleKey: TKey =
+    allPass        ? 't2_gate_decision_pass_title' :
+    onlyGapFailed  ? 't2_gate_decision_warn_title' :
+    anyHardFail    ? 't2_gate_decision_fail_title' :
+                     't2_gate_decision_warn_title';
+  const decisionBodyKey: TKey =
+    allPass        ? 't2_gate_decision_pass_body' :
+    onlyGapFailed  ? 't2_gate_decision_warn_body' :
+    anyHardFail    ? 't2_gate_decision_fail_body' :
+                     't2_gate_decision_warn_body';
+  const nextKey: TKey =
+    allPass        ? 't2_gate_next_pass' :
+    onlyGapFailed  ? 't2_gate_next_warn' :
+    anyHardFail    ? 't2_gate_next_fail' :
+                     't2_gate_next_warn';
+
+  // Render-helper for the rule column. When the threshold IS recorded,
+  // shows "required ≥ 0.4" etc. When absent, shows the honest
+  // "(threshold not recorded)" disclosure.
+  const ruleFor = (min: number | null, ruleKey: TKey): string =>
+    min == null
+      ? t('t2_gate_threshold_unknown' as TKey)
+      : t(ruleKey).replace('{min}', String(min));
 
   return {
     id: 'stage-gate',
@@ -373,19 +433,19 @@ function adaptGate(ctx: StageAdapterCtx): StageRender {
           <StageChecks
             rows={[
               {
-                state: topPass ? 'pass' : 'fail',
+                state: topState,
                 label: t('t2_gate_top_label').replace('{score}', fmtScore(top)),
-                rule: t('t2_gate_top_rule').replace('{min}', String(TOP_MIN)),
+                rule: ruleFor(minScore, 't2_gate_top_rule'),
               },
               {
-                state: gapPass ? 'pass' : 'fail',
+                state: gapState,
                 label: t('t2_gate_gap_label').replace('{gap}', fmtScore(gap)),
-                rule: t('t2_gate_gap_rule').replace('{min}', String(GAP_MIN)),
+                rule: ruleFor(minGap, 't2_gate_gap_rule'),
               },
               {
-                state: countPass ? 'pass' : 'fail',
+                state: countState,
                 label: t('t2_gate_count_label').replace('{n}', String(count ?? '—')),
-                rule: t('t2_gate_count_rule').replace('{min}', String(COUNT_MIN)),
+                rule: ruleFor(minCount, 't2_gate_count_rule'),
               },
             ]}
           />
@@ -411,9 +471,9 @@ function adaptGate(ctx: StageAdapterCtx): StageRender {
 
         <StageRaw
           data={{
-            thresholds: { min_top_score: TOP_MIN, min_top2_gap: GAP_MIN, min_candidates: COUNT_MIN },
+            thresholds: thr ?? '(threshold not recorded — backend coordination B1 pending)',
             observed: { top_score: top, top2_gap: gap, candidate_count: count },
-            passed: { top: topPass, gap: gapPass, count: countPass },
+            evaluated: { top: topState, gap: gapState, count: countState },
           }}
           showLabel={t('t2_show_raw')}
           hideLabel={t('t2_hide_raw')}
@@ -424,7 +484,55 @@ function adaptGate(ctx: StageAdapterCtx): StageRender {
 }
 
 function adaptPicker(ctx: StageAdapterCtx): StageRender | null {
-  const { event, call, t, index, total, nextHref, nextLabel } = ctx;
+  const { event, call, t, index, total, nextHref, nextLabel, forceRenderSkipped } = ctx;
+
+  // Heading-level-promoted path: picker didn't run but we still
+  // want a "skipped (gate refused)" placeholder so the user sees
+  // the picker box and understands it didn't write the rationale.
+  if (!call && forceRenderSkipped) {
+    return {
+      id: 'stage-picker',
+      spine: {
+        num: String(index),
+        label: 'Picker',
+        meta: 'skipped',
+        state: 'warn',
+      },
+      node: (
+        <StageBlock
+          key="picker"
+          id="stage-picker"
+          index={index}
+          total={total}
+          title={t('t2_picker_title')}
+          titleGloss={t('t2_glossary_picker')}
+          state="skipped"
+          stateLabel={t('t2_picker_skipped_state' as TKey)}
+        >
+          <StageSection label={t('t2_section_what_does')}>
+            {t('t2_picker_what')}
+          </StageSection>
+          <StageSection label={t('t2_section_decision')}>
+            <StageDecision tone="warn" title={t('t2_picker_decision_skipped_title')}>
+              {t('t2_picker_decision_skipped_body')}
+            </StageDecision>
+          </StageSection>
+          {nextHref && nextLabel && (
+            <StageSection label={t('t2_section_next')}>
+              <span className="block mb-1.5">{t('t2_picker_next_skipped')}</span>
+              <StageHandoff
+                href={nextHref}
+                label={t('t2_continues_at')
+                  .replace('{n}', String(index + 1))
+                  .replace('{label}', nextLabel)}
+              />
+            </StageSection>
+          )}
+        </StageBlock>
+      ),
+    };
+  }
+
   if (!call) return null;
   const guarded = event.guard_tripped;
   const chosen = event.chosen_code;
@@ -453,7 +561,8 @@ function adaptPicker(ctx: StageAdapterCtx): StageRender | null {
             : chosen ? t('t2_state_ok')
               : t('t2_state_skipped')
         }
-        meta={fmtMs(call.latency_ms)}
+        meta={undefined}
+        llmBadge={<LLMBadge call={call} />}
       >
         <StageSection
           label={t('t2_section_what_does')}
@@ -539,7 +648,8 @@ function adaptBestEffort(ctx: StageAdapterCtx): StageRender | null {
         titleGloss={t('t2_glossary_best_effort')}
         state="warn"
         stateLabel={t('t2_state_ok')}
-        meta={fmtMs(call.latency_ms)}
+        meta={undefined}
+        llmBadge={<LLMBadge call={call} />}
       >
         <StageSection
           label={t('t2_section_what_does')}
@@ -555,6 +665,22 @@ function adaptBestEffort(ctx: StageAdapterCtx): StageRender | null {
                 .replace('{code}', event.chosen_code)
                 .replace('{reason}', event.decision_reason)}
             </StageDecision>
+          </StageSection>
+        )}
+
+        {/* Rationale belongs HERE on heading-level-promoted traces —
+            best-effort writes the rationale, not the picker. The
+            picker adapter only renders `event.rationale` inside the
+            picker block when the picker actually ran (its `if (!call)
+            return null` guard ensures that). When this best-effort
+            stage renders, attribute the rationale to it. */}
+        {event.rationale && (
+          <StageSection label={t('t2_picker_why_label')}>
+            <blockquote
+              className="border-s-[3px] border-[var(--accent)] bg-[var(--accent-soft)] ps-3.5 py-1.5 m-0 rounded-e-[var(--radius)] text-[13.5px] leading-[1.6] text-[var(--ink-2)]"
+            >
+              {event.rationale}
+            </blockquote>
           </StageSection>
         )}
 
@@ -576,6 +702,51 @@ function ModelChip({ model }: { model: string }) {
   );
 }
 
+/**
+ * Header badge that surfaces a single LLM call's model + latency
+ * inline in a stage block's header — driven by event.model_calls[]
+ * so every stage that called an LLM is visible at a glance, and
+ * stages that didn't (Search, Gate) stay clean.
+ *
+ * Status colour: ok = neutral muted; error/timeout = red border.
+ *
+ * The model name is shortened to its family ("Sonnet" / "Haiku" /
+ * "Opus") so the badge stays compact — we keep the full id in the
+ * raw stage output for anyone who wants the deployment name.
+ */
+function LLMBadge({ call }: { call: ModelCall | null | undefined }) {
+  if (!call) return null;
+  const family = familyOf(call.model);
+  const errored = call.status !== 'ok';
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-mono text-[11px] whitespace-nowrap',
+        errored
+          ? 'border border-[oklch(0.55_0.18_25)] bg-[oklch(0.94_0.05_25)] text-[oklch(0.42_0.14_25)]'
+          : 'border border-[var(--line)] bg-[var(--line-2)] text-[var(--ink-2)]',
+      )}
+      title={`${call.model} · ${call.status}`}
+    >
+      <span aria-hidden>🤖</span>
+      <span>{family}</span>
+      <span className="text-[var(--ink-3)]">·</span>
+      <span className="text-[var(--ink-3)]">{fmtMs(call.latency_ms)}</span>
+    </span>
+  );
+}
+
+/** Pluck the model family out of a deployment id like
+ *  "claude-sonnet-4-6-clearai-dev" → "Sonnet". Falls back to the
+ *  raw model name when nothing matches. */
+function familyOf(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes('opus')) return 'Opus';
+  if (m.includes('sonnet')) return 'Sonnet';
+  if (m.includes('haiku')) return 'Haiku';
+  return model;
+}
+
 function requestText(e: TraceEvent): string {
   if (typeof e.request === 'object' && e.request !== null && 'description' in e.request) {
     return String((e.request as { description?: unknown }).description ?? '');
@@ -583,27 +754,61 @@ function requestText(e: TraceEvent): string {
   return '';
 }
 
+/**
+ * Build the retrieval-stage "Ranking signal handed to the gate"
+ * checklist. Pass/warn evaluation only happens when the gate's
+ * thresholds are recorded on the event — if absent, the row's
+ * verdict is `unknown` rather than evaluated against a hardcoded
+ * fallback. (See trust-fix spec #3 / #4.)
+ */
 function signalChecks(
   t: T,
   top: number | null,
   gap: number | null,
   count: number | null,
+  thresholds: TraceEvent['thresholds'],
 ): Array<{ state: CheckState; label: React.ReactNode; rule?: string }> {
+  const minScore = thresholds?.gate_min_score ?? null;
+  const minGap   = thresholds?.gate_min_gap ?? null;
+  const minCount = thresholds?.gate_min_candidates ?? null;
+
+  const topRow: CheckState =
+    top == null || minScore == null ? 'unknown' :
+    top >= minScore ? 'pass' : 'warn';
+  const gapRow: CheckState =
+    gap == null || minGap == null ? 'unknown' :
+    gap >= minGap ? 'pass' : 'warn';
+  const countRow: CheckState =
+    count == null || minCount == null ? 'unknown' :
+    count >= minCount ? 'pass' : 'warn';
+
+  const ruleOrUnknown = (rule: string | null) =>
+    rule == null ? t('t2_gate_threshold_unknown' as TKey) : rule;
+
   return [
     {
-      state: (top != null && top >= 0.4) ? 'pass' : 'warn',
+      state: topRow,
       label: t('t2_retrieval_signal_top_label').replace('{score}', fmtScore(top)),
-      rule: t(top != null && top >= 0.4 ? 't2_retrieval_signal_top_strong' : 't2_retrieval_signal_top_weak'),
+      rule: ruleOrUnknown(
+        topRow === 'unknown' ? null
+          : t(topRow === 'pass' ? 't2_retrieval_signal_top_strong' : 't2_retrieval_signal_top_weak'),
+      ),
     },
     {
-      state: (gap != null && gap >= 0.05) ? 'pass' : 'warn',
+      state: gapRow,
       label: t('t2_retrieval_signal_gap_label').replace('{gap}', fmtScore(gap)),
-      rule: t(gap != null && gap >= 0.05 ? 't2_retrieval_signal_gap_strong' : 't2_retrieval_signal_gap_tight'),
+      rule: ruleOrUnknown(
+        gapRow === 'unknown' ? null
+          : t(gapRow === 'pass' ? 't2_retrieval_signal_gap_strong' : 't2_retrieval_signal_gap_tight'),
+      ),
     },
     {
-      state: (count != null && count >= 3) ? 'pass' : 'warn',
+      state: countRow,
       label: t('t2_retrieval_signal_count_label').replace('{n}', String(count ?? '—')),
-      rule: t(count != null && count >= 3 ? 't2_retrieval_signal_count_healthy' : 't2_retrieval_signal_count_thin'),
+      rule: ruleOrUnknown(
+        countRow === 'unknown' ? null
+          : t(countRow === 'pass' ? 't2_retrieval_signal_count_healthy' : 't2_retrieval_signal_count_thin'),
+      ),
     },
   ];
 }
@@ -871,8 +1076,12 @@ export default function TracePage() {
 
   const { event, feedback } = data;
   const calls: ModelCall[] = isModelCallArray(event.model_calls) ? event.model_calls : [];
+  // Spec calls these `researcher` / `researcher_web`; older traces
+  // may have logged `research` / `research_web`. Read both, prefer
+  // the canonical name. Forward-compatible without breaking history.
+  const callsForStage = (...names: string[]): ModelCall | undefined =>
+    calls.find((c) => names.includes(c.stage));
   const candidates: AltRow[] = isAlternativeArray(event.alternatives) ? event.alternatives : [];
-  const callByStage = (s: string) => calls.find((c) => c.stage === s);
 
   // Compose the rendered timeline. Adapters return null for stages
   // that didn't run; we filter those out. Total = number of rendered
@@ -893,19 +1102,34 @@ export default function TracePage() {
 
   // Pre-resolve which stages will render so we can pass next-stage
   // info into each adapter's ctx.
-  const dryRun: Array<{ adapter: typeof order[number]; call?: ModelCall }> = [
-    { adapter: adaptCleanup,    call: callByStage('cleanup') },
+  // Picker is special: the adapter normally returns null when no
+  // picker call was logged. But on the heading-level-promoted path
+  // (decision_status === 'best_effort'), the picker block SHOULD
+  // still render — as a "skipped (gate refused)" placeholder — so
+  // the user understands the picker didn't write the rationale they
+  // see in the next block. Only when the trace genuinely had no
+  // picker AND no best-effort (e.g. clean retrieval-only) do we drop
+  // the picker block entirely.
+  const pickerCall = callsForStage('picker');
+  const bestEffortCall = callsForStage('best_effort');
+  const pickerShouldRenderSkipped =
+    !pickerCall && (event.decision_status === 'best_effort' || !!bestEffortCall);
+
+  const dryRun: Array<{ adapter: typeof order[number]; call?: ModelCall; skipped?: boolean }> = [
+    { adapter: adaptCleanup,    call: callsForStage('cleanup') },
     { adapter: adaptRetrieval,  call: undefined }, // always renders
-    { adapter: adaptResearch,   call: callByStage('research') },
+    { adapter: adaptResearch,   call: callsForStage('researcher', 'research', 'researcher_web', 'research_web') },
     { adapter: adaptGate,       call: undefined }, // always renders
-    { adapter: adaptPicker,     call: callByStage('picker') },
-    { adapter: adaptBestEffort, call: callByStage('best_effort') },
+    { adapter: adaptPicker,     call: pickerCall, skipped: pickerShouldRenderSkipped },
+    { adapter: adaptBestEffort, call: bestEffortCall },
   ];
   // Filter the ones whose adapters would return null (optional stages
-  // without a model_call). Retrieval and gate always render.
+  // without a model_call). Retrieval and gate always render. Picker
+  // also renders when `skipped` is forced — see pickerShouldRenderSkipped
+  // above for the heading-level-promoted path.
   const willRender = dryRun.filter((s, i) => {
     if (i === 1 || i === 3) return true; // retrieval, gate
-    return !!s.call;
+    return !!s.call || !!s.skipped;
   });
   const totalBlocks = willRender.length;
 
@@ -924,6 +1148,7 @@ export default function TracePage() {
     const ctx: StageAdapterCtx = {
       ...ctxBase,
       call: s.call,
+      forceRenderSkipped: s.skipped,
       index: i + 1,
       total: totalBlocks,
       nextHref: next ? `#${idForAdapter(next.adapter)}` : undefined,
