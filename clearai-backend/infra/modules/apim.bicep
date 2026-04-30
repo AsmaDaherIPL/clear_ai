@@ -6,7 +6,9 @@
 // - Two APIs:
 //     1. `clearai-backend`         (path '', subscriptionRequired: true)
 //        operations: POST /classify/describe, /classify/expand, /boost,
-//                    GET  /classify/newDescription
+//                    GET  /classify/newDescription,
+//                    GET  /trace/{eventId},
+//                    POST /trace/{eventId}/feedback
 //     2. `clearai-backend-public`  (path 'health', subscriptionRequired: false)
 //        operation: GET / (which proxies to {backend}/health)
 //   They MUST live on different paths because APIM rejects two HTTPS APIs
@@ -14,11 +16,13 @@
 //   adds gateway-URL noise we don't want for v1.
 //
 //   So the gateway URLs are:
-//     POST https://{apim}.azure-api.net/classify/describe   (sub key required)
-//     POST https://{apim}.azure-api.net/classify/expand     (sub key required)
+//     POST https://{apim}.azure-api.net/classify/describe       (sub key required)
+//     POST https://{apim}.azure-api.net/classify/expand         (sub key required)
 //     GET  https://{apim}.azure-api.net/classify/newDescription (sub key required)
-//     POST https://{apim}.azure-api.net/boost               (sub key required)
-//     GET  https://{apim}.azure-api.net/health              (anonymous)
+//     POST https://{apim}.azure-api.net/boost                   (sub key required)
+//     GET  https://{apim}.azure-api.net/trace/{eventId}         (sub key required)
+//     POST https://{apim}.azure-api.net/trace/{eventId}/feedback (sub key required)
+//     GET  https://{apim}.azure-api.net/health                  (anonymous)
 //
 // - Inbound API policy (applied to BOTH APIs):
 //     a) CORS — allow the SWA frontend, the APIM gateway itself (server-to-
@@ -263,6 +267,64 @@ resource opNewDescription 'Microsoft.ApiManagement/service/apis/operations@2024-
       { statusCode: 200, description: 'OK' }
       { statusCode: 400, description: 'invalid_query or invalid_state' }
       { statusCode: 404, description: 'not_found' }
+    ]
+  }
+}
+
+// Trace replay — fetches the persisted classification_event row + any
+// human feedback rows for a prior request_id. Powers the trace page UI
+// where users can review WHY a code was chosen and submit corrections.
+//
+// Path is templated on {eventId} (UUID); APIM forwards verbatim. The
+// backend's Fastify route validates the UUID shape and returns 404
+// for malformed IDs OR missing rows — APIM doesn't try to enforce
+// the UUID format at the gateway because the backend's error message
+// is more useful ("invalid event id" vs "no event with that id").
+resource opTraceGet 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: apiProtected
+  name: 'trace-get'
+  properties: {
+    displayName: 'GET /trace/{eventId}'
+    method: 'GET'
+    urlTemplate: '/trace/{eventId}'
+    templateParameters: [
+      {
+        name: 'eventId'
+        description: 'UUID of a prior classification event (request_id from /classify/describe).'
+        type: 'string'
+        required: true
+      }
+    ]
+    responses: [
+      { statusCode: 200, description: 'Event found; returns event row + feedback array.' }
+      { statusCode: 404, description: 'Invalid UUID or no event with that id.' }
+    ]
+  }
+}
+
+// User feedback on a classification — confirm / reject / prefer_alternative.
+// One row per (event_id, user_id) — UPSERT semantics on the backend, so a
+// repeat POST from the same user updates their existing feedback rather
+// than spamming duplicates.
+resource opTraceFeedback 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: apiProtected
+  name: 'trace-feedback'
+  properties: {
+    displayName: 'POST /trace/{eventId}/feedback'
+    method: 'POST'
+    urlTemplate: '/trace/{eventId}/feedback'
+    templateParameters: [
+      {
+        name: 'eventId'
+        description: 'UUID of the classification event being annotated.'
+        type: 'string'
+        required: true
+      }
+    ]
+    responses: [
+      { statusCode: 200, description: 'Feedback recorded; returns feedback_id.' }
+      { statusCode: 400, description: 'invalid_body — malformed payload or wrong field combination.' }
+      { statusCode: 404, description: 'Invalid UUID or no event with that id.' }
     ]
   }
 }
