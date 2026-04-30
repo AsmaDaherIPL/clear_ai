@@ -1,19 +1,5 @@
 ---
-/**
- * /trace?id=<uuid> — full debug trace for a single classification.
- *
- * URL strategy: a query parameter, not a path segment.
- *
- * Why: Astro's static build emits files at concrete paths only. A
- * dynamic `/trace/[id].astro` would require either `getStaticPaths()`
- * with every UUID listed up-front (impossible — UUIDs are runtime),
- * or `prerender = false` + a server adapter (incompatible with
- * Azure SWA's static-only deploy). A query param dodges all that:
- * one static `/trace/index.html` ships, the React island reads
- * `?id=` at hydration. Same UX in dev and prod, no SWA rewrite.
- *
- * Result-card links should target `/trace?id=${request_id}`.
- */
+/** /trace?id=<uuid> — debug trace for a single classification. */
 import Layout from '../../layouts/Layout.astro';
 import TracePage from '../../components/TracePage.tsx';
 import '../../styles/global.css';

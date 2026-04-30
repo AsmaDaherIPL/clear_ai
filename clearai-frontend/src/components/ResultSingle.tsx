@@ -1,34 +1,4 @@
-/**
- * ResultSingle.tsx — Generate-mode result card (props-driven, real backend data)
- *
- * RESPONSIBILITIES:
- *   1. HEADER: 12-digit code as 6-segment digit breakdown
- *      (Chapter · Heading · Sub · National · Stat · Ext) + match-pill +
- *      Copy code + duty/procedures meta chips.
- *   2. INTERPRETATION ROW: "Understood as: …" trust signal — only when the
- *      researcher rewrote the input (interpretation.stage !== 'passthrough').
- *   3. BODY: four stacked blocks:
- *        a) ZATCA catalog description (EN above AR)
- *        b) Suggested ZATCA submission description (EN/AR rows + Copy AR
- *           button + "Differs from ZATCA catalog" pill + AI disclaimer)
- *        c) "Why this code" rationale block (tinted card)
- *        d) Considered alternatives (rank · code · desc · score/fit rows)
- *   4. LATENCY FOOTER (dev-only): client-measured round-trip + View full
- *      trace link → /trace?id=<request_id>.
- *
- * STATE OWNED: none — this is a presentational component. Parent
- * (ClassifyApp) owns the DescribeResponse and round-trip latency.
- *
- * DATA STRATEGY:
- *   The component takes `data: DescribeResponse | null`. When null (e.g. an
- *   error happened upstream and the parent still rendered us), we render
- *   nothing — the parent handles the empty / error UI. The EXEMPLAR
- *   constant has been removed: the wiring is live. For Storybook / layout
- *   work, pass a hand-crafted DescribeResponse instead.
- *
- * NOT YET IMPLEMENTED (genuine TODOs):
- *   - Generate ZATCA XML action (no backend endpoint yet).
- */
+/** Generate-mode result card. Presentational; parent owns the DescribeResponse. */
 
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -46,35 +16,18 @@ import { CopyChip } from '@/components/ui/copy-chip';
 
 interface ResultSingleProps {
   visible: boolean;
-  /** The classifier response. When null, renders nothing. */
+  /** Classifier response. When null, renders nothing. */
   data: DescribeResponse | null;
   /** Round-trip latency in ms, measured at the call site. */
   latencyMs?: number;
-  /**
-   * Re-fire the most recent classification request. Surfaced on the
-   * degraded-with-candidates manual-pick variant as a "Retry auto-pick"
-   * button — when the picker LLM was transiently unavailable but
-   * retrieval still produced candidates, a second attempt usually
-   * succeeds. Owned by ClassifyApp; ResultSingle just calls it.
-   */
+  /** Re-fire the most recent classification request (manual-pick variant). */
   onRetry?: () => void;
-  /**
-   * Promote a manually-picked alternative code to the chosen leaf.
-   * Called when the user clicks "Use this code" on a candidate row in
-   * the manual-pick variant. The parent synthesizes an accepted-shaped
-   * envelope so the next render lands on the normal accepted layout.
-   */
+  /** Promote a manually-picked alternative code to the chosen leaf. */
   onPickAlternative?: (code: string) => void;
   className?: string;
 }
 
-/**
- * Cap a description string at a hard character limit, breaking at a word
- * boundary when possible. ZATCA catalog descriptions can run 400+ chars.
- *
- * Applied independently to EN and AR — Arabic word-segmentation also
- * works on whitespace for ZATCA's catalog descriptions.
- */
+/** Cap a description at a char limit, breaking at a word boundary when possible. */
 const ZATCA_DESC_MAX = 250;
 const ALT_DESC_MAX = 120;
 function clampDescription(text: string, max: number = ZATCA_DESC_MAX): string {
@@ -85,36 +38,12 @@ function clampDescription(text: string, max: number = ZATCA_DESC_MAX): string {
   return `${cut.trimEnd()}…`;
 }
 
-/**
- * Canonical 12-digit form of a Saudi HS code. Strips non-digits, pads
- * the right with `0` to 12 chars, then truncates to 12.
- *
- * Why this exists:
- *   - The backend can legitimately return a SHORTER code on the
- *     heading-level acceptance path (ADR-0019) — e.g. `4202` for a
- *     bag whose only confident-enough match was the HS-4 heading.
- *     ZATCA accepts the heading-padded form `420200000000` as a
- *     valid declaration, so the FRONTEND is responsible for
- *     surfacing the padded form to the user (visually AND on the
- *     clipboard) rather than the bare 4 digits.
- *   - Both the segment renderer and the Copy code button consume
- *     this so the digits the user sees on screen are exactly the
- *     digits that land on their clipboard.
- *
- * Defensive against:
- *   - Backend drift (returning 13+ chars → truncate to 12)
- *   - Punctuation (returning `4202.00.00.00` → strip non-digits)
- *   - Missing field (returning `''` / `null` → pad to `000000000000`)
- */
+/** Canonical 12-digit Saudi HS code: strip non-digits, right-pad with 0, truncate to 12. */
 function padCodeTo12(code: string | null | undefined): string {
   return (code ?? '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
 }
 
-/**
- * Split a 12-digit HS code into 6 two-digit segments. The first three
- * (HS-6 trunk: chapter / heading / sub) render with the orange→rust
- * gradient; the last three (Saudi NSE) stay solid ink.
- */
+/** Split a 12-digit HS code into 6 two-digit segments; first three are accented. */
 function splitCodeSegments(code: string) {
   const padded = padCodeTo12(code);
   const labels: Array<{ key: 'seg_chapter' | 'seg_heading' | 'seg_sub' | 'seg_national' | 'seg_stat' | 'seg_ext'; accented: boolean }> = [
@@ -132,19 +61,14 @@ function splitCodeSegments(code: string) {
   }));
 }
 
-// Inline arrow icon — used for the trace link in the dev footer. The
-// copy icon used to live here too but moved into the shared CopyChip
-// primitive when both Copy code and Copy AR converged on that pill
-// geometry.
+// Inline arrow icon used for the trace link in the dev footer.
 const ArrowIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="rtl:scale-x-[-1]">
     <path d="M5 12h14M13 6l6 6-6 6" />
   </svg>
 );
 
-// Retry icon — circular arrow. Used by ManualPickCard's "Retry
-// auto-pick" button so the affordance reads as "go again" without
-// leaning on the word alone.
+// Circular-arrow retry icon used by ManualPickCard's retry button.
 const RetryArrowIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
@@ -158,19 +82,7 @@ const FieldLabel = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-/**
- * Compact meta chip used for duty / procedures in the header. Layout:
- *
- *   ┌──────────────────┐
- *   │  DUTY    5 %     │
- *   └──────────────────┘
- *
- * Mono uppercase tag in muted ink on the start side; the value in solid
- * ink on the end side, slightly heavier so it reads as the primary
- * datum. Hairline border + subtle surface fill mirrors the match pill /
- * Copy code button so the trio of chips at the top of the card share a
- * consistent visual language.
- */
+/** Compact meta chip used for duty in the header (mono label + value). */
 const MetaChip = ({
   label,
   value,
@@ -191,13 +103,7 @@ const MetaChip = ({
   </span>
 );
 
-/**
- * Match pill — three visual tones depending on decision_status:
- *   accepted             → green ("Strong match" / reasonLabel)
- *   needs_clarification  → amber ("Needs review")
- *   best_effort          → amber ("Best effort — verify")
- *   degraded             → red   ("Service degraded")
- */
+/** Match pill tone keyed off decision_status (good=green, warn=amber, bad=red). */
 type PillTone = 'good' | 'warn' | 'bad';
 const TONE_STYLES: Record<PillTone, { bg: string; fg: string; dot: string }> = {
   good: { bg: 'oklch(0.95 0.05 155)', fg: 'oklch(0.42 0.12 155)', dot: 'oklch(0.55 0.15 155)' },
@@ -217,25 +123,7 @@ const TonePill = ({ tone, children }: { tone: PillTone; children: React.ReactNod
   );
 };
 
-/**
- * Map (status, reason) → (pill tone, displayed label).
- *
- * The label is either:
- *   - `labelKey`   : a known i18n key the caller resolves with t(...)
- *   - `fallback`   : a literal string (already-formatted)
- *
- * The fallback path covers two cases:
- *   1. The backend ships a new `decision_reason` value before the
- *      frontend has been updated. We don't want to crash or render an
- *      empty pill — render "snake_case → Title Case" so it's at
- *      least intelligible (e.g. "future_new_reason" → "Future new
- *      reason"). The pill tone uses the status-only default.
- *   2. needs_clarification with no specific reason match — same
- *      fallback applies.
- *
- * `confidence_band` is no longer consulted — the new pill copy is
- * driven purely by (status, reason) per the spec table.
- */
+/** Map (status, reason) → pill tone + i18n label key, with title-cased fallback. */
 type PillSpec =
   | { tone: PillTone; labelKey: TKey }
   | { tone: PillTone; fallback: string };
@@ -247,7 +135,6 @@ function titleCaseSnake(s: string): string {
 }
 
 function pillFor(status: DecisionStatus, reason: DecisionReason): PillSpec {
-  // ----- accepted (green/amber by reason) -----
   if (status === 'accepted') {
     switch (reason) {
       case 'strong_match':            return { tone: 'good', labelKey: 'match_strong' };
@@ -255,25 +142,18 @@ function pillFor(status: DecisionStatus, reason: DecisionReason): PillSpec {
       case 'already_most_specific':   return { tone: 'good', labelKey: 'match_most_specific' };
       case 'heading_level_match':     return { tone: 'warn', labelKey: 'match_family' };
       default:
-        // Unknown accepted reason — surface it without crashing.
         return { tone: 'good', fallback: titleCaseSnake(reason) };
     }
   }
-  // ----- best_effort (always amber, "review" suffix) -----
   if (status === 'best_effort') {
     if (reason === 'best_effort_heading') return { tone: 'warn', labelKey: 'match_best_effort_review' };
     return { tone: 'warn', fallback: titleCaseSnake(reason) };
   }
-  // ----- degraded (always red, generic retry message) -----
   if (status === 'degraded') {
     return { tone: 'bad', labelKey: 'match_degraded_retry' };
   }
-  // ----- needs_clarification (mostly amber, one red) -----
   switch (reason) {
     case 'ambiguous_top_candidates': return { tone: 'warn', labelKey: 'match_multi_refine' };
-    // `weak_retrieval` is the spec's name; the api.ts type lists
-    // `low_top_score` as the equivalent. Cover both so a backend
-    // rename in either direction doesn't drop us through to fallback.
     case 'low_top_score':            return { tone: 'warn', labelKey: 'match_weak_refine' };
     case 'small_top2_gap':           return { tone: 'warn', labelKey: 'match_weak_refine' };
     case 'guard_tripped':            return { tone: 'warn', labelKey: 'match_unverifiable' };
@@ -284,25 +164,7 @@ function pillFor(status: DecisionStatus, reason: DecisionReason): PillSpec {
   }
 }
 
-/**
- * Format the duty into a chip-ready string, or `null` when there's
- * nothing useful to show. Resolution order is intentional:
- *   1. `rate_percent` (numeric) — the most common case, render as "5 %".
- *   2. `status_en`     (words)   — used when the catalog row carries a
- *                                  status word like "Exempted" /
- *                                  "Prohibited from Importing" instead
- *                                  of a numeric duty.
- *   3. neither populated         → return null so the caller hides the
- *                                  whole chip (don't render an empty
- *                                  pill or a fallback dash — the user
- *                                  shouldn't see a chip that says "no
- *                                  data" when we genuinely don't know).
- *
- * We deliberately do NOT consult `raw_en` here even though it would
- * usually carry the trailing "%". The user spec pins the ordering to
- * (rate_percent → status_en → hide) so the rendering is predictable
- * regardless of how the catalog row got serialised.
- */
+/** Format duty as chip text. Returns null when neither rate nor status is set. */
 function dutyText(
   duty: NonNullable<NonNullable<DescribeResponse['result']>['duty']>,
 ): string | null {
@@ -311,30 +173,7 @@ function dutyText(
   return null;
 }
 
-/**
- * ManualPickCard — special-case render for the picker-down case
- *
- * Triggered when:
- *   decision_status === 'degraded' && decision_reason === 'llm_unavailable'
- *   && alternatives.length > 0
- *
- * Why a separate variant: the regular ClarifyCard pairs a red
- * "Service degraded" pill with retrieval candidates carrying 100% /
- * 99% scores, which reads as a contradiction (system says it's
- * broken, but here are confident-looking matches). In reality
- * retrieval succeeded, the picker LLM didn't, and `retrieval_score`
- * is search relevance not classification confidence — so we:
- *   - Use a calmer "Couldn't auto-select" headline + body.
- *   - Hide the percentage column entirely (rank-only).
- *   - Make every row pickable (`Use this code`) so the human can
- *     choose what the LLM couldn't.
- *   - Offer a "Retry auto-pick" affordance in the header — picker
- *     failures are usually transient.
- *
- * Heading is "Closest matches", not "Considered alternatives", since
- * "alternatives" implies "alternatives to the chosen one" and there
- * is no chosen one in this state.
- */
+/** Card for degraded-with-candidates: retrieval succeeded but the picker didn't. */
 function ManualPickCard({
   candidates,
   interpretation,
@@ -374,10 +213,7 @@ function ManualPickCard({
           className,
         )}
       >
-        {/* Header — calm headline + Retry affordance on the end side.
-            No tone pill: the red "Service degraded" chip was the
-            biggest contributor to the alarming feel of the previous
-            UI; we replace the signal with the headline copy itself. */}
+        {/* Header: headline + retry affordance. */}
         <div className="px-[22px] py-[18px] border-b border-[var(--line-2)] flex items-start justify-between gap-3 flex-wrap">
           <div className="flex-1 min-w-0">
             <div className="text-[15px] font-medium text-[var(--ink)] leading-[1.4]">
@@ -400,8 +236,7 @@ function ManualPickCard({
           )}
         </div>
 
-        {/* Interpretation row — same trust signal as the accepted card,
-            only when the researcher rewrote the input. */}
+        {/* Interpretation row, only when the researcher rewrote the input. */}
         {interpretation &&
           interpretation.stage !== 'passthrough' &&
           (interpretation.cleaned_as || interpretation.rewritten_as) && (
@@ -422,9 +257,7 @@ function ManualPickCard({
             </div>
           )}
 
-        {/* Candidates — same row geometry as the accepted card's
-            alternatives but with a `Use this code` button on the end
-            instead of the score chip, and a different section label. */}
+        {/* Candidate rows with per-row "Use this code" buttons. */}
         <div className="px-[22px] py-[18px]">
           <FieldLabel>{labels.closest}</FieldLabel>
           <div className="flex flex-col gap-1.5">
@@ -454,9 +287,6 @@ function ManualPickCard({
                     </span>
                   )}
                 </div>
-                {/* Per-row "Use this code" affordance. Same pill
-                    geometry as Copy code / Strong match so the
-                    control language stays consistent. */}
                 {onPickAlternative && (
                   <button
                     type="button"
@@ -472,7 +302,7 @@ function ManualPickCard({
         </div>
       </div>
 
-      {/* Latency footer — same dev-only panel as the accepted card. */}
+      {/* Dev-only latency + trace footer. */}
       <div className="mt-3 flex items-center justify-between gap-3 px-[18px] py-3 border border-[var(--line)] rounded-[var(--radius)] bg-[var(--line-2)]">
         <div className="flex items-center gap-2.5">
           <span
@@ -504,20 +334,7 @@ function ManualPickCard({
   );
 }
 
-/**
- * Card rendered when the backend returned a non-accepted decision —
- * needs_clarification (most common), best_effort, or degraded with
- * NO candidates. The shape mirrors the accepted ResultSingle card so
- * the user doesn't land in a wholly different UI just because the
- * classifier needs more input: same outer card chrome, same
- * alternatives list at the bottom, same dev-only latency footer.
- * What's different is the absence of a chosen 12-digit code —
- * replaced by a tone-coded pill + reason label + remediation hint
- * that tells the user what to do next.
- *
- * For the degraded-WITH-candidates case, see ManualPickCard above —
- * that has its own calmer treatment because retrieval succeeded.
- */
+/** Card for non-accepted decisions: tone pill + reason + remediation hint. */
 function ClarifyCard({
   pillTone,
   pillLabel,
@@ -551,9 +368,7 @@ function ClarifyCard({
           className,
         )}
       >
-        {/* Header — tone-coded pill + reason label. The pill carries
-            the colour signal (amber for needs_clarification, red for
-            degraded); the label spells out which case fired. */}
+        {/* Header: tone pill + reason label. */}
         <div className="px-[22px] py-[18px] border-b border-[var(--line-2)] flex items-center gap-3 flex-wrap">
           <TonePill tone={pillTone}>{pillLabel}</TonePill>
           <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
@@ -561,9 +376,7 @@ function ClarifyCard({
           </span>
         </div>
 
-        {/* Interpretation row — if the researcher rewrote the input,
-            show what retrieval actually saw. Useful trust signal: the
-            user can see whether the rewrite matched their intent. */}
+        {/* Interpretation row, only when the researcher rewrote the input. */}
         {interpretation &&
           interpretation.stage !== 'passthrough' &&
           (interpretation.cleaned_as || interpretation.rewritten_as) && (
@@ -584,7 +397,7 @@ function ClarifyCard({
             </div>
           )}
 
-        {/* Body — remediation hint + retrieved candidates. */}
+        {/* Body: remediation hint + retrieved candidates. */}
         <div className="px-[22px] py-[18px] flex flex-col gap-[18px]">
           {hint && (
             <div className="text-[14px] text-[var(--ink-2)] leading-[1.6] bg-[var(--line-2)] border border-[var(--line)] rounded-[var(--radius)] px-4 py-3.5">
@@ -626,10 +439,6 @@ function ClarifyCard({
                         </span>
                       )}
                     </div>
-                    {/* No relationship chip in ClarifyCard — there's no
-                        chosen code to compare against (that's the whole
-                        reason this card is rendering instead of the
-                        accepted layout). */}
                   </div>
                 ))}
               </div>
@@ -638,7 +447,7 @@ function ClarifyCard({
         </div>
       </div>
 
-      {/* Latency footer — same dev-only panel as the accepted card. */}
+      {/* Dev-only latency + trace footer. */}
       <div className="mt-3 flex items-center justify-between gap-3 px-[18px] py-3 border border-[var(--line)] rounded-[var(--radius)] bg-[var(--line-2)]">
         <div className="flex items-center gap-2.5">
           <span
@@ -670,27 +479,7 @@ function ClarifyCard({
   );
 }
 
-/**
- * Classify an alternative's relationship to the chosen code based on
- * the HS hierarchy:
- *   - same-family    : alternative shares the chosen code's HS-4 heading
- *                      (most semantic siblings).
- *   - related-family : alternative shares only the HS-2 chapter.
- *                      Often a near-miss — same broad commodity group
- *                      but different heading.
- *   - cross-family   : different chapter entirely. The amber case —
- *                      worth pausing over because if the system surfaced
- *                      a candidate in a different chapter, the user's
- *                      product description might genuinely belong there.
- *   - no-chosen      : there's no chosen code (e.g. ClarifyCard /
- *                      ManualPickCard paths). Caller hides the chip.
- *
- * Why this matters for non-customs users:
- *   The previous UI showed a "partial" / "excludes" chip from the
- *   branch-rank LLM, which means nothing without HS knowledge.
- *   "Same family" / "Cross-family" turns the same hierarchical signal
- *   into vocabulary anyone can read.
- */
+/** Classify an alternative against the chosen code via HS hierarchy (chapter/heading). */
 type Relationship = 'same-family' | 'related-family' | 'cross-family' | 'no-chosen';
 
 function relationshipFor(altCode: string, chosenCode: string | null | undefined): Relationship {
@@ -704,17 +493,9 @@ function relationshipFor(altCode: string, chosenCode: string | null | undefined)
   return 'cross-family';
 }
 
-/**
- * Pill that renders an alternative's relationship to the chosen code.
- * Uses the existing TonePill geometry — neutral grey for same/related
- * (these are background context, not action items), amber for
- * cross-family (catches the eye because it's the anomaly worth
- * investigating). Hides itself entirely on `no-chosen`.
- */
+/** Pill rendering an alternative's relationship to the chosen code. */
 function RelationshipChip({ rel, label }: { rel: Relationship; label: string }) {
   if (rel === 'no-chosen') return null;
-  // Same/related-family: neutral grey, sits flat in the row.
-  // Cross-family: warn (amber) — same palette as the result-card pill.
   const style =
     rel === 'cross-family'
       ? { background: TONE_STYLES.warn.bg, color: TONE_STYLES.warn.fg }
@@ -729,11 +510,7 @@ function RelationshipChip({ rel, label }: { rel: Relationship; label: string }) 
   );
 }
 
-/**
- * Resolve the i18n key for a given relationship. Caller passes the
- * resolved string into RelationshipChip — keeps the chip component
- * pure (no useT() hook so it can be cheaply rendered N times).
- */
+/** i18n key per relationship; caller resolves so RelationshipChip stays hook-free. */
 const REL_KEY: Record<Exclude<Relationship, 'no-chosen'>, TKey> = {
   'same-family': 'rel_same_family',
   'related-family': 'rel_related_family',
@@ -752,28 +529,12 @@ export default function ResultSingle({
   if (!visible || !data) return null;
 
   const pill = pillFor(data.decision_status, data.decision_reason);
-  // Resolve the label once — either through useT() for known keys, or
-  // straight to the literal fallback for unknown decision_reasons.
   const pillLabel = 'labelKey' in pill ? t(pill.labelKey) : pill.fallback;
   const interp = data.interpretation;
   const r = data.result;
   const candidates = data.alternatives ?? [];
 
-  // -------------------------------------------------------------------
-  // DEGRADED + CANDIDATES → MANUAL-PICK VARIANT
-  //
-  // When the picker LLM failed but retrieval still returned ranked
-  // candidates, the user needs a calm "we couldn't choose, here's what
-  // we found, you pick" UI — not the alarming "Service degraded" red
-  // chip + no actionable next step. The retrieval scores are search
-  // relevance not classification confidence, so we hide them in this
-  // variant to avoid the contradiction of "100% match" sitting next
-  // to a "couldn't pick" banner.
-  //
-  // Falls through to the regular ClarifyCard for the no-candidates
-  // case (genuine outage where retrieval also failed) and for
-  // needs_clarification / best_effort paths.
-  // -------------------------------------------------------------------
+  // Degraded + candidates → manual-pick variant.
   const degradedWithCandidates =
     data.decision_status === 'degraded' &&
     data.decision_reason === 'llm_unavailable' &&
@@ -804,10 +565,7 @@ export default function ResultSingle({
     );
   }
 
-  // -------------------------------------------------------------------
-  // OTHER NON-ACCEPTED PATHS (needs_clarification / best_effort /
-  // degraded-without-candidates)
-  // -------------------------------------------------------------------
+  // Other non-accepted paths: needs_clarification / best_effort / degraded-without-candidates.
   if (!r) {
     const hint = remediationHint(data.decision_status, data.decision_reason);
     return (
@@ -821,8 +579,6 @@ export default function ResultSingle({
         latencyMs={latencyMs}
         requestId={data.request_id}
         className={className}
-        // i18n keys passed through so the child can localise without a
-        // duplicate hook subscription.
         labels={{
           alts: t('res_alts'),
           understood: t('res_understood'),
@@ -835,24 +591,13 @@ export default function ResultSingle({
   }
 
   const segments = splitCodeSegments(r.code);
-  // The submission description used to live on `data.submission_description`,
-  // but the backend moved that work to a separate POST /classifications/{id}/submission-description
-  // route to cut ~3-5s off the main classify latency. SubmissionDescriptionCard
-  // owns its own fetch lifecycle keyed on the request_id.
-  // Resolve duty up-front so the chip's render condition checks a real
-  // string, not the truthiness of `r.duty` (which can be a populated
-  // object whose fields are all null — i.e. catalog row exists but
-  // contains no duty data, e.g. heading-level codes).
+  // Resolve duty up-front: r.duty can be a populated object whose fields are all null.
   const dutyLabel = r.duty ? dutyText(r.duty) : null;
 
-  // Trace link — the backend writes a classification_events row per
-  // request and surfaces its UUID as `request_id`. The GET /classifications/{id} route
-  // exists on the backend; the frontend page is a v2 TODO (port from v1).
   const traceHref = data.request_id ? `/trace?id=${data.request_id}` : '#';
 
   return (
     <>
-      {/* ============ Main card ============ */}
       <div
         className={cn(
           'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
@@ -860,10 +605,7 @@ export default function ResultSingle({
           className,
         )}
       >
-        {/* ----- HEADER: code-saudi label + match-pill + 6-segment digits.
-              Copy code button used to live here next to the match pill;
-              it moved down into the meta row alongside Duty so all
-              code-context actions sit in one strip. */}
+        {/* Header: label + match-pill + 6-segment digits. */}
         <div className="px-[22px] py-[18px] border-b border-[var(--line-2)]">
           <div className="flex items-center justify-between gap-3 mb-2.5">
             <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
@@ -872,12 +614,7 @@ export default function ResultSingle({
             <TonePill tone={pill.tone}>{pillLabel}</TonePill>
           </div>
 
-          {/*
-            Digit-segment grid.
-            HS-6 trunk (chapter/heading/sub) renders with a vertical
-            orange → rust gradient via background-clip:text. Saudi NSE
-            digits stay solid ink as secondary detail.
-          */}
+          {/* Digit-segment grid: HS-6 trunk gets the gradient; Saudi NSE stays solid ink. */}
           <div className="grid grid-cols-6 gap-1 mt-1">
             {segments.map(({ digits, labelKey, accented }) => (
               <div key={labelKey} className="flex flex-col items-center py-1.5 px-1">
@@ -898,25 +635,13 @@ export default function ResultSingle({
             ))}
           </div>
 
-          {/*
-            Code-context strip: Duty + Copy code chips, sitting next to
-            each other. Both share the MetaChip / CopyChip pill geometry
-            (rounded-full, 12px text + 10px mono uppercase label,
-            px-2.5 py-1) so they read as one control family. Procedures
-            was previously here too but dropped — users never acted on
-            it; the value still lives in the trace JSON for debugging.
-          */}
+          {/* Code-context strip: Duty + Copy code chips. */}
           <div className="mt-3 pt-3 border-t border-[var(--line-2)] flex items-center gap-2 flex-wrap">
             {dutyLabel && (
               <MetaChip label={t('res_duty')} value={dutyLabel} title="ZATCA duty rate" />
             )}
             <CopyChip
-              // Always copy the canonical 12-digit form, never the
-              // raw `r.code` string. ZATCA accepts only 12-digit
-              // declarations, so heading-level (4-digit) results
-              // need their trailing zeros pasted along — the
-              // segments renderer already shows the padded form,
-              // and the clipboard must match.
+              // Always copy the canonical 12-digit form so the clipboard matches what's on screen.
               text={padCodeTo12(r.code)}
               label={t('act_copy')}
               title="Copy 12-digit HS code"
@@ -924,10 +649,7 @@ export default function ResultSingle({
           </div>
         </div>
 
-        {/* ----- INTERPRETATION (trust signal) -----
-            Only render when the researcher rewrote the input or the
-            cleanup LLM stripped tokens. For pass-through inputs (the
-            user gave us a clean phrase), this row would be noise. */}
+        {/* Interpretation row, only when the researcher rewrote the input. */}
         {interp && interp.stage !== 'passthrough' && (interp.cleaned_as || interp.rewritten_as) && (
           <div className="px-[22px] py-3 border-b border-[var(--line-2)] bg-[var(--line-2)]">
             <div className="text-[12.5px] text-[var(--ink-2)] leading-[1.5]">
@@ -946,18 +668,14 @@ export default function ResultSingle({
           </div>
         )}
 
-        {/* ----- BODY: stacked content blocks ----- */}
+        {/* Body: stacked content blocks. */}
         <div className="px-[22px] py-[18px] flex flex-col gap-[18px]">
-          {/* (0) Required procedures — only when the chosen leaf has any.
-              Slots above the catalog description because procedures are
-              broker-actionable compliance signals (SFDA approval,
-              quarantine, livestock export rules), and they need to be
-              visible before the user reads the descriptive text below. */}
+          {/* Required procedures, only when the chosen leaf has any. */}
           {r.procedures && r.procedures.length > 0 && (
             <RequiredProcedures procedures={r.procedures} mode="result" />
           )}
 
-          {/* (a) ZATCA catalog description — EN above AR */}
+          {/* ZATCA catalog description (EN above AR). */}
           <div>
             <FieldLabel>{t('res_zatca_desc')}</FieldLabel>
             <div className="text-[14.5px] text-[var(--ink)] leading-[1.55]">
@@ -975,16 +693,10 @@ export default function ResultSingle({
             </div>
           </div>
 
-          {/* (b) Suggested ZATCA submission description — lazy-loaded via
-              POST /classifications/{id}/submission-description on mount. The card owns its own
-              fetch lifecycle (loading skeleton → success / error / retry)
-              and self-unmounts on `400 invalid_state` (when the original
-              classification wasn't on the accepted 12-digit path). The
-              describe response no longer carries this block — splitting
-              it out cut ~3-5s off the main classify latency. */}
+          {/* Suggested ZATCA submission description; the card owns its own fetch lifecycle. */}
           <SubmissionDescriptionCard requestId={data.request_id} />
 
-          {/* (c) Why this code — tinted rationale card. Only when present. */}
+          {/* Rationale card; only when present. */}
           {data.rationale && (
             <div>
               <FieldLabel>{t('res_rationale')}</FieldLabel>
@@ -994,10 +706,7 @@ export default function ResultSingle({
             </div>
           )}
 
-          {/* (d) Considered alternatives — rows.
-              Skip the picker's-choice row (rank=1 / same code as r.code) so
-              we don't repeat the chosen leaf in its own alternatives list.
-              Falls back to "all alternatives" if no rank info is present. */}
+          {/* Considered alternatives; skips the row matching the chosen code. */}
           {data.alternatives && data.alternatives.length > 0 && (() => {
             const rows = data.alternatives.filter(
               (a) => a.code !== r.code,
@@ -1032,21 +741,13 @@ export default function ResultSingle({
                             {clampDescription(a.description_ar, ALT_DESC_MAX)}
                           </span>
                         )}
-                        {/* When the branch-rank model returned a per-alt
-                            reason, surface it under the description as a
-                            third muted line. Strictly optional — RRF-only
-                            alternatives don't have one. */}
                         {a.reason && (
                           <span className="text-[12px] text-[var(--ink-3)] leading-[1.45] italic truncate">
                             {a.reason}
                           </span>
                         )}
                       </div>
-                      {/* Relationship-to-chosen chip — replaces the old
-                          retrieval-score percentage and the branch-rank
-                          fit ("partial"/"excludes") chips. Cross-family
-                          rows pop amber so the user notices candidates
-                          from a different chapter. */}
+                      {/* Relationship-to-chosen chip; cross-family rows pop amber. */}
                       {(() => {
                         const rel = relationshipFor(a.code, r.code);
                         if (rel === 'no-chosen') return null;
@@ -1066,7 +767,7 @@ export default function ResultSingle({
         </div>
       </div>
 
-      {/* ============ Latency + trace footer (dev-only) ============ */}
+      {/* Dev-only latency + trace footer. */}
       <div className="mt-3 flex items-center justify-between gap-3 px-[18px] py-3 border border-[var(--line)] rounded-[var(--radius)] bg-[var(--line-2)]">
         <div className="flex items-center gap-2.5">
           <span

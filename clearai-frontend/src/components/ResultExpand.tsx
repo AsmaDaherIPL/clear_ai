@@ -1,21 +1,4 @@
-/**
- * ResultExpand.tsx — Expand mode result card
- *
- * RESPONSIBILITIES:
- *   - Shows the "before → after" expansion: parent code (4/6/8/10 digits)
- *     expanded to a full 12-digit leaf.
- *   - Displays the digit breakdown with the expanded digits accented.
- *   - Shows the LLM rationale explaining which sibling leaves were rejected.
- *   - Lists sibling leaves as alternatives.
- *   - Footer: latency, candidate count + Copy / Save actions.
- *
- * STATE OWNED: none — receives ExpandBoostResponse from parent ClassifyApp.
- *
- * NOT YET IMPLEMENTED:
- *   - Real data binding (currently shows placeholder structure only).
- *   - Copy to clipboard interaction.
- *   - Save to history action.
- */
+/** Expand mode result card — placeholder layout until wired to ExpandBoostResponse. */
 
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -38,7 +21,6 @@ export default function ResultExpand({ visible, className }: ResultExpandProps) 
         className,
       )}
     >
-      {/* Header */}
       <div className="px-[22px] py-[18px] border-b border-[var(--line-2)]">
         <div className="flex items-center justify-between gap-3 mb-2.5">
           <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
@@ -51,7 +33,6 @@ export default function ResultExpand({ visible, className }: ResultExpandProps) 
         </div>
       </div>
 
-      {/* Body — placeholder */}
       <div className="px-[22px] py-[18px] flex flex-col gap-[18px]">
         <p className="text-[13px] text-[var(--ink-3)] italic">
           ResultExpand stub — wire to ExpandBoostResponse in the next pass.
@@ -82,7 +63,6 @@ export default function ResultExpand({ visible, className }: ResultExpandProps) 
         </div>
       </div>
 
-      {/* Footer */}
       <div className="flex items-center justify-between gap-3 px-[22px] py-3.5 border-t border-[var(--line-2)] bg-[var(--line-2)]">
         <div className="text-[12.5px] text-[var(--ink-3)] inline-flex items-center gap-2.5">
           <span><b className="text-[var(--ink-2)] font-medium">{t('meta_latency')}</b> —</span>

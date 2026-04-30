@@ -1,28 +1,4 @@
-/**
- * TracePage.tsx — operator audit + end-user feedback for one classification.
- *
- * The page tells the story of a single POST /classifications request as a
- * stack of stage blocks (cleanup → retrieval → research → gate →
- * picker → best-effort), preceded by a header band and a one-line
- * spine that summarises the flow at a glance, followed by the
- * candidates / feedback / raw-JSON sections.
- *
- * URL: /trace?id=<uuid>. The page reads the UUID from the query string
- * at hydration so the static build can ship one HTML file that serves
- * every UUID — see pages/trace/index.astro for the routing rationale.
- *
- * AUTH (per ADR-0017): anyone with the URL can view + leave feedback.
- * UUIDs are unguessable; the trace is "your own request" by
- * construction.
- *
- * COMPOSITION:
- *   <TracePage>
- *     ├── <Header>             — endpoint, latency, decision pill
- *     ├── <TraceSpine>         — at-a-glance flow strip (6 pills)
- *     ├── 6 × <StageBlock>     — per-stage cards rendered from adapters
- *     ├── <FeedbackBlock>      — three-way feedback form (carried over)
- *     └── <RawJsonBlock>       — collapsed full event payload (carried over)
- */
+/** Trace page: operator audit + feedback for one classification at /trace?id=<uuid>. */
 import { useEffect, useMemo, useState } from 'react';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -51,10 +27,6 @@ import {
 } from './trace/RetrievalFunnel';
 import RequiredProcedures from './RequiredProcedures';
 
-/* ────────────────────────────────────────────────────────────── */
-/*  Backend-shape narrowing                                       */
-/* ────────────────────────────────────────────────────────────── */
-
 interface ModelCall {
   stage: string;
   model: string;
@@ -74,10 +46,6 @@ function isAlternativeArray(v: unknown): v is AltRow[] {
   );
 }
 
-/* ────────────────────────────────────────────────────────────── */
-/*  Display helpers                                               */
-/* ────────────────────────────────────────────────────────────── */
-
 function fmtMs(ms: number | null | undefined): string {
   if (ms == null) return '—';
   return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms} ms`;
@@ -94,21 +62,12 @@ function resolveEventId(): string {
   return new URLSearchParams(window.location.search).get('id') ?? '';
 }
 
-/* ────────────────────────────────────────────────────────────── */
-/*  Stage adapters                                                */
-/*                                                                */
-/*  Each adapter takes the event + helpers and returns the JSX    */
-/*  payload for one StageBlock. Adapters return `null` when the   */
-/*  stage didn't run (its model_call wasn't logged) — TracePage   */
-/*  filters those out so the timeline only shows what happened.   */
-/* ────────────────────────────────────────────────────────────── */
-
 interface StageRender {
-  /** id used for #anchor scroll-to and the spine pill href. */
+  /** Anchor id for in-page links and the spine pill href. */
   id: string;
   /** Spine pill description. */
   spine: Omit<SpinePillSpec, 'href'>;
-  /** Full <StageBlock /> JSX for the body. */
+  /** Stage block JSX. */
   node: React.ReactElement;
 }
 
@@ -117,29 +76,21 @@ type StageAdapterCtx = {
   event: TraceEvent;
   call?: ModelCall;
   candidates: AltRow[];
-  /** Index in the rendered timeline (1-based). */
+  /** 1-based position in the rendered timeline. */
   index: number;
-  /** Total number of stages rendered (for "Stage N / total"). */
+  /** Total rendered stages, for "Stage N / total". */
   total: number;
-  /** Resolves the next-rendered stage's title for the handoff pill. */
+  /** Title of the next rendered stage, for the handoff pill. */
   nextLabel?: string;
-  /** Anchor for the next stage's link target. */
+  /** Anchor of the next rendered stage. */
   nextHref?: string;
-  /**
-   * When true, an adapter that would normally return null (because
-   * no model_call was logged for its stage) MUST still render — as
-   * a "skipped" placeholder block. Only used by the picker today,
-   * to honestly show "skipped (gate refused)" on heading-level
-   * promoted traces where best-effort owns the rationale.
-   */
+  /** Render a "skipped" placeholder even when no model_call exists. */
   forceRenderSkipped?: boolean;
-  /** i18n hook. */
   t: T;
 };
 
 function adaptCleanup(ctx: StageAdapterCtx): StageRender | null {
   const { event, call, t, index, total, nextHref, nextLabel } = ctx;
-  // Cleanup is optional — only render if it was called.
   if (!call) return null;
   return {
     id: 'stage-cleanup',
@@ -229,12 +180,7 @@ function adaptRetrieval(ctx: StageAdapterCtx): StageRender {
   const top = event.top_retrieval_score;
   const gap = event.top2_gap;
   const count = event.candidate_count;
-  // Static documentation only — what each retrieval arm DOES.
-  // We deliberately don't pass per-arm latency / top-1 / returned
-  // counts here because the backend doesn't measure them. Showing
-  // hardcoded numbers would invent data; showing em-dashes would
-  // imply we have data we're choosing not to display. Honest stance:
-  // explain what each method does, don't claim a measurement.
+  // Per-arm metrics aren't measured by the backend; show description only, no fake numbers.
   const methods: [MethodInfo, MethodInfo, MethodInfo] = [
     {
       name: t('t2_retrieval_method_vectors'),
@@ -283,11 +229,6 @@ function adaptRetrieval(ctx: StageAdapterCtx): StageRender {
             candidates={candidates}
             finalCount={count ?? candidates.length}
             top2Gap={gap}
-            // When the gate's gap threshold is recorded on the
-            // event, use it for the candidate-row "tied #1" visual
-            // cue. Falls back to the visual-only default in
-            // RetrievalFunnel (0.05) when absent — that fallback
-            // governs only the amber tint, NOT any pass/fail claim.
             top2GapMin={event.thresholds?.gate_min_gap ?? undefined}
           />
         </StageSection>
@@ -323,32 +264,19 @@ function adaptRetrieval(ctx: StageAdapterCtx): StageRender {
   };
 }
 
-/**
- * Evidence gate — always runs. Three checks; tone depends on which
- * (if any) failed. The spec table:
- *   - All pass     → good (proceeded to picker)
- *   - Top-2 gap tight, others pass → warn (flagged but didn't refuse)
- *   - Anything else fails  → bad (refused)
- */
+/** Evidence gate stage. Always renders; checks against event.thresholds when recorded. */
 function adaptGate(ctx: StageAdapterCtx): StageRender {
   const { event, t, index, total, nextHref, nextLabel } = ctx;
   const top = event.top_retrieval_score;
   const gap = event.top2_gap;
   const count = event.candidate_count;
 
-  // Read real thresholds from event.thresholds (backend coordination
-  // B1). When a threshold is absent, we deliberately render the
-  // corresponding row as `unknown` rather than evaluating against a
-  // hardcoded number — the trust-fix spec is explicit: "Don't pretend.
-  // If the backend hasn't sent them yet, show '—' plus a small
-  // '(threshold not recorded)' disclosure."
   const thr = event.thresholds ?? null;
   const minScore  = thr?.gate_min_score ?? null;
   const minGap    = thr?.gate_min_gap ?? null;
   const minCount  = thr?.gate_min_candidates ?? null;
 
-  // Per-check evaluation. Each can be 'pass' / 'fail' / 'unknown'
-  // (when either the observation OR the threshold is missing).
+  // Each row is 'unknown' when either the observation or the threshold is missing.
   const topState: 'pass' | 'fail' | 'unknown' =
     top == null || minScore == null ? 'unknown' : top >= minScore ? 'pass' : 'fail';
   const gapState: 'pass' | 'fail' | 'unknown' =
@@ -356,15 +284,7 @@ function adaptGate(ctx: StageAdapterCtx): StageRender {
   const countState: 'pass' | 'fail' | 'unknown' =
     count == null || minCount == null ? 'unknown' : count >= minCount ? 'pass' : 'fail';
 
-  // Block-level outcome. We can only assert "all pass" when EVERY
-  // check resolved to 'pass'. If any is 'unknown', we treat the
-  // block as warn (we don't know whether the gate would have
-  // refused — honest middle ground). 'bad' is only when at least
-  // one threshold was actually evaluated and failed.
   const allPass = topState === 'pass' && gapState === 'pass' && countState === 'pass';
-  // "Hard fail" = top score or count failed (both fatal — picker won't run).
-  // gapState alone failing is the soft "tight tie" path which still
-  // proceeds to the picker with a warning, not a refusal.
   const anyHardFail = topState === 'fail' || countState === 'fail';
   const onlyGapFailed = gapState === 'fail' && topState === 'pass' && countState === 'pass';
   const anyUnknown = topState === 'unknown' || gapState === 'unknown' || countState === 'unknown';
@@ -398,9 +318,7 @@ function adaptGate(ctx: StageAdapterCtx): StageRender {
     anyHardFail    ? 't2_gate_next_fail' :
                      't2_gate_next_warn';
 
-  // Render-helper for the rule column. When the threshold IS recorded,
-  // shows "required ≥ 0.4" etc. When absent, shows the honest
-  // "(threshold not recorded)" disclosure.
+  // Show "(threshold not recorded)" when event.thresholds is missing for this row.
   const ruleFor = (min: number | null, ruleKey: TKey): string =>
     min == null
       ? t('t2_gate_threshold_unknown' as TKey)
@@ -471,7 +389,7 @@ function adaptGate(ctx: StageAdapterCtx): StageRender {
 
         <StageRaw
           data={{
-            thresholds: thr ?? '(threshold not recorded — backend coordination B1 pending)',
+            thresholds: thr ?? '(threshold not recorded)',
             observed: { top_score: top, top2_gap: gap, candidate_count: count },
             evaluated: { top: topState, gap: gapState, count: countState },
           }}
@@ -486,9 +404,7 @@ function adaptGate(ctx: StageAdapterCtx): StageRender {
 function adaptPicker(ctx: StageAdapterCtx): StageRender | null {
   const { event, call, t, index, total, nextHref, nextLabel, forceRenderSkipped } = ctx;
 
-  // Heading-level-promoted path: picker didn't run but we still
-  // want a "skipped (gate refused)" placeholder so the user sees
-  // the picker box and understands it didn't write the rationale.
+  // Render a "skipped (gate refused)" placeholder when best-effort owns the rationale.
   if (!call && forceRenderSkipped) {
     return {
       id: 'stage-picker',
@@ -668,12 +584,7 @@ function adaptBestEffort(ctx: StageAdapterCtx): StageRender | null {
           </StageSection>
         )}
 
-        {/* Rationale belongs HERE on heading-level-promoted traces —
-            best-effort writes the rationale, not the picker. The
-            picker adapter only renders `event.rationale` inside the
-            picker block when the picker actually ran (its `if (!call)
-            return null` guard ensures that). When this best-effort
-            stage renders, attribute the rationale to it. */}
+        {/* Rationale renders here when best-effort owns it (picker didn't run). */}
         {event.rationale && (
           <StageSection label={t('t2_picker_why_label')}>
             <blockquote
@@ -690,10 +601,6 @@ function adaptBestEffort(ctx: StageAdapterCtx): StageRender | null {
   };
 }
 
-/* ────────────────────────────────────────────────────────────── */
-/*  Small inline components used across adapters                  */
-/* ────────────────────────────────────────────────────────────── */
-
 function ModelChip({ model }: { model: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--line-2)] border border-[var(--line)] font-mono text-[10.5px] text-[var(--ink-3)]">
@@ -702,18 +609,7 @@ function ModelChip({ model }: { model: string }) {
   );
 }
 
-/**
- * Header badge that surfaces a single LLM call's model + latency
- * inline in a stage block's header — driven by event.model_calls[]
- * so every stage that called an LLM is visible at a glance, and
- * stages that didn't (Search, Gate) stay clean.
- *
- * Status colour: ok = neutral muted; error/timeout = red border.
- *
- * The model name is shortened to its family ("Sonnet" / "Haiku" /
- * "Opus") so the badge stays compact — we keep the full id in the
- * raw stage output for anyone who wants the deployment name.
- */
+/** Inline LLM badge for a stage header. Reads event.model_calls[] (source of truth). */
 function LLMBadge({ call }: { call: ModelCall | null | undefined }) {
   if (!call) return null;
   const family = familyOf(call.model);
@@ -736,9 +632,7 @@ function LLMBadge({ call }: { call: ModelCall | null | undefined }) {
   );
 }
 
-/** Pluck the model family out of a deployment id like
- *  "claude-sonnet-4-6-clearai-dev" → "Sonnet". Falls back to the
- *  raw model name when nothing matches. */
+/** Extract Opus/Sonnet/Haiku family from a deployment id, else return the raw name. */
 function familyOf(model: string): string {
   const m = model.toLowerCase();
   if (m.includes('opus')) return 'Opus';
@@ -754,13 +648,7 @@ function requestText(e: TraceEvent): string {
   return '';
 }
 
-/**
- * Build the retrieval-stage "Ranking signal handed to the gate"
- * checklist. Pass/warn evaluation only happens when the gate's
- * thresholds are recorded on the event — if absent, the row's
- * verdict is `unknown` rather than evaluated against a hardcoded
- * fallback. (See trust-fix spec #3 / #4.)
- */
+/** Build the retrieval-stage signal checklist; rows are 'unknown' when thresholds are absent. */
 function signalChecks(
   t: T,
   top: number | null,
@@ -830,10 +718,6 @@ function pickerChecks(
     },
   ];
 }
-
-/* ────────────────────────────────────────────────────────────── */
-/*  Feedback block (carried over from the previous TracePage)     */
-/* ────────────────────────────────────────────────────────────── */
 
 type FbMode = 'idle' | 'reject' | 'prefer' | 'submitted_confirm';
 
@@ -999,10 +883,6 @@ function FeedbackBlock({
   );
 }
 
-/* ────────────────────────────────────────────────────────────── */
-/*  RawJsonBlock (carried over)                                   */
-/* ────────────────────────────────────────────────────────────── */
-
 function RawJsonBlock({ data, copyLabel, copiedLabel }: { data: TraceResponse; copyLabel: string; copiedLabel: string }) {
   const [copied, setCopied] = useState(false);
   const text = useMemo(() => JSON.stringify(data, null, 2), [data]);
@@ -1022,10 +902,6 @@ function RawJsonBlock({ data, copyLabel, copiedLabel }: { data: TraceResponse; c
     </div>
   );
 }
-
-/* ────────────────────────────────────────────────────────────── */
-/*  Page                                                          */
-/* ────────────────────────────────────────────────────────────── */
 
 export default function TracePage() {
   const t = useT();
@@ -1076,64 +952,41 @@ export default function TracePage() {
 
   const { event, feedback } = data;
   const calls: ModelCall[] = isModelCallArray(event.model_calls) ? event.model_calls : [];
-  // Spec calls these `researcher` / `researcher_web`; older traces
-  // may have logged `research` / `research_web`. Read both, prefer
-  // the canonical name. Forward-compatible without breaking history.
+  // Match canonical and legacy stage names (e.g. researcher / research).
   const callsForStage = (...names: string[]): ModelCall | undefined =>
     calls.find((c) => names.includes(c.stage));
   const candidates: AltRow[] = isAlternativeArray(event.alternatives) ? event.alternatives : [];
 
-  // Compose the rendered timeline. Adapters return null for stages
-  // that didn't run; we filter those out. Total = number of rendered
-  // blocks + 1 (the terminal Result is in the spine but doesn't get
-  // its own block; the index/total counters reflect block-only
-  // numbering so "Stage 4 / 5" reads naturally).
   const ctxBase = {
     event,
     candidates,
     t: t as T,
   };
-  // Two-pass render so each stage knows the NEXT stage's id + label
-  // for the handoff pill. First pass: build adapters with placeholder
-  // index/next info; second pass: walk the array and rewrite.
   const order: Array<(c: StageAdapterCtx) => StageRender | null> = [
     adaptCleanup, adaptRetrieval, adaptResearch, adaptGate, adaptPicker, adaptBestEffort,
   ];
 
-  // Pre-resolve which stages will render so we can pass next-stage
-  // info into each adapter's ctx.
-  // Picker is special: the adapter normally returns null when no
-  // picker call was logged. But on the heading-level-promoted path
-  // (decision_status === 'best_effort'), the picker block SHOULD
-  // still render — as a "skipped (gate refused)" placeholder — so
-  // the user understands the picker didn't write the rationale they
-  // see in the next block. Only when the trace genuinely had no
-  // picker AND no best-effort (e.g. clean retrieval-only) do we drop
-  // the picker block entirely.
   const pickerCall = callsForStage('picker');
   const bestEffortCall = callsForStage('best_effort');
+  // Force-render the picker as "skipped" when best-effort owns the rationale.
   const pickerShouldRenderSkipped =
     !pickerCall && (event.decision_status === 'best_effort' || !!bestEffortCall);
 
   const dryRun: Array<{ adapter: typeof order[number]; call?: ModelCall; skipped?: boolean }> = [
     { adapter: adaptCleanup,    call: callsForStage('cleanup') },
-    { adapter: adaptRetrieval,  call: undefined }, // always renders
+    { adapter: adaptRetrieval,  call: undefined },
     { adapter: adaptResearch,   call: callsForStage('researcher', 'research', 'researcher_web', 'research_web') },
-    { adapter: adaptGate,       call: undefined }, // always renders
+    { adapter: adaptGate,       call: undefined },
     { adapter: adaptPicker,     call: pickerCall, skipped: pickerShouldRenderSkipped },
     { adapter: adaptBestEffort, call: bestEffortCall },
   ];
-  // Filter the ones whose adapters would return null (optional stages
-  // without a model_call). Retrieval and gate always render. Picker
-  // also renders when `skipped` is forced — see pickerShouldRenderSkipped
-  // above for the heading-level-promoted path.
+  // Retrieval (i=1) and gate (i=3) always render; others need a call or a forced skip.
   const willRender = dryRun.filter((s, i) => {
-    if (i === 1 || i === 3) return true; // retrieval, gate
+    if (i === 1 || i === 3) return true;
     return !!s.call || !!s.skipped;
   });
   const totalBlocks = willRender.length;
 
-  // Build the actual StageRender list with correct index + next info.
   const stageTitleByAdapter = (a: typeof order[number]): string => {
     if (a === adaptCleanup) return t('t2_cleanup_title');
     if (a === adaptRetrieval) return t('t2_retrieval_title');
@@ -1157,7 +1010,6 @@ export default function TracePage() {
     return s.adapter(ctx)!;
   });
 
-  // Spine pills = rendered blocks + a terminal Result pill.
   const spinePills: SpinePillSpec[] = [
     ...renders.map((r) => ({ ...r.spine, href: `#${r.id}` })),
     {
@@ -1182,7 +1034,6 @@ export default function TracePage() {
         <span aria-hidden>←</span><span>{t('trace_back')}</span>
       </a>
 
-      {/* ── Header band ── */}
       <header className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex flex-col gap-1 min-w-0">
@@ -1206,27 +1057,13 @@ export default function TracePage() {
         )}
       </header>
 
-      {/* ── Spine ── */}
       <TraceSpine pills={spinePills} />
 
-      {/* ── Stage blocks ── */}
       <div className="flex flex-col gap-4">
         {renders.map((r) => r.node)}
       </div>
 
-      {/*
-        ── Required procedures ──
-        Renders ONLY when the trace event carries the procedures array
-        on `event.result.procedures`. The GET /classifications/{id} endpoint does not
-        currently expose this — it only logs the chosen `code`, not the
-        joined catalog row. When the backend adds it (likely via a join
-        in the trace query against the catalog's procedure-codes table),
-        the cast below picks it up automatically without a frontend
-        change. Until then, this block is a no-op on every trace.
-
-        Trace mode shows repealed entries inline (no disclosure) so
-        operators get full audit fidelity at decision time.
-      */}
+      {/* Required procedures — renders only when event.result.procedures is present. */}
       {(() => {
         const procs = (event as { result?: { procedures?: import('@/lib/api').ProcedureRef[] } })
           .result?.procedures;
@@ -1238,7 +1075,6 @@ export default function TracePage() {
         );
       })()}
 
-      {/* ── Terminal result anchor (target of the last spine pill) ── */}
       <section
         id="result"
         className={cn(
@@ -1255,7 +1091,6 @@ export default function TracePage() {
         </strong>
       </section>
 
-      {/* ── Feedback ── */}
       <section>
         <FeedbackBlock
           feedback={feedback}
@@ -1265,7 +1100,6 @@ export default function TracePage() {
         />
       </section>
 
-      {/* ── Raw JSON ── */}
       <details className="border border-[var(--line)] rounded-[var(--radius)] bg-[var(--surface)]">
         <summary className="cursor-pointer px-4 py-2.5 font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase select-none">
           {t('trace_raw_json')}
@@ -1276,7 +1110,6 @@ export default function TracePage() {
   );
 }
 
-// Helper used by the two-pass adapter wiring above.
 function idForAdapter(a: (c: StageAdapterCtx) => StageRender | null): string {
   if (a === adaptCleanup)    return 'stage-cleanup';
   if (a === adaptRetrieval)  return 'stage-retrieval';

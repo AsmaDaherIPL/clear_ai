@@ -1,36 +1,4 @@
-/**
- * ProcessingSteps.tsx — animated step-progress during classification
- *
- * RESPONSIBILITIES:
- *   - Renders 3 processing steps: understand → search → reason.
- *   - Each step has three visual states: pending, active (animated dots),
- *     done (filled accent circle + checkmark).
- *   - Hidden when not classifying (controlled by parent via `visible` prop).
- *   - Accessible: aria-live + role="list" / role="listitem" so screen
- *     readers announce step transitions; aria-current="step" on the
- *     active row.
- *
- * STATE OWNED: none — step state driven by parent via `activeStep` prop.
- *
- * STEP MAPPING (each label reflects real backend work):
- *   1. Understanding your product
- *      ← Stage 0 cleanup (brand/SKU/marketing strip), understanding
- *        check (chapter coherence), optional researcher (web search
- *        for merchant shorthand). Together these resolve "what did
- *        the user actually mean to classify."
- *   2. Searching the ZATCA tariff codes library
- *      ← RRF over vector embeddings + BM25 + trigram against the
- *        ZATCA catalog → top-K ranked candidates.
- *   3. Reasoning over candidates and Applying classification rules
- *      ← Evidence gate, picker LLM with GIR rules, branch enumerate
- *        over HS-8 leaves, optional branch-rank, duty + procedures
- *        lookup. The longest phase by wall-clock.
- *
- * "Drafting submission description" used to live here too but moved
- * to its own lazy GET POST /classifications/{id}/submission-description request, owned by
- * SubmissionDescriptionCard's local skeleton — so it stays out of
- * this panel.
- */
+/** Animated 3-step progress panel (understand → search → reason) shown while classifying. */
 
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -45,7 +13,8 @@ interface Step {
 
 interface ProcessingStepsProps {
   visible: boolean;
-  activeStep?: number; // 1-based; steps < activeStep are done, === is active
+  /** 1-based; steps below are done, equal is active, above are pending. */
+  activeStep?: number;
   className?: string;
 }
 
@@ -64,11 +33,6 @@ export default function ProcessingSteps({ visible, activeStep = 0, className }: 
   });
 
   return (
-    // role="list" + aria-live keeps the four steps grouped semantically and
-    // announces step transitions to screen readers. The four steps are
-    // ALWAYS rendered (done | active | pending) — we never conditionally
-    // omit a row, even when activeStep is 0 (idle in this panel just
-    // doesn't render at all because `visible` is false upstream).
     <div
       role="list"
       aria-live="polite"
@@ -90,7 +54,6 @@ export default function ProcessingSteps({ visible, activeStep = 0, className }: 
             (state === 'done' || state === 'active') && 'text-[var(--ink)]',
           )}
         >
-          {/* Step indicator */}
           <span
             className={cn(
               'w-[22px] h-[22px] rounded-full shrink-0',
@@ -121,7 +84,6 @@ export default function ProcessingSteps({ visible, activeStep = 0, className }: 
 
           <span>{t(labelKey)}</span>
 
-          {/* Optional latency metadata */}
           {meta && (
             <span className="ms-auto text-[12px] text-[var(--ink-3)]">{meta}</span>
           )}

@@ -1,17 +1,4 @@
-/**
- * Footer.tsx — page footer
- *
- * RESPONSIBILITIES:
- *   - Renders copyright line.
- *   - All text driven by useT() for EN/AR support.
- *
- * STATE OWNED: none — purely presentational.
- *
- * NOTE: Nav links (Pricing / API / Changelog / Contact) removed — stub
- * hrefs were never wired and added visual noise. Re-add when the pages
- * exist; restore f_pricing / f_api / f_changelog / f_contact keys to
- * en.json and ar.json at the same time.
- */
+/** Page footer: copyright line. */
 
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';

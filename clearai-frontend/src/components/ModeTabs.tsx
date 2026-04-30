@@ -1,18 +1,4 @@
-/**
- * ModeTabs.tsx — Generate / Expand / Batch mode switcher
- *
- * RESPONSIBILITIES:
- *   - Renders the three mode pills (Generate, Expand, Batch).
- *   - Tracks active mode and calls onModeChange when the user switches.
- *   - Displays the mode number in monospace and an optional "BETA" badge.
- *   - All labels driven by useT() for EN/AR.
- *
- * STATE OWNED: none — controlled via props (parent ClassifyApp owns mode).
- *
- * NOT YET IMPLEMENTED:
- *   - Active indicator animation (CSS transition on the white pill).
- *   - Keyboard navigation (arrow keys between tabs per ARIA tablist spec).
- */
+/** Generate / Expand / Batch mode switcher. */
 
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -80,7 +66,6 @@ export default function ModeTabs({ mode, onModeChange, className }: ModeTabsProp
         ))}
       </div>
 
-      {/* Active mode description */}
       {activeMode && (
         <p className="text-[12.5px] text-[var(--ink-3)] mb-[18px] transition-opacity duration-150">
           {t(activeMode.descKey)}

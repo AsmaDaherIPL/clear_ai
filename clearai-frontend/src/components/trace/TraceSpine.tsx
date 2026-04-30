@@ -1,14 +1,4 @@
-/**
- * TraceSpine.tsx — at-a-glance flow strip at the top of the trace page.
- *
- * Shows every stage that ran (or was skipped) as a clickable pill, with
- * arrows between them. Tells the story in one line:
- *
- *    [✓ Understand · 340ms] → [✓ Search · 280ms] → [⚠ Gate · tied] → [✓ Picker · 3.41s] → [✓ Result · 6109…]
- *
- * Each pill links to the corresponding StageBlock further down (anchor
- * jumps via `#stage-N`).
- */
+/** Top-of-trace flow strip. Each pill links to its StageBlock via #stage-N. */
 import { cn } from '@/lib/utils';
 
 type SpineState = 'good' | 'warn' | 'bad' | 'skipped' | 'current';
@@ -21,13 +11,11 @@ const TONE: Record<Exclude<SpineState, 'current'>, { dot: string; border: string
 };
 
 export interface SpinePillSpec {
-  /** Anchor target — typically `#stage-N`, or `#result` for the terminal pill. */
   href: string;
-  /** 1-indexed stage number, e.g. "1" / "2". The terminal Result pill has no number. */
+  /** 1-indexed; terminal Result pill omits. */
   num?: string;
-  /** Plain title — "Understand", "Search", "Gate", etc. */
   label: string;
-  /** Right-side meta — "340 ms" / "tied" / "skipped" / "640200000000". */
+  /** Right-side meta — latency, status, or chosen code. */
   meta?: string;
   state: SpineState;
 }
@@ -39,7 +27,6 @@ export function TraceSpine({ pills }: { pills: SpinePillSpec[] }) {
       className="flex items-center gap-2 px-4 py-3 bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius)] overflow-x-auto"
     >
       {pills.map((pill, i) => {
-        // Terminal "Result" pill has no following arrow.
         const isLast = i === pills.length - 1;
         return (
           <span key={`${pill.label}-${i}`} className="contents">
@@ -53,9 +40,6 @@ export function TraceSpine({ pills }: { pills: SpinePillSpec[] }) {
 }
 
 function SpinePill({ href, num, label, meta, state }: SpinePillSpec) {
-  // `current` is a stylistic modifier on top of the underlying state —
-  // keeps the dot/border colour from the state but adds the brand-soft
-  // background highlight. Resolved here so callers don't have to combine.
   const baseState = state === 'current' ? 'good' : state;
   const t = TONE[baseState];
   const isCurrent = state === 'current';

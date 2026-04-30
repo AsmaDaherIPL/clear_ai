@@ -1,21 +1,4 @@
-/**
- * ResultBatch.tsx — Batch mode result card
- *
- * RESPONSIBILITIES:
- *   - Shows a summary header: N items, M classified, avg confidence bar.
- *   - Renders a table of rows: Line / Description / HS code / Conf / Status.
- *   - Status pills: "Classified" (accent) or "Needs review" (warn amber).
- *   - Footer: latency, avg confidence + Export CSV / ZATCA XML actions.
- *   - Round-trip time.
- *
- * STATE OWNED: none — receives batch result rows from parent ClassifyApp.
- *
- * NOT YET IMPLEMENTED:
- *   - Real data binding (currently shows placeholder table structure).
- *   - Export CSV action.
- *   - ZATCA XML batch export.
- *   - Row-level click to expand individual result.
- */
+/** Batch mode result card — placeholder table until wired to batch result data. */
 
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -38,7 +21,6 @@ export default function ResultBatch({ visible, className }: ResultBatchProps) {
         className,
       )}
     >
-      {/* Header */}
       <div className="px-[22px] py-[18px] flex items-start justify-between gap-4 border-b border-[var(--line-2)]">
         <div>
           <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase mb-1.5">
@@ -50,7 +32,6 @@ export default function ResultBatch({ visible, className }: ResultBatchProps) {
         </div>
       </div>
 
-      {/* Table — placeholder */}
       <table className="w-full border-collapse">
         <thead>
           <tr>
@@ -73,7 +54,6 @@ export default function ResultBatch({ visible, className }: ResultBatchProps) {
         </tbody>
       </table>
 
-      {/* Footer */}
       <div className="flex items-center justify-between gap-3 px-[22px] py-3.5 border-t border-[var(--line-2)] bg-[var(--line-2)]">
         <div className="text-[12.5px] text-[var(--ink-3)] inline-flex items-center gap-2.5">
           <span><b className="text-[var(--ink-2)] font-medium">{t('meta_latency')}</b> —</span>

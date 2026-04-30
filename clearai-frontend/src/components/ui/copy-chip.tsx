@@ -1,38 +1,14 @@
-/**
- * copy-chip.tsx — small uppercase pill-button that copies a string
- *
- * The visual sibling of MetaChip in ResultSingle: rounded-full pill,
- * 10px mono uppercase label + 12px icon, hairline border, surface
- * fill. Used wherever a copy-to-clipboard action sits inside a strip
- * of code-context chips (Copy code next to Duty, Copy AR next to the
- * Arabic submission text). Picking up the same geometry across both
- * places means the duty / copy-code / copy-AR pills all read as one
- * control family.
- *
- * Behaviour:
- *   - On click, writes `text` to the clipboard.
- *   - For 1.5s afterwards, swaps the icon to a checkmark and the
- *     label to t('copied'). Reverts automatically.
- *   - Disabled state mutes the colour and blocks the click; useful
- *     while the source string is still loading.
- */
+/** Pill button that copies a string to the clipboard, with a "copied" affordance. */
 
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 interface CopyChipProps {
-  /** The string to write to the clipboard on click. */
   text: string;
-  /**
-   * Uppercase mono label rendered before the icon, e.g. "Copy code"
-   * or "Copy AR". Already rendered uppercased by CSS, so pass it in
-   * sentence case — i18n strings stay legible in JSON.
-   */
+  /** Sentence-case label; CSS uppercases it. */
   label: string;
-  /** When true, the chip renders muted and ignores clicks. */
   disabled?: boolean;
-  /** Optional native title= for hover tooltips. */
   title?: string;
   className?: string;
 }
@@ -81,13 +57,10 @@ export function CopyChip({ text, label, disabled, title, className }: CopyChipPr
       .writeText(text)
       .then(() => {
         setCopied(true);
-        // Reset the affordance after 1.5s. If the user clicks again
-        // mid-fade the timer is replaced — cheap enough to skip the
-        // cleanup edge case.
         window.setTimeout(() => setCopied(false), 1500);
       })
       .catch(() => {
-        /* clipboard denied / unsupported — silent failure is fine */
+        /* clipboard denied / unsupported */
       });
   };
 

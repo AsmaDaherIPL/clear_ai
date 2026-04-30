@@ -1,35 +1,4 @@
-/**
- * SubmissionDescriptionCard.tsx — lazy-loaded ZATCA submission text
- *
- * RESPONSIBILITIES:
- *   - On mount (or when request_id changes), fire a single GET
- *     POST /classifications/{id}/submission-description and render
- *     the EN + AR submission text returned by the backend.
- *   - Cancel any in-flight request via AbortController when the
- *     request_id changes mid-fetch, so a stale response from a
- *     previous classification can't land in a new card.
- *   - Render skeletons while loading; an inline retry control on
- *     error; the real text on success.
- *   - Self-unmount (render null) on `400 invalid_state` — that's
- *     the backend's signal that the original classification wasn't
- *     on the accepted 12-digit path, so there's no submission to
- *     generate. No need to push that decision back to the parent.
- *
- * STATE OWNED:
- *   - status:      'loading' | 'success' | 'error' | 'not_applicable'
- *   - data:        NewDescriptionResponse | null  (success payload)
- *   - retryNonce:  number — bump from the error-state retry button
- *                  to force the effect to refetch without changing
- *                  the parent-supplied requestId.
- * (The Copy AR button's "Copied" affordance is owned internally by
- *  CopyChip — see src/components/ui/copy-chip.tsx.)
- *
- * NOT YET IMPLEMENTED:
- *   - Cross-classification cache (would need to live in the parent or
- *     a context). In-component cache only — re-render with the same
- *     request_id refetches once on mount and reuses thereafter via the
- *     useEffect dep list.
- */
+/** Lazy-loaded ZATCA submission text card; fetches on mount, self-unmounts on invalid_state. */
 
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
@@ -39,18 +8,13 @@ import { CopyChip } from '@/components/ui/copy-chip';
 import { api, ApiError, type NewDescriptionResponse } from '@/lib/api';
 
 interface SubmissionDescriptionCardProps {
-  /** UUID returned by POST /classifications at the top level. The card
-   *  unmounts itself if this is null/undefined (no fetch to make). */
+  /** UUID from POST /classifications; null/undefined skips the fetch. */
   requestId: string | null | undefined;
   className?: string;
 }
 
 type Status = 'loading' | 'success' | 'error' | 'not_applicable';
 
-// Inline retry icon — used only by the error-state retry button.
-// Copy / check icons used to live here too but moved into the shared
-// CopyChip primitive (src/components/ui/copy-chip.tsx) when the
-// submission card adopted that pill geometry.
 const RetryIcon = () => (
   <svg
     width="12"
@@ -75,23 +39,13 @@ export default function SubmissionDescriptionCard({
   const t = useT();
   const [status, setStatus] = useState<Status>('loading');
   const [data, setData] = useState<NewDescriptionResponse | null>(null);
-  // Bumped to force a refetch from the retry button without changing
-  // the parent-supplied requestId. The effect depends on (requestId,
-  // retryNonce) so any change to either re-runs the request.
+  /** Bumped by the retry button to re-run the effect without changing requestId. */
   const [retryNonce, setRetryNonce] = useState(0);
-  // Holds the AbortController for the most recent in-flight request
-  // so a rapid re-classification cancels the stale fetch cleanly.
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    // No request_id yet → nothing to fetch; show skeletons (the parent
-    // will normally only mount us once requestId is available, but
-    // guard defensively).
     if (!requestId) return;
 
-    // Cancel any previous in-flight request. This handles the
-    // "user reclassified while the previous fetch was running" case
-    // — without this, the stale response could land in the new card.
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -102,22 +56,15 @@ export default function SubmissionDescriptionCard({
     api
       .submissionDescription(requestId, controller.signal)
       .then((res) => {
-        // Guard against late resolution from an aborted request
-        // (browsers typically reject on abort, but if a race wins
-        // we still don't want to flash stale data).
         if (controller.signal.aborted) return;
         setData(res);
         setStatus('success');
       })
       .catch((err: unknown) => {
-        // AbortError — caller cancelled; do nothing, the next effect
-        // run owns the new state.
         if (err instanceof DOMException && err.name === 'AbortError') return;
         if (controller.signal.aborted) return;
 
-        // 400 invalid_state → the backend says there's no submission
-        // to generate for this classification (e.g. it was needs_
-        // clarification, not accepted). Self-unmount.
+        // 400 invalid_state → no submission to generate; self-unmount.
         if (
           err instanceof ApiError &&
           err.status === 400 &&
@@ -135,8 +82,6 @@ export default function SubmissionDescriptionCard({
     };
   }, [requestId, retryNonce]);
 
-  // 400 invalid_state path — render absolutely nothing. The card
-  // never appears in the result layout.
   if (status === 'not_applicable') return null;
 
   return (
@@ -146,15 +91,12 @@ export default function SubmissionDescriptionCard({
         className,
       )}
     >
-      {/* Header row — label on the start side, optional review pill on the end. */}
+      {/* Header row — label + optional review-required pill. */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
           {t('res_suggest')}
         </div>
-        {/* "Review required" pill — only when the LLM fell back to the
-            deterministic guard. Replaces the old "Differs from ZATCA
-            catalog" badge, which was meaningless because the guard
-            always made differs_from_catalog true. */}
+        {/* Review-required pill: shown when the LLM fell back to the deterministic guard. */}
         {status === 'success' && data?.source === 'guard_fallback' && (
           <span
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium"
@@ -169,7 +111,7 @@ export default function SubmissionDescriptionCard({
         )}
       </div>
 
-      {/* EN row — text or skeleton or em-dash on error. */}
+      {/* EN row. */}
       <div className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3 min-h-[44px]">
         <div className="flex-1 min-w-0 text-[14.5px] text-[var(--ink)] leading-[1.5]">
           {status === 'loading' && <Skeleton className="h-5 w-2/3" />}
@@ -180,16 +122,8 @@ export default function SubmissionDescriptionCard({
         </div>
       </div>
 
-      {/* AR row — Copy AR chip on the visual LEFT, Arabic text on the
-          visual RIGHT. The row stays LTR (default flex), so the first
-          child lands on the visual left. The Arabic text node carries
-          dir=rtl + physical `text-right` so the alignment locks to the
-          right edge regardless of the document direction. */}
+      {/* AR row — LTR flex keeps Copy chip on the visual left; Arabic text dir=rtl. */}
       <div className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3 min-h-[44px]">
-        {/* Copy AR — same CopyChip primitive as the Copy code chip in
-            ResultSingle, so both clipboard actions across the result
-            card share the exact same pill geometry / typography.
-            Disabled until the lazy fetch resolves. */}
         <CopyChip
           text={data?.description_ar ?? ''}
           label="Copy AR"
@@ -204,9 +138,6 @@ export default function SubmissionDescriptionCard({
           style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
         >
           {status === 'loading' && (
-            // Skeleton sits on the visual right edge of the text
-            // column (where Arabic text would start), achieved via
-            // `ml-auto` inside the LTR-flex parent.
             <Skeleton className="h-6 w-1/2 ml-auto" />
           )}
           {status === 'success' && data?.description_ar}
@@ -224,12 +155,7 @@ export default function SubmissionDescriptionCard({
         </div>
       </div>
 
-      {/* Model footer — surfaces which LLM generated the AR text and
-          how long it took, when the backend supplies that metadata
-          (coordination B2). Only renders on success and when the
-          response actually came from an LLM (source==='llm'). The
-          guard_fallback path doesn't show a model footer because no
-          LLM ran — the deterministic guard generated the text. */}
+      {/* Model footer — only on LLM success with model_call metadata. */}
       {status === 'success' && data?.source === 'llm' && data.model_call && (
         <div className="text-[11.5px] text-[var(--ink-3)] font-mono pt-2 border-t border-[var(--line-2)] flex items-center gap-2">
           <span aria-hidden>🤖</span>
@@ -239,8 +165,7 @@ export default function SubmissionDescriptionCard({
         </div>
       )}
 
-      {/* AI disclaimer — italic, with a top border separator. Always
-          visible; the legal warning matters in every state. */}
+      {/* AI disclaimer — always visible. */}
       <div className="text-[12.5px] text-[var(--ink-3)] italic leading-[1.5] pt-2 border-t border-[var(--line-2)]">
         {t('ai_disclaimer')}
       </div>
@@ -248,10 +173,7 @@ export default function SubmissionDescriptionCard({
   );
 }
 
-/** Pluck the family ("Sonnet" / "Haiku" / "Opus") from a deployment id
- *  so the footer reads "🤖 Haiku · 487ms" not the full
- *  "claude-haiku-4-5-clearai-dev". Falls back to the raw model name
- *  when nothing matches — never shows an em-dash. */
+/** Extract the model family ("Sonnet" / "Haiku" / "Opus") from a deployment id. */
 function familyOf(model: string): string {
   const m = model.toLowerCase();
   if (m.includes('opus')) return 'Opus';

@@ -1,27 +1,4 @@
-/**
- * Composer.tsx — the main input area (textarea + mode-specific extras)
- *
- * RESPONSIBILITIES:
- *   - Renders the shared textarea for Generate and Expand modes.
- *   - In Expand mode, shows an additional "Parent code" input row.
- *   - In Batch mode, shows the dropzone (CSV / Excel upload).
- *   - Renders the submit arrow button.
- *   - Calls onSubmit(description, parentCode?) when the form is submitted.
- *
- * STATE OWNED:
- *   - description: string — textarea value (uncontrolled at the field
- *     level via useState, but the parent receives it on submit).
- *   - parentCode: string — expand mode code input.
- *
- * `loading` from the parent disables the submit button while the API
- * call is in flight; we intentionally don't disable the textarea so the
- * user can keep editing for a follow-up classification.
- *
- * NOT YET IMPLEMENTED:
- *   - Auto-resize textarea on content change.
- *   - Drag-and-drop highlight on the dropzone.
- *   - File parsing (CSV/Excel) for batch mode.
- */
+/** Main classify input area: textarea, optional parent-code field, batch dropzone. */
 
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
@@ -35,33 +12,17 @@ interface ComposerProps {
   className?: string;
 }
 
-// Hard input cap mirrors the backend's zod schema (`describeBody` /
-// `expandBody` in clearai-backend/src/routes/schemas.ts). Keeping the
-// two in lock-step means the user sees the limit before they hit
-// "submit", instead of getting a 400 from the server. If you change
-// this, change the backend at the same time.
+/** Mirrors backend zod cap; keep in lock-step with `describeBody` / `expandBody`. */
 const DESCRIPTION_MAX = 250;
-// Threshold for switching the counter to amber so the user knows
-// they're running out of room. 90% = 225 chars; below that, the
-// counter is muted ink.
 const DESCRIPTION_WARN_AT = Math.floor(DESCRIPTION_MAX * 0.9);
 
 export default function Composer({ mode, onSubmit, loading, className }: ComposerProps) {
   const t = useT();
   const [description, setDescription] = useState('');
   const [parentCode, setParentCode] = useState('');
-  // Char count drives both the counter UI and (conceptually) any
-  // submit-time validation. Keeping it derived from the controlled
-  // textarea state avoids double-counting newlines / paste events.
   const charCount = description.length;
   const nearCap = charCount >= DESCRIPTION_WARN_AT;
   const atCap = charCount >= DESCRIPTION_MAX;
-  // In Expand mode the backend rejects parent codes shorter than 4
-  // digits with a 400. Block at the form level so the user can't
-  // even submit a too-short code — the only valid HS prefixes are
-  // 4 / 6 / 8 / 10 / 12 digits (regex in clearai-backend's
-  // schemas.ts). Other modes don't use parentCode so this guard
-  // collapses to `true`.
   const PARENT_CODE_MIN = 4;
   const parentCodeValid = mode !== 'expand' || parentCode.length >= PARENT_CODE_MIN;
 
@@ -69,9 +30,6 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
     e.preventDefault();
     const trimmed = description.trim();
     if (!trimmed) return;
-    // Block too-short parent codes early. The button's `disabled`
-    // attribute already gates click submits; this guard catches
-    // Enter-key submits + any future programmatic submit() calls.
     if (!parentCodeValid) return;
     onSubmit?.(trimmed, mode === 'expand' ? parentCode.trim() || undefined : undefined);
   };
@@ -88,7 +46,7 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
         className,
       )}
     >
-      {/* Generate + Expand: textarea pane */}
+      {/* Textarea pane — generate + expand modes. */}
       {mode !== 'batch' && (
         <div>
           <div className="px-[22px] pt-[22px] pb-2">
@@ -97,21 +55,11 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
               value={description}
               maxLength={DESCRIPTION_MAX}
               onChange={(e) =>
-                // Belt-and-braces: maxLength on the element already
-                // blocks new keystrokes past the cap, but a paste of
-                // a longer string can still arrive (some browsers /
-                // assistive tech bypass the attribute). Truncating in
-                // state guarantees we never hold > DESCRIPTION_MAX.
+                // Truncate in state — paste can bypass the maxLength attribute.
                 setDescription(e.target.value.slice(0, DESCRIPTION_MAX))
               }
               onKeyDown={(e) => {
-                // Enter submits the form — Shift+Enter inserts a newline
-                // so users can still paste / type multi-line descriptions
-                // when they need to. Cmd/Ctrl+Enter also submits, in case
-                // a user has the previous behaviour committed to muscle
-                // memory. IME composition (Japanese / Chinese / Arabic
-                // candidate selection) emits Enter to confirm a candidate
-                // — `isComposing` guards against eating that Enter.
+                // Enter submits, Shift+Enter newlines; skip during IME composition.
                 if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
                 if (e.shiftKey) return;
                 e.preventDefault();
@@ -127,12 +75,7 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
             />
           </div>
 
-          {/* Expand-only: parent code row.
-              The "4 / 6 / 8 / 10 digits" hint chip used to live on the
-              end side; removed because the same constraint is enforced
-              by `parentCodeValid` (4-digit minimum) — the user gets
-              feedback by the submit button staying disabled until
-              they've typed enough digits, no need for ambient text. */}
+          {/* Expand-only parent code row. */}
           {mode === 'expand' && (
             <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
               <label className="font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase shrink-0">
@@ -149,20 +92,17 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
             </div>
           )}
 
-          {/* Meta bar — char counter on the start side, submit on the end.
-              Counter swaps from muted ink → amber when within 10% of
-              the cap so the user notices they're nearly out of room
-              before they hit submit and get a 400 from the backend. */}
+          {/* Meta bar — char counter + submit. */}
           <div className="flex items-center justify-between gap-2 px-3.5 pb-3.5 pt-2">
             <div className="flex items-center gap-1.5">
               <span
                 className={cn(
                   'font-mono text-[12px] tabular-nums transition-colors duration-150',
                   atCap
-                    ? 'text-[oklch(0.55_0.18_25)] font-medium' // red at the wall
+                    ? 'text-[oklch(0.55_0.18_25)] font-medium'
                     : nearCap
-                      ? 'text-[oklch(0.62_0.16_60)]'           // amber within 10%
-                      : 'text-[var(--ink-3)]',                  // default muted
+                      ? 'text-[oklch(0.62_0.16_60)]'
+                      : 'text-[var(--ink-3)]',
                 )}
                 aria-live="polite"
               >
@@ -186,9 +126,6 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
                 )}
               >
                 {loading ? (
-                  // Tiny inline spinner — dotted ring rotating. Keeps the
-                  // 36px button footprint stable so the form layout
-                  // doesn't shift when the request is in flight.
                   <svg
                     viewBox="0 0 24 24"
                     fill="none"
@@ -220,7 +157,7 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
         </div>
       )}
 
-      {/* Batch: dropzone pane */}
+      {/* Batch dropzone pane. */}
       {mode === 'batch' && (
         <div className="p-3.5">
           <div

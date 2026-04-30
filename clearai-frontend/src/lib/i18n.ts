@@ -1,19 +1,5 @@
 /**
- * i18n.ts — ClearAI v2 internationalisation module
- *
- * DESIGN DECISIONS:
- *   - `locales` table is the single source of truth for locale code, text
- *     direction, and display label. Add new locales here only.
- *   - `useT()` is the React hook: call inside any React component to get a
- *     translation function bound to the current locale.
- *   - `t()` is the non-hook variant for use outside React (e.g. Astro files).
- *   - `setLocale()` writes the cookie AND hot-flips html[lang/dir] without a
- *     page reload, so all React islands re-render in lock-step.
- *   - `useSyncExternalStore` is used instead of useState/useEffect so every
- *     subscribed island re-renders atomically when setLocale fires — no
- *     intermediate state where one island has flipped and another hasn't.
- *   - The cookie name matches the server-side cookie read in Layout.astro,
- *     so the locale persists across hard reloads without a round-trip.
+ * i18n — locale registry, cookie-backed setter, React + non-React getters.
  */
 
 import { useSyncExternalStore } from 'react';

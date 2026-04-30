@@ -1,28 +1,4 @@
-/**
- * RetrievalFunnel.tsx — retrieval-stage composite for the trace page.
- *
- * Intentionally minimal: shows what each retrieval arm DOES (static
- * documentation — honest, no claims about THIS request) and an
- * honest one-line flow visualisation that consumes only fields we
- * actually have on the trace event:
- *
- *   Vectors + BM25 + Trigram  →  RRF fuse + dedup + filter  →  N candidates
- *
- * Where N is `event.candidate_count`. We DO NOT show per-arm row
- * counts (the backend doesn't measure them — see fix #1 in the
- * trust-fix spec) and we DO NOT show each method's top-1 (we don't
- * have that either — see fix #2).
- *
- * If the backend ever starts persisting per-arm counts on
- * `event.request.{vec_returned, bm25_returned, trgm_returned}`
- * (backend coordination B3), this component can be re-extended to
- * show them — but only when the field is populated, never with
- * hardcoded fallbacks.
- *
- * The candidate-rows preview (top-N candidates with rank/code/desc)
- * still lives here, since `event.alternatives` is a real measurement
- * we get from the catalog hit list.
- */
+/** Retrieval-stage composite for the trace page: method cards, fusion flow, candidate rows. */
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -35,11 +11,7 @@ export interface AltRow {
   retrieval_score: number | null;
 }
 
-/**
- * Per-method static documentation. No measured fields — the previous
- * shape carried `latencyMs / top1 / returned` which the backend
- * never measured. Removed entirely.
- */
+/** Static per-retrieval-method documentation. */
 export interface MethodInfo {
   /** Display label, e.g. "Vectors" / "BM25 (keyword)" / "Trigram (fuzzy)". */
   name: string;
@@ -54,12 +26,7 @@ interface RetrievalFunnelProps {
   finalCount: number;
   /** event.top2_gap; used to flag the top-2 rows as "tied" when small. */
   top2Gap: number | null;
-  /**
-   * Threshold below which we flag the top-2 as "tied #1" in the
-   * candidate preview. Provided by the gate config when available;
-   * falls back to a sensible default for the visual cue only —
-   * NOT used to claim "this passes/fails the gate" anywhere.
-   */
+  /** Threshold below which the top-2 rows are flagged as "tied #1" (visual cue only). */
   top2GapMin?: number;
   /** Initial number of candidate rows shown; rest behind a "Show more" toggle. */
   initialRows?: number;
@@ -87,8 +54,7 @@ export function RetrievalFunnel({
   );
 }
 
-/* ───────────────────────────────────────────────────────── */
-
+/** Three-up grid of method cards with name + description. */
 export function MethodCards({ methods }: { methods: MethodInfo[] }) {
   return (
     <div className="grid gap-2.5 sm:grid-cols-3">
@@ -109,13 +75,7 @@ export function MethodCards({ methods }: { methods: MethodInfo[] }) {
   );
 }
 
-/* ───────────────────────────────────────────────────────── */
-
-/**
- * Honest one-line flow strip. Three input names → fuse pill → final
- * count. No per-arm numbers. No "150 raw rows" math (we don't have
- * the inputs). Uses ONLY the candidate_count from the event.
- */
+/** One-line flow strip: three method names → fuse pill → final candidate count. */
 export function FlowStrip({ finalCount }: { finalCount: number }) {
   const t = useT();
   return (
@@ -160,8 +120,6 @@ export function FlowStrip({ finalCount }: { finalCount: number }) {
   );
 }
 
-/* ───────────────────────────────────────────────────────── */
-
 interface CandidateRowsProps {
   candidates: AltRow[];
   top2Gap: number | null;
@@ -169,6 +127,7 @@ interface CandidateRowsProps {
   initialRows: number;
 }
 
+/** Ranked candidate list with tied-top-2 highlighting and a "Show more" toggle. */
 export function CandidateRows({
   candidates, top2Gap, top2GapMin, initialRows,
 }: CandidateRowsProps) {

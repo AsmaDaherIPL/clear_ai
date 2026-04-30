@@ -1,25 +1,4 @@
-/**
- * StageBlock.tsx — the per-stage primitive for the trace page rebuild.
- *
- * Each block tells a self-contained mini-story with INPUT → ACTION →
- * OUTCOME → NEXT structure. The TracePage renders 6 of these (cleanup,
- * retrieval, research, gate, picker, best-effort) by passing the same
- * primitive different `sections` content.
- *
- * The block has slots, not props for individual fields, because every
- * stage's content shape is different — retrieval has a funnel, picker
- * has a rationale quote, the gate has pass/fail check rows, etc. The
- * primitive owns the chrome (header / body wrap / divider lines /
- * collapsed raw JSON), and each adapter owns the section content.
- *
- * SUB-COMPONENTS exported alongside:
- *   - StageSection : labelled slot inside a block
- *   - StageDecision: the dramatic-beat callout (good / warn / bad)
- *   - StageHandoff : the pill linking to the next stage
- *   - StageRaw     : collapsed raw JSON disclosure
- *   - StageChecks  : pass/fail checklist primitive (used by gate, picker)
- *   - StageGloss   : (?) inline glossary marker with title-tooltip
- */
+/** Per-stage primitive for the trace page: header chrome plus content slots. */
 import { useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -47,13 +26,7 @@ interface StageBlockProps {
   stateLabel: string;
   /** Optional latency / metadata string on the right of the header (mono). */
   meta?: string;
-  /**
-   * Optional badge sourced from event.model_calls[] for THIS stage.
-   * Renders inline in the header as e.g. "🤖 Sonnet · 4.22s" so the
-   * user can see at a glance which stages called an LLM and which
-   * didn't. Caller is responsible for filtering model_calls by
-   * stage and passing the model + latency + status here.
-   */
+  /** Optional inline LLM badge for this stage (e.g. model + latency). */
   llmBadge?: ReactNode;
   /** Optional id for in-page anchoring (#stage-3, etc.). */
   id?: string;
@@ -101,11 +74,7 @@ export function StageBlock({
   );
 }
 
-/**
- * StageSection — one labelled slot inside a stage's body. Stages stack
- * multiple sections; each one has a uppercase mono label and freeform
- * content. Sections separate via top border (except the first).
- */
+/** Labelled slot inside a stage body; stacks with a divider between siblings. */
 export function StageSection({
   label, children, labelExtra,
 }: {
@@ -125,13 +94,7 @@ export function StageSection({
   );
 }
 
-/**
- * StageDecision — the dramatic-beat callout. Every stage with a non-
- * trivial outcome closes with one of these. Tone signals what happened:
- *   good  : everything passed, moving to next stage
- *   warn  : something flagged but not fatal (gate warned, top-2 tied)
- *   bad   : refused / abstained / failed
- */
+/** Outcome callout shown at the end of a stage; tone drives colour. */
 export function StageDecision({
   tone, title, children,
 }: {
@@ -156,10 +119,7 @@ export function StageDecision({
   );
 }
 
-/**
- * StageHandoff — the small pill at the end of a stage that links to
- * the next one. Provides the flow narrative "this leads to that".
- */
+/** Pill link at the end of a stage that anchors to the next stage. */
 export function StageHandoff({
   href, label,
 }: {
@@ -177,10 +137,7 @@ export function StageHandoff({
   );
 }
 
-/**
- * StageRaw — collapsed disclosure for the raw stage payload. Sits at
- * the bottom of every block. Closed by default to keep blocks scannable.
- */
+/** Collapsed disclosure that pretty-prints the raw stage payload as JSON. */
 export function StageRaw({
   data, showLabel, hideLabel,
 }: {
@@ -206,19 +163,10 @@ export function StageRaw({
   );
 }
 
-/**
- * StageChecks — pass/fail/warn rows shared by the gate and picker.
- * Three columns: icon · label · rule.
- *
- * `unknown` is for rows where we don't have enough information to
- * assert pass or fail — e.g. the gate's pass/fail status when the
- * backend hasn't recorded the threshold this request was evaluated
- * against. Renders a muted em-dash icon and dims the label, with
- * the rule slot showing "(threshold not recorded)" or similar
- * honest disclosure (caller's responsibility).
- */
+/** A check row state; `unknown` renders a muted em-dash for indeterminate cases. */
 export type CheckState = 'pass' | 'fail' | 'warn' | 'unknown';
 
+/** Pass/fail/warn checklist with three columns: icon, label, rule. */
 export function StageChecks({
   rows,
 }: {
@@ -258,12 +206,7 @@ export function StageChecks({
   );
 }
 
-/**
- * StageGloss — the (?) inline glossary marker. Hover/long-press shows
- * the definition via the native `title` tooltip. We deliberately avoid
- * a custom popover so screen readers and reduced-motion users get a
- * native experience, and so the trace page stays JS-light.
- */
+/** Inline (?) glossary marker; the definition shows via the native title tooltip. */
 export function StageGloss({ text }: { text: string }) {
   return (
     <span

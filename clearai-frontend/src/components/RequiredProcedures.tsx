@@ -1,47 +1,13 @@
-/**
- * RequiredProcedures.tsx — broker-actionable customs procedures list
- *
- * Renders the `result.procedures` array attached to a ZATCA HS leaf
- * (SFDA approval, Ministry of Environment quarantine, livestock export
- * approval, etc). Two consumers, two modes:
- *
- *   mode="result" (default)
- *     Used by the main ResultSingle card. Active procedures appear in
- *     the primary list; repealed entries are hidden behind a small
- *     disclosure ("Show {n} historical procedures (repealed)") so the
- *     broker isn't misled into thinking a superseded rule still
- *     applies. Click expands to show them greyed-out.
- *
- *   mode="trace"
- *     Used by TracePage for full audit fidelity. Repealed entries are
- *     rendered inline alongside active ones (still greyed-out, still
- *     badged "Repealed") with no toggle — operators inspecting a trace
- *     want to see the complete catalogue state at decision time.
- *
- * The `description_ar` text is rendered RTL + Arabic font regardless
- * of the user's UI locale because ZATCA only publishes these
- * descriptions in Arabic. We never machine-translate, never show
- * "[no translation]" placeholders.
- *
- * The KEY IS OMITTED ENTIRELY when no procedures apply, so the caller
- * branches on `procedures && procedures.length` and only mounts this
- * component when there's something to render — there is no empty
- * state to design for here.
- *
- * Order of the input array is meaningful (most-blocking first); we
- * never sort or reorder.
- */
+/** Renders broker-actionable customs procedures attached to a ZATCA HS leaf. */
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { ProcedureRef } from '@/lib/api';
 
 interface RequiredProceduresProps {
+  /** Order is meaningful (most-blocking first); never reorder. */
   procedures: ProcedureRef[];
-  /**
-   * 'result' (default) hides repealed entries behind a disclosure;
-   * 'trace' renders them inline. See file header.
-   */
+  /** 'result' hides repealed entries behind a toggle; 'trace' renders them inline. */
   mode?: 'result' | 'trace';
   className?: string;
 }
@@ -54,14 +20,11 @@ export default function RequiredProcedures({
   const t = useT();
   const [showRepealed, setShowRepealed] = useState(false);
 
-  // Defensive: if the caller forgot to gate on length, we still no-op.
   if (!procedures || procedures.length === 0) return null;
 
   const active   = procedures.filter((p) => !p.is_repealed);
   const repealed = procedures.filter((p) =>  p.is_repealed);
 
-  // In result mode, only show repealed when toggled on.
-  // In trace mode, always show repealed inline.
   const showInlineRepealed = mode === 'trace';
   const visibleProcs: Array<{ p: ProcedureRef; muted: boolean }> = [
     ...active.map((p) => ({ p, muted: false })),
@@ -75,12 +38,6 @@ export default function RequiredProcedures({
   return (
     <section
       className={cn(
-        // Subtle compliance signal — not a card, not a banner. A
-        // slightly tinted block with a hairline border, sitting in
-        // the body flow below the duty chip. NOT red, NOT all-caps.
-        // This is broker-routine; the visual register matches the
-        // duty meta strip but pulls a touch more weight via the
-        // tinted background.
         'rounded-[var(--radius)] border border-[var(--line)] bg-[color-mix(in_oklab,var(--line-2)_60%,var(--surface))]',
         'px-4 py-3.5',
         'animate-[fadeUp_0.35s_ease_both]',
@@ -101,12 +58,7 @@ export default function RequiredProcedures({
         ))}
       </ul>
 
-      {/*
-        Disclosure toggle for repealed entries — only shown in result
-        mode (trace renders them inline). Even when there are no
-        repealed entries, we don't render the toggle — keeps the
-        section minimal for the common case.
-      */}
+      {/* Disclosure toggle for repealed entries — result mode only. */}
       {mode === 'result' && repealed.length > 0 && (
         <button
           type="button"
@@ -125,17 +77,7 @@ export default function RequiredProcedures({
   );
 }
 
-/**
- * One procedure row: small mono code chip on the start side, Arabic
- * description on the end side. The chip mirrors the existing
- * `MetaChip` (duty / procedures) geometry exactly so the visual
- * language stays consistent.
- *
- * `muted=true` when the procedure is repealed — chip and text dim,
- * description gets line-through, a small "Repealed" badge sits next
- * to the code chip. We deliberately avoid a red treatment: repealed
- * isn't an error, it's historical context.
- */
+/** One procedure row: code chip + Arabic description, optionally muted when repealed. */
 function ProcedureRow({ proc, muted }: { proc: ProcedureRef; muted: boolean }) {
   const t = useT();
   return (
@@ -145,7 +87,6 @@ function ProcedureRow({ proc, muted }: { proc: ProcedureRef; muted: boolean }) {
         muted && 'opacity-60',
       )}
     >
-      {/* Code chip — same geometry as the duty MetaChip. */}
       <span
         className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[12px] flex-shrink-0"
       >
@@ -161,7 +102,6 @@ function ProcedureRow({ proc, muted }: { proc: ProcedureRef; muted: boolean }) {
         </span>
       )}
 
-      {/* Arabic description, RTL + Arabic font, never truncated. */}
       <p
         dir="rtl"
         lang="ar"

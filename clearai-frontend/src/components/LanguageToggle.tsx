@@ -1,21 +1,4 @@
-/**
- * LanguageToggle.tsx
- *
- * Fully implemented (not a stub) — it is small enough to ship now.
- *
- * RESPONSIBILITIES:
- *   - Reads current locale from the i18n store via getLocale().
- *   - Renders a pill button that always shows the OPPOSITE language label:
- *     when UI is in English → shows "العربية", when Arabic → shows "English".
- *   - onClick: calls setLocale(other), which:
- *       1. Updates the in-memory locale.
- *       2. Writes the lang cookie (persists across reloads).
- *       3. Flips html[lang] and html[dir] immediately.
- *       4. Notifies all useSyncExternalStore subscribers → all React islands
- *          re-render in lock-step with the new locale.
- *
- * STATE OWNED: none — delegates fully to i18n module.
- */
+/** Pill button that flips locale en ↔ ar via the i18n store. */
 
 import { useT, getLocale, setLocale, locales, type Locale } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -25,7 +8,6 @@ interface LanguageToggleProps {
 }
 
 export default function LanguageToggle({ className }: LanguageToggleProps) {
-  // Subscribe to locale changes so the label re-renders when the store fires.
   const t = useT();
   const current = getLocale();
   const other = (current === 'en' ? 'ar' : 'en') as Locale;
