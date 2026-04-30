@@ -1,5 +1,5 @@
 /**
- * Latency benchmark for /classify/describe.
+ * Latency benchmark for /classifications.
  *
  * Sequentially fires N requests against a chosen base URL and reports:
  *   - per-call total latency, decision_status, decision_reason, chosen_code
@@ -132,7 +132,7 @@ async function callDescribe(args: CliArgs, description: string): Promise<CallRes
   let body: DescribeResponse | null = null;
   let error: string | null = null;
   try {
-    const res = await fetch(`${args.base}/classify/describe`, {
+    const res = await fetch(`${args.base}/classifications`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ description }),

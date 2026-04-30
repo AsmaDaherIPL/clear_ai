@@ -35,13 +35,15 @@ import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from
 import { logEvent } from '../observability/log-event.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 
-const CLASSIFY_ENDPOINTS = new Map<string, 'describe' | 'expand' | 'boost'>([
-  ['/classify/describe', 'describe'],
-  ['/classify/expand', 'expand'],
-  ['/boost', 'boost'],
+// Maps URL paths → the persisted `endpoint` enum on classification_events.
+// We keep the persisted enum stable ('describe' / 'expand') even after the
+// 2026 URL refactor so historical trace queries don't need a UNION.
+const CLASSIFY_ENDPOINTS = new Map<string, 'describe' | 'expand'>([
+  ['/classifications', 'describe'],
+  ['/classifications/expand', 'expand'],
 ]);
 
-function endpointFor(req: FastifyRequest): 'describe' | 'expand' | 'boost' | null {
+function endpointFor(req: FastifyRequest): 'describe' | 'expand' | null {
   // Strip query string and trailing slash defensively.
   const path = (req.url ?? '').split('?')[0]?.replace(/\/+$/, '') ?? '';
   return CLASSIFY_ENDPOINTS.get(path) ?? null;

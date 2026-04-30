@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { expandBody, boostBody, describeBody } from '../../src/routes/schemas.js';
+import { expandBody, classifyBody } from '../../src/routes/schemas.js';
 
 describe('expandBody.code regex', () => {
   it.each([
@@ -19,7 +19,7 @@ describe('expandBody.code regex', () => {
     '123', // 3 digits — chapter is too coarse to be useful as a parent
     'abc123456def', // junk surrounding digits
     '12345678901', // 11 digits — too long
-    '123456789012', // 12 digits — must use /boost, not /expand
+    '123456789012', // 12 digits — leaves are not valid expand parents
     'foo', // no digits
     '', // empty
     '12 34', // whitespace
@@ -30,18 +30,9 @@ describe('expandBody.code regex', () => {
   });
 });
 
-describe('boostBody.code regex', () => {
-  it('accepts a 12-digit code', () => {
-    expect(boostBody.safeParse({ code: '010121100000' }).success).toBe(true);
-  });
-  it.each(['1234567890', '0101211000000', 'abc123456789'])('rejects %s', (code) => {
-    expect(boostBody.safeParse({ code }).success).toBe(false);
-  });
-});
-
-describe('describeBody', () => {
+describe('classifyBody', () => {
   it('requires non-empty description', () => {
-    expect(describeBody.safeParse({ description: '' }).success).toBe(false);
-    expect(describeBody.safeParse({ description: 'cotton t-shirt' }).success).toBe(true);
+    expect(classifyBody.safeParse({ description: '' }).success).toBe(false);
+    expect(classifyBody.safeParse({ description: 'cotton t-shirt' }).success).toBe(true);
   });
 });

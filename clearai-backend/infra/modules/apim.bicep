@@ -5,10 +5,12 @@
 // - System-assigned managed identity (used to read the shared secret from KV).
 // - Two APIs:
 //     1. `clearai-backend`         (path '', subscriptionRequired: true)
-//        operations: POST /classify/describe, /classify/expand, /boost,
-//                    GET  /classify/newDescription,
-//                    GET  /trace/{eventId},
-//                    POST /trace/{eventId}/feedback
+//        operations on /classifications:
+//          POST  /classifications
+//          POST  /classifications/expand
+//          GET   /classifications/{id}
+//          POST  /classifications/{id}/submission-description
+//          POST  /classifications/{id}/feedback
 //     2. `clearai-backend-public`  (path 'health', subscriptionRequired: false)
 //        operation: GET / (which proxies to {backend}/health)
 //   They MUST live on different paths because APIM rejects two HTTPS APIs
@@ -16,13 +18,12 @@
 //   adds gateway-URL noise we don't want for v1.
 //
 //   So the gateway URLs are:
-//     POST https://{apim}.azure-api.net/classify/describe       (sub key required)
-//     POST https://{apim}.azure-api.net/classify/expand         (sub key required)
-//     GET  https://{apim}.azure-api.net/classify/newDescription (sub key required)
-//     POST https://{apim}.azure-api.net/boost                   (sub key required)
-//     GET  https://{apim}.azure-api.net/trace/{eventId}         (sub key required)
-//     POST https://{apim}.azure-api.net/trace/{eventId}/feedback (sub key required)
-//     GET  https://{apim}.azure-api.net/health                  (anonymous)
+//     POST https://{apim}.azure-api.net/classifications                              (sub key required)
+//     POST https://{apim}.azure-api.net/classifications/expand                       (sub key required)
+//     GET  https://{apim}.azure-api.net/classifications/{id}                         (sub key required)
+//     POST https://{apim}.azure-api.net/classifications/{id}/submission-description  (sub key required)
+//     POST https://{apim}.azure-api.net/classifications/{id}/feedback                (sub key required)
+//     GET  https://{apim}.azure-api.net/health                                       (anonymous)
 //
 // - Inbound API policy (applied to BOTH APIs):
 //     a) CORS — allow the SWA frontend, the APIM gateway itself (server-to-
@@ -202,129 +203,139 @@ resource apiProtectedPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-
   ]
 }
 
-resource opDescribe 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'classify-describe'
-  properties: {
-    displayName: 'POST /classify/describe'
-    method: 'POST'
-    urlTemplate: '/classify/describe'
-    responses: [
-      { statusCode: 200, description: 'OK' }
-    ]
-  }
-}
-
-resource opExpand 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'classify-expand'
-  properties: {
-    displayName: 'POST /classify/expand'
-    method: 'POST'
-    urlTemplate: '/classify/expand'
-    responses: [
-      { statusCode: 200, description: 'OK' }
-    ]
-  }
-}
-
-resource opBoost 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'boost'
-  properties: {
-    displayName: 'POST /boost'
-    method: 'POST'
-    urlTemplate: '/boost'
-    responses: [
-      { statusCode: 200, description: 'OK' }
-    ]
-  }
-}
-
-// Lazy ZATCA-safe submission text — generated on demand from a prior
-// classification's request_id so /classify/describe can return without
-// paying ~3-5s of LLM time. Frontend calls this when the user clicks
-// "Copy submission text" (or equivalent).
-resource opNewDescription 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'classify-new-description'
-  properties: {
-    displayName: 'GET /classify/newDescription'
-    method: 'GET'
-    urlTemplate: '/classify/newDescription'
-    templateParameters: []
-    request: {
-      queryParameters: [
-        {
-          name: 'request_id'
-          description: 'UUID of a prior classify/describe response.'
-          type: 'string'
-          required: true
-        }
-      ]
-    }
-    responses: [
-      { statusCode: 200, description: 'OK' }
-      { statusCode: 400, description: 'invalid_query or invalid_state' }
-      { statusCode: 404, description: 'not_found' }
-    ]
-  }
-}
-
-// Trace replay — fetches the persisted classification_event row + any
-// human feedback rows for a prior request_id. Powers the trace page UI
-// where users can review WHY a code was chosen and submit corrections.
+// -----------------------------------------------------------------------------
+// Operations on apiProtected
+// -----------------------------------------------------------------------------
+// All 5 operations live under /classifications — the resource — with the
+// HTTP verb describing what's happening to it. Methods chosen by the
+// "would I be upset if a flaky proxy replayed this 10x?" rule:
+//   - POST whenever an LLM call burns tokens or a row is written
+//   - GET only for pure DB reads (currently just GET /classifications/{id})
 //
-// Path is templated on {eventId} (UUID); APIM forwards verbatim. The
-// backend's Fastify route validates the UUID shape and returns 404
-// for malformed IDs OR missing rows — APIM doesn't try to enforce
-// the UUID format at the gateway because the backend's error message
-// is more useful ("invalid event id" vs "no event with that id").
-resource opTraceGet 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+// Names use the URL pattern as the primary token so the operation list
+// reads naturally when sorted alphabetically:
+//   classifications-create / classifications-expand / classifications-feedback
+//   classifications-get / classifications-submission-description
+
+// POST /classifications — primary classification endpoint.
+// Free-text product description in, full classification envelope out
+// (chosen code, alternatives, rationale, procedures, duty, …). Writes
+// one classification_events row and runs up to 3 LLM calls.
+resource opClassificationsCreate 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
   parent: apiProtected
-  name: 'trace-get'
+  name: 'classifications-create'
   properties: {
-    displayName: 'GET /trace/{eventId}'
-    method: 'GET'
-    urlTemplate: '/trace/{eventId}'
-    templateParameters: [
-      {
-        name: 'eventId'
-        description: 'UUID of a prior classification event (request_id from /classify/describe).'
-        type: 'string'
-        required: true
-      }
-    ]
+    displayName: 'POST /classifications'
+    method: 'POST'
+    urlTemplate: '/classifications'
+    templateParameters: []
     responses: [
-      { statusCode: 200, description: 'Event found; returns event row + feedback array.' }
-      { statusCode: 404, description: 'Invalid UUID or no event with that id.' }
+      { statusCode: 200, description: 'Classification produced — returns the full envelope.' }
+      { statusCode: 400, description: 'invalid_body — malformed description payload.' }
     ]
   }
 }
 
-// User feedback on a classification — confirm / reject / prefer_alternative.
-// One row per (event_id, user_id) — UPSERT semantics on the backend, so a
-// repeat POST from the same user updates their existing feedback rather
-// than spamming duplicates.
-resource opTraceFeedback 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+// POST /classifications/expand — narrow a parent prefix (4–10 digits) to
+// a 12-digit leaf. Used when the user has a heading-level code and wants
+// to refine to a leaf via a fuller description. Writes its own
+// classification_events row.
+resource opClassificationsExpand 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
   parent: apiProtected
-  name: 'trace-feedback'
+  name: 'classifications-expand'
   properties: {
-    displayName: 'POST /trace/{eventId}/feedback'
+    displayName: 'POST /classifications/expand'
     method: 'POST'
-    urlTemplate: '/trace/{eventId}/feedback'
+    urlTemplate: '/classifications/expand'
+    templateParameters: []
+    responses: [
+      { statusCode: 200, description: 'Expanded under the parent prefix.' }
+      { statusCode: 400, description: 'invalid_body — bad code or description.' }
+    ]
+  }
+}
+
+// GET /classifications/{id} — fetch a persisted classification + any
+// human feedback rows. Pure DB read, no LLM, idempotent → GET is correct.
+// Powers the trace UI where users can review WHY a code was chosen.
+resource opClassificationsGet 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: apiProtected
+  name: 'classifications-get'
+  properties: {
+    displayName: 'GET /classifications/{id}'
+    method: 'GET'
+    urlTemplate: '/classifications/{id}'
     templateParameters: [
       {
-        name: 'eventId'
-        description: 'UUID of the classification event being annotated.'
+        name: 'id'
+        description: 'UUID returned by POST /classifications.'
         type: 'string'
         required: true
       }
     ]
     responses: [
-      { statusCode: 200, description: 'Feedback recorded; returns feedback_id.' }
+      { statusCode: 200, description: 'Classification + feedback array.' }
+      { statusCode: 404, description: 'Invalid UUID or no classification with that id.' }
+    ]
+  }
+}
+
+// POST /classifications/{id}/submission-description — generate a customs-
+// grade Arabic description (with EN companion) suitable for the ZATCA
+// item submission form. Lazy: the classify endpoint no longer produces
+// this inline (saves ~3-5s on every accepted classification). Frontend
+// calls this when the user is ready to copy text into the declaration.
+//
+// Why POST not GET: every call burns Haiku tokens. POST stops browsers /
+// proxies / CDNs from auto-replaying the request and keeps the URL out
+// of access logs.
+resource opClassificationsSubmissionDescription 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: apiProtected
+  name: 'classifications-submission-description'
+  properties: {
+    displayName: 'POST /classifications/{id}/submission-description'
+    method: 'POST'
+    urlTemplate: '/classifications/{id}/submission-description'
+    templateParameters: [
+      {
+        name: 'id'
+        description: 'UUID of a prior classification.'
+        type: 'string'
+        required: true
+      }
+    ]
+    responses: [
+      { statusCode: 200, description: 'Generated submission description (AR + EN).' }
+      { statusCode: 400, description: 'invalid_state — classification is not on a 12-digit accepted path.' }
+      { statusCode: 404, description: 'Invalid UUID or no classification with that id.' }
+      { statusCode: 500, description: 'generation_failed — generator returned no text.' }
+    ]
+  }
+}
+
+// POST /classifications/{id}/feedback — record human feedback on a
+// classification (confirm / reject / prefer_alternative). UPSERT-on-
+// (event_id, user_id) so a repeat POST from the same user updates their
+// existing feedback rather than spamming duplicates.
+resource opClassificationsFeedback 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: apiProtected
+  name: 'classifications-feedback'
+  properties: {
+    displayName: 'POST /classifications/{id}/feedback'
+    method: 'POST'
+    urlTemplate: '/classifications/{id}/feedback'
+    templateParameters: [
+      {
+        name: 'id'
+        description: 'UUID of the classification being annotated.'
+        type: 'string'
+        required: true
+      }
+    ]
+    responses: [
+      { statusCode: 200, description: 'Feedback recorded — returns feedback_id.' }
       { statusCode: 400, description: 'invalid_body — malformed payload or wrong field combination.' }
-      { statusCode: 404, description: 'Invalid UUID or no event with that id.' }
+      { statusCode: 404, description: 'Invalid UUID or no classification with that id.' }
     ]
   }
 }

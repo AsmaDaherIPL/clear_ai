@@ -1,5 +1,10 @@
 /**
- * /classify/describe — free-text description → 12-digit HS code.
+ * POST /classifications — free-text description → 12-digit HS code.
+ *
+ * Naming note: the URL is `/classifications` (the resource), but the persisted
+ * `endpoint` column on classification_events stays as 'describe' so historical
+ * trace queries don't need a UNION across old/new names. The column is
+ * internal observability — frontend / APIM never see it.
  *
  * v2 stateless control flow (ADR-0011). Worst-case: 3 LLM calls; common path: 1.
  *
@@ -18,7 +23,7 @@
  * what the system actually classified, so the user can spot misinterpretations.
  */
 import type { FastifyInstance } from 'fastify';
-import { describeBody } from './schemas.js';
+import { classifyBody } from './schemas.js';
 import { digitNormalize } from '../retrieval/digit-normalize.js';
 import { loadKnownPrefixes } from '../retrieval/known-prefixes.js';
 import { retrieveCandidates, type Candidate } from '../retrieval/retrieve.js';
@@ -51,10 +56,10 @@ import { buildInterpretation, type InterpretationStage } from '../classification
 import { runCleanupStage } from '../classification/stages/cleanup-stage.js';
 import { runBestEffortStage } from '../classification/stages/best-effort-stage.js';
 
-export async function describeRoute(app: FastifyInstance): Promise<void> {
-  app.post('/classify/describe', async (req, reply) => {
+export async function classifyRoute(app: FastifyInstance): Promise<void> {
+  app.post('/classifications', async (req, reply) => {
     const t0 = Date.now();
-    const parse = describeBody.safeParse(req.body);
+    const parse = classifyBody.safeParse(req.body);
     if (!parse.success) {
       return reply.code(400).send({ error: 'invalid_body', detail: parse.error.flatten() });
     }
@@ -539,7 +544,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
     trimAlternativeDashes(alternatives);
 
     // Phase 5 submission description used to be generated inline here.
-    // It's now lazy: the frontend calls GET /classify/newDescription
+    // It's now lazy: the frontend calls POST /classifications/{id}/submission-description
     // ?request_id=<uuid> when the user is ready to copy the Arabic text
     // into the ZATCA declaration form. Cuts ~3-5s of Haiku time off
     // every accepted classification.
@@ -636,7 +641,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           branchRank?.invoked === 'llm' && !branchRank.agreesWithPicker,
         branch_rank_latency_ms: branchRank?.latencyMs ?? 0,
         // (submission-description observability now lives on the
-        // GET /classify/newDescription route — describe.ts no longer
+        // POST /classifications/{id}/submission-description route — describe.ts no longer
         // generates submission text on the critical path.)
       },
       languageDetected: lang,
@@ -804,7 +809,7 @@ export async function describeRoute(app: FastifyInstance): Promise<void> {
           }
         : {}),
       // ZATCA-safe submission description is now generated lazily.
-      // When the frontend needs it, it calls GET /classify/newDescription
+      // When the frontend needs it, it calls POST /classifications/{id}/submission-description
       // ?request_id=<request_id from this response>.
       interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
       model: {

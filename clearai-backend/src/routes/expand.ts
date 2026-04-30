@@ -15,7 +15,7 @@ import { round4 } from '../util/score.js';
 import { withRequestId, baseModelInfo, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
 
 export async function expandRoute(app: FastifyInstance): Promise<void> {
-  app.post('/classify/expand', async (req, reply) => {
+  app.post('/classifications/expand', async (req, reply) => {
     const t0 = Date.now();
     const parse = expandBody.safeParse(req.body);
     if (!parse.success) {

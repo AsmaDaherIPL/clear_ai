@@ -1,9 +1,21 @@
+/**
+ * Zod request-body schemas for the classifications API.
+ *
+ *   classifyBody  — POST /classifications
+ *   expandBody    — POST /classifications/expand
+ *
+ * The other endpoints (GET /classifications/{id}, POST /classifications/{id}/feedback,
+ * POST /classifications/{id}/submission-description) have inline schemas next to
+ * their handlers because they're trivially small or path-only.
+ *
+ * Removed: boostBody — the /boost endpoint was retired (no live caller).
+ */
 import { z } from 'zod';
 
-export const describeBody = z.object({
+export const classifyBody = z.object({
   description: z.string().min(1).max(250),
 });
-export type DescribeBody = z.infer<typeof describeBody>;
+export type ClassifyBody = z.infer<typeof classifyBody>;
 
 export const expandBody = z.object({
   /**
@@ -21,7 +33,7 @@ export const expandBody = z.object({
    * Retrieval + gate + picker can handle 4-digit parents fine; we
    * weren't actually getting bitten by the wide branch.
    *
-   * Negative tests live in `src/routes/schemas.test.ts`.
+   * Negative tests live in `tests/routes/schemas.test.ts`.
    */
   code: z
     .string()
@@ -29,9 +41,3 @@ export const expandBody = z.object({
   description: z.string().min(1).max(250),
 });
 export type ExpandBody = z.infer<typeof expandBody>;
-
-export const boostBody = z.object({
-  /** 12-digit ZATCA code under inspection. */
-  code: z.string().regex(/^\d{12}$/, 'must be exactly 12 digits'),
-});
-export type BoostBody = z.infer<typeof boostBody>;

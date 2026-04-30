@@ -1,15 +1,15 @@
 /**
  * Trace + feedback routes — Phase 4 of the v3 alternatives redesign.
  *
- * GET  /trace/:eventId          → full debug trace (event row + feedback rows)
- * POST /trace/:eventId/feedback → record human feedback on a classification
+ * GET  /classifications/:id           → full debug trace (event row + feedback rows)
+ * POST /classifications/:id/feedback  → record human feedback on a classification
  *
  * Auth model: share-link-with-UUID. The frontend bundle has the APIM
  * subscription key baked in, and APIM enforces CORS + rate limit, so anyone
- * who can already reach /classify/* can reach /trace/*. UUIDs are
- * unguessable — the security posture is the same as Google Docs share-link
- * URLs. When real user auth lands, we tighten via the user_id column on
- * classification_feedback.
+ * who can already reach POST /classifications can reach the trace + feedback
+ * endpoints. UUIDs are unguessable — the security posture is the same as
+ * Google Docs share-link URLs. When real user auth lands, we tighten via
+ * the user_id column on classification_feedback.
  *
  * Contract:
  *   - GET returns 404 when the event_id doesn't exist (or is malformed).
@@ -27,7 +27,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../db/client.js';
 
-const eventIdSchema = z.string().uuid({ message: 'event id must be a UUID' });
+const idSchema = z.string().uuid({ message: 'classification id must be a UUID' });
 
 const feedbackBody = z.object({
   kind: z.enum(['confirm', 'reject', 'prefer_alternative']),
@@ -56,13 +56,13 @@ const feedbackBody = z.object({
   user_id: z.string().min(1).max(200).optional(),
 });
 
-export async function traceRoute(app: FastifyInstance): Promise<void> {
-  app.get('/trace/:eventId', async (req, reply) => {
-    const parse = eventIdSchema.safeParse((req.params as { eventId?: string }).eventId);
+export async function classificationTraceRoute(app: FastifyInstance): Promise<void> {
+  app.get('/classifications/:id', async (req, reply) => {
+    const parse = idSchema.safeParse((req.params as { id?: string }).id);
     if (!parse.success) {
-      return reply.code(404).send({ error: 'not_found', detail: 'invalid event id' });
+      return reply.code(404).send({ error: 'not_found', detail: 'invalid classification id' });
     }
-    const eventId = parse.data;
+    const id = parse.data;
 
     const pool = getPool();
     const eventRes = await pool.query<{
@@ -89,10 +89,10 @@ export async function traceRoute(app: FastifyInstance): Promise<void> {
       total_latency_ms: number | null;
       error: string | null;
       rationale: string | null;
-    }>(`SELECT * FROM classification_events WHERE id = $1`, [eventId]);
+    }>(`SELECT * FROM classification_events WHERE id = $1`, [id]);
 
     if (eventRes.rowCount === 0) {
-      return reply.code(404).send({ error: 'not_found', detail: 'no event with that id' });
+      return reply.code(404).send({ error: 'not_found', detail: 'no classification with that id' });
     }
     const e = eventRes.rows[0]!;
 
@@ -110,7 +110,7 @@ export async function traceRoute(app: FastifyInstance): Promise<void> {
        FROM classification_feedback
        WHERE event_id = $1
        ORDER BY created_at DESC`,
-      [eventId],
+      [id],
     );
 
     return {
@@ -143,12 +143,12 @@ export async function traceRoute(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.post('/trace/:eventId/feedback', async (req, reply) => {
-    const idParse = eventIdSchema.safeParse((req.params as { eventId?: string }).eventId);
+  app.post('/classifications/:id/feedback', async (req, reply) => {
+    const idParse = idSchema.safeParse((req.params as { id?: string }).id);
     if (!idParse.success) {
-      return reply.code(404).send({ error: 'not_found', detail: 'invalid event id' });
+      return reply.code(404).send({ error: 'not_found', detail: 'invalid classification id' });
     }
-    const eventId = idParse.data;
+    const id = idParse.data;
 
     const bodyParse = feedbackBody.safeParse(req.body);
     if (!bodyParse.success) {
@@ -163,10 +163,10 @@ export async function traceRoute(app: FastifyInstance): Promise<void> {
     const pool = getPool();
     const exists = await pool.query<{ chosen_code: string | null }>(
       `SELECT chosen_code FROM classification_events WHERE id = $1`,
-      [eventId],
+      [id],
     );
     if (exists.rowCount === 0) {
-      return reply.code(404).send({ error: 'not_found', detail: 'no event with that id' });
+      return reply.code(404).send({ error: 'not_found', detail: 'no classification with that id' });
     }
 
     // Constraint enforcement that's clearer here than in the SQL CHECK:
@@ -204,7 +204,7 @@ export async function traceRoute(app: FastifyInstance): Promise<void> {
          updated_at     = now()
        RETURNING id`,
       [
-        eventId,
+        id,
         body.kind,
         rejectedCode,
         body.corrected_code ?? null,

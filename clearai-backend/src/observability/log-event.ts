@@ -16,7 +16,11 @@ export interface LogEventLogger {
 }
 
 export interface EventInsert {
-  endpoint: 'describe' | 'expand' | 'boost';
+  // Persisted endpoint enum. Stays as 'describe' / 'expand' even after the
+  // 2026 URL refactor (POST /classifications, POST /classifications/expand)
+  // so trace queries don't need a UNION across old and new names. The 'boost'
+  // value is gone — old rows keep their value for historical lookups.
+  endpoint: 'describe' | 'expand';
   request: unknown;
   languageDetected: string | null;
   decisionStatus: DecisionStatus;

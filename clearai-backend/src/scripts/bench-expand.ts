@@ -1,5 +1,5 @@
 /**
- * Latency + correctness check for /classify/expand.
+ * Latency + correctness check for /classifications/expand.
  *
  * Runs a fixed set of (parent_code, description) pairs that cover the
  * different paths the expand handler can take:
@@ -85,7 +85,7 @@ async function callExpand(base: string, c: TestCase): Promise<Result> {
   let body: ExpandResponse | null = null;
   let error: string | null = null;
   try {
-    const res = await fetch(`${base}/classify/expand`, {
+    const res = await fetch(`${base}/classifications/expand`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code: c.code, description: c.description }),
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
     '',
   );
 
-  console.log(`\nTesting /classify/expand against ${base}\n`);
+  console.log(`\nTesting /classifications/expand against ${base}\n`);
   console.log(
     '  #   total      decision                   path                  before → after                                top alt',
   );
