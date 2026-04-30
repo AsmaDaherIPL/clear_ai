@@ -6,7 +6,7 @@
  *     in-flight request, the most recent DescribeResponse, and the
  *     measured round-trip latency.
  *   - Composes all child components into the page structure.
- *   - Calls api.describe() / api.expand() / api.boost() based on mode
+ *   - Calls api.classify() / api.expand() based on mode
  *     and forwards the result to the matching Result* component.
  *   - Mounted with client:load in index.astro so it hydrates immediately.
  *
@@ -165,13 +165,13 @@ export default function ClassifyApp() {
 
     const startedAt = performance.now();
     try {
-      // Generate mode → /classify/describe. Expand and Batch are not yet
+      // Generate mode → POST /classifications. Expand and Batch are not yet
       // wired in v2 (Composer uses parentCode only when mode==='expand',
       // but the api.expand call is deferred until the Expand result card
       // is wired separately).
       let res: DescribeResponse;
       if (m === 'generate') {
-        res = await api.describe({ description });
+        res = await api.classify({ description });
       } else if (m === 'expand') {
         // Soft-fail: surface a friendly error rather than crashing.
         // Wiring expand requires plumbing api.expand → ResultExpand which

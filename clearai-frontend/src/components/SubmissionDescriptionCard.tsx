@@ -3,7 +3,7 @@
  *
  * RESPONSIBILITIES:
  *   - On mount (or when request_id changes), fire a single GET
- *     /classify/newDescription?request_id=<uuid> request and render
+ *     POST /classifications/{id}/submission-description and render
  *     the EN + AR submission text returned by the backend.
  *   - Cancel any in-flight request via AbortController when the
  *     request_id changes mid-fetch, so a stale response from a
@@ -39,7 +39,7 @@ import { CopyChip } from '@/components/ui/copy-chip';
 import { api, ApiError, type NewDescriptionResponse } from '@/lib/api';
 
 interface SubmissionDescriptionCardProps {
-  /** UUID returned by /classify/describe at the top level. The card
+  /** UUID returned by POST /classifications at the top level. The card
    *  unmounts itself if this is null/undefined (no fetch to make). */
   requestId: string | null | undefined;
   className?: string;
@@ -100,7 +100,7 @@ export default function SubmissionDescriptionCard({
     setData(null);
 
     api
-      .newDescription(requestId, controller.signal)
+      .submissionDescription(requestId, controller.signal)
       .then((res) => {
         // Guard against late resolution from an aborted request
         // (browsers typically reject on abort, but if a race wins

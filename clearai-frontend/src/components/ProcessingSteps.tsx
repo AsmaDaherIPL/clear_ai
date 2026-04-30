@@ -27,7 +27,7 @@
  *        lookup. The longest phase by wall-clock.
  *
  * "Drafting submission description" used to live here too but moved
- * to its own lazy GET /classify/newDescription request, owned by
+ * to its own lazy GET POST /classifications/{id}/submission-description request, owned by
  * SubmissionDescriptionCard's local skeleton — so it stays out of
  * this panel.
  */

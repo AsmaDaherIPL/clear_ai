@@ -1,14 +1,21 @@
 /**
  * ClearAI API client — typed wrapper over the Fastify backend.
  *
- * Backend contract lives in clearai-backend/src/routes/{describe,expand,boost}.ts
- * + src/decision/types.ts. This file is the single hand-kept mirror of that
- * contract on the browser side. Keep field names in sync (snake_case from the
- * wire, exposed unchanged here so a `grep` across both repos finds matches).
+ * Backend contract lives in:
+ *   clearai-backend/src/routes/classify.ts                  (POST /classifications)
+ *   clearai-backend/src/routes/expand.ts                    (POST /classifications/expand)
+ *   clearai-backend/src/routes/classification-trace.ts      (GET / POST /classifications/{id}[/feedback])
+ *   clearai-backend/src/routes/submission-description.ts    (POST /classifications/{id}/submission-description)
+ *   clearai-backend/src/types/domain.ts                     (cross-cutting unions)
  *
- * The shape is *much* smaller than the legacy Python contract — there's no
- * justification, no rationale_steps, no closest_alternative, no pipeline
- * stages, no batch lane. Just the decision envelope + alternatives.
+ * This file is the single hand-kept mirror of that contract on the
+ * browser side. Keep field names in sync (snake_case from the wire,
+ * exposed unchanged here so a `grep` across both repos finds matches).
+ *
+ * The shape is *much* smaller than the legacy Python contract — there's
+ * no justification, no rationale_steps, no closest_alternative, no
+ * pipeline stages, no batch lane. Just the decision envelope +
+ * alternatives.
  */
 
 // Default targets the local Fastify backend on :3000 — matches the deployed
@@ -207,7 +214,7 @@ export interface AlternativeLine {
 
 export interface ModelInfo {
   embedder: string;
-  /** null when the request didn't reach the LLM (gate failed, /boost, single-descendant). */
+  /** null when the request didn't reach the LLM (gate failed, single-descendant). */
   llm: string | null;
   /** Set when the input was rewritten by the Sonnet researcher (brand/SKU jargon path). */
   researcher?: string;
@@ -262,11 +269,11 @@ export interface SubmissionDescription {
   source: 'llm' | 'llm_failed' | 'guard_fallback';
 }
 
-/** Common envelope shared by /classify/describe, /classify/expand, /boost. */
+/** Common envelope shared by POST /classifications and POST /classifications/expand. */
 export interface DecisionEnvelopeBase {
   /**
    * Phase 4 — UUID of the classification_events row written for this
-   * request. Surfaced so the frontend can deep-link to /trace/:id and
+   * request. Surfaced so the frontend can deep-link to /classifications/:id and
    * POST feedback. Optional only because logging is best-effort: if the
    * DB is briefly unavailable, the classification still ships, but the
    * trace link won't render.
@@ -278,13 +285,13 @@ export interface DecisionEnvelopeBase {
   alternatives: AlternativeLine[];
   rationale?: string;
   missing_attributes?: MissingAttribute[];
-  /** Optional on /expand and /boost (which don't run the researcher today). */
+  /** Optional on /classifications/expand (which don't run the researcher today). */
   interpretation?: Interpretation;
   /**
    * @deprecated /classify/describe no longer emits this field — the
    * submission description is fetched lazily via GET
    * /classify/newDescription?request_id=<id>. The type is retained in
-   * the envelope so /classify/expand and /classify/boost (which still
+   * the envelope so /classifications/expand (which still
    * embed it inline) continue to type-check; new code should consume
    * NewDescriptionResponse instead.
    */
@@ -292,13 +299,13 @@ export interface DecisionEnvelopeBase {
   model: ModelInfo;
 }
 
-/** /classify/describe response — `result` is present iff status='accepted'. */
+/** /classifications response — `result` is present iff status='accepted'. */
 export interface DescribeResponse extends DecisionEnvelopeBase {
   result?: ResultLine;
 }
 
 /**
- * /classify/expand and /boost both return a "before / after" pair when
+ * /classifications/expand returns a "before / after" pair when
  * accepted, alongside the same envelope. `before.code` is the parent prefix
  * (expand) or the declared 12-digit code (boost).
  */
@@ -314,25 +321,24 @@ export interface HealthResponse {
 
 // --- Request bodies -------------------------------------------------------
 
-export interface DescribeRequest {
+/**
+ * POST /classifications request shape.
+ * (Was DescribeRequest before the 2026-04-30 API refactor.)
+ */
+export interface ClassifyRequest {
   description: string;
 }
 
 export interface ExpandRequest {
-  /** Exactly 4, 6, 8, or 10 digits. Backend rejects others with 400. */
+  /** 4 to 10 digits (any length in that range). Backend rejects others with 400. */
   code: string;
   description: string;
 }
 
-export interface BoostRequest {
-  /** Exactly 12 digits. Backend rejects others with 400. */
-  code: string;
-}
-
 /**
  * Lazy-loaded ZATCA submission description. Returned by
- * GET /classify/newDescription?request_id=<uuid>, which the frontend
- * fires on mount of the submission card AFTER the main /classify/describe
+ * POST /classifications/{id}/submission-description, which the frontend
+ * fires on mount of the submission card AFTER the main /classifications
  * response has landed. Splitting this out lets the result card render
  * 3-5s sooner (the LLM rewrite is the slowest step on the describe path).
  *
@@ -400,37 +406,63 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<HealthResponse>('/health'),
-  describe: (b: DescribeRequest) =>
-    request<DescribeResponse>('/classify/describe', {
+
+  /**
+   * POST /classifications — primary classification endpoint.
+   * Was POST /classify/describe before the 2026-04-30 API refactor.
+   */
+  classify: (b: ClassifyRequest) =>
+    request<DescribeResponse>('/classifications', {
       method: 'POST',
       body: JSON.stringify(b),
     }),
+
+  /**
+   * POST /classifications/expand — narrow a parent prefix (4-10 digits)
+   * to a 12-digit leaf. Was POST /classify/expand.
+   */
   expand: (b: ExpandRequest) =>
-    request<ExpandBoostResponse>('/classify/expand', {
+    request<ExpandBoostResponse>('/classifications/expand', {
       method: 'POST',
       body: JSON.stringify(b),
     }),
-  boost: (b: BoostRequest) =>
-    request<ExpandBoostResponse>('/boost', {
-      method: 'POST',
-      body: JSON.stringify(b),
-    }),
-  // Phase 5 (lazy) — fetch the ZATCA submission description after the
-  // main classify response has landed. `signal` lets the caller cancel
-  // an in-flight fetch when the user reclassifies before the previous
-  // submission resolved (avoids stale data landing in the new card).
-  newDescription: (requestId: string, signal?: AbortSignal) =>
+
+  /**
+   * POST /classifications/{id}/submission-description — generate the
+   * ZATCA-grade Arabic submission text on demand.
+   *
+   * Was GET /classify/newDescription?request_id=<id>. Now POST because
+   * every call burns Haiku tokens — POST stops browsers/proxies/CDNs
+   * from auto-replaying and keeps the URL out of access logs. The
+   * `signal` parameter still works for in-flight cancellation when the
+   * user reclassifies before the previous submission resolved.
+   */
+  submissionDescription: (id: string, signal?: AbortSignal) =>
     request<NewDescriptionResponse>(
-      `/classify/newDescription?request_id=${encodeURIComponent(requestId)}`,
-      { method: 'GET', signal },
+      `/classifications/${encodeURIComponent(id)}/submission-description`,
+      {
+        method: 'POST',
+        body: JSON.stringify({}),
+        ...(signal ? { signal } : {}),
+      },
     ),
-  // Phase 4 — trace + feedback. The trace endpoint returns the raw
-  // classification_events row plus any associated feedback. The feedback
-  // endpoint UPSERTs one row per (event, user) pair.
-  trace: (eventId: string) => request<TraceResponse>(`/trace/${encodeURIComponent(eventId)}`),
-  feedback: (eventId: string, body: PostFeedbackBody) =>
+
+  /**
+   * GET /classifications/{id} — fetch a persisted classification + its
+   * feedback rows. Was GET /trace/:eventId.
+   */
+  trace: (id: string) =>
+    request<TraceResponse>(`/classifications/${encodeURIComponent(id)}`),
+
+  /**
+   * POST /classifications/{id}/feedback — record human feedback on a
+   * classification. UPSERT-on-(event_id, user_id) so a repeat POST from
+   * the same user updates their existing feedback. Was POST
+   * /trace/:eventId/feedback.
+   */
+  feedback: (id: string, body: PostFeedbackBody) =>
     request<{ ok: boolean; feedback_id: string | null }>(
-      `/trace/${encodeURIComponent(eventId)}/feedback`,
+      `/classifications/${encodeURIComponent(id)}/feedback`,
       {
         method: 'POST',
         body: JSON.stringify(body),
@@ -515,7 +547,7 @@ export function statusToTone(status: DecisionStatus): 'good' | 'warn' | 'bad' {
 // ---- Phase 4: trace + feedback ---------------------------------------------
 
 /**
- * Full debug payload for a single classification, returned by GET /trace/:id.
+ * Full debug payload for a single classification, returned by GET /classifications/:id.
  * Mirrors the classification_events row plus any associated feedback rows.
  *
  * Most fields are jsonb on the DB side and arrive here as `unknown`; the

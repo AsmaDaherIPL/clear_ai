@@ -1,7 +1,7 @@
 /**
  * TracePage.tsx — operator audit + end-user feedback for one classification.
  *
- * The page tells the story of a single /classify/describe request as a
+ * The page tells the story of a single POST /classifications request as a
  * stack of stage blocks (cleanup → retrieval → research → gate →
  * picker → best-effort), preceded by a header band and a one-line
  * spine that summarises the flow at a glance, followed by the
@@ -992,7 +992,7 @@ export default function TracePage() {
       {/*
         ── Required procedures ──
         Renders ONLY when the trace event carries the procedures array
-        on `event.result.procedures`. The /trace/:id endpoint does not
+        on `event.result.procedures`. The GET /classifications/{id} endpoint does not
         currently expose this — it only logs the chosen `code`, not the
         joined catalog row. When the backend adds it (likely via a join
         in the trace query against the catalog's procedure-codes table),

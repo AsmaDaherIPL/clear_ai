@@ -836,7 +836,7 @@ export default function ResultSingle({
 
   const segments = splitCodeSegments(r.code);
   // The submission description used to live on `data.submission_description`,
-  // but the backend moved that work to a separate /classify/newDescription
+  // but the backend moved that work to a separate POST /classifications/{id}/submission-description
   // route to cut ~3-5s off the main classify latency. SubmissionDescriptionCard
   // owns its own fetch lifecycle keyed on the request_id.
   // Resolve duty up-front so the chip's render condition checks a real
@@ -846,7 +846,7 @@ export default function ResultSingle({
   const dutyLabel = r.duty ? dutyText(r.duty) : null;
 
   // Trace link — the backend writes a classification_events row per
-  // request and surfaces its UUID as `request_id`. The /trace/:id route
+  // request and surfaces its UUID as `request_id`. The GET /classifications/{id} route
   // exists on the backend; the frontend page is a v2 TODO (port from v1).
   const traceHref = data.request_id ? `/trace?id=${data.request_id}` : '#';
 
@@ -976,7 +976,7 @@ export default function ResultSingle({
           </div>
 
           {/* (b) Suggested ZATCA submission description — lazy-loaded via
-              GET /classify/newDescription on mount. The card owns its own
+              POST /classifications/{id}/submission-description on mount. The card owns its own
               fetch lifecycle (loading skeleton → success / error / retry)
               and self-unmounts on `400 invalid_state` (when the original
               classification wasn't on the accepted 12-digit path). The
