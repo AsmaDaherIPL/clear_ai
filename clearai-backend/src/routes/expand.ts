@@ -13,6 +13,8 @@ import { getPool } from '../db/client.js';
 import { lookupBrokerMapping } from '../classification/broker-mapping.js';
 import { round4 } from '../util/score.js';
 import { withRequestId, baseModelInfo, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
+import { sanitiseRationale } from '../util/sanitise.js';
+import { getDeletionInfo } from '../catalog/deleted-codes.js';
 
 export async function expandRoute(app: FastifyInstance): Promise<void> {
   app.post('/classifications/expand', async (req, reply) => {
@@ -23,6 +25,67 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
     }
     const { code: parentPrefix, description } = parse.data;
     const lang = detectLang(description);
+
+    // ── SABER deletion guard ─────────────────────────────────────────────────
+    // Check BEFORE retrieval. If the caller submitted a prefix that exactly
+    // matches a deleted 12-digit code, refuse and surface alternatives so the
+    // broker can pick the correct replacement (Option A — see ADR-0021).
+    // 10-digit or shorter prefixes are never deleted directly; only 12-digit
+    // leaves get the SABER treatment, so this guard only fires on full codes.
+    if (parentPrefix.length === 12) {
+      const deletion = await getDeletionInfo(parentPrefix);
+      if (deletion) {
+        const totalLatency = Date.now() - t0;
+        const requestId = await logEvent({
+          endpoint: 'expand',
+          request: { code: parentPrefix, description },
+          languageDetected: lang,
+          decisionStatus: 'needs_clarification',
+          decisionReason: 'code_deleted',
+          confidenceBand: null,
+          chosenCode: null,
+          alternatives: deletion.alternatives.map((a) => ({
+            code: a.code,
+            description_en: a.description_en,
+            description_ar: a.description_ar,
+            retrieval_score: null,
+          })),
+          topRetrievalScore: 0,
+          top2Gap: 0,
+          candidateCount: 0,
+          branchSize: null,
+          llmUsed: false,
+          llmStatus: null,
+          guardTripped: false,
+          modelCalls: null,
+          embedderVersion: EMBEDDER_VERSION(),
+          llmModel: null,
+          totalLatencyMs: totalLatency,
+          error: null,
+          rationale: null,
+        }, req.log);
+
+        return {
+          ...withRequestId(requestId),
+          decision_status: 'needs_clarification' as const,
+          decision_reason: 'code_deleted' as const,
+          deleted_code: parentPrefix,
+          deletion_effective_date: deletion.deletionEffectiveDate,
+          deleted_code_alternatives: trimAlternativeDashes(
+            deletion.alternatives.map((a) => ({
+              code: a.code,
+              description_en: a.description_en,
+              description_ar: a.description_ar,
+              retrieval_score: null,
+            })),
+          ),
+          alternatives: [],
+          model: baseModelInfo(),
+        };
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const t = await loadThresholds();
 
     // Broker-mapping short-circuit — trust the curated table over retrieval+LLM.
@@ -214,9 +277,12 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       llmModel: llm?.llmModel ?? null,
       totalLatencyMs: totalLatency,
       error: null,
-      rationale: decision.rationale ?? null,
+      // Phase 2.3: sanitise the picker-emitted rationale before persist.
+      // Same function applied to the response below so persisted == shipped.
+      rationale: sanitiseRationale(decision.rationale ?? null),
     }, req.log);
 
+    const sanitisedRationale = sanitiseRationale(decision.rationale);
     return {
       ...withRequestId(requestId),
       decision_status: decision.decisionStatus,
@@ -235,7 +301,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
         };
       })()),
       alternatives,
-      ...(decision.rationale && { rationale: decision.rationale }),
+      ...(sanitisedRationale && { rationale: sanitisedRationale }),
       ...(decision.missingAttributes.length > 0 && { missing_attributes: decision.missingAttributes }),
       model: baseModelInfo(llm?.llmModel ?? null),
     };

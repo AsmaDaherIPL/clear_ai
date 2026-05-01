@@ -134,6 +134,34 @@
       "when": 1777211800000,
       "tag": "0018_procedure_codes_seed",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777211900000,
+      "tag": "0019_role_separation",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1777212000000,
+      "tag": "0020_pii_redaction",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1777212100000,
+      "tag": "0021_hs_codes_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1777212200000,
+      "tag": "0022_hs_codes_deletion_seed",
+      "breakpoints": true
     }
   ]
 }

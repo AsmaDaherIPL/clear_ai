@@ -62,6 +62,8 @@ export async function retrieveCandidates(
     const params: unknown[] = [];
     let p = offset;
     if (leavesOnly) parts.push(`is_leaf = true`);
+    // Never surface SABER-deleted codes to the picker (ADR-0021).
+    parts.push(`is_deleted = false`);
     if (prefixFilter) {
       parts.push(`parent10 LIKE $${p++}`);
       params.push(`${prefixFilter}%`);

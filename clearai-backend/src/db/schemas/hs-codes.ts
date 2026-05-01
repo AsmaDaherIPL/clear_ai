@@ -6,8 +6,10 @@ import {
   varchar,
   integer,
   timestamp,
+  date,
   index,
   boolean,
+  json,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { vector, tsvector } from '../types.js';
@@ -41,6 +43,14 @@ export const hsCodes = pgTable(
 
     isLeaf: boolean('is_leaf').notNull().default(true),
     rawLength: integer('raw_length').notNull(),
+
+    // SABER deletion tracking (ADR: added via 0021_hs_codes_deletion.sql).
+    // Deleted codes are excluded from retrieval, branch enumeration, and
+    // broker-mapping target lookups via AND NOT is_deleted predicates.
+    isDeleted: boolean('is_deleted').notNull().default(false),
+    deletionEffectiveDate: date('deletion_effective_date'),
+    /** JSON array of 12-digit replacement codes, e.g. ["550111000001","550111009999"]. */
+    replacementCodes: json('replacement_codes').$type<string[]>(),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

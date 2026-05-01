@@ -36,6 +36,7 @@ async function queryPrefix(prefix: string, limit: number): Promise<Row[]> {
     `SELECT code, description_en, description_ar
        FROM hs_codes
       WHERE is_leaf = true
+        AND is_deleted = false
         AND code LIKE $1
       ORDER BY code
       LIMIT $2`,

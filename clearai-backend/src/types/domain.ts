@@ -30,7 +30,9 @@ export type DecisionReason =
   /** Confident HS-4 family without enough info to commit to a leaf. */
   | 'heading_level_match'
   /** Cleanup detected multiple distinct products in one input. */
-  | 'multi_product_input';
+  | 'multi_product_input'
+  /** The submitted parent prefix exactly matches a SABER-deleted code. */
+  | 'code_deleted';
 
 export type ConfidenceBand = 'high' | 'medium' | 'low';
 

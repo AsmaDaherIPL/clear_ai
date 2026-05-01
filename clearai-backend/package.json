@@ -20,6 +20,8 @@
     "db:seed": "tsx src/scripts/ingest.ts",
     "db:seed:broker": "tsx src/scripts/ingest-broker-mapping.ts",
     "db:seed:procedures": "tsx src/scripts/ingest-procedure-codes.ts",
+    "db:seed:deleted": "tsx src/scripts/ingest-deleted-codes.ts",
+    "db:parse:saber": "tsx src/scripts/parse-saber-pdf.ts",
     "bench": "tsx src/scripts/bench-classify.ts",
     "bench:expand": "tsx src/scripts/bench-expand.ts",
     "test": "vitest run",
