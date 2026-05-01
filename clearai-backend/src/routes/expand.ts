@@ -92,6 +92,65 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
     if (isEnabled(t, 'BROKER_MAPPING_ENABLED')) {
       const hit = await lookupBrokerMapping(parentPrefix);
       if (hit) {
+        // Defense in depth: a curated broker-mapping row may point to a code
+        // that ZATCA/SABER has since deleted. Refuse with the deleted-code
+        // envelope rather than serve the dead target.
+        const targetDeletion = await getDeletionInfo(hit.targetCode);
+        if (targetDeletion) {
+          const totalLatency = Date.now() - t0;
+          const requestId = await logEvent({
+            endpoint: 'expand',
+            request: {
+              code: parentPrefix,
+              description,
+              broker_mapping_hit: true,
+              broker_mapping_target_deleted: hit.targetCode,
+            },
+            languageDetected: lang,
+            decisionStatus: 'needs_clarification',
+            decisionReason: 'code_deleted',
+            confidenceBand: null,
+            chosenCode: null,
+            alternatives: targetDeletion.alternatives.map((a) => ({
+              code: a.code,
+              description_en: a.description_en,
+              description_ar: a.description_ar,
+              retrieval_score: null,
+            })),
+            topRetrievalScore: 0,
+            top2Gap: 0,
+            candidateCount: 0,
+            branchSize: null,
+            llmUsed: false,
+            llmStatus: null,
+            guardTripped: false,
+            modelCalls: null,
+            embedderVersion: EMBEDDER_VERSION(),
+            llmModel: null,
+            totalLatencyMs: totalLatency,
+            error: null,
+            rationale: null,
+          }, req.log);
+
+          return {
+            ...withRequestId(requestId),
+            decision_status: 'needs_clarification' as const,
+            decision_reason: 'code_deleted' as const,
+            deleted_code: hit.targetCode,
+            deletion_effective_date: targetDeletion.deletionEffectiveDate,
+            deleted_code_alternatives: trimAlternativeDashes(
+              targetDeletion.alternatives.map((a) => ({
+                code: a.code,
+                description_en: a.description_en,
+                description_ar: a.description_ar,
+                retrieval_score: null,
+              })),
+            ),
+            alternatives: [],
+            model: baseModelInfo(),
+          };
+        }
+
         const pool = getPool();
         const catRes = await pool.query<{
           description_en: string | null;
