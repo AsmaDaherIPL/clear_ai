@@ -1,13 +1,6 @@
 /**
  * Canonical "load prompt → call model → parse JSON → validate" helper.
- * Replaces six near-identical reimplementations across cleanup / picker /
- * branch-rank / best-effort / submission-desc / researcher.
- *
- * Returns a tagged union so callers can branch on outcome:
- *   ok | llm_failed (network/timeout) | llm_unparseable (no JSON) |
- *   schema_invalid (Zod rejected the shape).
- *
- * Forwards optional `tools` to the LLM client (Phase F web search).
+ * Returns a tagged union: ok | llm_failed | llm_unparseable | schema_invalid.
  */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -17,8 +10,7 @@ import { extractJson } from './parse-json.js';
 
 const PROMPT_DIR = join(process.cwd(), 'prompts');
 
-// Prompt cache. Stores promises (not strings) so concurrent first-reads
-// collapse to one fs read. Failed reads are evicted so retry gets a fresh attempt.
+// Cache stores promises so concurrent first-reads collapse to one fs read.
 const promptCache = new Map<string, Promise<string>>();
 
 /** Load a prompt file from `prompts/<filename>`, cached per-process. */
@@ -54,25 +46,17 @@ export interface StructuredLlmCallParams<TSchema extends z.ZodTypeAny> {
   /** Prompt filename relative to `prompts/`. */
   promptFile: string;
   user: string;
-  /** Zod schema; validation failure returns `schema_invalid`. */
   schema: TSchema;
-  /** Stage label for tracing (e.g. 'cleanup', 'branch_rank'). */
+  /** Stage label for tracing. */
   stage: string;
   /** Defaults to env LLM_MODEL. */
   model?: string;
-  /** Default 1024. */
   maxTokens?: number;
-  /** Default 0 (deterministic). */
   temperature?: number;
-  /** Forwarded to the LLM client (e.g. Anthropic hosted web_search). */
   tools?: LlmTool[];
-  /** Transient-failure retries. Default 2. Schema failures are NOT retried. */
+  /** Default 2. Schema failures are NOT retried. */
   retries?: number;
-  /**
-   * Per-call timeout override (ms). Forwarded to the LLM client. Default
-   * is env LLM_TIMEOUT_MS. Web-search stages should pass a higher value;
-   * short extraction stages should pass a lower one to fail fast.
-   */
+  /** Per-call timeout override (ms). Defaults to env LLM_TIMEOUT_MS. */
   timeoutMs?: number;
 }
 

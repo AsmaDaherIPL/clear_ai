@@ -1,9 +1,6 @@
 /**
- * Best-effort fallback (ADR-0011). Last-resort classifier returning a
- * 2/4/6/8/10-digit heading at confidence_band='low'. Runs when picker
- * fails (or gate refused) AND setup_meta.BEST_EFFORT_ENABLED=1.
- *
- * Frontend MUST gate this behind a verify-toggle.
+ * Best-effort fallback. Returns a 2/4/6/8/10-digit heading at low confidence
+ * when the picker fails or the gate refuses. Frontend gates behind a verify-toggle.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';
@@ -21,11 +18,9 @@ export type BestEffortOutcome =
 
 export interface BestEffortParams {
   rawInput: string;
-  /** From setup_meta.BEST_EFFORT_MAX_DIGITS. Must be one of {2,4,6,8,10}. */
+  /** One of {2,4,6,8,10}. */
   maxDigits: number;
-  /** From setup_meta.BEST_EFFORT_MAX_TOKENS. */
   maxTokens: number;
-  /** Foundry model id (passed through from describe.ts). */
   model: string;
 }
 
@@ -64,9 +59,6 @@ export async function bestEffortHeading(
     model: params.model,
     maxTokens: params.maxTokens,
     retries: 1,
-    // Short Haiku extraction; fail fast at 8s. Best-effort is the
-    // last-resort tail and should never be the bottleneck on a request
-    // that already failed every other gate.
     timeoutMs: 8_000,
   });
 
@@ -85,8 +77,6 @@ export async function bestEffortHeading(
   const parsed = outcome.data;
   const result = { latencyMs: outcome.trace.latency_ms, model: outcome.trace.model };
 
-  // Validate code: must be all digits, length <= maxDigits, length even at
-  // the canonical HS levels (2/4/6/8/10) OR exactly 2 for the 'unknown' case.
   const codeRaw = typeof parsed.code === 'string' ? parsed.code.trim() : '';
   if (!/^\d+$/.test(codeRaw)) {
     return {

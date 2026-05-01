@@ -1,61 +1,26 @@
 /**
- * Broker-mapping lookup — Phase 7 of the v3 alternatives redesign.
- *
- * Reads `broker_code_mapping` (populated from
- * Naqel_HS_code_mapping_lookup.xlsx) and resolves a merchant-supplied
- * code to the broker's canonical 12-digit ZATCA target. This is the
- * deterministic short-circuit that runs BEFORE the LLM picker on
- * `/classify/expand` (and as a soft hint on `/classify/describe`):
- * if the broker has already hand-curated the right answer for this
- * exact merchant code, we ship it without burning an LLM call.
- *
- * Lookup strategy:
- *   1. Exact match on the digit-only normalised input.
- *   2. Prefix-walk fallback: if the exact code isn't in the table,
- *      progressively trim trailing digits and re-check. The broker
- *      table is keyed on whatever literal form the merchant used
- *      (often 10-digit), so a 12-digit input may not match exactly
- *      but its 10-digit prefix might. We stop at length 6 — anything
- *      shorter than a subheading is too coarse for the broker's table
- *      to be authoritative.
- *
- * Returns null when no match is found at any prefix length, or when
- * the table is empty (e.g. the ingest hasn't been run).
- *
- * Pure SQL, no LLM — fast (~5ms p95) and idempotent.
+ * Broker-mapping lookup. Resolves a merchant-supplied code to the broker's
+ * canonical ZATCA target via exact match, then prefix-walk down to minPrefix.
  */
 import { getPool } from '../db/client.js';
 
 export interface BrokerMappingHit {
-  /** The 12-digit ZATCA target the broker mapped this input to. */
   targetCode: string;
-  /** The broker's canonical Arabic description for this code, if any. */
   targetDescriptionAr: string | null;
-  /** Source row reference from the spreadsheet (for traceability). */
   sourceRowRef: string | null;
-  /** Length of the prefix that matched. 12 = exact, < 12 = walked-up. */
+  /** 12 = exact, < 12 = walked-up. */
   matchedLength: number;
-  /** The exact normalised key that matched. */
   matchedClientCode: string;
 }
 
 export interface BrokerMappingOpts {
-  /**
-   * Minimum prefix length the walk-up will descend to. Default 6.
-   * The broker's table is keyed on merchant-supplied codes (8/10/12 digit
-   * are the common shapes). Walking up below HS-6 produces too many
-   * collisions to be authoritative.
-   */
+  /** Default 6. */
   minPrefix?: number;
 }
 
 const DIGITS_ONLY = /[^\d]/g;
 
-/**
- * Look up a merchant-supplied code (in any format — dotted, padded, etc)
- * against the broker's hand-curated mapping table. Returns the match or
- * null.
- */
+/** Returns null when no match at any prefix length, or table empty. */
 export async function lookupBrokerMapping(
   rawCode: string,
   opts: BrokerMappingOpts = {},
@@ -66,10 +31,7 @@ export async function lookupBrokerMapping(
 
   const pool = getPool();
 
-  // Build a list of candidate keys, longest first. We try the literal
-  // input, then progressively trim trailing digits. Single SQL query
-  // with ORDER BY length(client_code_norm) DESC so the longest match
-  // wins when multiple prefixes happen to be in the table.
+  // Try literal input then progressively shorter prefixes; longest match wins.
   const candidates: string[] = [];
   for (let len = normalised.length; len >= minPrefix; len--) {
     candidates.push(normalised.slice(0, len));

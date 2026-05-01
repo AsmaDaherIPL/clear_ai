@@ -1,21 +1,4 @@
-/**
- * Latency + correctness check for /classifications/expand.
- *
- * Runs a fixed set of (parent_code, description) pairs that cover the
- * different paths the expand handler can take:
- *   - broker-mapping hit
- *   - 4-digit heading parent (post-fix)
- *   - 6-digit subheading parent
- *   - 10-digit narrow parent
- *   - non-existent parent
- *   - single-descendant short-circuit
- *
- * Reports per-call decision + chosen code + which path fired, plus
- * a small aggregate.
- *
- * Usage:
- *   pnpm tsx src/scripts/bench-expand.ts [--base http://localhost:3000]
- */
+/** Latency + correctness check across the path variants of POST /classifications/expand. */
 
 interface ExpandResponse {
   decision_status: string;

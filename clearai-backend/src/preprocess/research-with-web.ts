@@ -1,10 +1,6 @@
 /**
- * Phase F — Web-search-augmented researcher. Fires when standard
- * research.ts returns UNKNOWN. Uses Anthropic's hosted web_search tool
- * (verified to pass through Foundry on Sonnet 4.6+).
- *
- * Safety: max_uses=1 (bounded cost), evidence_quote required by prompt
- * (anti-hallucination), feature-flagged via RESEARCH_WEB_ENABLED.
+ * Web-search-augmented researcher. Fires when research.ts returns UNKNOWN.
+ * Uses Anthropic's hosted web_search tool with a hard cap on uses.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';
@@ -74,11 +70,7 @@ export async function researchInputWithWeb(
     model,
     maxTokens,
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches }],
-    retries: 0, // web search is expensive; transient failures abstain rather than retry
-    // Web search legitimately takes longer than the default LLM timeout
-    // (Anthropic's hosted search adds 5-15s on top of generation). Lift
-    // the per-call ceiling to 30s so we don't kill a healthy slow call;
-    // the in-flight request will abandon naturally if it stalls past that.
+    retries: 0,
     timeoutMs: 30_000,
   });
 

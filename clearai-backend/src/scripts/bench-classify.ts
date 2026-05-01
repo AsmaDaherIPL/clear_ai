@@ -1,32 +1,4 @@
-/**
- * Latency benchmark for /classifications.
- *
- * Sequentially fires N requests against a chosen base URL and reports:
- *   - per-call total latency, decision_status, decision_reason, chosen_code
- *   - which LLM stages fired (from response.modelCalls — emitted by H1
- *     aggregator) plus their individual latencies
- *   - aggregates: p50, p95, max, mean
- *
- * Usage:
- *   pnpm tsx src/scripts/bench-classify.ts \
- *     [--base http://localhost:3000] \
- *     [--apim-key <key>]              \
- *     [--n 15]                        \
- *     [--inputs path/to/inputs.json]
- *
- * Defaults:
- *   --base       http://localhost:3000  (no APIM key needed)
- *   --n          15
- *   inputs       INPUTS constant below — a representative product set
- *
- * To benchmark Azure through APIM:
- *   pnpm tsx src/scripts/bench-classify.ts \
- *     --base https://apim-infp-clearai-be-dev-gwc-01.azure-api.net \
- *     --apim-key <key>
- *
- * Sequential, not parallel — measures the real-user critical path,
- * not throughput under burst.
- */
+/** Sequential latency benchmark for POST /classifications. Reports p50/p95/max + per-stage. */
 
 interface ModelCallTrace {
   model: string;

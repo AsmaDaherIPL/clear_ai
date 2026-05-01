@@ -1,11 +1,6 @@
 /**
- * Phase 1.5 — Merchant-input cleanup. Proactive Haiku-based stripping of
- * brand / SKU / marketing noise BEFORE retrieval. Two layers:
- *   1. Deterministic short-circuit (`looksClean`) — ≤80% of inputs pass
- *      through unchanged.
- *   2. Haiku call returns {kind: product|merchant_shorthand|ungrounded,
- *      clean_description, attributes, stripped}.
- * Haiku not Sonnet: this is extraction, not legal reasoning.
+ * Merchant-input cleanup. Strips brand / SKU / marketing noise before
+ * retrieval via a deterministic short-circuit then a Haiku extraction call.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';
@@ -25,11 +20,7 @@ export interface MerchantCleanupResult {
   model?: string | undefined;
 }
 
-/**
- * Skip cleanup when the input is already broker-grade: ≤4 tokens, no ASIN,
- * no marketing punctuation, no model codes (4+ char alphanumeric mixes
- * like "WH-1000XM5", "Mocca43").
- */
+/** True when input is already broker-grade and cleanup can be skipped. */
 export function looksClean(input: string): boolean {
   const trimmed = input.trim();
   if (!trimmed) return true;
@@ -40,18 +31,11 @@ export function looksClean(input: string): boolean {
   if (/B0[A-Z0-9]{8}/.test(trimmed)) return false;
   if (/[,(){}[\]/]/.test(trimmed)) return false;
 
-  // Reject tokens that look like model codes (alphanumerics with digit+letter mix).
-  // Short codes like "X4", "S3", "Pro2" need no 4-char floor — any token that
-  // is purely alphanumeric with at least one digit and one letter is a model tag.
-  // Exception: very common short mixed words like "3D", "2D", "1st", "21st" are
-  // allowed by requiring the token to end in a digit (model suffixes always do).
   for (const tok of tokens) {
     const cleaned = tok.replace(/[^A-Za-z0-9]/g, '');
     if (cleaned.length < 2) continue;
     if (/\d/.test(cleaned) && /[A-Za-z]/.test(cleaned)) {
-      // Long codes (4+ chars) are always model codes regardless of position.
-      // Short codes (2-3 chars) only count when they end in a digit — rules out
-      // common ordinals ("1st", "21st") and units ("3D") which end in a letter.
+      // 4+ chars = model code; 2-3 chars only if ends in digit (excludes "3D", "1st").
       if (cleaned.length >= 4 || /\d$/.test(cleaned)) return false;
     }
   }
@@ -78,18 +62,13 @@ function coerceStringArray(v: unknown, max = 16): string[] {
 }
 
 export interface CleanupOpts {
-  /** Cap on LLM output tokens. Default 200 (the JSON is small). */
+  /** Default 200. */
   maxTokens?: number;
-  /** Override the model (defaults to env LLM_MODEL — the weak/Haiku model). */
+  /** Defaults to env LLM_MODEL. */
   model?: string;
 }
 
-/**
- * Run cleanup on a raw merchant description.
- *
- * Always returns a result — never throws on LLM failure. The caller decides
- * whether to act on `kind` or just use `effective` as the retrieval input.
- */
+/** Run cleanup on a raw merchant description. Never throws on LLM failure. */
 export async function cleanMerchantInput(
   rawInput: string,
   opts: CleanupOpts = {},
@@ -118,14 +97,9 @@ export async function cleanMerchantInput(
     stage: 'cleanup',
     model,
     maxTokens,
-    // Cleanup is short Haiku extraction; if it stalls past 8s something
-    // is wrong upstream. Fail fast and let the pipeline fall through to
-    // the raw input (looksClean path) rather than blocking the whole
-    // request on a hung connection.
     timeoutMs: 8_000,
   });
 
-  // On any non-ok outcome, fall back to the raw input. Pipeline never blocks on cleanup.
   if (outcome.kind === 'llm_failed') {
     return {
       invoked: 'llm_failed',
@@ -155,8 +129,6 @@ export async function cleanMerchantInput(
     ? (parsed.kind as MerchantCleanupKind)
     : 'product';
 
-  // Defensive: kind=product with empty clean_description is the LLM
-  // contradicting itself — fall back to the raw input.
   const cleanRaw = typeof parsed.clean_description === 'string' ? parsed.clean_description.trim() : '';
   const effectiveClean =
     cleanRaw && kind !== 'merchant_shorthand' && kind !== 'ungrounded'

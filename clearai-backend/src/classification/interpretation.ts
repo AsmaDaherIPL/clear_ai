@@ -1,15 +1,4 @@
-/**
- * The "interpretation" block surfaces every transformation we did to the
- * user's raw input — what cleanup pulled out, what the researcher
- * rewrote it as, what couldn't be identified. The frontend renders it
- * as an "Understood as: …" line so the user can spot when the system
- * misread the input (the most common failure mode that's invisible
- * without this hint).
- *
- * Lifted out of routes/describe.ts unchanged so it can be reused if
- * other endpoints later want the same trace surface, and so the route
- * file shrinks toward a pure orchestrator.
- */
+/** Builds the "interpretation" block surfaced to the user — what cleanup / researcher did to the input. */
 import type { ResearchOutcome } from '../preprocess/research.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 import type { InterpretationStage } from '../types/domain.js';
@@ -41,9 +30,6 @@ export function buildInterpretation(params: BuildInterpretationParams): Interpre
     stage,
   };
 
-  // Surface cleanup outcome whenever the LLM ran (regardless of whether
-  // the result was used as the retrieval input). The frontend can show
-  // "we ignored: Samsung, Galaxy S25 Ultra, …" so the user can sanity-check.
   if (cleanup && cleanup.invoked === 'llm') {
     if (cleanup.kind === 'product' && cleanup.effective !== description) {
       out.cleaned_as = cleanup.effective;

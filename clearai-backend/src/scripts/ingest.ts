@@ -1,32 +1,6 @@
 /**
- * Ingest Zatca Tariff codes.xlsx into hs_codes.
- *
- * Source of truth: ../clearai-backend-python/data/Zatca Tariff codes.xlsx
- *   Sheet: "Grid"
- *   Columns:
- *     A: Harmonized Code (12-digit string with leading zeros — preserved as text)
- *     B: Item Arabic Name
- *     C: Item English Name
- *     D: Arabic Duty Rate
- *     E: English Duty Rate
- *     F: Procedures
- *     G: Date
- *
- * **HS4 rows are dropped (ADR-0008).** The xlsx contains 33 four-digit heading
- * rows alongside the 19,105 twelve-digit leaves. Earlier ingest padded HS4
- * codes with zeros (`0101` → `010100000000`) and used `ON CONFLICT (code) DO
- * NOTHING`, which silently dropped one of every collision pair (and there is
- * already at least one real collision: heading `0101` vs the genuine HS12
- * `010100000000` "Live horses"). HS4 rows were never returned in retrieval
- * anyway — every retrieval path filters `is_leaf = true`. Dropping them at
- * ingest is the cleanest fix and unblocks the new DB-level CHECK constraints
- * (`raw_length = 12`, `is_leaf = true`) added in 0002_hardening.sql.
- *
- * Hierarchy levels (chapter/heading/hs6/hs8/hs10/parent10) are derived from
- * the 12-digit prefix at ingest (ADR-0005).
- *
- * Embeddings: multilingual e5-small over `${en} || ${ar}` concatenation,
- * mean-pooled and L2-normalised in the embedder.
+ * Ingest Zatca Tariff codes.xlsx into hs_codes. Drops 4-digit heading rows
+ * (leaves only). Generates e5-small embeddings over EN || AR concatenation.
  */
 import * as XLSX from 'xlsx';
 import { readFile } from 'node:fs/promises';

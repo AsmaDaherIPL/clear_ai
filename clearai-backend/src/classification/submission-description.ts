@@ -1,14 +1,7 @@
 /**
- * Phase 5 — ZATCA-safe submission description. ZATCA rejects declarations
- * whose Arabic text matches the catalog AR word-for-word; this module
- * generates a fluent variant that differs by at least one token.
- *
- * Anchored on EFFECTIVE description (cleaned/researched), not raw input —
- * prevents brand/SKU re-leaking into the declaration.
- *
- * Two-attempt LLM loop with deterministic distinctness check after each.
- * Final fallback is a prefix-mutator that always passes the rule (broker
- * may edit the rough output rather than ship nothing).
+ * ZATCA-safe submission description. ZATCA rejects declarations whose Arabic
+ * matches the catalog word-for-word; this generates a variant differing by
+ * ≥1 token. Two-attempt LLM loop, then deterministic prefix-mutator fallback.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';
@@ -16,11 +9,10 @@ import { env } from '../config/env.js';
 
 export interface SubmissionDescriptionResult {
   invoked: 'disabled' | 'llm' | 'llm_failed' | 'guard_fallback';
-  /** Always non-empty when invoked != 'disabled'. */
+  /** Non-empty when invoked != 'disabled'. */
   descriptionAr: string;
-  /** Independently generated, not translated from AR. */
   descriptionEn: string;
-  /** Total across retries; 0 when skipped. */
+  /** Total across retries. */
   latencyMs: number;
   model?: string | undefined;
 }
@@ -32,18 +24,11 @@ const ParsedSubmissionSchema = z
   })
   .passthrough();
 
-/**
- * Normalise Arabic for the distinctness check: NFKC (keeps أ composed —
- * NFKD would split letter+hamza and the diacritic stripper would then
- * falsely match أحذية ↔ احذية), strip diacritics + bidi marks + tree
- * formatting punctuation, collapse whitespace.
- */
+/** NFKC + strip diacritics + bidi marks + tree punctuation + collapse whitespace. */
 function normalizeAr(s: string): string {
   if (!s) return '';
   let out = s.normalize('NFKC');
-  // Arabic harakat U+064B–U+0652 + superscript alef U+0670
   out = out.replace(/[ً-ْٰ]/g, '');
-  // Bidi formatting characters (LRM/RLM/PDF/LRE/RLE/LRO/RLO/FSI/LRI/RLI/PDI)
   out = out.replace(/[​-‏‪-‮⁦-⁩﻿]/g, '');
   out = out.replace(/^[\s\-·.•]+|[\s\-·.•]+$/g, '');
   out = out.replace(/\s+/g, ' ').trim();
@@ -52,29 +37,18 @@ function normalizeAr(s: string): string {
 
 /** Returns true if the LLM's AR output is acceptably distinct from the catalog AR. */
 function passesDistinctnessCheck(generatedAr: string, catalogAr: string | null): boolean {
-  if (!catalogAr) return true; // no catalog to compare against → trivially passes
+  if (!catalogAr) return true;
   const a = normalizeAr(generatedAr);
   const b = normalizeAr(catalogAr);
-  if (!a) return false; // empty generation never passes
+  if (!a) return false;
   return a !== b;
 }
 
-/**
- * Deterministic last-resort fallback — when the LLM has failed twice (or
- * the call itself failed). Builds an Arabic description that differs from
- * the catalog by prepending a customs-relevant word from the user's
- * effective description.
- *
- * This is intentionally rough — better to ship something the broker can
- * edit than nothing. The frontend should display a "auto-generated
- * fallback, please review" warning when `invoked === 'guard_fallback'`.
- */
+/** Last-resort: prepend a customs-relevant word from the description. */
 function buildFallback(effectiveDescription: string, catalogAr: string | null): {
   descriptionAr: string;
   descriptionEn: string;
 } {
-  // Pick the first attribute-rich word from the effective description as
-  // the prefix. Skip very short tokens and common stopwords.
   const STOP = new Set(['a', 'an', 'the', 'of', 'for', 'with', 'and', 'or']);
   const tokens = effectiveDescription
     .split(/[\s,;]+/)
@@ -82,9 +56,7 @@ function buildFallback(effectiveDescription: string, catalogAr: string | null): 
     .filter((t) => t.length >= 3 && !STOP.has(t));
   const prefix = tokens[0] ?? 'general';
 
-  // Crude transliteration map for the most common product-class prefixes
-  // we see in merchant data. If a token isn't in here, ship the latin
-  // word as-is — the broker will edit. Better than blank.
+  /** Common product-class prefixes; unmapped tokens ship as latin. */
   const TRANSLIT: Record<string, string> = {
     bluetooth: 'بلوتوث',
     wireless: 'لاسلكية',
@@ -132,23 +104,16 @@ function disabled(): SubmissionDescriptionResult {
   };
 }
 
-/** Always returns a result; never throws — falls back to prefix mutator on LLM failure. */
+/** Never throws — falls back to prefix mutator on LLM failure. */
 export async function generateSubmissionDescription(
   params: GenerateSubmissionParams,
 ): Promise<SubmissionDescriptionResult> {
   const { effectiveDescription, chosenCode, catalogDescriptionAr, catalogDescriptionEn, opts = {} } = params;
-  // 120 tokens fits the JSON envelope (description_ar + description_en —
-  // both short product-text; rationale was removed). Tight cap also
-  // tightens TTFT.
   const { enabled = true, maxTokens = 120 } = opts;
 
   if (!enabled) return disabled();
 
   const e = env();
-  // Submission is text rephrasing, not legal reasoning — Haiku handles it
-  // ~3-5x faster than Sonnet at the same quality. The deterministic
-  // distinctness check catches Haiku's occasional word-for-word echo
-  // (same as it caught Sonnet's), so quality stays the same.
   const model = opts.model ?? e.LLM_MODEL;
 
   const userPrompt = (extraHint?: string): string => {
@@ -166,8 +131,6 @@ export async function generateSubmissionDescription(
   let totalLatency = 0;
   let lastModel = model;
 
-  // Try once, then retry once with a stricter hint if the first output
-  // failed the distinctness check.
   for (const attempt of [1, 2] as const) {
     const hint =
       attempt === 1
@@ -186,7 +149,7 @@ export async function generateSubmissionDescription(
     totalLatency += outcome.trace.latency_ms;
     lastModel = outcome.trace.model;
 
-    if (outcome.kind !== 'ok') continue; // retry or fall through to deterministic fallback
+    if (outcome.kind !== 'ok') continue;
     const parsed = outcome.data;
 
     const descAr = typeof parsed.description_ar === 'string' ? parsed.description_ar.trim() : '';
@@ -203,13 +166,8 @@ export async function generateSubmissionDescription(
         model: lastModel,
       };
     }
-    // Else: try again on attempt 2.
   }
 
-  // Deterministic last-resort fallback — the prefix-mutator always
-  // produces text that differs from the catalog AR (it prepends a
-  // customs-relevant word), so the distinctness contract holds without
-  // the caller having to check.
   const fb = buildFallback(effectiveDescription, catalogDescriptionAr);
   return {
     invoked: 'guard_fallback',

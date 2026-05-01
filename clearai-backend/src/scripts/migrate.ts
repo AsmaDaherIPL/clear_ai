@@ -1,17 +1,4 @@
-/**
- * Migration runner — Drizzle's built-in node-postgres migrator.
- *
- * Reads `drizzle/meta/_journal.json` to get the ordered list of migrations,
- * runs any whose `when` (epoch millis) is newer than the latest row in the
- * `drizzle.__drizzle_migrations` ledger, and records hashes so an edited
- * already-applied SQL file is detected (the previous custom runner only
- * tracked filenames and would silently miss content drift). See ADR-0010.
- *
- * Hand-authored extension/trigger SQL still lives in `drizzle/*.sql` exactly
- * as before — Drizzle's migrator runs raw SQL files; only the ledger and
- * statement-breakpoint splitting are now handled by the library rather than
- * our own code.
- */
+/** Apply pending Drizzle migrations from drizzle/. */
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { join } from 'node:path';

@@ -1,10 +1,6 @@
 /**
- * Cheap language detection: counts Arabic vs Latin characters. Good enough
- * for logging classification_events.language_detected.
- *
- * `LangTag` lives in src/types/domain.ts (single home for cross-cutting
- * unions). Re-exported here for backwards compatibility with existing
- * `import type { LangTag } from '../util/lang.js'` call sites.
+ * Cheap language detection by Arabic vs Latin character count. LangTag is
+ * re-exported from types/domain for backwards compatibility.
  */
 import type { LangTag } from '../types/domain.js';
 export type { LangTag } from '../types/domain.js';

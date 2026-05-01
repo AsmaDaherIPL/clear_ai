@@ -1,32 +1,19 @@
 /**
  * Multilingual e5-small embedder via @xenova/transformers (in-process ONNX).
- *
- * E5 convention:
- *   - prefix queries with "query: "
- *   - prefix passages with "passage: "
- * The model emits sentence embeddings; we mean-pool + L2-normalize so cosine = dot.
+ * E5 convention: prefix queries with "query: " and passages with "passage: ".
  */
 import { env } from '../config/env.js';
 
-// Type-only import to avoid loading the package at startup when unused (e.g. unit tests).
 type Pipeline = (input: string | string[], opts?: Record<string, unknown>) => Promise<{
   data: Float32Array;
   dims: number[];
 }>;
 
-// We cache the **in-flight initialization promise**, not just the resolved
-// pipeline. The previous version cached only the resolved value, so several
-// concurrent first-callers (cold start with parallel /classify requests) could
-// each enter the dynamic `import()` + `pipeline()` path before any of them
-// assigned `_pipe`. For an ONNX model that means duplicate downloads, duplicate
-// memory allocations, multiplied startup latency, and avoidable pod churn under
-// memory pressure. Caching the Promise serialises every concurrent caller onto
-// the same single initialization.
+// Cache the in-flight init promise so concurrent first-callers share one load.
 let _pipePromise: Promise<Pipeline> | null = null;
 
 async function initPipeline(): Promise<Pipeline> {
   const { pipeline, env: tEnv } = await import('@xenova/transformers');
-  // Cache models locally so we never re-download in dev or in container.
   tEnv.allowLocalModels = true;
   tEnv.cacheDir = './models';
   const model = env().EMBEDDER_MODEL;
@@ -38,9 +25,7 @@ async function initPipeline(): Promise<Pipeline> {
 function getPipeline(): Promise<Pipeline> {
   if (_pipePromise) return _pipePromise;
   _pipePromise = initPipeline().catch((err) => {
-    // If init itself failed, clear the cached rejection so the *next* caller
-    // gets a fresh attempt rather than re-rethrowing the same stale error
-    // forever (which would brick the process until restart).
+    // Clear cached rejection so the next caller retries.
     _pipePromise = null;
     throw err;
   });
@@ -57,7 +42,7 @@ function l2(v: Float32Array): Float32Array {
 }
 
 function meanPool(flat: Float32Array, dims: number[]): Float32Array {
-  // dims = [batch, seq, hidden]; for a single input flat length = seq*hidden
+  // dims = [batch, seq, hidden]
   const seq = dims[1] ?? 1;
   const hidden = dims[2] ?? flat.length;
   const out = new Float32Array(hidden);
@@ -73,7 +58,6 @@ function meanPool(flat: Float32Array, dims: number[]): Float32Array {
 export async function embedQuery(text: string): Promise<number[]> {
   const pipe = await getPipeline();
   const r = await pipe(`query: ${text}`, { pooling: 'mean', normalize: true });
-  // When pooling+normalize requested, dims = [1, hidden]; we still defensively handle [1,seq,hidden]
   const arr = r.dims.length === 2 ? Array.from(r.data) : Array.from(l2(meanPool(r.data, r.dims)));
   return arr;
 }
@@ -83,7 +67,6 @@ export async function embedPassageBatch(texts: string[]): Promise<number[][]> {
   const pipe = await getPipeline();
   const inputs = texts.map((t) => `passage: ${t}`);
   const r = await pipe(inputs, { pooling: 'mean', normalize: true });
-  // r.data is [batch, hidden]
   const hidden = r.dims[r.dims.length - 1]!;
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i++) {
@@ -95,17 +78,7 @@ export async function embedPassageBatch(texts: string[]): Promise<number[][]> {
 
 export const EMBEDDER_VERSION = () => env().EMBEDDER_MODEL;
 
-/**
- * Eagerly load the ONNX pipeline + a tiny throwaway forward-pass so the
- * very first user request doesn't pay the 5-10s cold-init tax. Called
- * fire-and-forget at server startup; safe to call multiple times (the
- * Promise cache deduplicates).
- *
- * We do a 1-token forward pass instead of just resolving the pipeline
- * because the *first* inference also has a graph-compile cost on top of
- * the weights load. Burning that on a "warmup" string makes the first
- * real request behave like every subsequent request.
- */
+/** Load the ONNX pipeline and run a throwaway forward-pass so the first real request is warm. */
 export async function warmEmbedder(): Promise<void> {
   const pipe = await getPipeline();
   await pipe('query: warmup', { pooling: 'mean', normalize: true });

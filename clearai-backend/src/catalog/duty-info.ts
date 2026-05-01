@@ -1,13 +1,7 @@
-/**
- * Parse ZATCA duty columns into a structured shape. Catalog stores duty
- * as bilingual columns but the value is one attribute: either a numeric
- * percent ("5 %") with identical EN/AR, or a status word ("Exempted" /
- * "معفاة", "Prohibited from Importing" / "ممنوع الاستيراد") translated
- * across both columns.
- */
+/** Parses ZATCA duty cells into a structured rate-or-status shape. */
 
 export interface DutyInfo {
-  /** Numeric % when duty is a rate (5, 6.5). Null when status. */
+  /** Numeric % when duty is a rate; null when a status word. */
   rate_percent: number | null;
   status_en: string | null;
   status_ar: string | null;
@@ -17,7 +11,7 @@ export interface DutyInfo {
 
 const PERCENT_RE = /^\s*(\d+(?:\.\d+)?)\s*%\s*$/;
 
-/** Returns null when both inputs are empty (heading-level rows have no duty). */
+/** Returns null when both inputs are empty. */
 export function parseDutyInfo(
   rawEn: string | null | undefined,
   rawAr: string | null | undefined,

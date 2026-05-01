@@ -1,13 +1,4 @@
-/**
- * `classification_events` — append-only log of every endpoint call's
- * status-driven decision (ADR-0001).
- *
- * Closed-enum columns (`endpoint`, `decision_status`, `decision_reason`,
- * `confidence_band`, `llm_status`, `language_detected`) are constrained by
- * CHECK constraints in 0002_hardening.sql so a typo in TypeScript can't
- * silently land an invalid value. The TS types in `classification/types.ts` are
- * the single source of truth; the SQL CHECKs mirror them.
- */
+/** classification_events — append-only log of every endpoint call (ADR-0001). */
 import {
   pgTable,
   uuid,
@@ -53,10 +44,7 @@ export const classificationEvents = pgTable(
     llmModel: varchar('llm_model', { length: 64 }),
     totalLatencyMs: integer('total_latency_ms'),
     error: text('error'),
-    // Picker's plain-English explanation of *why* this code was chosen.
-    // Persisted so GET /trace/:eventId can render it after the original
-    // response is gone. Null for paths that don't produce one (degraded,
-    // best-effort fallback, gate-failed-no-llm).
+    /** Picker's plain-English reason for the chosen code. Null when no picker ran. */
     rationale: text('rationale'),
   },
   (t) => ({

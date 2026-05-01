@@ -1,11 +1,6 @@
 /**
- * V3 understanding signal (ADR-0020). Composite across chapter coherence
- * + noun-family alignment. The chapter-only V2 signal silently passed on
- * "Loewe Puzzle bag" → 4205 leather articles (coherent but wrong family).
- *
- *   strong    — coherent AND noun-aligned (or no noun). Skip researcher.
- *   weak      — coherent but noun missing from top-N. Run researcher.
- *   scattered — chapters spread too wide. Run researcher.
+ * Understanding signal (ADR-0020). Combines chapter coherence and noun-family
+ * alignment to decide whether to run the researcher.
  */
 import type { Candidate } from '../retrieval/retrieve.js';
 
@@ -29,8 +24,6 @@ export interface UnderstandingResult {
   threshold: number;
 }
 
-// Curated synonym table for noun-alignment. Customs nouns are a small
-// closed set; one indirection layer is enough.
 const NOUN_SYNONYMS: Record<string, string[]> = {
   bag: ['bag', 'handbag', 'rucksack', 'backpack', 'purse', 'wallet', 'satchel', 'pouch', 'حقيبة', 'حقائب', 'كيس', 'محفظة'],
   shoe: ['shoe', 'footwear', 'sandal', 'boot', 'sneaker', 'حذاء', 'أحذية', 'صندل'],
@@ -75,8 +68,7 @@ export function checkUnderstanding(
   const distinctChapters = chapters.length;
   const noun = opts.customsNoun?.trim() || null;
 
-  // Edge case: zero or one candidate — let the evidence gate handle it. Don't claim
-  // off the back of a single retrieval hit.
+  // Zero or one candidate — let the evidence gate decide.
   if (window.length < 2) {
     return {
       understood: true,
@@ -90,7 +82,7 @@ export function checkUnderstanding(
     };
   }
 
-  // Signal 1: chapter coherence
+  // Chapter coherence.
   if (distinctChapters > opts.maxDistinctChapters) {
     return {
       understood: false,
@@ -104,8 +96,7 @@ export function checkUnderstanding(
     };
   }
 
-  // Signal 2: noun-family alignment. The V2 silent failure mode —
-  // retrieval coherent on a chapter but on the wrong family.
+  // Noun-family alignment.
   let nounAligned: boolean | null = null;
   if (noun) {
     const synonyms = expandNoun(noun);

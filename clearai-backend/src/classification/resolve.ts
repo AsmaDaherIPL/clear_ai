@@ -1,9 +1,4 @@
-/**
- * Decision Resolution (DR.1-DR.7) — single source of truth mapping
- * (gate outcome, llm result, guard) → (decision_status, decision_reason).
- *
- * confidence_band is left undefined for v1 (calibrated post-launch from eval data).
- */
+/** Maps (gate outcome, LLM result, guards) → final (decision_status, decision_reason). */
 import type {
   DecisionStatus,
   DecisionReason,
@@ -15,10 +10,9 @@ import type { LlmPickResult } from './llm-pick.js';
 
 export interface ResolveInput {
   gate: GateOutcome;
-  llm: LlmPickResult | null; // null when gate failed (LLM not called)
-  // For /boost short-circuit
+  /** Null when the gate failed (LLM not called). */
+  llm: LlmPickResult | null;
   alreadyMostSpecific?: boolean;
-  // For /expand single-descendant
   singleValidDescendant?: boolean;
 }
 
@@ -32,7 +26,6 @@ export interface ResolveOutput {
 }
 
 export function resolve(input: ResolveInput): ResolveOutput {
-  // 1. /boost short-circuit
   if (input.alreadyMostSpecific) {
     return {
       decisionStatus: 'accepted',
@@ -44,7 +37,6 @@ export function resolve(input: ResolveInput): ResolveOutput {
     };
   }
 
-  // 2. Gate failed → never called LLM
   if (!input.gate.passed) {
     return {
       decisionStatus: 'needs_clarification',
@@ -56,7 +48,6 @@ export function resolve(input: ResolveInput): ResolveOutput {
     };
   }
 
-  // 3. Gate passed but LLM not run (only happens in pre-LLM unit-test paths)
   if (!input.llm) {
     return {
       decisionStatus: 'degraded',
@@ -68,7 +59,6 @@ export function resolve(input: ResolveInput): ResolveOutput {
     };
   }
 
-  // 4. LLM operational failure
   if (input.llm.llmStatus !== 'ok') {
     return {
       decisionStatus: 'degraded',
@@ -80,7 +70,6 @@ export function resolve(input: ResolveInput): ResolveOutput {
     };
   }
 
-  // 5. Hallucination guard tripped (or parse failed)
   if (input.llm.guardTripped) {
     return {
       decisionStatus: 'needs_clarification',
@@ -92,7 +81,6 @@ export function resolve(input: ResolveInput): ResolveOutput {
     };
   }
 
-  // 6. LLM said "no fit" (chosenCode null, valid abstention)
   if (input.llm.chosenCode === null) {
     return {
       decisionStatus: 'needs_clarification',
@@ -104,11 +92,10 @@ export function resolve(input: ResolveInput): ResolveOutput {
     };
   }
 
-  // 7. Accepted
   return {
     decisionStatus: 'accepted',
     decisionReason: input.singleValidDescendant ? 'single_valid_descendant' : 'strong_match',
-    confidenceBand: undefined, // calibrated later from eval data
+    confidenceBand: undefined,
     chosenCode: input.llm.chosenCode,
     rationale: input.llm.rationale,
     missingAttributes: [],

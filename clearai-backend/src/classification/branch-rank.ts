@@ -1,11 +1,6 @@
 /**
- * Phase 3 — branch-rank (ADR-0014). Sonnet reranks every leaf under the
- * picker's chosen HS-8 branch with per-leaf reasoning, optionally
- * overriding the picker. Picker only saw PICKER_CANDIDATES_describe RRF
- * top hits; branch-rank sees the full branch.
- *
- * Hallucination guard: output code set must equal input code set
- * (no invented or dropped codes). Guard trip → picker's pick stands.
+ * Sonnet rerank of every leaf under the picker's HS-8 branch. Hallucination
+ * guard requires output code set equal to input — guard trip falls back to picker.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';
@@ -35,8 +30,7 @@ export interface BranchRankResult {
   model?: string | undefined;
 }
 
-// Per-row shape kept loose; the model occasionally drops fields on long-tail
-// rows. Validation downstream drops any row missing required fields.
+/** Loose shape — downstream validation drops rows missing required fields. */
 interface ParsedRankingRow {
   code?: unknown;
   rank?: unknown;
@@ -69,23 +63,17 @@ function buildUser(query: string, chosenCode: string, leaves: BranchLeaf[]): str
 }
 
 export interface BranchRankOpts {
-  /** Set to false to skip entirely (e.g. feature flag off). Default true. */
+  /** Default true. */
   enabled?: boolean;
-  /** Cap on tokens the LLM may emit. Default 800 (per-row reasoning adds up). */
+  /** Default 800. */
   maxTokens?: number;
-  /** Override the model. Defaults to env LLM_MODEL_STRONG (Sonnet). */
+  /** Defaults to env LLM_MODEL_STRONG. */
   model?: string;
-  /**
-   * Skip the LLM call when the branch has fewer than this many leaves —
-   * with 1–2 leaves there's nothing meaningful to rank. Default 2.
-   */
+  /** Skip when branch has fewer leaves than this. Default 2. */
   minLeavesForLlm?: number;
 }
 
-/**
- * Re-rank a branch of HS leaves with per-row reasoning. Returns the
- * picker's chosen code unchanged on any failure mode.
- */
+/** Returns the picker's chosen code unchanged on any failure mode. */
 export async function rankBranch(params: {
   query: string;
   chosenCode: string;
@@ -111,7 +99,6 @@ export async function rankBranch(params: {
   if (!enabled) return fallback('disabled');
   if (leaves.length < minLeavesForLlm) return fallback('not_enough_leaves');
   if (!leaves.some((l) => l.code === chosenCode)) {
-    // Defensive: chosen code must be in the enumerated branch.
     return fallback('not_enough_leaves');
   }
 
@@ -133,7 +120,6 @@ export async function rankBranch(params: {
   }
   const parsed = outcome.data;
 
-  // Validate rows; output code set must equal input code set.
   const inputCodes = new Set(leaves.map((l) => l.code));
   const seen = new Set<string>();
   const rows: BranchRankRow[] = [];
@@ -146,8 +132,8 @@ export async function rankBranch(params: {
     const reason = typeof raw.reason === 'string' ? raw.reason.slice(0, 300) : '';
 
     if (!code || !rank || !fit) continue;
-    if (!inputCodes.has(code)) continue; // hallucinated code
-    if (seen.has(code)) continue; // duplicate
+    if (!inputCodes.has(code)) continue;
+    if (seen.has(code)) continue;
     seen.add(code);
 
     const leaf = leaves.find((l) => l.code === code)!;
@@ -161,12 +147,10 @@ export async function rankBranch(params: {
     });
   }
 
-  // Guard: every input code must appear in the validated output.
   if (seen.size !== inputCodes.size) {
     return fallback('guard_tripped', { latencyMs: outcome.trace.latency_ms, model });
   }
 
-  // Sort by rank ourselves — don't trust model's self-reported top_pick.
   rows.sort((a, b) => a.rank - b.rank);
   const topPick = rows[0]?.code ?? chosenCode;
   const agreesWithPicker = topPick === chosenCode;

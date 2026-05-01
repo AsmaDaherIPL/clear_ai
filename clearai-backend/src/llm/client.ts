@@ -1,9 +1,6 @@
 /**
- * Foundry LLM client.
- *
- * ANTHROPIC_BASE_URL is the **complete Target URI** including /v1/messages
- * (see ADR-0006). We POST directly with fetch — bypassing the SDK's URL
- * concatenation — but use the Anthropic JSON wire format unchanged.
+ * Foundry LLM client. Posts directly to ANTHROPIC_BASE_URL (complete Target
+ * URI per ADR-0006) using the Anthropic JSON wire format.
  */
 import { env } from '../config/env.js';
 import type { LlmStatus } from '../types/domain.js';
@@ -29,12 +26,7 @@ interface AnthropicResponse {
   stop_reason?: string;
 }
 
-/**
- * Optional tools forwarded verbatim to the Anthropic-compatible API.
- * Today only Anthropic's hosted Web Search tool is supported. Foundry's
- * passthrough exposes it on Sonnet 4.6+ via the same wire format as
- * anthropic.com — verified by probe.
- */
+/** Optional tool forwarded to the Anthropic-compatible API (hosted Web Search). */
 export type LlmTool = {
   type: 'web_search_20250305';
   name: 'web_search';
@@ -42,26 +34,14 @@ export type LlmTool = {
 };
 
 export interface LlmCallParams {
-  model?: string; // overrides env LLM_MODEL
+  /** Overrides env LLM_MODEL. */
+  model?: string;
   system: string;
   user: string;
   maxTokens?: number;
   temperature?: number;
-  /**
-   * Optional tools to enable on this call. Anthropic streams
-   * `server_tool_use` and `web_search_tool_result` blocks before the
-   * final `text` block — we pass them through unchanged. Callers that
-   * want the rich tool-use blocks can read `raw.content`; the typical
-   * caller just reads the final `text` synthesised by the model.
-   */
   tools?: LlmTool[];
-  /**
-   * Per-call timeout override (ms). Defaults to env LLM_TIMEOUT_MS.
-   * Web-search calls legitimately need a longer ceiling (Anthropic's
-   * hosted search adds 5-15s); short extraction calls (cleanup,
-   * best-effort) want a tighter ceiling so we fail fast on stuck
-   * connections rather than burn the full default.
-   */
+  /** Per-call timeout override (ms). Defaults to env LLM_TIMEOUT_MS. */
   timeoutMs?: number;
 }
 
@@ -78,10 +58,6 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
     messages: [{ role: 'user', content: params.user }],
   };
   if (params.tools && params.tools.length > 0) {
-    // Anthropic's hosted Web Search tool: streamed as `server_tool_use` +
-    // `web_search_tool_result` blocks. We pass them through and read only
-    // the final `text` block; the model has already synthesised the search
-    // results into its answer.
     body.tools = params.tools;
   }
 
@@ -138,17 +114,13 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
   }
 }
 
-/**
- * Call with simple retry on 429 / 5xx. Returns the last result either way; the
- * decision-resolution layer decides what to do with operational failures.
- */
+/** Call with simple retry on 429 / 5xx. Returns the last result either way. */
 export async function callLlmWithRetry(params: LlmCallParams, retries = 2): Promise<LlmCallResult> {
   let last: LlmCallResult | null = null;
   const delays = [250, 1000];
   for (let attempt = 0; attempt <= retries; attempt++) {
     last = await callLlm(params);
     if (last.status === 'ok') return last;
-    // Retry only on transient operational errors
     const errStr = last.error ?? '';
     const isTransient =
       last.status === 'timeout' ||

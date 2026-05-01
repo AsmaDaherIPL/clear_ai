@@ -1,26 +1,6 @@
 /**
  * POST /classifications — free-text description → 12-digit HS code.
- *
- * Naming note: the URL is `/classifications` (the resource), but the persisted
- * `endpoint` column on classification_events stays as 'describe' so historical
- * trace queries don't need a UNION across old/new names. The column is
- * internal observability — frontend / APIM never see it.
- *
- * v2 stateless control flow (ADR-0011). Worst-case: 3 LLM calls; common path: 1.
- *
- *   Stage 1   retrieve top-K candidates from the original input
- *   Stage 2   checkUnderstanding (chapter agreement among top-N)
- *               ├─ understood        → straight to gate + picker
- *               └─ not understood    → researcher → re-retrieve on canonical
- *   Stage 3   evidence gate
- *   Stage 4   picker (called once, no rescue loop)
- *   Stage 5   if no accepted code AND BEST_EFFORT_ENABLED:
- *               → best-effort fallback (returns 4-digit heading,
- *                 confidence_band='low', decision_status='best_effort')
- *
- * Stateless: no per-product caches, no profile memory. Every request is
- * handled from raw input. The interpretation block on the response surfaces
- * what the system actually classified, so the user can spot misinterpretations.
+ * Persisted endpoint name stays 'describe' for trace continuity.
  */
 import type { FastifyInstance } from 'fastify';
 import { classifyBody } from './schemas.js';
@@ -75,20 +55,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     let researchWeb: ResearchWithWebOutcome | null = null;
     let cleanup: MerchantCleanupResult | null = null;
 
-    /**
-     * Per-request trace of every LLM call that fired, in the order they
-     * fired. Each stage pushes a ModelCallTrace when it actually invokes
-     * the LLM (skipped stages — e.g. cleanup short-circuited by
-     * looksClean — push nothing). The aggregator replaces the older
-     * 50-line conditional-spread block in the logEvent payload, where
-     * one branch per stage was needed to decide whether each trace was
-     * present.
-     *
-     * `recordCall` is a tiny helper rather than a class so any module
-     * that wants to push (current: this file only) can do so with one
-     * line. If H2 splits this file into stage modules, each stage will
-     * accept the array and push directly — same shape, no new type.
-     */
+    /** Per-request trace of every LLM call that fired, in order. */
     const modelCalls: ModelCallTrace[] = [];
     const recordCall = (
       model: string | null | undefined,
@@ -100,7 +67,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       modelCalls.push({ model, latency_ms, stage: stageLabel, status });
     };
 
-    // ---- Stage 0: merchant-input cleanup (classification/stages/cleanup-stage.ts) -
+    // Stage 0 — merchant-input cleanup.
     const cleanupStage = await runCleanupStage({
       description,
       thresholds: t,
@@ -110,7 +77,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     effectiveDescription = cleanupStage.effectiveDescription;
     stage = cleanupStage.stage;
 
-    // ---- Stage 1: retrieve top-K on the (possibly cleaned) input ---------
+    // Stage 1 — retrieve top-K on the (possibly cleaned) input.
     const norm1 = digitNormalize(effectiveDescription, known);
     let candidates: Candidate[] = await retrieveCandidates(norm1.cleanedText, {
       leavesOnly: true,
@@ -118,24 +85,11 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       topK: t.RETRIEVAL_TOP_K_describe,
     });
 
-    // ---- Stage 2: did retrieval understand? ------------------------------
-    // V3 (ADR-0020): composite signal. Chapter coherence alone missed the
-    // "coherent but wrong-family" failure mode (Loewe Puzzle bag → 4205
-    // leather articles). Adding noun-alignment catches it: cleanup
-    // extracted "bag", retrieval surfaced "leather articles / desk pads /
-    // buckle parts" — none mention "bag" → understanding returns weak,
-    // researcher runs.
+    // Stage 2 — did retrieval understand? Composite chapter-coherence + noun-alignment.
     const customsNoun =
       cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'product'
         ? cleanup.effective
         : null;
-    // Cleanup explicitly tagged the input as merchant shorthand → there's
-    // no customs noun to align against. Coherence-only is unsafe in this
-    // case (e.g. "Arizona BFBC Mocca43" can lexically anchor to chapter 01
-    // via "Arab" → Arab horses, with all top results in chapter 01 →
-    // coherence says "understood" — but on a wrong family). Force-route
-    // shorthand inputs to the researcher so the LLM (and on UNKNOWN, web
-    // search) gets a chance to identify the product properly.
     const cleanupIsShorthand =
       cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'merchant_shorthand';
     const understanding = checkUnderstanding(candidates, {
@@ -144,21 +98,14 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       ...(customsNoun ? { customsNoun } : {}),
     });
     if (cleanupIsShorthand && understanding.understood) {
-      // Override the coherence-only strong verdict for shorthand inputs.
-      // We treat it as `weak` so the researcher fires; if the researcher
-      // recognises, we re-retrieve. If web research is enabled and the
-      // standard researcher returns UNKNOWN, web research fires next.
+      // Force shorthand inputs through the researcher even if coherence looks strong.
       understanding.understood = false;
       understanding.strength = 'weak';
       understanding.reason = 'noun_misaligned';
     }
 
     if (!understanding.understood) {
-      // ---- Stage 2b: researcher --------------------------------------------
-      // Always research on the original input — the researcher is what
-      // resolves merchant shorthand like "Arizona BFBC Mocca43" by world
-      // knowledge, and feeding it the cleaned (likely empty) text would
-      // strip the very signal it needs.
+      // Stage 2b — researcher. Always runs on the original input.
       research = await researchInput(description);
       if (research.kind !== 'failed') {
         recordCall(research.model, research.latencyMs, 'research');
@@ -174,15 +121,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
           topK: t.RETRIEVAL_TOP_K_describe,
         });
       } else if (research.kind === 'unknown') {
-        // Phase F escalation: when the standard researcher returns UNKNOWN
-        // (no signal from Sonnet's pre-training memory) AND the feature
-        // flag is on, fire the web-augmented researcher. One Anthropic
-        // hosted web_search call lets Sonnet pull external evidence and
-        // re-attempt identification with citable snippets. Caps at one
-        // search per request — bounded latency (~3-5s) and bounded cost.
-        // If web research recognises the product, we treat the outcome
-        // exactly as if the standard researcher had recognised it:
-        // re-retrieve on the canonical phrase and continue.
+        // Web-augmented researcher escalation — one hosted web_search per request.
         if (isEnabled(t, 'RESEARCH_WEB_ENABLED')) {
           researchWeb = await researchInputWithWeb(description, {
             maxTokens: t.RESEARCH_WEB_MAX_TOKENS,
@@ -200,41 +139,19 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
               topK: t.RETRIEVAL_TOP_K_describe,
             });
           } else {
-            // Web research returned 'unknown' or 'failed'. Honest
-            // abstention — same as standard researcher's UNKNOWN path.
             stage = 'unknown';
           }
         } else {
           stage = 'unknown';
         }
-        // Researcher saw the input and explicitly declined to identify. We
-        // do not run the picker on candidates we already know are wrong.
-        // Whether we attempt best-effort here depends on the feature flag —
-        // see the unified post-picker tail below.
       }
-      // research.kind === 'failed' → stage stays 'cleaned'/'passthrough';
-      // the gate will likely refuse on the retrieval, which is the correct
-      // degraded mode.
     }
 
-    // ---- Stage 2c: heading-padded code injection (V3 — bounded assist) ---
-    // V3 (ADR-0020) demotes this from "synthetic fallback that keeps the
-    // picker alive" to "bounded assist". Reviewer's concern: previously
-    // injection fired whenever retrieval had any top result, which could
-    // add a wrong heading (Loewe Puzzle bag's top result was 4205 —
-    // wrong family — and we were injecting 420500000000). Stage 2a's V3
-    // composite signal would now route Loewe Puzzle bag through the
-    // researcher first, but as a defence-in-depth measure injection only
-    // fires when:
-    //   1. understanding strength === 'strong' (Stage 2a is fully
-    //      satisfied — chapter coherent AND noun-aligned), AND
-    //   2. the customs noun (if known) appears in the heading-padded
-    //      row's description.
-    // Both gates are satisfied → inject. Either fails → skip injection
-    // and let retrieval/picker decide on real candidates only.
+    // Stage 2c — heading-padded code injection. Bounded assist: only when
+    // understanding is strong and the noun appears in the heading text.
     if (candidates.length > 0 && understanding.strength === 'strong') {
       const top = candidates[0]!;
-      const headingPrefix = top.code.slice(0, 4); // e.g. "4202"
+      const headingPrefix = top.code.slice(0, 4);
       const candidateHeadingCode = `${headingPrefix}00000000`;
       const alreadyPresent = candidates.some((c) => c.code === candidateHeadingCode);
       if (!alreadyPresent) {
@@ -249,11 +166,6 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         );
         const row = r.rows[0];
         if (row) {
-          // Second gate: when we have a customs noun, ensure THE HEADING
-          // ITSELF describes that noun. The heading description is the
-          // long generic enumeration of every product type at this
-          // heading; if "bag" / "perfume" / etc isn't anywhere in it,
-          // injection would still be misaligned and we skip.
           const headingText = `${row.description_en ?? ''} ${row.description_ar ?? ''}`.toLowerCase();
           const nounAlignsWithHeading =
             !customsNoun || headingText.includes(customsNoun.toLowerCase());
@@ -271,7 +183,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
                 vec_score: null,
                 bm25_score: null,
                 trgm_score: null,
-                rrf_score: top.rrf_score, // tied with the top so it visibly competes
+                rrf_score: top.rrf_score, // tied with top so it competes
               },
             ];
           }
@@ -279,11 +191,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // ---- Stage 3 + 4: gate + picker (called at most once) ---------------
-    // Pass effectiveDescription so the gate can apply the thin-input +
-    // cross-chapter-spread refusal (books/cosmetics confusion). Other
-    // routes (expand/boost) don't need it — they retrieve under a
-    // narrowed prefix and don't suffer the same lexical-spread failure.
+    // Stage 3 + 4 — gate + picker (called at most once).
     const gate = evaluateGate(
       candidates,
       {
@@ -294,19 +202,6 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     );
 
     let llm = null;
-    // V3 (ADR-0020): Stage 3 is a real gate again. The picker runs IFF
-    // the gate passed. Previously a soft-refuse-with-heading-padded
-    // escape hatch let the picker run on weak retrieval, which the
-    // reviewer correctly diagnosed as a trust-boundary contradiction
-    // ("the gate fails, but here's a synthetic candidate to make the
-    // picker run anyway"). With Stage 2a's V3 composite signal catching
-    // the wrong-family case earlier, the escape hatch isn't needed.
-    //
-    // Picker runs when ALL of:
-    //   - researcher didn't flag the input as unknown
-    //   - we have candidates
-    //   - the gate passed
-    // Otherwise: route to best-effort fallback.
     const skipPicker = stage === 'unknown';
     if (!skipPicker && candidates.length > 0 && gate.passed) {
       llm = await llmPick({
@@ -320,7 +215,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
 
     const decision = resolve({ gate, llm });
 
-    // ---- Stage 5 + heading-level promotion (classification/stages/best-effort-stage.ts) -
+    // Stage 5 — best-effort fallback + heading-level promotion.
     const bestEffortStage = await runBestEffortStage({
       description,
       thresholds: t,
@@ -332,10 +227,6 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     let accepted = bestEffortStage.accepted;
     const noSignalBestEffort = bestEffortStage.noSignalBestEffort;
     const headingLevelPromoted = bestEffortStage.headingLevelPromoted;
-    // Apply the patch the stage returned. Mutating `decision` here (rather
-    // than inside the stage) keeps the side effect explicit at the route
-    // level — this is the only place `decision` ever changes after it's
-    // returned by `resolve()`.
     if (bestEffortStage.decisionPatch.decisionStatus) {
       decision.decisionStatus = bestEffortStage.decisionPatch.decisionStatus;
     }
@@ -352,17 +243,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       decision.rationale = bestEffortStage.decisionPatch.rationale;
     }
 
-    // Alternatives surface — sourced differently per decision status.
-    //
-    //   accepted     → branch-local enumeration. Deterministic SQL pull of
-    //                  every leaf under the chosen code's HS-6 prefix.
-    //                  Same chosen code, same alternatives, every time.
-    //   not accepted → filtered RRF top-K (Phase 0). The picker didn't
-    //                  commit to a branch, so we have nothing to enumerate
-    //                  under — fall back to the cleaned retrieval list.
-    //
-    // Phase 1 of the v3 alternatives redesign (ADR-0012). See
-    // src/classification/branch-enumerate.ts for the full rationale.
+    // Alternatives — branch enumeration when accepted, filtered RRF otherwise.
     const chosenForAlts = accepted ? accepted.code : decision.chosenCode;
     const isAcceptedFamily =
       decision.decisionStatus === 'accepted' &&
@@ -374,20 +255,8 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       description_en: string | null;
       description_ar: string | null;
       retrieval_score: number | null;
-      /**
-       * Where this alternative came from. Lets the UI render a per-row
-       * badge so the user understands which scope they're looking at.
-       *   branch_8 — same national subheading as the chosen code
-       *   branch_6 — same HS-6 subheading (fallback when HS-8 was sparse)
-       *   branch_4 — same HS-4 heading (rare; only via deeper widening)
-       *   rrf      — filtered retrieval candidate (final fallback)
-       *   undefined — non-accepted path; legacy RRF without source label
-       */
+      /** Source bucket for per-row UI badge. */
       source?: 'branch_8' | 'branch_6' | 'branch_4' | 'rrf';
-      // Phase 3 — populated only when branch-rank ran. Per-row reasoning
-      // tells the user why each sibling fits / doesn't fit. `fit` and
-      // `reason` are missing on rows that came from branch enumeration
-      // alone (Phase 1) or from filtered RRF (non-accepted paths).
       rank?: number;
       fit?: 'fits' | 'partial' | 'excludes';
       reason?: string;
@@ -395,40 +264,18 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     let alternatives: Alt[];
     let branchLeaves: BranchLeaf[] | null = null;
     let branchRank: BranchRankResult | null = null;
-    /**
-     * The code we ship to the user. Defaults to the picker's pick. If
-     * branch-rank is enabled AND ran successfully AND its #1 differs from
-     * the picker's pick, this is overridden to branch-rank's choice. The
-     * picker's original choice is kept in the event log under
-     * `branch_rank_overrode` for offline review.
-     */
+    /** Final code shipped to the user; may be branch-rank's override. */
     let effectiveChosenCode: string | null = decision.chosenCode;
 
     if (isAcceptedFamily && decision.chosenCode) {
       branchLeaves = await enumerateBranch({
         chosenCode: decision.chosenCode,
         prefixLength: t.BRANCH_PREFIX_LENGTH as 4 | 6 | 8,
-        // Show at least 3 non-chosen siblings — gives the user a real
-        // comparison set even when the HS-8 branch is sparse (e.g.
-        // 1509.20.00 = Extra virgin olive oil has 1 leaf at HS-8 but 4
-        // at HS-6). Tunable via setup_meta.ALTERNATIVES_MIN_SHOWN.
         minSiblings: t.ALTERNATIVES_MIN_SHOWN,
         maxLeaves: t.BRANCH_MAX_LEAVES,
       });
 
-      // Option B (confident-pick fast path): skip branch-rank when
-      // retrieval is decisively confident. Branch-rank's value-add is
-      // re-evaluating ambiguous within-branch ties; on an input like
-      // "men white shirt" where retrieval converges sharply on a single
-      // leaf (top-1 RRF score is well above top-2), the rerank almost
-      // always agrees with the picker — wasting 3-5s of Sonnet time on
-      // every confident classification.
-      //
-      // The threshold: top2Gap > 3x the gate's MIN_GAP_describe floor.
-      // Gate accepts at MIN_GAP; "confident" is "more than 3x clearer
-      // than the minimum we'd accept." Empirically separates the
-      // shirt-class inputs (large gaps) from the ambiguous-tie cases
-      // branch-rank is designed to catch.
+      // Confident-pick fast path: skip branch-rank when retrieval is decisive.
       const branchRankConfidentSkip = gate.top2Gap > t.MIN_GAP_describe * 3;
       const branchRankShouldRun =
         isEnabled(t, 'BRANCH_RANK_ENABLED') && !branchRankConfidentSkip;
@@ -448,26 +295,12 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       }
 
       if (branchRank.invoked === 'llm' && !branchRank.agreesWithPicker) {
-        // Branch-rank is overriding the picker. We trust it because it
-        // saw the FULL HS-8 branch; the picker only saw 8 RRF top hits.
         effectiveChosenCode = branchRank.effectiveCode;
       }
 
-      // Build a fast source-lookup so we can carry the source label even
-      // through branch-rank's reordered output (branch-rank doesn't know
-      // about source — it just ranks codes).
       const sourceByCode = new Map(branchLeaves.map((l) => [l.code, l.source]));
 
-      // Render the alternatives. The chosen code itself is intentionally
-      // EXCLUDED from this list — it's already shipped at top-level on
-      // `result.code`. Including it here led to a frontend bug where
-      // alternatives appeared to start numbering at "2", confusing
-      // users about which row was the chosen one. The chosen code is
-      // the result; alternatives are the things you considered instead.
-      //
-      //   - branch-rank ran successfully → use its rank order minus
-      //     chosen; attach fit + reason + source to each row.
-      //   - Otherwise → catalog order minus chosen, no fit/reason.
+      // Chosen code is excluded — it ships at top-level on `result.code`.
       if (branchRank.invoked === 'llm') {
         alternatives = branchRank.ranking
           .filter((r) => r.code !== effectiveChosenCode)
@@ -495,12 +328,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
           }));
       }
 
-      // Layer 3 — RRF fallback. If branch enumeration (even after widening)
-      // produced fewer than ALTERNATIVES_MIN_SHOWN total rows, top up from
-      // the filtered retrieval candidates. Same MIN_ALT_SCORE / cross-chapter
-      // ratio rules as Phase 0 still apply, so we never re-introduce noise
-      // (bathing caps, horses) — just genuinely close hits the catalog tree
-      // doesn't surface.
+      // RRF top-up when branch enumeration produced fewer than the minimum.
       if (alternatives.length < t.ALTERNATIVES_MIN_SHOWN) {
         const have = new Set(alternatives.map((a) => a.code));
         const filtered = filterAlternatives(candidates, {
@@ -536,30 +364,10 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       }));
     }
 
-    // Strip catalog tree-depth dashes (e.g. "- - Other :") from every
-    // alternative's EN+AR description before they leave this handler.
-    // Mutates in place so the same array reference flows into both
-    // logEvent (persisted) and the response (shipped) — descriptions
-    // can't drift between trace replay and the original response.
+    // Strip catalog tree-depth dashes in place — same array flows to logEvent and response.
     trimAlternativeDashes(alternatives);
 
-    // Phase 5 submission description used to be generated inline here.
-    // It's now lazy: the frontend calls POST /classifications/{id}/submission-description
-    // ?request_id=<uuid> when the user is ready to copy the Arabic text
-    // into the ZATCA declaration form. Cuts ~3-5s of Haiku time off
-    // every accepted classification.
-
-    // ---- Duty + procedures lookup ----------------------------------------
-    // ZATCA's catalog stores duty rate (e.g. "5 %") and a comma-separated
-    // procedures-codes reference per leaf (e.g. "2,28,61"). Brokers need both
-    // — duty informs the duty-paid calculation, procedures hint at SABER /
-    // SFDA / etc compliance steps required at the port.
-    //
-    // Procedures are enriched against the `procedure_codes` table at this
-    // boundary: raw "2,28" becomes [{code:"2", description_ar:"يتطلب…",
-    // is_repealed:false}, ...]. Codes missing from the lookup table are
-    // logged at warn and dropped — a procedures field is supplementary
-    // information, not a hard contract requirement.
+    // Duty + procedures lookup against the chosen leaf.
     let dutyInfo: ReturnType<typeof parseDutyInfo> = null;
     let procedures: ProcedureInfo[] = [];
     if (effectiveChosenCode && /^\d{12}$/.test(effectiveChosenCode)) {
@@ -581,25 +389,14 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
 
     const totalLatency = Date.now() - t0;
 
-    // Log the event with the *final* decision status — best_effort if the
-    // fallback produced a heading, otherwise whatever resolve() returned.
     const loggedStatus = accepted ? 'best_effort' : decision.decisionStatus;
     const loggedReason = accepted ? 'best_effort_heading' : decision.decisionReason;
     const loggedConfidence: 'high' | 'medium' | 'low' | null = accepted
       ? 'low'
       : (decision.confidenceBand ?? null);
-    // The "chosen code" we log is the FINAL one shipped to the user — i.e.
-    // branch-rank's override if it overrode the picker, else the picker's
-    // original choice (or best-effort's, on the fallback path). The
-    // picker's pre-override choice is logged separately as
-    // `branch_rank_picker_choice` for offline review.
     const loggedChosen = accepted ? accepted.code : effectiveChosenCode;
 
-    // We await logEvent so we get the inserted row's UUID back as the
-    // request_id we expose on the response. logEvent returns null (not
-    // throws) on DB failure, so a logging outage degrades to "no
-    // request_id on the response" rather than "the whole classification
-    // 500s". The user's classification still ships normally.
+    // logEvent returns null on DB failure → request_id omitted, classification still ships.
     const requestId = await logEvent({
       endpoint: 'describe',
       request: {
@@ -612,37 +409,22 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         rewritten_as: stage === 'researched' ? effectiveDescription : null,
         research_kind: research?.kind ?? null,
         research_latency_ms: research?.latencyMs ?? null,
-        // Phase F observability: track when web research escalation
-        // fired and what it returned. Lets us tune the escalation
-        // threshold and the prompt without re-running traffic.
         research_web_kind: researchWeb?.kind ?? null,
         research_web_latency_ms: researchWeb?.latencyMs ?? null,
         best_effort_invoked: bestEffort !== null,
         best_effort_specificity: accepted ? accepted.specificity : null,
-        // Phase 1.5 — cleanup observability. invoked is one of
-        // 'skipped_clean' | 'llm' | 'llm_failed' | 'llm_unparseable' so we
-        // can A/B the cleanup phase against accuracy/latency without
-        // re-running the whole pipeline.
         cleanup_invoked: cleanup?.invoked ?? null,
         cleanup_kind: cleanup?.invoked === 'llm' ? cleanup.kind : null,
         cleanup_effective: cleanup?.invoked === 'llm' ? cleanup.effective : null,
         cleanup_attributes_count: cleanup?.attributes.length ?? 0,
         cleanup_stripped_count: cleanup?.stripped.length ?? 0,
         cleanup_latency_ms: cleanup?.latencyMs ?? 0,
-        // Phase 3 — branch-rank observability. `branch_rank_overrode`
-        // captures the rare case where Sonnet's full-branch view rerouted
-        // away from the picker's choice. The picker's pre-override pick
-        // is recorded so we can audit overrides offline and tune the
-        // picker prompt over time.
         branch_rank_invoked: branchRank?.invoked ?? null,
         branch_rank_picker_choice: branchRank ? decision.chosenCode : null,
         branch_rank_top_pick: branchRank?.topPick ?? null,
         branch_rank_overrode:
           branchRank?.invoked === 'llm' && !branchRank.agreesWithPicker,
         branch_rank_latency_ms: branchRank?.latencyMs ?? 0,
-        // (submission-description observability now lives on the
-        // POST /classifications/{id}/submission-description route — describe.ts no longer
-        // generates submission text on the critical path.)
       },
       languageDetected: lang,
       decisionStatus: loggedStatus,
@@ -657,45 +439,28 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       llmUsed: !!llm || !!accepted,
       llmStatus: llm?.llmStatus ?? null,
       guardTripped: llm?.guardTripped ?? false,
-      // Aggregated by `recordCall(...)` at each LLM site upstream, in
-      // the order calls fired. Replaces a former 50-line conditional
-      // block where every stage had its own spread + null check.
       modelCalls,
       embedderVersion: EMBEDDER_VERSION(),
       llmModel: accepted ? accepted.model : (llm?.llmModel ?? null),
       totalLatencyMs: totalLatency,
       error: null,
-      // Best-effort fallback ships its own rationale; otherwise the picker's.
-      // resolve() already maps null-rationale paths (degraded, gate-failed)
-      // to decision.rationale = null, so this single expression covers all.
       rationale: accepted ? accepted.rationale : (decision.rationale ?? null),
     }, req.log);
-
-    // ---- Response shape --------------------------------------------------
 
     // Best-effort response (verify-toggle gated on the frontend).
     if (accepted) {
       return {
-        // Phase 4 — request id surfaced on every response so the frontend
-        // can deep-link to /trace/:id and POST feedback. Null when logging
-        // failed (degraded mode); UI hides the trace link in that case.
         ...withRequestId(requestId),
         decision_status: 'best_effort' as const,
         decision_reason: 'best_effort_heading' as const,
         confidence_band: 'low' as const,
         result: {
           code: accepted.code,
-          // Best-effort returns a chapter-level prefix, not a leaf row from
-          // hs_codes — we don't try to look up EN/AR descriptions for it. The
-          // frontend renders the rationale instead.
+          // Best-effort returns a chapter-level prefix, not a leaf — no EN/AR lookup.
           description_en: null,
           description_ar: null,
         },
         rationale: accepted.rationale,
-        // No alternatives on the best-effort path. The RRF top hits were
-        // computed against the raw input — when best-effort had to fire,
-        // retrieval had already failed the gate, so those hits would be
-        // wrong-family noise (e.g. donkeys ranked against "Asma Said").
         alternatives: [],
         interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
         model: {
@@ -710,11 +475,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       };
     }
 
-    // Researcher-declined OR best-effort-no-signal response. Both paths
-    // mean "we can't see a product here" — emit needs_clarification with
-    // empty alternatives, no verify-toggle. The frontend should render a
-    // soft "we couldn't identify a product — try a fuller description"
-    // message rather than the orange "best effort — verify" badge.
+    // Researcher-declined OR best-effort-no-signal → needs_clarification, no alternatives.
     if (
       (stage === 'unknown' && research && research.kind === 'unknown') ||
       noSignalBestEffort
@@ -738,10 +499,6 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     }
 
     // Look up the chosen code's catalog row once across all three sources.
-    // (Previously this called candidates.find five times in the response
-    // builder — once per field — which obscured intent and re-scanned the
-    // candidate list. Same priority order: heading-promotion → RRF top-K →
-    // enumerated branch leaves.)
     const chosenCandidate = effectiveChosenCode
       ? candidates.find((c) => c.code === effectiveChosenCode)
       : undefined;
@@ -774,19 +531,8 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
               chosenLeaf?.description_ar ??
               null,
           ),
-          // retrieval_score is only meaningful when the chosen code came from
-          // the picker (RRF top-K); on a branch-rank override, the code may
-          // not be in `candidates` and the score has no meaning. Null then.
+          // Null on branch-rank override: the code may not be in `candidates`.
           retrieval_score: chosenCandidate ? round4(chosenCandidate.rrf_score) : null,
-          // Duty rate + import procedures from the ZATCA catalog. duty is
-          // a structured object distinguishing percentages (`rate_percent`)
-          // from status words (`status_en` / `status_ar` for "Exempted" /
-          // "Prohibited from Importing"). procedures is an enriched array
-          // resolved from the catalog's comma-separated reference (e.g.
-          // "21" → "Saudi Standards conformity certificate via SABER").
-          // Key is omitted entirely when no procedures apply, so the
-          // frontend can `if (result.procedures)` rather than checking
-          // for an empty array.
           duty: dutyInfo,
           ...(procedures.length > 0 && { procedures }),
         },
@@ -796,10 +542,6 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       ...(decision.missingAttributes.length > 0 && {
         missing_attributes: decision.missingAttributes,
       }),
-      // Phase 3 — surface a branch-rank "overrode" notice when relevant so
-      // the frontend can render a small badge ("Picker chose X; branch-rank
-      // overrode to Y because the wider HS-8 view showed a better fit"). On
-      // the common path where ranks agree, we don't emit anything.
       ...(branchRank && branchRank.invoked === 'llm' && !branchRank.agreesWithPicker
         ? {
             branch_rank_override: {
@@ -808,9 +550,6 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
             },
           }
         : {}),
-      // ZATCA-safe submission description is now generated lazily.
-      // When the frontend needs it, it calls POST /classifications/{id}/submission-description
-      // ?request_id=<request_id from this response>.
       interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
       model: {
         embedder: EMBEDDER_VERSION(),
@@ -826,4 +565,3 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     };
   });
 }
-

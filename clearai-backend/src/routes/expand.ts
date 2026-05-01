@@ -25,17 +25,10 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
     const lang = detectLang(description);
     const t = await loadThresholds();
 
-    // ---- Phase 7: broker-mapping short-circuit ---------------------------
-    // The broker maintains a hand-curated table of merchant-supplied codes
-    // that consistently need correction (Naqel_HS_code_mapping_lookup.xlsx,
-    // ingested via `pnpm db:seed:broker`). When the merchant's parent
-    // prefix is in that table, we trust the broker's canonical target over
-    // anything retrieval + LLM could derive — this is gold-standard human
-    // judgement, not a guess.
+    // Broker-mapping short-circuit — trust the curated table over retrieval+LLM.
     if (isEnabled(t, 'BROKER_MAPPING_ENABLED')) {
       const hit = await lookupBrokerMapping(parentPrefix);
       if (hit) {
-        // Look up the target code's catalog row for descriptions.
         const pool = getPool();
         const catRes = await pool.query<{
           description_en: string | null;
@@ -63,7 +56,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           confidenceBand: 'high',
           chosenCode: hit.targetCode,
           alternatives: [],
-          topRetrievalScore: 1, // sentinel — broker mapping is non-RRF
+          topRetrievalScore: 1,
           top2Gap: 1,
           candidateCount: 0,
           branchSize: null,
@@ -87,8 +80,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           after: {
             code: hit.targetCode,
             description_en: trimCatalogDashes(cat?.description_en ?? null),
-            // Prefer the broker's curated AR over the catalog AR — the
-            // broker's table has the phrasing they actually submit.
+            // Broker AR has the phrasing they actually submit.
             description_ar: trimCatalogDashes(
               hit.targetDescriptionAr ?? cat?.description_ar ?? null,
             ),
@@ -96,8 +88,6 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           },
           alternatives: [],
           rationale: brokerMappingRationale,
-          // Surface the source so the trace page can show "broker mapping
-          // hit, source row Rxxx" for full auditability.
           broker_mapping: {
             matched_client_code: hit.matchedClientCode,
             matched_length: hit.matchedLength,
@@ -108,7 +98,6 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // Branch-size sanity for logging + invalid_prefix detection
     const pool = getPool();
     const branchCountRes = await pool.query<{ count: string }>(
       `SELECT count(*)::text FROM hs_codes WHERE is_leaf = true AND code LIKE $1`,
@@ -156,13 +145,12 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       topK: 12,
     });
 
-    // `t` already loaded at the top of the handler for the broker-mapping check.
     const gate = evaluateGate(candidates, {
       minScore: t.MIN_SCORE_expand,
       minGap: t.MIN_GAP_expand,
     });
 
-    // Single-descendant special case: if only one leaf exists, accept it without LLM
+    // Single-descendant: accept the lone leaf without an LLM call.
     const singleValidDescendant = branchSize === 1;
     let llm = null;
     if (gate.passed && !singleValidDescendant && candidates.length > 0) {
@@ -171,7 +159,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
         query: description,
         candidates: candidates.slice(0, 8),
         parentPrefix,
-        model: env().LLM_MODEL, // Haiku for narrow within-branch picking
+        model: env().LLM_MODEL,
       });
     }
 
@@ -186,7 +174,6 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
       ...(singleValidDescendant && chosenCode ? { singleValidDescendant: true } : {}),
     });
 
-    // For single-descendant we override LLM-less acceptance
     if (singleValidDescendant && chosenCode && gate.passed) {
       decision.chosenCode = chosenCode;
       decision.decisionStatus = 'accepted';

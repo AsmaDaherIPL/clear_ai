@@ -1,9 +1,6 @@
 /**
- * Loads the set of real chapter/heading/hs6/hs8/hs10 prefixes from the DB so digit
- * normalization can cheaply check membership without per-request DB hits.
- *
- * Refreshed lazily on first use; assumed stable for the process lifetime
- * (HS catalogue changes < monthly).
+ * Loads the set of chapter / heading / hs6 / hs8 / hs10 prefixes from the
+ * DB. Cached for the process lifetime.
  */
 import { getPool } from '../db/client.js';
 import type { KnownPrefixes } from './digit-normalize.js';

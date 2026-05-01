@@ -1,9 +1,6 @@
 /**
- * Hybrid retrieval: pgvector cosine + tsvector BM25 + pg_trgm fuzzy → RRF fused.
- *
- * Returns ranked candidates with a *fused* score in [0, 1] derived from RRF rank
- * inverses. The score is comparable across queries within the same endpoint
- * (per-endpoint thresholds in setup_meta).
+ * Hybrid retrieval: pgvector cosine + tsvector BM25 + pg_trgm fuzzy fused
+ * with RRF. Returns candidates ranked by a normalised score in [0, 1].
  */
 import { getPool } from '../db/client.js';
 import { embedQuery } from '../embeddings/embedder.js';
@@ -24,21 +21,21 @@ export interface Candidate {
 }
 
 interface RetrieveOpts {
-  /** Restrict to rows whose `parent10` starts with this prefix (used by /expand). */
+  /** Restrict to rows whose `parent10` starts with this prefix. */
   prefixFilter?: string;
-  /** Restrict to leaves only (12-digit rows). Default true for /describe and /expand. */
+  /** Restrict to 12-digit leaves only. Default true. */
   leavesOnly?: boolean;
-  /** Soft bias prefix from digit normalization — boosts scoring for matching rows. */
+  /** Soft bias prefix from digit normalization. */
   prefixBias?: string | null;
-  /** Total candidates to return after fusion. */
+  /** Total candidates returned after fusion. */
   topK?: number;
-  /** RRF constant K (defaults to 60 per literature, override via setup_meta). */
+  /** RRF constant K. Default 60. */
   rrfK?: number;
   /** Per-arm fetch size before fusion. */
   perArmK?: number;
 }
 
-const PREFIX_BIAS_BOOST = 0.05; // additive on RRF score for matching rows
+const PREFIX_BIAS_BOOST = 0.05;
 
 export async function retrieveCandidates(
   query: string,
@@ -60,8 +57,6 @@ export async function retrieveCandidates(
   const filterParams: unknown[] = [];
   let pIdx = 1;
 
-  // We bind query-arm-specific params inline so each arm can use the same filter base.
-  // The placeholder offset increments as we add params.
   const buildFilters = (offset: number): { sql: string; params: unknown[] } => {
     const parts: string[] = [];
     const params: unknown[] = [];
@@ -76,14 +71,13 @@ export async function retrieveCandidates(
       params,
     };
   };
-  // Suppress unused-var warnings until we need the closures inline below
   void filterClauses;
   void filterParams;
   void pIdx;
 
-  // --- Vector arm (cosine distance via <=> ; lower = closer) ---
+  // Vector arm (cosine).
   const vecVal = `[${queryVec.join(',')}]`;
-  const vecFilters = buildFilters(2); // $1 = vec, $2... = filter params
+  const vecFilters = buildFilters(2);
   const vecSql = `
     SELECT code, description_en, description_ar, parent10,
            1 - (embedding <=> $1::vector) AS score
@@ -102,7 +96,7 @@ export async function retrieveCandidates(
     }>(vecSql, [vecVal, ...vecFilters.params])
   ).rows;
 
-  // --- BM25 arm (tsvector via plainto_tsquery; both EN and AR) ---
+  // BM25 arm (tsvector, EN + AR).
   const bm25Filters = buildFilters(2);
   const bm25Sql = `
     SELECT code, description_en, description_ar, parent10,
@@ -125,7 +119,7 @@ export async function retrieveCandidates(
     }>(bm25Sql, [query, ...bm25Filters.params])
   ).rows;
 
-  // --- Trigram arm (pg_trgm similarity over EN OR AR) ---
+  // Trigram arm (pg_trgm over EN or AR).
   const trgmFilters = buildFilters(2);
   const trgmSql = `
     SELECT code, description_en, description_ar, parent10,
@@ -148,8 +142,7 @@ export async function retrieveCandidates(
     }>(trgmSql, [query, ...trgmFilters.params])
   ).rows;
 
-  // --- RRF fusion ---
-  // For each arm, rank starts at 1. RRF contribution = 1 / (K + rank).
+  // RRF fusion: contribution per arm = 1 / (K + rank).
   const map = new Map<string, Candidate>();
   function ensure(code: string, desc_en: string | null, desc_ar: string | null, parent10: string): Candidate {
     let c = map.get(code);
@@ -191,7 +184,6 @@ export async function retrieveCandidates(
     c.rrf_score += 1 / (rrfK + (i + 1));
   });
 
-  // Apply soft prefix bias (digit normalization)
   if (prefixBias) {
     for (const c of map.values()) {
       if (c.code.startsWith(prefixBias)) {
@@ -200,7 +192,7 @@ export async function retrieveCandidates(
     }
   }
 
-  // Normalise: divide by max so top1 is in (0,1].
+  // Normalise so top1 is in (0,1].
   const all = Array.from(map.values()).sort((a, b) => b.rrf_score - a.rrf_score);
   if (all.length > 0) {
     const maxScore = all[0]!.rrf_score || 1;

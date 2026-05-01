@@ -1,27 +1,6 @@
 /**
- * Ingest the broker's hand-curated HS-code mapping lookup into
- * `broker_code_mapping`.
- *
- * Source: clear_ai/naqel-shared-data/Naqel_HS_code_mapping_lookup.xlsx
- * Target: postgres table `broker_code_mapping` (migration 0012)
- *
- * Behaviour:
- *   - Reads the xlsx, filters out invalid rows (logs each rejection with
- *     reason), normalises the client code to digits-only, normalises the
- *     target code to 12-digit zero-padded form.
- *   - TRUNCATEs the table inside a single transaction, then bulk-inserts.
- *     The source file IS the source of truth — we don't merge or diff,
- *     because edits happen in Excel and we want the DB to reflect the
- *     latest sheet exactly.
- *   - Reports a summary at the end (imported, skipped, by-rejection-reason).
- *
- * Run with:
- *   pnpm tsx src/scripts/ingest-broker-mapping.ts
- *   pnpm tsx src/scripts/ingest-broker-mapping.ts /custom/path/to/file.xlsx
- *
- * Idempotent: re-running with the same file produces the same DB state.
- * If the source file shrinks (rows removed), the DB shrinks too (TRUNCATE
- * before INSERT is intentional).
+ * Ingest Naqel_HS_code_mapping_lookup.xlsx into broker_code_mapping.
+ * TRUNCATEs and re-loads — the source file is authoritative.
  */
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';

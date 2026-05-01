@@ -1,27 +1,6 @@
 /**
- * Ingest the ZATCA procedures-codes lookup into `procedure_codes`.
- *
- * Source of truth: `clearai-backend/data/procedure-codes.csv` —
- * a verbatim copy of the official ZATCA guide
- * (دليل رموز إجراءات فسح وتصدير السلع), Arabic-only descriptions,
- * codes 1–113 with gaps. The CSV is committed alongside the schema so
- * a fresh checkout can `pnpm db:seed:procedures` without external assets.
- *
- * UPSERT-on-(code) so re-running is safe: an updated CSV (e.g. ZATCA
- * publishes a revision and we replace the file) re-syncs the table
- * in-place without dropping rows that might still be referenced from
- * trace logs.
- *
- * `(ملغي)` suffix detection: ~25 of the 111 descriptions end with
- * "(ملغي)" indicating the procedure is repealed. We materialise this
- * into the `is_repealed` boolean for fast filtering at response time
- * — the description text keeps the suffix verbatim because it's part
- * of the official record.
- *
- * Empty-description rows (codes 43, 73, 83 in the current CSV) are
- * logged and skipped — those are placeholder entries in the source
- * and surfacing them would mislead brokers. If ZATCA later fills them
- * in, a re-ingest picks them up.
+ * UPSERT data/procedure-codes.csv into procedure_codes. Detects the (ملغي)
+ * repealed marker; skips rows with empty descriptions.
  */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -37,14 +16,7 @@ interface RawProcedure {
   isRepealed: boolean;
 }
 
-/**
- * Minimal CSV parser — handles double-quoted fields and escaped quotes.
- * Avoids pulling in a CSV dependency for a one-script use case. Two
- * columns only (code, description), so we stop after the second field.
- *
- * Doesn't handle multi-line quoted strings — the source CSV is
- * single-line per record, so this is enough.
- */
+/** 2-column CSV parser; handles quoted fields. No multi-line quoted strings. */
 function parseCsvLine(line: string): [string, string] | null {
   if (!line.trim()) return null;
   const fields: string[] = [];

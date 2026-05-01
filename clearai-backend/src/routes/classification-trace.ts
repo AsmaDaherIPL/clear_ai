@@ -1,27 +1,6 @@
 /**
- * Trace + feedback routes — Phase 4 of the v3 alternatives redesign.
- *
- * GET  /classifications/:id           → full debug trace (event row + feedback rows)
- * POST /classifications/:id/feedback  → record human feedback on a classification
- *
- * Auth model: share-link-with-UUID. The frontend bundle has the APIM
- * subscription key baked in, and APIM enforces CORS + rate limit, so anyone
- * who can already reach POST /classifications can reach the trace + feedback
- * endpoints. UUIDs are unguessable — the security posture is the same as
- * Google Docs share-link URLs. When real user auth lands, we tighten via
- * the user_id column on classification_feedback.
- *
- * Contract:
- *   - GET returns 404 when the event_id doesn't exist (or is malformed).
- *   - POST validates the body, looks up the event to confirm it exists,
- *     and writes one row to classification_feedback. Conflict handling:
- *     UPSERT-on-conflict (event_id, user_id) so a user can't spam
- *     duplicates — they update their existing feedback instead.
- *
- * The trace shape is deliberately permissive (the request column is
- * jsonb so it carries any per-stage observability we threaded into
- * logEvent). Frontend renders sections opportunistically — sections
- * with no data render as "—" rather than throwing.
+ * GET /classifications/:id and POST /classifications/:id/feedback —
+ * trace replay and one feedback row per (event_id, user_id) via UPSERT.
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';

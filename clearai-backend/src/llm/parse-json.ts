@@ -1,9 +1,6 @@
 /**
  * JSON extraction from LLM responses, validated against a Zod schema.
- *
- * Tolerates ```json fences, bare ``` fences, leading/trailing prose,
- * whitespace. Failures return tagged result instead of throwing — LLM
- * output noise is normal.
+ * Tolerates code fences and surrounding prose. Returns a tagged result.
  */
 import { z } from 'zod';
 
@@ -18,7 +15,6 @@ export function extractJson<T extends z.ZodTypeAny>(
 ): JsonExtractResult<z.infer<T>> {
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   const body = fence ? fence[1]! : text;
-  // lastIndexOf so trailing prose doesn't cut into the JSON.
   const start = body.indexOf('{');
   const end = body.lastIndexOf('}');
   if (start < 0 || end < 0 || end <= start) {

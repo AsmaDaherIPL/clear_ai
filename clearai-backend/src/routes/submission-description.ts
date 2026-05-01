@@ -1,32 +1,6 @@
 /**
- * POST /classifications/{id}/submission-description
- *
- * Generates a customs-grade Arabic description (with EN companion) suitable
- * for the ZATCA item submission form. The classify endpoint used to
- * generate this inline on every accepted classification, which added
- * ~3-5s of Sonnet time to the response. Most users don't need it until
- * they're about to copy text into the customs declaration form, so we
- * generate it on demand from a prior classification's persisted record.
- *
- * Why POST (not GET): even though the operation is read-mostly and
- * deterministic per `id`, every call burns Haiku tokens. POST prevents
- * browsers / proxies / CDNs from auto-replaying the request and stops
- * the URL from leaking into access logs.
- *
- * Inputs:
- *   id (path) — UUID of a prior classification (the `id` returned from
- *               POST /classifications). No body required.
- *
- * Reads the stored event, looks up the chosen code's catalog text, and
- * runs the same Haiku-backed generator. Same deterministic distinctness
- * guard, so the response always differs from the catalog AR — no need
- * for a `differs_from_catalog` flag on the wire.
- *
- * Response:
- *   200 { description_ar, description_en, source: 'llm' | 'guard_fallback' }
- *   404 not_found              — id doesn't exist or is malformed
- *   400 invalid_state          — classification is not on a 12-digit accepted path
- *   500 generation_failed      — generator returned no text (rare)
+ * POST /classifications/{id}/submission-description — generate ZATCA-grade
+ * Arabic submission text on demand from a stored accepted classification.
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -62,9 +36,7 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
     }
     const e = eventRes.rows[0]!;
 
-    // Only accepted, 12-digit-leaf classifications can produce a
-    // submission. needs_clarification / best_effort don't have a real
-    // catalog row to anchor on, and a partial code can't be declared.
+    // Only accepted 12-digit-leaf classifications can produce a submission.
     if (
       e.decision_status !== 'accepted' ||
       !e.chosen_code ||
@@ -76,9 +48,7 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
       });
     }
 
-    // Pull the picker's effective description from the stored request.
-    // Researched inputs carry `rewritten_as`; everything else uses the
-    // original `description`. Both are persisted by logEvent.
+    // Researched inputs carry `rewritten_as`; everything else uses `description`.
     const requestPayload = e.request ?? {};
     const effectiveDescription =
       (typeof requestPayload.rewritten_as === 'string' && requestPayload.rewritten_as) ||
@@ -92,8 +62,6 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
       });
     }
 
-    // Catalog text for the chosen code — input to the distinctness guard
-    // and reference for the generator.
     const catRes = await pool.query<{
       description_en: string | null;
       description_ar: string | null;
@@ -116,18 +84,12 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
     });
 
     if (result.invoked === 'disabled' || !result.descriptionAr) {
-      // disabled is not actually reachable here (we passed enabled:true)
-      // but the type-narrowing shape is the same — defensive.
       return reply.code(500).send({ error: 'generation_failed' });
     }
 
     return {
       description_ar: result.descriptionAr,
       description_en: result.descriptionEn,
-      // 'llm' means Haiku produced fluent text; 'guard_fallback' means
-      // the prefix-mutator ran (broker should review). The deterministic
-      // distinctness guard fires either way, so the AR text is always
-      // safe vs catalog match.
       source: result.invoked,
     };
   });
