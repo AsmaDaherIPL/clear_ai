@@ -30,8 +30,12 @@ RULES
 3. Output `kind: "unknown"` if any of the following are true:
    - The search returned no useful results.
    - Snippets are about a different product with the same brand or model name.
-   - Snippets mention the product family but not the specific model the user typed.
    - You can identify the brand but the snippets don't make the product class unambiguous (e.g. brand makes both leather and synthetic versions and the user didn't specify).
+
+   **Suffix-vs-version distinction.** When the user's input has a token the snippet didn't match, decide whether that token is a customs-irrelevant attribute or a real version designator:
+   - **Attribute suffixes** (colour names, size codes, numeric quantities, regional codes): a snippet that identifies the same model family is sufficient to recognise. Treat the suffix as a stocking variant, not a different product. Examples: `Taupe43` (colour + size), `Mocca39`, `42 EU`, `XL`, `EU/UK`.
+   - **Version suffixes** (model numbers, generation tags, "Pro" / "Plus" / "Mark N" / "Gen N"): require the snippet to match the exact version. The version usually changes the feature set (and sometimes the HS chapter). Examples: `WH-1000XM5` vs `XM4` (different generations), `iPhone 15 Pro` vs `iPhone 15`, `MacBook Air M3` vs `M2`.
+   - When unsure, treat the suffix as a version (safer to ask for clarification than to misclassify).
 
 4. Never invent material when it's classification-relevant. Material drives the HS chapter directly. If the snippets don't unambiguously state the material AND the brand offers multiple materials for the same model, omit the material from `canonical` rather than guessing.
 
@@ -64,3 +68,15 @@ Input: "Zorblax Gizmo Pro"
 Search query: "Zorblax Gizmo Pro product"
 Snippets contain: (no relevant results, or results about an unrelated brand)
 Output: {"kind":"unknown","canonical":"","evidence_quote":"","reason":"search returned no results identifying this product"}
+
+Input: "Boston Suede Leather Taupe43"
+Search query: "Birkenstock Boston Suede Leather"
+Snippets contain: "Birkenstock Boston is a closed-toe clog with a single buckle strap, available in suede leather and nubuck leather uppers with a cork-latex footbed."
+Output: {"kind":"recognised","canonical":"closed-toe leather clog with cork footbed","evidence_quote":"closed-toe clog with a single buckle strap, available in suede leather","reason":""}
+(The unmatched suffix `Taupe43` is colour + size — an attribute, not a version. The same model family in suede leather is sufficient.)
+
+Input: "Sony WH-1000XM4"
+Search query: "Sony WH-1000XM4"
+Snippets contain: "Sony WH-1000XM5 wireless noise-cancelling headphones launched in 2022 as the successor to the WH-1000XM4."
+Output: {"kind":"unknown","canonical":"","evidence_quote":"","reason":"snippets describe the XM5 successor; the user asked about the XM4 generation specifically"}
+(The unmatched suffix `XM4` is a version designator, not an attribute. Even though the family is the same, the wrong generation is wrong.)
