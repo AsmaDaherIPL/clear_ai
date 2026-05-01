@@ -29,14 +29,27 @@ Return strict JSON, no prose outside the JSON object:
 
 ## Leaf-preference rule
 
-When the user's input contains a noun (English or Arabic) that approximately matches the description of a candidate **leaf** (a 12-digit code where digits 5-12 are not all zeros), **prefer that leaf**. The user has told you what the product is; do not over-disambiguate looking for material / form / capacity details that the input didn't supply.
+When the user's input contains a noun (English or Arabic) that approximately matches the description of a candidate **leaf** (a 12-digit code where digits 5-12 are not all zeros), **prefer that leaf** — but only when the leaf adds no customs-relevant attribute the input lacks. The user has told you what the product is; do not over-disambiguate looking for form / capacity details that the input didn't supply, but DO fall back to the heading when the leaf locks in a material, intended-use, or composition the input never mentioned.
+
+Customs-relevant attributes (leaf must NOT add these without input signal):
+- material (cotton, leather, plastic, silk, wool, man-made fibre, …)
+- intended use (medical, industrial, household, food-contact)
+- composition / blend ratios
+- regulated form (e.g. powder vs liquid for chemicals)
+
+Customs-irrelevant attributes (leaf may add these freely):
+- size, weight, capacity (when not classification-driving)
+- colour
+- model name / version
+- packaging type
 
 Examples:
-- User input contains "perfumes" and a candidate leaf says "Perfume preparations" → pick that leaf, not the parent heading.
+- User input contains "perfumes" and a candidate leaf says "Perfume preparations" → pick that leaf. ("preparations" is not a customs-relevant new attribute.)
 - User input contains "smartphone" and a candidate leaf says "Smartphones" → pick that leaf.
-- User input contains "trousers" and a candidate leaf says "Women's cotton trousers" with no other cotton-related signal → still prefer that leaf if no equally-good non-cotton trouser leaf is in the candidates; the user used the noun "trousers" and that is the strong signal.
+- User input contains "trousers" and the only narrow candidate is "Women's cotton trousers" → pick the **heading** if available, NOT the cotton leaf. "Cotton" is a material the input never specified; locking it in would create a wrong legal declaration.
+- User input contains "shoe cleaner" and a candidate leaf says "Polishes, creams and similar preparations for footwear" → pick that leaf. The product class matches; no new material is locked in.
 
-The leaf-preference rule beats the heading-fallback rule below. Only fall back to a heading-level code when no leaf is clearly indicated.
+The leaf-preference rule beats the heading-fallback rule below ONLY when the leaf doesn't introduce an unstated customs-relevant attribute. When in doubt, prefer the heading.
 
 ## Heading-fallback rule
 
@@ -46,6 +59,11 @@ ZATCA accepts heading-padded codes as valid customs declarations with published 
 
 - Input is "Loewe Puzzle bag" and candidates include `420200000000` (heading 4202 — bags / cases / containers, all materials). The material is needed to pick a sub-heading leaf, but the user didn't say leather / textile / plastic. Pick the heading.
 - Input is "smart device" and candidates include `851700000000`. Subheadings differ on functional category that the input didn't supply. Pick the heading.
+- Input is "trousers" with no material signal, candidates are all material-specific leaves (cotton, wool, synthetic). Pick the heading. Locking in a material the merchant didn't state is a wrong declaration.
+
+## Care-product anti-pattern
+
+Inputs containing care/cleaning/treatment words ("cleaner", "polish", "shampoo", "wax") next to a target object ("shoe", "leather", "carpet") classify under the CARE PRODUCT chapter (typically 3402/3405 for cleaning/polishing preparations), not the target object's chapter. Example: "Footbed and Shoe Cleaner" classifies under 3405 (polishes/creams for footwear), NOT under 6403 (footwear). When candidates contain both a footwear leaf and a cleaning-preparation leaf, pick the cleaning preparation.
 
 Only return `chosen_code: null` (with `missing_attributes` populated) when the candidate set genuinely **does not contain the right family at all** — i.e. when even the heading-level candidate would be the wrong heading. That is the only legitimate decline.
 

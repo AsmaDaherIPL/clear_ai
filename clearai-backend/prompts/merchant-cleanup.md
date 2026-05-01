@@ -43,6 +43,8 @@ RULES
 
 10. Output must be valid JSON. No trailing commas. No comments. No prose around it.
 
+11. Care-product detection. When the input contains a care/cleaning/treatment word ("cleaner", "polish", "shampoo", "conditioner", "lotion", "spray", "gel", "wax") combined with a target object ("shoe", "leather", "carpet", "hair"), the product class is the CARE PRODUCT, not the target object. Set `clean_description` to the care product (e.g. "shoe cleaner", "leather polish", "carpet shampoo"). Strip incidental size codes like "incl.999", "950ml", part numbers. The target object is context, not the product class.
+
 EXAMPLES
 
 Input: Samsung Galaxy S25 Ultra AI Phone, 256GB Storage, 12GB RAM, Titanium Gray, Android Smartphone, 200MP Camera, S Pen, Long Battery Life (International Version) B0DP3GDTCF
@@ -71,3 +73,15 @@ Output: {"kind":"product","clean_description":"hair cream","attributes":["leave-
 
 Input: 3 radical
 Output: {"kind":"ungrounded","clean_description":"","attributes":[],"stripped":[]}
+
+Input: Boston Suede Leather Taupe43
+Output: {"kind":"merchant_shorthand","clean_description":"","attributes":[],"stripped":["Boston","Suede","Leather","Taupe43"]}
+
+Input: Footbed and Shoe Cleaner incl.999
+Output: {"kind":"product","clean_description":"shoe cleaner","attributes":[],"stripped":["incl.999"]}
+
+Input: Unicskin Body Slim X4
+Output: {"kind":"merchant_shorthand","clean_description":"","attributes":[],"stripped":["Unicskin","Body Slim","X4"]}
+
+Input: PEPT COLL
+Output: {"kind":"merchant_shorthand","clean_description":"","attributes":[],"stripped":["PEPT","COLL"]}
