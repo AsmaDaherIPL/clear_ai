@@ -98,7 +98,10 @@ export async function retrieveCandidates(
     }>(vecSql, [vecVal, ...vecFilters.params])
   ).rows;
 
-  // BM25 arm (tsvector, EN + AR).
+  // BM25 arm (tsvector over ancestor-enriched columns, ADR-0024).
+  // tsv_en / tsv_ar are now populated from searchable_description_* by the
+  // updated trigger (0024_ancestor_context.sql), so they carry heading context
+  // and correctly index "Other"-style leaf nodes.
   const bm25Filters = buildFilters(2);
   const bm25Sql = `
     SELECT code, description_en, description_ar, parent10,
@@ -121,13 +124,14 @@ export async function retrieveCandidates(
     }>(bm25Sql, [query, ...bm25Filters.params])
   ).rows;
 
-  // Trigram arm (pg_trgm over EN or AR).
+  // Trigram arm — uses searchable_description_* (ancestor-enriched, ADR-0024).
+  // Falls back to display columns so rows ingested before 0024 still participate.
   const trgmFilters = buildFilters(2);
   const trgmSql = `
     SELECT code, description_en, description_ar, parent10,
            GREATEST(
-             similarity(coalesce(description_en, ''), $1),
-             similarity(coalesce(description_ar, ''), $1)
+             similarity(coalesce(searchable_description_en, description_en, ''), $1),
+             similarity(coalesce(searchable_description_ar, description_ar, ''), $1)
            ) AS score
     FROM hs_codes
     ${trgmFilters.sql}

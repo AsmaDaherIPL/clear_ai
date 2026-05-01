@@ -3,18 +3,27 @@
  * (leaves only). Generates e5-small embeddings over EN || AR concatenation.
  */
 import * as XLSX from 'xlsx';
-import { readFile } from 'node:fs/promises';
+import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPool, closeDb } from '../db/client.js';
 import { embedPassageBatch } from '../embeddings/embedder.js';
 
-const XLSX_PATH = join(
-  process.cwd(),
-  '..',
-  'clearai-backend-python',
-  'data',
-  'Zatca Tariff codes.xlsx'
-);
+// XLSX_PATH resolution order (first match wins):
+//   1. ZATCA_XLSX env override — set this in .env.local for CI or custom paths
+//   2. naqel-shared-data/ sibling of the repo root (local dev convention)
+//   3. Legacy clearai-backend-python/data/ path (kept for backward compat)
+async function resolveXlsxPath(): Promise<string> {
+  if (process.env['ZATCA_XLSX']) return process.env['ZATCA_XLSX'];
+  const candidates = [
+    join(process.cwd(), '..', 'naqel-shared-data', 'Zatca Tariff codes.xlsx'),
+    join(process.cwd(), '..', 'clearai-backend-python', 'data', 'Zatca Tariff codes.xlsx'),
+  ];
+  for (const p of candidates) {
+    try { await access(p); return p; } catch { /* try next */ }
+  }
+  // Fall through to first candidate — will fail at readFile with a clear ENOENT.
+  return candidates[0]!;
+}
 
 const BATCH_EMBED = 32; // e5-small handles 32 cleanly on M-series CPU
 const BATCH_INSERT = 200;
@@ -39,11 +48,90 @@ function deriveLevels(code12: string) {
   };
 }
 
-function buildEmbeddingText(en: string, ar: string): string {
+/** Strip the leading dash-indent from a ZATCA description and return clean text. */
+function stripDashes(s: string): string {
+  return s.replace(/^[-\s]+/, '').trim();
+}
+
+/**
+ * Count the hierarchy depth encoded in the leading dashes of a ZATCA description.
+ *   ""       → depth 0  (heading / chapter row, e.g. "Other footwear with…")
+ *   "- "     → depth 1  (e.g. "- Sports footwear")
+ *   "- - "   → depth 2  (e.g. "- - Other :")
+ *   "- - - " → depth 3  (e.g. "- - - For men and boys")
+ */
+function descDepth(en: string): number {
+  const m = en.match(/^(-\s*)+/);
+  if (!m) return 0;
+  // Each dash represents one level; count the dashes.
+  return (m[0].match(/-/g) ?? []).length;
+}
+
+/**
+ * Build the ancestor-enriched searchable text for one row.
+ *
+ * We walk backwards through the rows that precede this one in the xlsx
+ * (passed in as `ancestors` — a small rolling window maintained by the
+ * caller) and collect rows whose depth is strictly less than this row's
+ * depth AND whose heading prefix matches.  The result is:
+ *
+ *   "ancestor0_stripped > ancestor1_stripped > … > leaf_stripped"
+ *
+ * For a non-ambiguous row like "Soccer shoes with outer soles …" (depth 0
+ * within its heading) this degenerates to just the row's own text, so
+ * there is no downside to running this on every row.
+ */
+function buildSearchableEn(
+  en: string,
+  heading: string,
+  ancestors: Array<{ heading: string; en: string; depth: number }>,
+): string {
+  const myDepth = descDepth(en);
+  const chain: string[] = [];
+  // Collect ancestors from oldest to newest at each intermediate depth.
+  for (let d = 0; d < myDepth; d++) {
+    // Find the last ancestor in the window at exactly depth d with the same heading.
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+      const a = ancestors[i]!;
+      if (a.heading === heading && a.depth === d) {
+        chain.push(stripDashes(a.en));
+        break;
+      }
+    }
+  }
+  chain.push(stripDashes(en));
+  return chain.join(' > ');
+}
+
+/** Same logic for Arabic — dashes are absent in Arabic text, so we use the
+ *  parallel EN ancestry to decide which AR ancestors to pull in. */
+function buildSearchableAr(
+  ar: string,
+  heading: string,
+  myDepth: number,
+  ancestors: Array<{ heading: string; ar: string; depth: number }>,
+): string {
+  const chain: string[] = [];
+  for (let d = 0; d < myDepth; d++) {
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+      const a = ancestors[i]!;
+      if (a.heading === heading && a.depth === d) {
+        const cleaned = (a.ar || '').trim();
+        if (cleaned) chain.push(cleaned);
+        break;
+      }
+    }
+  }
+  const leafAr = (ar || '').trim();
+  if (leafAr) chain.push(leafAr);
+  return chain.join(' > ');
+}
+
+function buildEmbeddingText(searchableEn: string, searchableAr: string): string {
   // Single passage representing both languages. e5 multilingual handles mixed text fine.
   const parts: string[] = [];
-  if (en && en.trim()) parts.push(en.trim());
-  if (ar && ar.trim()) parts.push(ar.trim());
+  if (searchableEn) parts.push(searchableEn);
+  if (searchableAr) parts.push(searchableAr);
   return parts.join(' | ');
 }
 
@@ -87,8 +175,9 @@ async function readXlsx(path: string): Promise<{ rows: RawRow[]; skippedHs4: num
 
 async function main(): Promise<void> {
   const t0 = Date.now();
-  console.log(`Reading ${XLSX_PATH} ...`);
-  const { rows: raw, skippedHs4 } = await readXlsx(XLSX_PATH);
+  const xlsxPath = await resolveXlsxPath();
+  console.log(`Reading ${xlsxPath} ...`);
+  const { rows: raw, skippedHs4 } = await readXlsx(xlsxPath);
   console.log(`  ${raw.length} HS12 rows parsed; ${skippedHs4} HS4 heading rows skipped (ADR-0008)`);
 
   const pool = getPool();
@@ -96,14 +185,32 @@ async function main(): Promise<void> {
   // Truncate for repeatable seeds. Comment out if you want incremental inserts.
   await pool.query(`TRUNCATE TABLE hs_codes RESTART IDENTITY`);
 
-  // Build inputs — every code is already 12 digits at this point
+  // Build inputs — every code is already 12 digits at this point.
+  // We maintain a rolling ancestor window (last ~20 rows) so that each row
+  // can look up its parent descriptions for the enriched searchable text.
+  const ANCESTOR_WINDOW = 20;
+  type AncestorEntry = { heading: string; en: string; ar: string; depth: number };
+  const ancestorWindow: AncestorEntry[] = [];
+
   const prepared = raw.map((r) => {
     const levels = deriveLevels(r.code);
-    const text = buildEmbeddingText(r.en, r.ar);
+    const depth = descDepth(r.en);
+
+    const searchEn = buildSearchableEn(r.en, levels.heading, ancestorWindow);
+    const searchAr = buildSearchableAr(r.ar, levels.heading, depth, ancestorWindow);
+
+    // Push this row into the ancestor window after computing its own enrichment.
+    ancestorWindow.push({ heading: levels.heading, en: r.en, ar: r.ar, depth });
+    if (ancestorWindow.length > ANCESTOR_WINDOW) ancestorWindow.shift();
+
+    const text = buildEmbeddingText(searchEn, searchAr);
     return {
       ...r,
       code12: r.code,
       levels,
+      depth,
+      searchEn,
+      searchAr,
       embedText: text || r.code, // fall back so we never embed empty string
     };
   });
@@ -155,6 +262,8 @@ async function main(): Promise<void> {
         `$${p++}::vector`, // embedding
         `$${p++}`, // is_leaf
         `$${p++}`, // raw_length
+        `$${p++}`, // searchable_description_en  (ADR-0024)
+        `$${p++}`, // searchable_description_ar  (ADR-0024)
       ].join(',');
       placeholders.push(`(${ph})`);
       values.push(
@@ -172,7 +281,9 @@ async function main(): Promise<void> {
         r.procedures || null,
         `[${v.join(',')}]`,
         true, // is_leaf — every row is a 12-digit leaf post-ADR-0008
-        12 // raw_length
+        12,   // raw_length
+        r.searchEn || null,
+        r.searchAr || null,
       );
     }
 
@@ -182,7 +293,8 @@ async function main(): Promise<void> {
       INSERT INTO hs_codes
         (code, chapter, heading, hs6, hs8, hs10, parent10,
          description_en, description_ar, duty_en, duty_ar, procedures,
-         embedding, is_leaf, raw_length)
+         embedding, is_leaf, raw_length,
+         searchable_description_en, searchable_description_ar)
       VALUES ${placeholders.join(',')}
     `;
     await pool.query(sql, values);

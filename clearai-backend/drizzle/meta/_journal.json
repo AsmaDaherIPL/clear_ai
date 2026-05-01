@@ -169,6 +169,13 @@
       "when": 1777212300000,
       "tag": "0023_decision_reason_extension",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1777212400000,
+      "tag": "0024_ancestor_context",
+      "breakpoints": true
     }
   ]
 }

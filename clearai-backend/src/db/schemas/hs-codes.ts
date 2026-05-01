@@ -34,6 +34,13 @@ export const hsCodes = pgTable(
     dutyAr: text('duty_ar'),
     procedures: text('procedures'),
 
+    // Ancestor-enriched searchable text (ADR-0024). Built at ingest time by
+    // concatenating all parent-level descriptions from the same heading, e.g.
+    //   "Other footwear … > Other footwear : > Other"
+    // Used by BM25 and trigram retrieval arms. Display columns are unchanged.
+    searchableDescriptionEn: text('searchable_description_en'),
+    searchableDescriptionAr: text('searchable_description_ar'),
+
     // tsvectors populated by SQL trigger after insert.
     tsvEn: tsvector('tsv_en'),
     tsvAr: tsvector('tsv_ar'),
