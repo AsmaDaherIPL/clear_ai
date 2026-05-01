@@ -16,6 +16,8 @@ export interface MerchantCleanupResult {
   effective: string;
   attributes: string[];
   stripped: string[];
+  /** Populated only when kind='multi_product'. Each item is a short label. */
+  products: string[];
   latencyMs: number;
   model?: string | undefined;
 }
@@ -49,10 +51,16 @@ const ParsedCleanupSchema = z
     clean_description: z.unknown().optional(),
     attributes: z.unknown().optional(),
     stripped: z.unknown().optional(),
+    products: z.unknown().optional(),
   })
   .passthrough();
 
-const KIND_VALUES = new Set<MerchantCleanupKind>(['product', 'merchant_shorthand', 'ungrounded']);
+const KIND_VALUES = new Set<MerchantCleanupKind>([
+  'product',
+  'merchant_shorthand',
+  'ungrounded',
+  'multi_product',
+]);
 
 function coerceStringArray(v: unknown, max = 16): string[] {
   if (!Array.isArray(v)) return [];
@@ -82,6 +90,7 @@ export async function cleanMerchantInput(
       effective: trimmed,
       attributes: [],
       stripped: [],
+      products: [],
       latencyMs: 0,
     };
   }
@@ -107,6 +116,7 @@ export async function cleanMerchantInput(
       effective: trimmed,
       attributes: [],
       stripped: [],
+      products: [],
       latencyMs: outcome.trace.latency_ms,
       model,
     };
@@ -118,6 +128,7 @@ export async function cleanMerchantInput(
       effective: trimmed,
       attributes: [],
       stripped: [],
+      products: [],
       latencyMs: outcome.trace.latency_ms,
       model,
     };
@@ -131,11 +142,15 @@ export async function cleanMerchantInput(
 
   const cleanRaw = typeof parsed.clean_description === 'string' ? parsed.clean_description.trim() : '';
   const effectiveClean =
-    cleanRaw && kind !== 'merchant_shorthand' && kind !== 'ungrounded'
+    cleanRaw && kind === 'product'
       ? cleanRaw
       : kind === 'product'
         ? trimmed
         : '';
+
+  // products[] only meaningful for multi_product; ignored on other kinds.
+  const products =
+    kind === 'multi_product' ? coerceStringArray(parsed.products, 8) : [];
 
   return {
     invoked: 'llm',
@@ -143,6 +158,7 @@ export async function cleanMerchantInput(
     effective: effectiveClean || trimmed,
     attributes: coerceStringArray(parsed.attributes, 6),
     stripped: coerceStringArray(parsed.stripped, 16),
+    products,
     latencyMs: llmTrace.latency_ms,
     model,
   };

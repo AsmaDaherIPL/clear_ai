@@ -1,14 +1,14 @@
 /** Builds the "interpretation" block surfaced to the user — what cleanup / researcher did to the input. */
 import type { ResearchOutcome } from '../preprocess/research.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
-import type { InterpretationStage } from '../types/domain.js';
+import type { InterpretationStage, MerchantCleanupKind } from '../types/domain.js';
 export type { InterpretationStage } from '../types/domain.js';
 
 export interface InterpretationBlock {
   original: string;
   stage: InterpretationStage;
   cleaned_as?: string;
-  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded';
+  cleanup_kind?: MerchantCleanupKind;
   cleanup_attributes?: string[];
   cleanup_stripped?: string[];
   rewritten_as?: string;

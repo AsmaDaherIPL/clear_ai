@@ -28,7 +28,9 @@ export type DecisionReason =
   /** Best-effort 2/4/6/8/10-digit fallback heading (ADR-0011). */
   | 'best_effort_heading'
   /** Confident HS-4 family without enough info to commit to a leaf. */
-  | 'heading_level_match';
+  | 'heading_level_match'
+  /** Cleanup detected multiple distinct products in one input. */
+  | 'multi_product_input';
 
 export type ConfidenceBand = 'high' | 'medium' | 'low';
 
@@ -49,8 +51,16 @@ export type GateRefusalReason =
 /** Pipeline stage the input reached before retrieval ran. */
 export type InterpretationStage = 'passthrough' | 'cleaned' | 'researched' | 'unknown';
 
-/** What kind of input the cleanup LLM thinks this is. */
-export type MerchantCleanupKind = 'product' | 'merchant_shorthand' | 'ungrounded';
+/**
+ * What kind of input the cleanup LLM thinks this is. `multi_product` is
+ * surfaced separately from `product` so the route can refuse instead of
+ * silently classifying one of the items.
+ */
+export type MerchantCleanupKind =
+  | 'product'
+  | 'merchant_shorthand'
+  | 'ungrounded'
+  | 'multi_product';
 
 export type LlmStatus = 'ok' | 'error' | 'timeout';
 

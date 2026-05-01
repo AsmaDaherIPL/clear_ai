@@ -77,6 +77,61 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     effectiveDescription = cleanupStage.effectiveDescription;
     stage = cleanupStage.stage;
 
+    // Short-circuit: cleanup detected multiple distinct products. Refuse
+    // and return the parsed list so the user can re-submit each separately.
+    if (cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'multi_product') {
+      const totalLatency = Date.now() - t0;
+      const requestId = await logEvent({
+        endpoint: 'describe',
+        request: {
+          description,
+          cleanup_invoked: cleanup.invoked,
+          cleanup_kind: cleanup.kind,
+          cleanup_products_count: cleanup.products.length,
+          cleanup_latency_ms: cleanup.latencyMs,
+        },
+        languageDetected: lang,
+        decisionStatus: 'needs_clarification',
+        decisionReason: 'multi_product_input',
+        confidenceBand: null,
+        chosenCode: null,
+        alternatives: [],
+        topRetrievalScore: null,
+        top2Gap: null,
+        candidateCount: null,
+        branchSize: null,
+        llmUsed: false,
+        llmStatus: null,
+        guardTripped: false,
+        modelCalls,
+        embedderVersion: EMBEDDER_VERSION(),
+        llmModel: null,
+        totalLatencyMs: totalLatency,
+        error: null,
+        rationale: null,
+      }, req.log);
+
+      return {
+        ...withRequestId(requestId),
+        decision_status: 'needs_clarification' as const,
+        decision_reason: 'multi_product_input' as const,
+        alternatives: [],
+        products_detected: cleanup.products,
+        interpretation: buildInterpretation({
+          description,
+          stage,
+          effectiveDescription,
+          research: null,
+          cleanup,
+        }),
+        model: {
+          embedder: EMBEDDER_VERSION(),
+          llm: null,
+          ...(cleanup.model ? { cleanup: cleanup.model } : {}),
+        },
+      };
+    }
+
     // Stage 1 — retrieve top-K on the (possibly cleaned) input.
     const norm1 = digitNormalize(effectiveDescription, known);
     let candidates: Candidate[] = await retrieveCandidates(norm1.cleanedText, {

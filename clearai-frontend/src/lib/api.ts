@@ -56,7 +56,9 @@ export type DecisionReason =
   | 'llm_unavailable'
   | 'brand_not_recognised'
   | 'best_effort_heading'
-  | 'heading_level_match';
+  | 'heading_level_match'
+  /** Cleanup detected multiple distinct products in one input. */
+  | 'multi_product_input';
 
 export type ConfidenceBand = 'high' | 'medium' | 'low';
 
@@ -117,7 +119,7 @@ export interface Interpretation {
   original: string;
   stage: 'passthrough' | 'cleaned' | 'researched' | 'unknown';
   cleaned_as?: string;
-  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded';
+  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded' | 'multi_product';
   cleanup_attributes?: string[];
   cleanup_stripped?: string[];
   rewritten_as?: string;
@@ -143,6 +145,8 @@ export interface DecisionEnvelopeBase {
   rationale?: string;
   missing_attributes?: MissingAttribute[];
   interpretation?: Interpretation;
+  /** Set only on decision_reason='multi_product_input'. */
+  products_detected?: string[];
   /** @deprecated Fetch via POST /classifications/{id}/submission-description. */
   submission_description?: SubmissionDescription;
   model: ModelInfo;
@@ -291,6 +295,7 @@ export function reasonLabel(reason: DecisionReason): string {
     case 'brand_not_recognised': return 'Brand or product not recognised';
     case 'best_effort_heading': return 'Best-effort heading (verify before use)';
     case 'heading_level_match': return 'Heading-level match';
+    case 'multi_product_input': return 'Multiple products detected';
   }
 }
 
@@ -318,6 +323,8 @@ export function remediationHint(
       return 'The model proposed a code outside the candidate set. Please refine the description.';
     case 'brand_not_recognised':
       return 'We could not identify a product from your input. Describe what it physically is — material, type, and purpose (e.g. "leather sandal with adjustable straps", "cold-pressed olive oil 500ml bottle").';
+    case 'multi_product_input':
+      return 'Your input contains multiple distinct products. Each one needs its own HS code — please classify them one at a time.';
     default:
       return 'We could not classify this input. Try describing the product itself — material, type, and purpose (e.g. "leather sandal with adjustable straps").';
   }

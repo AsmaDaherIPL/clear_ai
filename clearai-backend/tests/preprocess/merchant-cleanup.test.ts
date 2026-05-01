@@ -44,6 +44,10 @@ describe('looksClean — deterministic short-circuit', () => {
     // Marketing punctuation
     'Smartphone (International Version)',
     'Storage rack, plastic, 5 tier',
+    // Multi-product inputs — must reach the LLM so it can return kind=multi_product.
+    'Arizona BFBC Mocca43, Boston Wire Buckle Taupe39',
+    'iPhone 15 case + screen protector',
+    'shoe cleaner and leather polish',
     // Long input regardless of token count
     'a'.repeat(100),
   ])('routes %s to LLM (not clean)', (input) => {
