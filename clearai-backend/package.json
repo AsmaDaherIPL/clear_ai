@@ -18,7 +18,7 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/scripts/ingest.ts",
-    "db:seed:broker": "tsx src/scripts/ingest-broker-mapping.ts",
+    "db:seed:overrides:naqel": "tsx src/scripts/ingest-tenant-overrides.ts --tenant naqel",
     "db:seed:procedures": "tsx src/scripts/ingest-procedure-codes.ts",
     "db:seed:deleted": "tsx src/scripts/ingest-deleted-codes.ts",
     "db:parse:saber": "tsx src/scripts/parse-saber-pdf.ts",

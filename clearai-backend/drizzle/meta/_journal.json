@@ -183,6 +183,13 @@
       "when": 1777212500000,
       "tag": "0025_setup_meta_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1777212600000,
+      "tag": "0026_tenant_code_overrides",
+      "breakpoints": true
     }
   ]
 }

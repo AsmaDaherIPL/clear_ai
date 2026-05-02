@@ -10,11 +10,21 @@ import { detectLang } from '../util/lang.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 import { env } from '../config/env.js';
 import { getPool } from '../db/client.js';
-import { lookupBrokerMapping } from '../classification/broker-mapping.js';
+import { lookupTenantOverride } from '../classification/tenant-overrides.js';
 import { round4 } from '../util/score.js';
 import { withRequestId, baseModelInfo, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
 import { sanitiseRationale } from '../util/sanitise.js';
 import { getDeletionInfo } from '../catalog/deleted-codes.js';
+
+/**
+ * Tenant resolution for tenant_code_overrides lookup.
+ *
+ * Today: hardcoded to 'naqel' — the only deployed tenant. Multi-tenant
+ * routing will come from request auth (subdomain / API key / JWT claim)
+ * once that machinery exists. Localising the constant here means there
+ * is exactly one place to swap when tenant routing lands.
+ */
+const DEFAULT_TENANT = 'naqel';
 
 export async function expandRoute(app: FastifyInstance): Promise<void> {
   app.post('/classifications/expand', async (req, reply) => {
@@ -90,9 +100,9 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
 
     // Tenant-override short-circuit — trust the per-tenant curated table over retrieval+LLM.
     if (isEnabled(t, 'TENANT_OVERRIDES_ENABLED')) {
-      const hit = await lookupBrokerMapping(parentPrefix);
+      const hit = await lookupTenantOverride(parentPrefix, DEFAULT_TENANT);
       if (hit) {
-        // Defense in depth: a curated broker-mapping row may point to a code
+        // Defense in depth: a curated override row may point to a code
         // that ZATCA/SABER has since deleted. Refuse with the deleted-code
         // envelope rather than serve the dead target.
         const targetDeletion = await getDeletionInfo(hit.targetCode);
@@ -103,8 +113,8 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
             request: {
               code: parentPrefix,
               description,
-              broker_mapping_hit: true,
-              broker_mapping_target_deleted: hit.targetCode,
+              tenant_override_hit: true,
+              tenant_override_target_deleted: hit.targetCode,
             },
             languageDetected: lang,
             decisionStatus: 'needs_clarification',
@@ -161,16 +171,16 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
         );
         const cat = catRes.rows[0] ?? null;
         const totalLatency = Date.now() - t0;
-        const brokerMappingRationale = `Broker-curated mapping: merchant code ${hit.matchedClientCode} routes to ${hit.targetCode} per the operations team's hand-curated lookup.`;
+        const tenantOverrideRationale = `Tenant override (${DEFAULT_TENANT}): merchant code ${hit.matchedSourceCode} routes to ${hit.targetCode} per the curated lookup table.`;
 
         const requestId = await logEvent({
           endpoint: 'expand',
           request: {
             code: parentPrefix,
             description,
-            broker_mapping_hit: true,
-            broker_mapping_matched_length: hit.matchedLength,
-            broker_mapping_source_row: hit.sourceRowRef,
+            tenant_override_hit: true,
+            tenant_override_matched_length: hit.matchedLength,
+            tenant_override_tenant: DEFAULT_TENANT,
           },
           languageDetected: lang,
           decisionStatus: 'accepted',
@@ -190,7 +200,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           llmModel: null,
           totalLatencyMs: totalLatency,
           error: null,
-          rationale: brokerMappingRationale,
+          rationale: tenantOverrideRationale,
         }, req.log);
 
         return {
@@ -202,18 +212,22 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           after: {
             code: hit.targetCode,
             description_en: trimCatalogDashes(cat?.description_en ?? null),
-            // Broker AR has the phrasing they actually submit.
-            description_ar: trimCatalogDashes(
-              hit.targetDescriptionAr ?? cat?.description_ar ?? null,
-            ),
+            // Per-tenant override no longer carries its own AR description in
+            // the slim schema (ADR-0025); fall back to the catalog AR. The
+            // canonical per-code submission AR will live in
+            // hs_code_display.submission_description_ar (commit #3+).
+            description_ar: trimCatalogDashes(cat?.description_ar ?? null),
             retrieval_score: null,
           },
           alternatives: [],
-          rationale: brokerMappingRationale,
+          rationale: tenantOverrideRationale,
+          // Response shape: keep `broker_mapping` key for back-compat with
+          // the frontend until commit #6 introduces a new tenant_override
+          // shape and we deprecate the old key.
           broker_mapping: {
-            matched_client_code: hit.matchedClientCode,
+            matched_client_code: hit.matchedSourceCode,
             matched_length: hit.matchedLength,
-            source_row_ref: hit.sourceRowRef,
+            source_row_ref: null,
           },
           model: baseModelInfo(),
         };
