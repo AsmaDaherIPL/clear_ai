@@ -20,13 +20,11 @@
  *                    heading is the only correct ancestry inference.
  *                    Always ends with self.
  *   • path_en/ar   = labels of path_codes, joined by " > "
- *   • is_generic_label = label_en in {"Other"} OR label_ar in {"غيرها"}
- *   • is_declarable    = the column replaces is_leaf. In the current
- *                        catalog every 12-digit code is declarable; that
- *                        equivalence is preserved here. We isolate the
- *                        decision into one place so we can later mark
- *                        heading-padded rows as not-declarable when the
- *                        broker UX is ready for that distinction.
+ *
+ * Note: the previous is_generic_label / is_declarable columns were
+ * removed in 0030 — both were derivable at read time and violated the
+ * single-source-of-truth principle (any change to hs_codes labels
+ * required re-deriving here).
  *
  * Note on chapter-level rows: the ZATCA xlsx has NO chapter-only rows
  * (XX0000000000 doesn't exist for any chapter). So path_codes never
@@ -66,13 +64,6 @@ function headingPaddedCode(code: string): string {
   return code.slice(0, 4) + '00000000';
 }
 
-const GENERIC_EN = new Set(['other']);
-const GENERIC_AR = new Set(['غيرها', 'اخرى', 'أخرى']);
-
-function isGeneric(labelEn: string, labelAr: string): boolean {
-  return GENERIC_EN.has(labelEn.toLowerCase().trim()) || GENERIC_AR.has(labelAr.trim());
-}
-
 async function main(): Promise<void> {
   const t0 = Date.now();
   const pool = getPool();
@@ -107,8 +98,6 @@ async function main(): Promise<void> {
     pathAr: string | null;
     pathCodes: string[];
     depth: number;
-    isGenericLabel: boolean;
-    isDeclarable: boolean;
   };
 
   // Per-heading state: lastAtDepth[heading][depth] = most-recent code at that depth.
@@ -190,8 +179,6 @@ async function main(): Promise<void> {
       pathAr,
       pathCodes,
       depth: myDepth,
-      isGenericLabel: isGeneric(labelEn, labelAr),
-      isDeclarable: true, // current rule: every HS12 row is declarable; see ADR-0025 note
     });
   }
 
@@ -210,7 +197,7 @@ async function main(): Promise<void> {
       for (const r of slice) {
         const ph = [
           `$${p++}`, `$${p++}`, `$${p++}`, `$${p++}`, `$${p++}`,
-          `$${p++}::jsonb`, `$${p++}`, `$${p++}`, `$${p++}`,
+          `$${p++}::jsonb`, `$${p++}`,
         ].join(',');
         placeholders.push(`(${ph})`);
         values.push(
@@ -221,13 +208,11 @@ async function main(): Promise<void> {
           r.pathAr,
           JSON.stringify(r.pathCodes),
           r.depth,
-          r.isGenericLabel,
-          r.isDeclarable,
         );
       }
       await client.query(
         `INSERT INTO hs_code_display
-           (code, label_en, label_ar, path_en, path_ar, path_codes, depth, is_generic_label, is_declarable)
+           (code, label_en, label_ar, path_en, path_ar, path_codes, depth)
          VALUES ${placeholders.join(',')}`,
         values,
       );

@@ -75,12 +75,12 @@ export async function retrieveCandidates(
   const pool = getPool();
   const queryVec = await embedQuery(query);
 
-  // Common filter clauses live on hs_code_search (where is_deleted is the
-  // denormalised flag, kept in sync by trigger from hs_codes). Prefix
-  // filtering uses the code column itself — both sides are 12-char so
-  // `code LIKE '6402%'` is exact and uses the PK index.
+  // Filter clauses. Deletion check reads h.is_deleted directly (single
+  // source of truth on hs_codes). Prefix filtering uses the code column
+  // — both sides are 12-char so `code LIKE '6402%'` is exact and uses
+  // the PK index.
   const buildFilters = (offset: number): { sql: string; params: unknown[] } => {
-    const parts: string[] = ['s.is_deleted = false'];
+    const parts: string[] = ['h.is_deleted = false'];
     const params: unknown[] = [];
     let p = offset;
     if (prefixFilter) {

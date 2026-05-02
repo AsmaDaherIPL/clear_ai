@@ -20,11 +20,12 @@
  *     equality (no stemming — Postgres has no native Arabic stemmer; we
  *     rely on trigram for morphological recall).
  *
- *   • is_deleted — mirrored from hs_codes at INSERT time. The trigger
- *     installed in 0028 keeps it in sync on subsequent UPDATEs.
- *
  *   • build_version — process.env.BUILD_VERSION || 'dev' so the row
  *     can be traced back to the pipeline that produced it.
+ *
+ * Deletion handling: hs_code_search no longer carries an is_deleted
+ * mirror (dropped in 0030) — retrieval JOINs hs_codes and reads
+ * h.is_deleted directly (single source of truth).
  */
 import { getPool, closeDb } from '../db/client.js';
 import { embedPassageBatch } from '../embeddings/embedder.js';
@@ -36,7 +37,6 @@ const BUILD_VERSION = process.env['BUILD_VERSION'] ?? 'dev';
 
 interface SourceRow {
   code: string;
-  is_deleted: boolean;
   path_en: string;
   path_ar: string | null;
 }
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
 
   console.log('[ingest-hs-code-search] reading hs_codes ⨝ hs_code_display …');
   const r = await pool.query<SourceRow>(
-    `SELECT h.code, h.is_deleted, d.path_en, d.path_ar
+    `SELECT h.code, d.path_en, d.path_ar
        FROM hs_codes h
        JOIN hs_code_display d USING (code)
       ORDER BY h.code`,
@@ -143,7 +143,6 @@ async function main(): Promise<void> {
           `$${p++}`, // tsv_input_ar
           `$${p++}::vector`, // embedding
           `$${p++}`, // embedding_model
-          `$${p++}`, // is_deleted
           `$${p++}`, // build_version
         ].join(',');
         placeholders.push(`(${ph})`);
@@ -154,14 +153,13 @@ async function main(): Promise<void> {
           row.tsvInputAr,
           `[${v.join(',')}]`,
           EMBEDDING_MODEL,
-          row.is_deleted,
           BUILD_VERSION,
         );
       }
       await client.query(
         `INSERT INTO hs_code_search
            (code, embedding_input, tsv_input_en, tsv_input_ar,
-            embedding, embedding_model, is_deleted, build_version)
+            embedding, embedding_model, build_version)
          VALUES ${placeholders.join(',')}`,
         values,
       );

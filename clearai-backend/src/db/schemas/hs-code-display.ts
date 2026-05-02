@@ -15,7 +15,6 @@ import {
   char,
   text,
   smallint,
-  boolean,
   timestamp,
   json,
   index,
@@ -42,12 +41,6 @@ export const hsCodeDisplay = pgTable(
     /** Hierarchy depth from dash count: 0 = heading-padded, up to ~4 for product-leaves. */
     depth: smallint('depth').notNull(),
 
-    /** True for "Other"/"غيرها" rows — picker uses as a fallback signal. */
-    isGenericLabel: boolean('is_generic_label').notNull().default(false),
-
-    /** Replaces is_leaf semantically. True if a broker can put this code on a customs declaration. */
-    isDeclarable: boolean('is_declarable').notNull(),
-
     /** LLM-polished canonical name (commit #6 / future seed script). NULL until populated. */
     submissionDescriptionEn: text('submission_description_en'),
     submissionDescriptionAr: text('submission_description_ar'),
@@ -58,8 +51,6 @@ export const hsCodeDisplay = pgTable(
   },
   (t) => ({
     pathCodesGin: index('hs_code_display_path_codes_gin').on(t.pathCodes),
-    declarableIdx: index('hs_code_display_declarable_idx').on(t.code),
-    genericIdx: index('hs_code_display_generic_idx').on(t.isGenericLabel),
   }),
 );
 

@@ -33,17 +33,14 @@ export const hsCodes = pgTable(
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
     code: varchar('code', { length: 12 }).notNull().unique(),
 
-    // Derived hierarchy prefixes (ADR-0005). Kept for now — used by
-    // digit-normalize, branch-enumerate, and the /classifications/expand
-    // route. A future refactor could drop the redundant ones (hs8, hs10,
-    // parent10) and derive in-process from `code`, but that's out of
-    // scope for ADR-0025.
+    // Derived hierarchy prefixes (ADR-0005). Kept: chapter / heading / hs6
+    // — these are used as indexable JOIN/filter targets across the codebase.
+    // Dropped (0030): hs8, hs10, parent10 — were dead duplications of
+    // substring(code, 1, 8/10), now derived in TS by loadKnownPrefixes()
+    // from `code` at startup.
     chapter: varchar('chapter', { length: 2 }).notNull(),
     heading: varchar('heading', { length: 4 }).notNull(),
     hs6: varchar('hs6', { length: 6 }).notNull(),
-    hs8: varchar('hs8', { length: 8 }).notNull(),
-    hs10: varchar('hs10', { length: 10 }).notNull(),
-    parent10: varchar('parent10', { length: 10 }).notNull(),
 
     descriptionEn: text('description_en'),
     descriptionAr: text('description_ar'),
@@ -65,9 +62,6 @@ export const hsCodes = pgTable(
     chapterIdx: index('hs_codes_chapter_idx').on(t.chapter),
     headingIdx: index('hs_codes_heading_idx').on(t.heading),
     hs6Idx: index('hs_codes_hs6_idx').on(t.hs6),
-    hs8Idx: index('hs_codes_hs8_idx').on(t.hs8),
-    hs10Idx: index('hs_codes_hs10_idx').on(t.hs10),
-    parent10Idx: index('hs_codes_parent10_idx').on(t.parent10),
   }),
 );
 

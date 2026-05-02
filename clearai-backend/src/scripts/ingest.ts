@@ -49,9 +49,6 @@ function deriveLevels(code12: string) {
     chapter: code12.slice(0, 2),
     heading: code12.slice(0, 4),
     hs6: code12.slice(0, 6),
-    hs8: code12.slice(0, 8),
-    hs10: code12.slice(0, 10),
-    parent10: code12.slice(0, 10),
   };
 }
 
@@ -130,9 +127,6 @@ async function main(): Promise<void> {
         `$${p++}`, // chapter
         `$${p++}`, // heading
         `$${p++}`, // hs6
-        `$${p++}`, // hs8
-        `$${p++}`, // hs10
-        `$${p++}`, // parent10
         `$${p++}`, // description_en
         `$${p++}`, // description_ar
         `$${p++}`, // duty_en
@@ -146,9 +140,6 @@ async function main(): Promise<void> {
         r.levels.chapter,
         r.levels.heading,
         r.levels.hs6,
-        r.levels.hs8,
-        r.levels.hs10,
-        r.levels.parent10,
         r.en || null,
         r.ar || null,
         r.dutyEn || null,
@@ -164,7 +155,7 @@ async function main(): Promise<void> {
     // supply the column.
     const sql = `
       INSERT INTO hs_codes
-        (id, code, chapter, heading, hs6, hs8, hs10, parent10,
+        (id, code, chapter, heading, hs6,
          description_en, description_ar, duty_en, duty_ar, procedures)
       VALUES ${placeholders.join(',')}
     `;

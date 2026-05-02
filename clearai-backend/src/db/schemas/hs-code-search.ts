@@ -7,17 +7,17 @@
  *   • BM25 arm     → tsv_en / tsv_ar (trigger-built from tsv_input_*)
  *   • Trigram arm  → tsv_input_en / tsv_input_ar (deduplicated token bag)
  *
- * is_deleted is a denormalised mirror of hs_codes.is_deleted maintained
- * by an AFTER-INSERT/UPDATE trigger on hs_codes — application code does
- * not write this column directly.
+ * Deletion filtering: retrieval JOINs hs_codes and reads h.is_deleted
+ * directly (single source of truth). The denormalised is_deleted column
+ * + sync trigger that lived here in commits #4–5 was removed in 0030 —
+ * the JOIN cost is microseconds at our scale and eliminates a sync
+ * hazard.
  */
 import {
   pgTable,
   char,
   text,
-  boolean,
   timestamp,
-  index,
 } from 'drizzle-orm/pg-core';
 import { vector, tsvector } from '../types.js';
 import { hsCodes } from './hs-codes.js';
@@ -44,19 +44,14 @@ export const hsCodeSearch = pgTable(
     tsvEn: tsvector('tsv_en'),
     tsvAr: tsvector('tsv_ar'),
 
-    /** Denormalised mirror of hs_codes.is_deleted (trigger-maintained). */
-    isDeleted: boolean('is_deleted').notNull().default(false),
-
     /** Ingest pipeline version (git SHA / semver). */
     buildVersion: text('build_version').notNull(),
 
     indexedAt: timestamp('indexed_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => ({
-    activeIdx: index('hs_code_search_active_idx').on(t.code),
-    // HNSW + GIN indexes are declared in raw SQL (Drizzle doesn't have
-    // first-class index types for those yet); they live in the migration.
-  }),
+  // No table-level indexes declared in TS — HNSW + GIN are raw-SQL in
+  // 0028_hs_code_search.sql. The active-partial-index that lived here
+  // was dropped in 0030 alongside the is_deleted column.
 );
 
 export type HsCodeSearchRow = typeof hsCodeSearch.$inferSelect;
