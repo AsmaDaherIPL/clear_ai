@@ -23,10 +23,10 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { vector, tsvector } from '../types.js';
-import { hsCodes } from './hs-codes.js';
+import { hsCodes } from './zatca-hs-codes.js';
 
 export const hsCodeSearch = pgTable(
-  'hs_code_search',
+  'zatca_hs_code_search',
   {
     /** UUID PK — opaque per-row identity (UUIDv7 from src/util/uuid.ts on INSERT). */
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -57,7 +57,7 @@ export const hsCodeSearch = pgTable(
     indexedAt: timestamp('indexed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    codeUniq: unique('hs_code_search_code_uniq').on(t.code),
+    codeUniq: unique('zatca_hs_code_search_code_uniq').on(t.code),
     // HNSW + GIN indexes declared in raw SQL (0028).
   }),
 );

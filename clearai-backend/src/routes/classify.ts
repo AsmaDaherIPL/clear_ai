@@ -218,7 +218,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
           description_ar: string | null;
         }>(
           // is_leaf dropped in 0029 — every hs_codes row is HS-12 leaf.
-          `SELECT code, description_en, description_ar FROM hs_codes WHERE code = $1`,
+          `SELECT code, description_en, description_ar FROM zatca_hs_codes WHERE code = $1`,
           [candidateHeadingCode],
         );
         const row = r.rows[0];
@@ -435,7 +435,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         duty_status: string | null;
         procedures: string[] | null;
       }>(
-        `SELECT duty_rate_pct, duty_status, procedures FROM hs_codes WHERE code = $1`,
+        `SELECT duty_rate_pct, duty_status, procedures FROM zatca_hs_codes WHERE code = $1`,
         [effectiveChosenCode],
       );
       const row = r.rows[0];

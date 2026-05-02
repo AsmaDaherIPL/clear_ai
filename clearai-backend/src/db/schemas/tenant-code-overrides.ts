@@ -12,7 +12,7 @@
  * specify which tenant's xlsx they parsed.
  *
  * 0032: switched to UUID PK with the natural composite key
- * (tenant, source_code_norm) preserved as UNIQUE NOT NULL.
+ * (tenant, source_code) preserved as UNIQUE NOT NULL.
  */
 import { pgTable, varchar, char, index, uuid, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -30,7 +30,7 @@ export const tenantCodeOverrides = pgTable(
      * 4–14 chars). Intentionally NOT FK to hs_codes — the whole point of
      * the table is to handle inputs that are not in the catalog.
      */
-    sourceCodeNorm: varchar('source_code_norm', { length: 14 }).notNull(),
+    sourceCode: varchar('source_code', { length: 14 }).notNull(),
     /**
      * Tenant's canonical 12-digit ZATCA target. FK to hs_codes(code)
      * with ON DELETE RESTRICT (a SABER deletion of an active override
@@ -40,7 +40,7 @@ export const tenantCodeOverrides = pgTable(
   },
   (t) => ({
     /** Natural key — one rule per (tenant, source) combination. */
-    naturalKey: unique('tenant_code_overrides_tenant_source_uniq').on(t.tenant, t.sourceCodeNorm),
+    naturalKey: unique('tenant_code_overrides_tenant_source_uniq').on(t.tenant, t.sourceCode),
     targetIdx: index('tenant_code_overrides_target_idx').on(t.targetCode),
   }),
 );

@@ -37,7 +37,7 @@ export async function getDeletionInfo(code: string): Promise<DeletedCodeInfo | n
     replacement_codes: string[] | null;
   }>(
     `SELECT deletion_effective_date, replacement_codes
-       FROM hs_codes
+       FROM zatca_hs_codes
       WHERE code = $1
         AND is_deleted = true`,
     [code],
@@ -64,7 +64,7 @@ export async function getDeletionInfo(code: string): Promise<DeletedCodeInfo | n
     description_ar: string | null;
   }>(
     `SELECT code, description_en, description_ar
-       FROM hs_codes
+       FROM zatca_hs_codes
       WHERE code = ANY($1::varchar[])
       ORDER BY code`,
     [replacementCodes],

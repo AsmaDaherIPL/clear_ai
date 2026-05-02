@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   }
 
   const sql = `
-    INSERT INTO procedure_codes (code, description_ar, is_repealed)
+    INSERT INTO zatca_procedure_codes (code, description_ar, is_repealed)
     VALUES ${valuesSql.join(', ')}
     ON CONFLICT (code) DO UPDATE SET
       description_ar = EXCLUDED.description_ar,

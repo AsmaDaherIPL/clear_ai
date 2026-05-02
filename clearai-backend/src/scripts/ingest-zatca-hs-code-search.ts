@@ -81,8 +81,8 @@ async function main(): Promise<void> {
   console.log('[ingest-hs-code-search] reading hs_codes ⨝ hs_code_display …');
   const r = await pool.query<SourceRow>(
     `SELECT h.code, d.path_en, d.path_ar
-       FROM hs_codes h
-       JOIN hs_code_display d USING (code)
+       FROM zatca_hs_codes h
+       JOIN zatca_hs_code_display d USING (code)
       ORDER BY h.code`,
   );
   console.log(`[ingest-hs-code-search] ${r.rows.length} rows`);
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('TRUNCATE TABLE hs_code_search');
+    await client.query('TRUNCATE TABLE zatca_hs_code_search');
 
     let inserted = 0;
     for (let i = 0; i < prepared.length; i += BATCH_INSERT) {
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
         );
       }
       await client.query(
-        `INSERT INTO hs_code_search
+        `INSERT INTO zatca_hs_code_search
            (id, code, embedding_input, tsv_input_en, tsv_input_ar,
             embedding, embedding_model, build_version)
          VALUES ${placeholders.join(',')}`,

@@ -86,7 +86,7 @@ async function main(): Promise<void> {
       : null;
 
     const result = await pool.query(
-      `UPDATE hs_codes
+      `UPDATE zatca_hs_codes
           SET is_deleted              = true,
               deletion_effective_date = $2::date,
               replacement_codes       = $3::jsonb
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
     } else {
       // Either code not in hs_codes (genuine miss) or already up-to-date.
       const check = await pool.query<{ exists: boolean }>(
-        `SELECT EXISTS(SELECT 1 FROM hs_codes WHERE code = $1) AS exists`,
+        `SELECT EXISTS(SELECT 1 FROM zatca_hs_codes WHERE code = $1) AS exists`,
         [row.deletedCode],
       );
       if (!check.rows[0]?.exists) {

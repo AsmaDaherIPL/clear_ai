@@ -28,7 +28,7 @@ interface RawRow {
 }
 
 interface ValidatedRow {
-  sourceCodeNorm: string;
+  sourceCode: string;
   targetCode: string;
   sourceRowRef: string;
 }
@@ -150,14 +150,14 @@ function validate(raw: RawRow): ValidatedRow | RejectedRow {
   }
 
   return {
-    sourceCodeNorm: sourceNorm,
+    sourceCode: sourceNorm,
     targetCode: target,
     sourceRowRef: raw.rowRef,
   };
 }
 
 function isValidated(v: ValidatedRow | RejectedRow): v is ValidatedRow {
-  return 'sourceCodeNorm' in v;
+  return 'sourceCode' in v;
 }
 
 async function main(): Promise<void> {
@@ -184,16 +184,16 @@ async function main(): Promise<void> {
       rejected.push(v);
       continue;
     }
-    const prior = seenSource.get(v.sourceCodeNorm);
+    const prior = seenSource.get(v.sourceCode);
     if (prior) {
       rejected.push({
         rowRef: v.sourceRowRef,
-        reason: `duplicate source code ${v.sourceCodeNorm} (first seen at ${prior})`,
+        reason: `duplicate source code ${v.sourceCode} (first seen at ${prior})`,
         raw: r,
       });
       continue;
     }
-    seenSource.set(v.sourceCodeNorm, v.sourceRowRef);
+    seenSource.set(v.sourceCode, v.sourceRowRef);
     validated.push(v);
   }
 
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
     // (rather than abort the whole batch on the FK).
     const targetSet = Array.from(new Set(validated.map((v) => v.targetCode)));
     const liveTargets = await client.query<{ code: string }>(
-      `SELECT code FROM hs_codes WHERE code = ANY($1::char(12)[])`,
+      `SELECT code FROM zatca_hs_codes WHERE code = ANY($1::char(12)[])`,
       [targetSet],
     );
     const liveSet = new Set(liveTargets.rows.map((r) => r.code));
@@ -240,7 +240,7 @@ async function main(): Promise<void> {
         `[ingest-tenant-overrides] dropping ${droppedMissing.length} rows whose target is not in hs_codes:`,
       );
       for (const v of droppedMissing.slice(0, 20)) {
-        console.log(`  ${v.sourceRowRef}: ${v.sourceCodeNorm} → ${v.targetCode} (target absent)`);
+        console.log(`  ${v.sourceRowRef}: ${v.sourceCode} → ${v.targetCode} (target absent)`);
       }
       if (droppedMissing.length > 20) {
         console.log(`  … and ${droppedMissing.length - 20} more`);
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
     // ids are generated TS-side (UUIDv7); the DB default gen_random_uuid()
     // is the safety net for any path that doesn't supply one.
     await client.query(
-      `INSERT INTO tenant_code_overrides (id, tenant, source_code_norm, target_code)
+      `INSERT INTO tenant_code_overrides (id, tenant, source_code, target_code)
        SELECT id, $1, src, tgt FROM UNNEST(
          $2::uuid[],
          $3::varchar[],
@@ -260,7 +260,7 @@ async function main(): Promise<void> {
       [
         tenant,
         insertable.map(() => newId()),
-        insertable.map((v) => v.sourceCodeNorm),
+        insertable.map((v) => v.sourceCode),
         insertable.map((v) => v.targetCode),
       ],
     );

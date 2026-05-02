@@ -36,7 +36,7 @@ async function queryPrefix(prefix: string, limit: number): Promise<Row[]> {
   // `WHERE is_leaf = true` filter is gone. is_deleted still applies.
   const r = await pool.query<Row>(
     `SELECT code, description_en, description_ar
-       FROM hs_codes
+       FROM zatca_hs_codes
       WHERE is_deleted = false
         AND code LIKE $1
       ORDER BY code

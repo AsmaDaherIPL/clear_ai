@@ -138,7 +138,7 @@ async function main(): Promise<void> {
   // Truncate for repeatable seeds. CASCADE because hs_code_display + hs_code_search
   // both FK to hs_codes(code) ON DELETE CASCADE — they get cleared too. Run their
   // ingest scripts after this to re-populate.
-  await pool.query(`TRUNCATE TABLE hs_codes RESTART IDENTITY CASCADE`);
+  await pool.query(`TRUNCATE TABLE zatca_hs_codes RESTART IDENTITY CASCADE`);
 
   // Build inputs.
   const prepared = raw.map((r) => ({
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
     // ON CONFLICT removed: the xlsx has unique HS12 codes, and a duplicate would
     // indicate a data corruption we want to surface, not silently drop.
     const sql = `
-      INSERT INTO hs_codes
+      INSERT INTO zatca_hs_codes
         (id, code, chapter, heading, hs6,
          description_en, description_ar, duty_rate_pct, duty_status, procedures)
       VALUES ${placeholders.join(',')}
@@ -202,7 +202,7 @@ async function main(): Promise<void> {
   }
 
   // Sanity counts.
-  const n = await pool.query<{ count: string }>(`SELECT count(*)::text FROM hs_codes`);
+  const n = await pool.query<{ count: string }>(`SELECT count(*)::text FROM zatca_hs_codes`);
   console.log(`✓ ingested rows=${n.rows[0]?.count}`);
   console.log(`Total wall time: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   console.log('\nNext steps:');

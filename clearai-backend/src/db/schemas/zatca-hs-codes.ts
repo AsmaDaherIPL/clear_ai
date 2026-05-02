@@ -24,7 +24,7 @@ import {
 import { sql } from 'drizzle-orm';
 
 export const hsCodes = pgTable(
-  'hs_codes',
+  'zatca_hs_codes',
   {
     // PK policy: ids supplied by application code via src/util/uuid.ts
     // (UUIDv7 — time-ordered, btree-friendly). The DB default is kept
@@ -68,9 +68,9 @@ export const hsCodes = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    chapterIdx: index('hs_codes_chapter_idx').on(t.chapter),
-    headingIdx: index('hs_codes_heading_idx').on(t.heading),
-    hs6Idx: index('hs_codes_hs6_idx').on(t.hs6),
+    chapterIdx: index('zatca_hs_codes_chapter_idx').on(t.chapter),
+    headingIdx: index('zatca_hs_codes_heading_idx').on(t.heading),
+    hs6Idx: index('zatca_hs_codes_hs6_idx').on(t.hs6),
   }),
 );
 

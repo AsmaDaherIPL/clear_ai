@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   // all codes are zero-left-padded to the same length. This ordering is
   // what makes the same-heading dash-depth walk deterministic.
   const all = await pool.query<HsRow>(
-    `SELECT code, description_en, description_ar FROM hs_codes ORDER BY code`,
+    `SELECT code, description_en, description_ar FROM zatca_hs_codes ORDER BY code`,
   );
   console.log(`[ingest-hs-code-display] ${all.rows.length} rows`);
 
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('TRUNCATE TABLE hs_code_display');
+    await client.query('TRUNCATE TABLE zatca_hs_code_display');
 
     let inserted = 0;
     for (let i = 0; i < display.length; i += BATCH_INSERT) {
@@ -234,7 +234,7 @@ async function main(): Promise<void> {
         );
       }
       await client.query(
-        `INSERT INTO hs_code_display
+        `INSERT INTO zatca_hs_code_display
            (id, code, label_en, label_ar, path_en, path_ar, path_codes, depth)
          VALUES ${placeholders.join(',')}`,
         values,

@@ -24,7 +24,7 @@ import {
 import { sql } from 'drizzle-orm';
 
 export const hsCodeDisplay = pgTable(
-  'hs_code_display',
+  'zatca_hs_code_display',
   {
     /**
      * UUID PK — opaque per-row identity. Application code generates UUIDv7
@@ -65,8 +65,8 @@ export const hsCodeDisplay = pgTable(
     derivedAt: timestamp('derived_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    pathCodesGin: index('hs_code_display_path_codes_gin').on(t.pathCodes),
-    codeUniq: unique('hs_code_display_code_uniq').on(t.code),
+    pathCodesGin: index('zatca_hs_code_display_path_codes_gin').on(t.pathCodes),
+    codeUniq: unique('zatca_hs_code_display_code_uniq').on(t.code),
   }),
 );
 
@@ -77,5 +77,5 @@ export type NewHsCodeDisplayRow = typeof hsCodeDisplay.$inferInsert;
 // create a cycle, so we declare the column shape inline. The runtime FK
 // is enforced by the migration's REFERENCES clause; this is purely for
 // Drizzle's type-time graph.
-import { hsCodes } from './hs-codes.js';
+import { hsCodes } from './zatca-hs-codes.js';
 const hsCodesCodeRef = hsCodes.code;

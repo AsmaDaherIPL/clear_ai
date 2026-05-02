@@ -74,7 +74,7 @@ export async function loadDisplayInfo(codes: string[]): Promise<Map<string, Disp
     path_ar: string | null;
   }>(
     `SELECT code, label_en, label_ar, path_en, path_ar
-       FROM hs_code_display
+       FROM zatca_hs_code_display
       WHERE code = ANY($1::char(12)[])`,
     [codes],
   );

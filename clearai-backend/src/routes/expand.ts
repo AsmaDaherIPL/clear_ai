@@ -166,7 +166,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           description_en: string | null;
           description_ar: string | null;
         }>(
-          `SELECT description_en, description_ar FROM hs_codes WHERE code = $1`,
+          `SELECT description_en, description_ar FROM zatca_hs_codes WHERE code = $1`,
           [hit.targetCode],
         );
         const cat = catRes.rows[0] ?? null;
@@ -248,7 +248,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
     const pool = getPool();
     const branchCountRes = await pool.query<{ count: string }>(
       // is_leaf dropped in 0029 — every hs_codes row is HS-12 leaf.
-      `SELECT count(*)::text FROM hs_codes WHERE code LIKE $1`,
+      `SELECT count(*)::text FROM zatca_hs_codes WHERE code LIKE $1`,
       [`${parentPrefix}%`]
     );
     const branchSize = Number(branchCountRes.rows[0]?.count ?? 0);

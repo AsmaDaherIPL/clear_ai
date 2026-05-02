@@ -19,7 +19,7 @@ export async function loadKnownPrefixes(): Promise<KnownPrefixes> {
     chapter: string;
     heading: string;
     hs6: string;
-  }>(`SELECT code, chapter, heading, hs6 FROM hs_codes`);
+  }>(`SELECT code, chapter, heading, hs6 FROM zatca_hs_codes`);
 
   const chapters = new Set<string>();
   const headings = new Set<string>();

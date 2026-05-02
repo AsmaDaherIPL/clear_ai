@@ -53,7 +53,7 @@ export async function lookupProcedures(
     is_repealed: boolean;
   }>(
     `SELECT code, description_ar, is_repealed
-       FROM procedure_codes
+       FROM zatca_procedure_codes
        WHERE code = ANY($1::varchar[])`,
     [codes],
   );

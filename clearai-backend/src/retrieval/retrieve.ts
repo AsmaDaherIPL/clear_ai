@@ -102,8 +102,8 @@ export async function retrieveCandidates(
            h.description_ar,
            substring(s.code, 1, 10) AS parent10,
            1 - (s.embedding <=> $1::vector) AS score
-      FROM hs_code_search s
-      JOIN hs_codes h ON h.code = s.code
+      FROM zatca_hs_code_search s
+      JOIN zatca_hs_codes h ON h.code = s.code
       ${vecFilters.sql}
     ORDER BY s.embedding <=> $1::vector
     LIMIT ${perArmK}
@@ -123,8 +123,8 @@ export async function retrieveCandidates(
              ts_rank_cd(s.tsv_en, plainto_tsquery('english', $1)),
              ts_rank_cd(s.tsv_ar, plainto_tsquery('simple',  $1))
            ) AS score
-      FROM hs_code_search s
-      JOIN hs_codes h ON h.code = s.code
+      FROM zatca_hs_code_search s
+      JOIN zatca_hs_codes h ON h.code = s.code
       ${bm25Filters.sql}
     ORDER BY score DESC NULLS LAST
     LIMIT ${perArmK}
@@ -145,8 +145,8 @@ export async function retrieveCandidates(
              similarity(coalesce(s.tsv_input_en, ''), $1),
              similarity(coalesce(s.tsv_input_ar, ''), $1)
            ) AS score
-      FROM hs_code_search s
-      JOIN hs_codes h ON h.code = s.code
+      FROM zatca_hs_code_search s
+      JOIN zatca_hs_codes h ON h.code = s.code
       ${trgmFilters.sql}
     ORDER BY score DESC
     LIMIT ${perArmK}

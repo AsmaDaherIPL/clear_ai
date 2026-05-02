@@ -43,14 +43,14 @@ export async function lookupTenantOverride(
   }
 
   const r = await pool.query<{
-    source_code_norm: string;
+    source_code: string;
     target_code: string;
   }>(
-    `SELECT source_code_norm, target_code
+    `SELECT source_code, target_code
        FROM tenant_code_overrides
       WHERE tenant = $1
-        AND source_code_norm = ANY($2::varchar[])
-      ORDER BY length(source_code_norm) DESC
+        AND source_code = ANY($2::varchar[])
+      ORDER BY length(source_code) DESC
       LIMIT 1`,
     [tenant, candidates],
   );
@@ -59,7 +59,7 @@ export async function lookupTenantOverride(
   if (!row) return null;
   return {
     targetCode: row.target_code,
-    matchedLength: row.source_code_norm.length,
-    matchedSourceCode: row.source_code_norm,
+    matchedLength: row.source_code.length,
+    matchedSourceCode: row.source_code,
   };
 }

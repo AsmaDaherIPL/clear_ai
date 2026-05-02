@@ -66,7 +66,7 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
       description_en: string | null;
       description_ar: string | null;
     }>(
-      `SELECT description_en, description_ar FROM hs_codes WHERE code = $1`,
+      `SELECT description_en, description_ar FROM zatca_hs_codes WHERE code = $1`,
       [e.chosen_code],
     );
     const cat = catRes.rows[0] ?? { description_en: null, description_ar: null };

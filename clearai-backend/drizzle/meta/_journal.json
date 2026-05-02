@@ -232,6 +232,13 @@
       "when": 1777213200000,
       "tag": "0032_uuid_pk_entity_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1777213300000,
+      "tag": "0033_rename_zatca_prefix",
+      "breakpoints": true
     }
   ]
 }
