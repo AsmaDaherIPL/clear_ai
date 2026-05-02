@@ -10,12 +10,19 @@
  *
  * Multi-tenant from day 1 — `tenant` has NO DEFAULT; ingest scripts must
  * specify which tenant's xlsx they parsed.
+ *
+ * 0032: switched to UUID PK with the natural composite key
+ * (tenant, source_code_norm) preserved as UNIQUE NOT NULL.
  */
-import { pgTable, varchar, char, primaryKey, index } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, char, index, uuid, unique } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const tenantCodeOverrides = pgTable(
   'tenant_code_overrides',
   {
+    /** UUID PK — opaque per-row identity (UUIDv7 from src/util/uuid.ts on INSERT). */
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+
     /** Lowercase ASCII tenant slug, e.g. "naqel", "aramex", "dhl". */
     tenant: varchar('tenant', { length: 32 }).notNull(),
     /**
@@ -32,7 +39,8 @@ export const tenantCodeOverrides = pgTable(
     targetCode: char('target_code', { length: 12 }).notNull(),
   },
   (t) => ({
-    pk: primaryKey({ columns: [t.tenant, t.sourceCodeNorm] }),
+    /** Natural key — one rule per (tenant, source) combination. */
+    naturalKey: unique('tenant_code_overrides_tenant_source_uniq').on(t.tenant, t.sourceCodeNorm),
     targetIdx: index('tenant_code_overrides_target_idx').on(t.targetCode),
   }),
 );

@@ -29,6 +29,7 @@
  */
 import { getPool, closeDb } from '../db/client.js';
 import { embedPassageBatch } from '../embeddings/embedder.js';
+import { newId } from '../util/uuid.js';
 
 const BATCH_EMBED = 32;
 const BATCH_INSERT = 200;
@@ -137,6 +138,7 @@ async function main(): Promise<void> {
         const row = slice[j]!;
         const v = sliceEmb[j]!;
         const ph = [
+          `$${p++}`, // id (UUIDv7)
           `$${p++}`, // code
           `$${p++}`, // embedding_input
           `$${p++}`, // tsv_input_en
@@ -147,6 +149,7 @@ async function main(): Promise<void> {
         ].join(',');
         placeholders.push(`(${ph})`);
         values.push(
+          newId(),
           row.code,
           row.embeddingInput,
           row.tsvInputEn,
@@ -158,7 +161,7 @@ async function main(): Promise<void> {
       }
       await client.query(
         `INSERT INTO hs_code_search
-           (code, embedding_input, tsv_input_en, tsv_input_ar,
+           (id, code, embedding_input, tsv_input_en, tsv_input_ar,
             embedding, embedding_model, build_version)
          VALUES ${placeholders.join(',')}`,
         values,

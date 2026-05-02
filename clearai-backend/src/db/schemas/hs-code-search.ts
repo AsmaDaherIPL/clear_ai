@@ -18,15 +18,22 @@ import {
   char,
   text,
   timestamp,
+  uuid,
+  unique,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { vector, tsvector } from '../types.js';
 import { hsCodes } from './hs-codes.js';
 
 export const hsCodeSearch = pgTable(
   'hs_code_search',
   {
+    /** UUID PK — opaque per-row identity (UUIDv7 from src/util/uuid.ts on INSERT). */
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+
+    /** Natural key — one search row per HS-12 catalog row. UNIQUE invariant. */
     code: char('code', { length: 12 })
-      .primaryKey()
+      .notNull()
       .references(() => hsCodes.code, { onDelete: 'cascade' }),
 
     /** Exact bytes fed to embedder. Single coherent passage, bilingual. */
@@ -49,9 +56,10 @@ export const hsCodeSearch = pgTable(
 
     indexedAt: timestamp('indexed_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  // No table-level indexes declared in TS — HNSW + GIN are raw-SQL in
-  // 0028_hs_code_search.sql. The active-partial-index that lived here
-  // was dropped in 0030 alongside the is_deleted column.
+  (t) => ({
+    codeUniq: unique('hs_code_search_code_uniq').on(t.code),
+    // HNSW + GIN indexes declared in raw SQL (0028).
+  }),
 );
 
 export type HsCodeSearchRow = typeof hsCodeSearch.$inferSelect;

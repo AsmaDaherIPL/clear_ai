@@ -19,6 +19,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import ExcelJS from 'exceljs';
 import { getPool, closeDb } from '../db/client.js';
+import { newId } from '../util/uuid.js';
 
 interface RawRow {
   rowRef: string;
@@ -247,14 +248,18 @@ async function main(): Promise<void> {
     }
 
     // Bulk insert via UNNEST — keeps the transaction tight for large batches.
+    // ids are generated TS-side (UUIDv7); the DB default gen_random_uuid()
+    // is the safety net for any path that doesn't supply one.
     await client.query(
-      `INSERT INTO tenant_code_overrides (tenant, source_code_norm, target_code)
-       SELECT $1, src, tgt FROM UNNEST(
-         $2::varchar[],
-         $3::varchar[]
-       ) AS u(src, tgt)`,
+      `INSERT INTO tenant_code_overrides (id, tenant, source_code_norm, target_code)
+       SELECT id, $1, src, tgt FROM UNNEST(
+         $2::uuid[],
+         $3::varchar[],
+         $4::varchar[]
+       ) AS u(id, src, tgt)`,
       [
         tenant,
+        insertable.map(() => newId()),
         insertable.map((v) => v.sourceCodeNorm),
         insertable.map((v) => v.targetCode),
       ],

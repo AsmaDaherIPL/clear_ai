@@ -35,6 +35,7 @@
  * they exist in the catalog.
  */
 import { getPool, closeDb } from '../db/client.js';
+import { newId } from '../util/uuid.js';
 
 const BATCH_INSERT = 200;
 
@@ -216,11 +217,13 @@ async function main(): Promise<void> {
       let p = 1;
       for (const r of slice) {
         const ph = [
+          `$${p++}`, // id (UUIDv7)
           `$${p++}`, `$${p++}`, `$${p++}`, `$${p++}`, `$${p++}`,
           `$${p++}::jsonb`, `$${p++}`,
         ].join(',');
         placeholders.push(`(${ph})`);
         values.push(
+          newId(),
           r.code,
           r.labelEn,
           r.labelAr,
@@ -232,7 +235,7 @@ async function main(): Promise<void> {
       }
       await client.query(
         `INSERT INTO hs_code_display
-           (code, label_en, label_ar, path_en, path_ar, path_codes, depth)
+           (id, code, label_en, label_ar, path_en, path_ar, path_codes, depth)
          VALUES ${placeholders.join(',')}`,
         values,
       );

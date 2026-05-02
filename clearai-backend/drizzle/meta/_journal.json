@@ -225,6 +225,13 @@
       "when": 1777213100000,
       "tag": "0031_procedures_array_duty_struct",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1777213200000,
+      "tag": "0032_uuid_pk_entity_tables",
+      "breakpoints": true
     }
   ]
 }

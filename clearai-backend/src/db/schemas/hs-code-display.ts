@@ -18,20 +18,35 @@ import {
   timestamp,
   json,
   index,
+  uuid,
+  unique,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const hsCodeDisplay = pgTable(
   'hs_code_display',
   {
+    /**
+     * UUID PK — opaque per-row identity. Application code generates UUIDv7
+     * via newId() (src/util/uuid.ts) for new INSERTs; the DB default
+     * gen_random_uuid() (UUIDv4) is the safety net.
+     */
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+
+    /**
+     * Natural key — one row per HS-12 catalog row. UNIQUE so the 1:1
+     * invariant is enforced; the FK back to hs_codes(code) cascades
+     * deletes so this table never holds orphaned rows.
+     */
     code: char('code', { length: 12 })
-      .primaryKey()
+      .notNull()
       .references(() => hsCodesCodeRef, { onDelete: 'cascade' }),
 
-    /** Cleaned own-row label (dashes stripped). e.g. "Other" for 640299000000. */
+    /** Cleaned own-row label (dashes + trailing punctuation stripped). */
     labelEn: text('label_en').notNull(),
     labelAr: text('label_ar'),
 
-    /** Full breadcrumb joined by " > ". e.g. "Other footwear … > Other footwear > Other". */
+    /** Full breadcrumb joined by " > ". */
     pathEn: text('path_en').notNull(),
     pathAr: text('path_ar'),
 
@@ -41,7 +56,7 @@ export const hsCodeDisplay = pgTable(
     /** Hierarchy depth from dash count: 0 = heading-padded, up to ~4 for product-leaves. */
     depth: smallint('depth').notNull(),
 
-    /** LLM-polished canonical name (commit #6 / future seed script). NULL until populated. */
+    /** LLM-polished canonical name. NULL until populated by the lazy-fill helper. */
     submissionDescriptionEn: text('submission_description_en'),
     submissionDescriptionAr: text('submission_description_ar'),
     submissionDescModel: text('submission_desc_model'),
@@ -51,6 +66,7 @@ export const hsCodeDisplay = pgTable(
   },
   (t) => ({
     pathCodesGin: index('hs_code_display_path_codes_gin').on(t.pathCodes),
+    codeUniq: unique('hs_code_display_code_uniq').on(t.code),
   }),
 );
 
