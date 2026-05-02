@@ -7,7 +7,7 @@
  * end-users, batch importers all hit the same surface).
  *
  * Pipeline contract (new-pipeline / ADR-pending):
- *   • Always invoked when MERCHANT_CLEANUP_ENABLED=1 (kill-switch).
+ *   • Always invoked when DESCRIPTION_CLEANUP_ENABLED=1 (kill-switch).
  *   • Output `kind` decides downstream routing:
  *       'product'             → continue to retrieval
  *       'merchant_shorthand'  → skip retrieval, route to Researcher

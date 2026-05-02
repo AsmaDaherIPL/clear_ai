@@ -568,6 +568,31 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       // frontend that renders rationale as HTML (CSP today blocks the
       // active-XSS vector but stored content is forever).
       rationale: sanitiseRationale(accepted ? accepted.rationale : (decision.rationale ?? null)),
+      // Observability columns (0035) — typed surface for the trace page.
+      // chapter_hint is null when the cleanup said merchant_shorthand /
+      // ungrounded (no point predicting a chapter for "Arizona EXQ Lena").
+      chapterHint:
+        chapterHint && chapterHint.invoked === 'llm'
+          ? {
+              likely_chapters: chapterHint.likelyChapters,
+              confidence: chapterHint.confidence,
+              rationale: chapterHint.rationale,
+            }
+          : null,
+      // Surface nounGrounded for both LLM-invoked AND skipped_clean paths
+      // (the looksClean fast path defaults nounGrounded=true since
+      // already-clean broker input by definition has a customs noun).
+      // Only null when cleanup actually failed (llm_failed / llm_unparseable).
+      cleanupNounGrounded:
+        cleanup && (cleanup.invoked === 'llm' || cleanup.invoked === 'skipped_clean')
+          ? cleanup.nounGrounded
+          : null,
+      // candidates.length here reflects the post-rerank pool the picker
+      // saw (top-K). It's the same number we'd want to surface on the
+      // trace page as "Stage-1 produced N candidates" — the rerank doesn't
+      // change pool size, only ordering. If we ever want pre-rerank
+      // count, retrieve.ts would need to expose it; not in scope here.
+      retrievalStage1Count: candidates.length,
     }, req.log);
 
     // Best-effort response (verify-toggle gated on the frontend).

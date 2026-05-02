@@ -22,7 +22,7 @@ export async function runCleanupStage(params: {
 }): Promise<CleanupStageResult> {
   const { description, thresholds: t, modelCalls } = params;
 
-  if (!isEnabled(t, 'MERCHANT_CLEANUP_ENABLED')) {
+  if (!isEnabled(t, 'DESCRIPTION_CLEANUP_ENABLED')) {
     return {
       cleanup: null,
       effectiveDescription: description,
@@ -31,7 +31,7 @@ export async function runCleanupStage(params: {
   }
 
   const cleanup = await cleanDescription(description, {
-    maxTokens: t.MERCHANT_CLEANUP_MAX_TOKENS,
+    maxTokens: t.DESCRIPTION_CLEANUP_MAX_TOKENS,
   });
 
   if (cleanup.invoked === 'llm' && cleanup.model) {

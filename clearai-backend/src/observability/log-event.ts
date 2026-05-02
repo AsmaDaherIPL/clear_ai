@@ -36,6 +36,29 @@ export interface EventInsert {
   error: string | null;
   /** Picker's plain-English reason for the chosen code. Null when no picker ran. */
   rationale: string | null;
+
+  // ──── Observability fields (0035) ─────────────────────────────────────
+  // All optional — old call sites that don't supply them get NULL in the
+  // DB column, exactly as if the migration had run before they did.
+
+  /**
+   * Chapter-hint module's full output: { likely_chapters, confidence, rationale }
+   * or null when the hint was skipped (e.g. cleanup said merchant_shorthand).
+   */
+  chapterHint?: {
+    likely_chapters: string[];
+    confidence: number;
+    rationale: string;
+  } | null;
+
+  /** Cleanup's nounGrounded flag, or null when cleanup was skipped/failed. */
+  cleanupNounGrounded?: boolean | null;
+
+  /**
+   * Number of candidates the Stage-1 vector recall pulled (before
+   * BM25/trigram rerank shaved them). Null when retrieval didn't run.
+   */
+  retrievalStage1Count?: number | null;
 }
 
 /**
@@ -73,7 +96,8 @@ export async function logEvent(
       top_retrieval_score, top2_gap, candidate_count, branch_size,
       llm_used, llm_status, guard_tripped,
       model_calls, embedder_version, llm_model, total_latency_ms, error,
-      rationale
+      rationale,
+      chapter_hint, cleanup_noun_grounded, retrieval_stage1_count
     ) VALUES (
       $1,
       $2, $3, $4, $5,
@@ -82,7 +106,8 @@ export async function logEvent(
       $11, $12, $13, $14,
       $15, $16, $17,
       $18, $19, $20, $21, $22,
-      $23
+      $23,
+      $24, $25, $26
     ) RETURNING id`,
       [
         id,
@@ -108,6 +133,11 @@ export async function logEvent(
         e.totalLatencyMs,
         e.error,
         e.rationale,
+        // Observability columns (0035) — null is the safe default for any
+        // call site that doesn't pass them yet.
+        e.chapterHint == null ? null : JSON.stringify(e.chapterHint),
+        e.cleanupNounGrounded ?? null,
+        e.retrievalStage1Count ?? null,
       ],
     );
     return r.rows[0]?.id ?? null;
