@@ -1,17 +1,25 @@
 /**
- * Ingest Zatca Tariff codes.xlsx into hs_codes. Drops 4-digit heading rows
- * (leaves only). Generates e5-small embeddings over EN || AR concatenation.
+ * Ingest the ZATCA Tariff codes.xlsx into the slim hs_codes table
+ * (ADR-0025 source-of-truth catalog only — no embeddings, no tsv, no
+ * derived display data).
+ *
+ * After running this:
+ *   pnpm db:seed:display    # populate hs_code_display
+ *   pnpm db:seed:search     # populate hs_code_search (~16 min)
+ *   pnpm db:seed:deleted    # apply SABER deletion flags
+ *   pnpm db:seed:overrides:naqel  # populate tenant_code_overrides
+ *
+ * The xlsx is the source of truth for the catalog; we TRUNCATE + reload.
  */
 import * as XLSX from 'xlsx';
 import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPool, closeDb } from '../db/client.js';
-import { embedPassageBatch } from '../embeddings/embedder.js';
 
 // XLSX_PATH resolution order (first match wins):
-//   1. ZATCA_XLSX env override — set this in .env.local for CI or custom paths
+//   1. ZATCA_XLSX env override — set in .env.local for CI / custom paths
 //   2. naqel-shared-data/ sibling of the repo root (local dev convention)
-//   3. Legacy clearai-backend-python/data/ path (kept for backward compat)
+//   3. Legacy clearai-backend-python/data/ path (kept for back-compat)
 async function resolveXlsxPath(): Promise<string> {
   if (process.env['ZATCA_XLSX']) return process.env['ZATCA_XLSX'];
   const candidates = [
@@ -21,11 +29,9 @@ async function resolveXlsxPath(): Promise<string> {
   for (const p of candidates) {
     try { await access(p); return p; } catch { /* try next */ }
   }
-  // Fall through to first candidate — will fail at readFile with a clear ENOENT.
   return candidates[0]!;
 }
 
-const BATCH_EMBED = 32; // e5-small handles 32 cleanly on M-series CPU
 const BATCH_INSERT = 200;
 
 interface RawRow {
@@ -46,93 +52,6 @@ function deriveLevels(code12: string) {
     hs10: code12.slice(0, 10),
     parent10: code12.slice(0, 10),
   };
-}
-
-/** Strip the leading dash-indent from a ZATCA description and return clean text. */
-function stripDashes(s: string): string {
-  return s.replace(/^[-\s]+/, '').trim();
-}
-
-/**
- * Count the hierarchy depth encoded in the leading dashes of a ZATCA description.
- *   ""       → depth 0  (heading / chapter row, e.g. "Other footwear with…")
- *   "- "     → depth 1  (e.g. "- Sports footwear")
- *   "- - "   → depth 2  (e.g. "- - Other :")
- *   "- - - " → depth 3  (e.g. "- - - For men and boys")
- */
-function descDepth(en: string): number {
-  const m = en.match(/^(-\s*)+/);
-  if (!m) return 0;
-  // Each dash represents one level; count the dashes.
-  return (m[0].match(/-/g) ?? []).length;
-}
-
-/**
- * Build the ancestor-enriched searchable text for one row.
- *
- * We walk backwards through the rows that precede this one in the xlsx
- * (passed in as `ancestors` — a small rolling window maintained by the
- * caller) and collect rows whose depth is strictly less than this row's
- * depth AND whose heading prefix matches.  The result is:
- *
- *   "ancestor0_stripped > ancestor1_stripped > … > leaf_stripped"
- *
- * For a non-ambiguous row like "Soccer shoes with outer soles …" (depth 0
- * within its heading) this degenerates to just the row's own text, so
- * there is no downside to running this on every row.
- */
-function buildSearchableEn(
-  en: string,
-  heading: string,
-  ancestors: Array<{ heading: string; en: string; depth: number }>,
-): string {
-  const myDepth = descDepth(en);
-  const chain: string[] = [];
-  // Collect ancestors from oldest to newest at each intermediate depth.
-  for (let d = 0; d < myDepth; d++) {
-    // Find the last ancestor in the window at exactly depth d with the same heading.
-    for (let i = ancestors.length - 1; i >= 0; i--) {
-      const a = ancestors[i]!;
-      if (a.heading === heading && a.depth === d) {
-        chain.push(stripDashes(a.en));
-        break;
-      }
-    }
-  }
-  chain.push(stripDashes(en));
-  return chain.join(' > ');
-}
-
-/** Same logic for Arabic — dashes are absent in Arabic text, so we use the
- *  parallel EN ancestry to decide which AR ancestors to pull in. */
-function buildSearchableAr(
-  ar: string,
-  heading: string,
-  myDepth: number,
-  ancestors: Array<{ heading: string; ar: string; depth: number }>,
-): string {
-  const chain: string[] = [];
-  for (let d = 0; d < myDepth; d++) {
-    for (let i = ancestors.length - 1; i >= 0; i--) {
-      const a = ancestors[i]!;
-      if (a.heading === heading && a.depth === d) {
-        const cleaned = (a.ar || '').trim();
-        if (cleaned) chain.push(cleaned);
-        break;
-      }
-    }
-  }
-  const leafAr = (ar || '').trim();
-  if (leafAr) chain.push(leafAr);
-  return chain.join(' > ');
-}
-
-function buildEmbeddingText(searchableEn: string, searchableAr: string): string {
-  // Single passage representing both languages. e5 multilingual handles mixed text fine.
-  const parts: string[] = [];
-  if (searchableEn) parts.push(searchableEn);
-  if (searchableAr) parts.push(searchableAr);
-  return parts.join(' | ');
 }
 
 async function readXlsx(path: string): Promise<{ rows: RawRow[]; skippedHs4: number }> {
@@ -182,70 +101,28 @@ async function main(): Promise<void> {
 
   const pool = getPool();
 
-  // Truncate for repeatable seeds. Comment out if you want incremental inserts.
-  await pool.query(`TRUNCATE TABLE hs_codes RESTART IDENTITY`);
+  // Truncate for repeatable seeds. CASCADE because hs_code_display + hs_code_search
+  // both FK to hs_codes(code) ON DELETE CASCADE — they get cleared too. Run their
+  // ingest scripts after this to re-populate.
+  await pool.query(`TRUNCATE TABLE hs_codes RESTART IDENTITY CASCADE`);
 
-  // Build inputs — every code is already 12 digits at this point.
-  // We maintain a rolling ancestor window (last ~20 rows) so that each row
-  // can look up its parent descriptions for the enriched searchable text.
-  const ANCESTOR_WINDOW = 20;
-  type AncestorEntry = { heading: string; en: string; ar: string; depth: number };
-  const ancestorWindow: AncestorEntry[] = [];
+  // Build inputs.
+  const prepared = raw.map((r) => ({
+    ...r,
+    code12: r.code,
+    levels: deriveLevels(r.code),
+  }));
 
-  const prepared = raw.map((r) => {
-    const levels = deriveLevels(r.code);
-    const depth = descDepth(r.en);
-
-    const searchEn = buildSearchableEn(r.en, levels.heading, ancestorWindow);
-    const searchAr = buildSearchableAr(r.ar, levels.heading, depth, ancestorWindow);
-
-    // Push this row into the ancestor window after computing its own enrichment.
-    ancestorWindow.push({ heading: levels.heading, en: r.en, ar: r.ar, depth });
-    if (ancestorWindow.length > ANCESTOR_WINDOW) ancestorWindow.shift();
-
-    const text = buildEmbeddingText(searchEn, searchAr);
-    return {
-      ...r,
-      code12: r.code,
-      levels,
-      depth,
-      searchEn,
-      searchAr,
-      embedText: text || r.code, // fall back so we never embed empty string
-    };
-  });
-
-  // Embed in batches
-  console.log(`Embedding ${prepared.length} rows (batch=${BATCH_EMBED}) ...`);
-  const embeddings: number[][] = [];
-  let embedT = 0;
-  for (let i = 0; i < prepared.length; i += BATCH_EMBED) {
-    const slice = prepared.slice(i, i + BATCH_EMBED);
-    const texts = slice.map((s) => s.embedText);
-    const tStart = Date.now();
-    const vecs = await embedPassageBatch(texts);
-    embedT += Date.now() - tStart;
-    embeddings.push(...vecs);
-    if ((i / BATCH_EMBED) % 25 === 0) {
-      const pct = ((i + slice.length) / prepared.length) * 100;
-      console.log(`  ${i + slice.length}/${prepared.length}  (${pct.toFixed(1)}%)  embed_total=${embedT}ms`);
-    }
-  }
-
-  // Insert in batches
+  // Insert in batches.
   console.log(`Inserting ${prepared.length} rows ...`);
   let inserted = 0;
   for (let i = 0; i < prepared.length; i += BATCH_INSERT) {
     const slice = prepared.slice(i, i + BATCH_INSERT);
-    const sliceEmb = embeddings.slice(i, i + BATCH_INSERT);
 
-    // Build a multi-row INSERT
     const placeholders: string[] = [];
     const values: unknown[] = [];
     let p = 1;
-    for (let j = 0; j < slice.length; j++) {
-      const r = slice[j]!;
-      const v = sliceEmb[j]!;
+    for (const r of slice) {
       const ph = [
         `$${p++}`, // code
         `$${p++}`, // chapter
@@ -259,11 +136,6 @@ async function main(): Promise<void> {
         `$${p++}`, // duty_en
         `$${p++}`, // duty_ar
         `$${p++}`, // procedures
-        `$${p++}::vector`, // embedding
-        `$${p++}`, // is_leaf
-        `$${p++}`, // raw_length
-        `$${p++}`, // searchable_description_en  (ADR-0024)
-        `$${p++}`, // searchable_description_ar  (ADR-0024)
       ].join(',');
       placeholders.push(`(${ph})`);
       values.push(
@@ -279,11 +151,6 @@ async function main(): Promise<void> {
         r.dutyEn || null,
         r.dutyAr || null,
         r.procedures || null,
-        `[${v.join(',')}]`,
-        true, // is_leaf — every row is a 12-digit leaf post-ADR-0008
-        12,   // raw_length
-        r.searchEn || null,
-        r.searchAr || null,
       );
     }
 
@@ -292,9 +159,7 @@ async function main(): Promise<void> {
     const sql = `
       INSERT INTO hs_codes
         (code, chapter, heading, hs6, hs8, hs10, parent10,
-         description_en, description_ar, duty_en, duty_ar, procedures,
-         embedding, is_leaf, raw_length,
-         searchable_description_en, searchable_description_ar)
+         description_en, description_ar, duty_en, duty_ar, procedures)
       VALUES ${placeholders.join(',')}
     `;
     await pool.query(sql, values);
@@ -304,13 +169,15 @@ async function main(): Promise<void> {
     }
   }
 
-  // Sanity counts
+  // Sanity counts.
   const n = await pool.query<{ count: string }>(`SELECT count(*)::text FROM hs_codes`);
-  const nLeaf = await pool.query<{ count: string }>(
-    `SELECT count(*)::text FROM hs_codes WHERE is_leaf = true`
-  );
-  console.log(`✓ ingested rows=${n.rows[0]?.count}, leaves=${nLeaf.rows[0]?.count}`);
+  console.log(`✓ ingested rows=${n.rows[0]?.count}`);
   console.log(`Total wall time: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log('\nNext steps:');
+  console.log('  pnpm db:seed:display          # build hs_code_display');
+  console.log('  pnpm db:seed:search           # build hs_code_search (~16 min)');
+  console.log('  pnpm db:seed:deleted          # apply SABER deletion flags');
+  console.log('  pnpm db:seed:overrides:naqel  # populate tenant_code_overrides');
 }
 
 main()

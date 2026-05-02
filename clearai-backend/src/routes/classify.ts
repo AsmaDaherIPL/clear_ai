@@ -30,6 +30,7 @@ import { rankBranch, type BranchRankResult } from '../classification/branch-rank
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 import { round4 } from '../util/score.js';
 import { withRequestId, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
+import { sanitiseRationale } from '../util/sanitise.js';
 import type { ModelCallTrace } from '../llm/structured-call.js';
 import type { LlmStatus } from '../llm/client.js';
 import { buildInterpretation, type InterpretationStage } from '../classification/interpretation.js';
@@ -216,7 +217,8 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
           description_en: string | null;
           description_ar: string | null;
         }>(
-          `SELECT code, description_en, description_ar FROM hs_codes WHERE code = $1 AND is_leaf = true`,
+          // is_leaf dropped in 0029 — every hs_codes row is HS-12 leaf.
+          `SELECT code, description_en, description_ar FROM hs_codes WHERE code = $1`,
           [candidateHeadingCode],
         );
         const row = r.rows[0];
@@ -499,7 +501,12 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       llmModel: accepted ? accepted.model : (llm?.llmModel ?? null),
       totalLatencyMs: totalLatency,
       error: null,
-      rationale: accepted ? accepted.rationale : (decision.rationale ?? null),
+      // Phase 2.3: sanitise the picker-emitted rationale before persist
+      // AND before ship. Strips control chars + HTML-shaped tokens +
+      // js/data URIs, length-caps to 500. Defence against a future
+      // frontend that renders rationale as HTML (CSP today blocks the
+      // active-XSS vector but stored content is forever).
+      rationale: sanitiseRationale(accepted ? accepted.rationale : (decision.rationale ?? null)),
     }, req.log);
 
     // Best-effort response (verify-toggle gated on the frontend).
@@ -515,7 +522,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
           description_en: null,
           description_ar: null,
         },
-        rationale: accepted.rationale,
+        rationale: sanitiseRationale(accepted.rationale),
         alternatives: [],
         interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
         model: {
@@ -593,7 +600,13 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         },
       }),
       alternatives,
-      ...(decision.rationale && { rationale: decision.rationale }),
+      // Phase 2.3: same sanitiser used at persist (logEvent above), so
+      // shipped == persisted. `decision.rationale` is the picker's free
+      // text — see src/util/sanitise.ts for what we strip.
+      ...((() => {
+        const r = sanitiseRationale(decision.rationale);
+        return r ? { rationale: r } : {};
+      })()),
       ...(decision.missingAttributes.length > 0 && {
         missing_attributes: decision.missingAttributes,
       }),

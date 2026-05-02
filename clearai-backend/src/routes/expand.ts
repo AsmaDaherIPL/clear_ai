@@ -236,7 +236,8 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
 
     const pool = getPool();
     const branchCountRes = await pool.query<{ count: string }>(
-      `SELECT count(*)::text FROM hs_codes WHERE is_leaf = true AND code LIKE $1`,
+      // is_leaf dropped in 0029 — every hs_codes row is HS-12 leaf.
+      `SELECT count(*)::text FROM hs_codes WHERE code LIKE $1`,
       [`${parentPrefix}%`]
     );
     const branchSize = Number(branchCountRes.rows[0]?.count ?? 0);

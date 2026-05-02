@@ -88,7 +88,8 @@ export async function runBestEffortStage(params: {
       description_en: string | null;
       description_ar: string | null;
     }>(
-      `SELECT description_en, description_ar FROM hs_codes WHERE code = $1 AND is_leaf = true`,
+      // is_leaf filter dropped in 0029 — every hs_codes row is HS-12 leaf.
+      `SELECT description_en, description_ar FROM hs_codes WHERE code = $1`,
       [headingCode],
     );
     const row = r.rows[0];

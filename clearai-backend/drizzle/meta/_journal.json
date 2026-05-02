@@ -204,6 +204,13 @@
       "when": 1777212800000,
       "tag": "0028_hs_code_search",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1777212900000,
+      "tag": "0029_hs_codes_slim",
+      "breakpoints": true
     }
   ]
 }

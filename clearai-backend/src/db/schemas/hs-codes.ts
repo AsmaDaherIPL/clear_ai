@@ -1,10 +1,19 @@
-/** hs_codes — ZATCA tariff catalogue (HS12 leaves only, ADR-0008). */
+/**
+ * hs_codes — verbatim ZATCA tariff catalogue (HS12 leaves only, ADR-0008).
+ *
+ * Post-ADR-0025 (split-catalog refactor):
+ *   • This table holds raw ZATCA strings only — verbatim source of truth.
+ *   • Derived display data lives in hs_code_display (label_en/ar, path_en/ar,
+ *     path_codes, depth, is_generic_label, is_declarable).
+ *   • Search index lives in hs_code_search (embedding, tsv_*, tsv_input_*).
+ *   • SABER deletion tracking stays here (is_deleted, deletion_effective_date,
+ *     replacement_codes); a trigger mirrors is_deleted to hs_code_search.
+ */
 import {
   pgTable,
   uuid,
   text,
   varchar,
-  integer,
   timestamp,
   date,
   index,
@@ -12,7 +21,6 @@ import {
   json,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { vector, tsvector } from '../types.js';
 
 export const hsCodes = pgTable(
   'hs_codes',
@@ -20,7 +28,11 @@ export const hsCodes = pgTable(
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
     code: varchar('code', { length: 12 }).notNull().unique(),
 
-    // Derived hierarchy prefixes (ADR-0005).
+    // Derived hierarchy prefixes (ADR-0005). Kept for now — used by
+    // digit-normalize, branch-enumerate, and the /classifications/expand
+    // route. A future refactor could drop the redundant ones (hs8, hs10,
+    // parent10) and derive in-process from `code`, but that's out of
+    // scope for ADR-0025.
     chapter: varchar('chapter', { length: 2 }).notNull(),
     heading: varchar('heading', { length: 4 }).notNull(),
     hs6: varchar('hs6', { length: 6 }).notNull(),
@@ -34,26 +46,9 @@ export const hsCodes = pgTable(
     dutyAr: text('duty_ar'),
     procedures: text('procedures'),
 
-    // Ancestor-enriched searchable text (ADR-0024). Built at ingest time by
-    // concatenating all parent-level descriptions from the same heading, e.g.
-    //   "Other footwear … > Other footwear : > Other"
-    // Used by BM25 and trigram retrieval arms. Display columns are unchanged.
-    searchableDescriptionEn: text('searchable_description_en'),
-    searchableDescriptionAr: text('searchable_description_ar'),
-
-    // tsvectors populated by SQL trigger after insert.
-    tsvEn: tsvector('tsv_en'),
-    tsvAr: tsvector('tsv_ar'),
-
-    // 384-dim e5 embedding over EN+AR concatenated description.
-    embedding: vector('embedding', { dim: 384 }),
-
-    isLeaf: boolean('is_leaf').notNull().default(true),
-    rawLength: integer('raw_length').notNull(),
-
-    // SABER deletion tracking (ADR: added via 0021_hs_codes_deletion.sql).
-    // Deleted codes are excluded from retrieval, branch enumeration, and
-    // broker-mapping target lookups via AND NOT is_deleted predicates.
+    // SABER deletion tracking (ADR-0021). Trigger
+    // hs_codes_propagate_deletion_trigger (added in 0028) mirrors
+    // is_deleted into hs_code_search.is_deleted automatically.
     isDeleted: boolean('is_deleted').notNull().default(false),
     deletionEffectiveDate: date('deletion_effective_date'),
     /** JSON array of 12-digit replacement codes, e.g. ["550111000001","550111009999"]. */
@@ -68,9 +63,7 @@ export const hsCodes = pgTable(
     hs8Idx: index('hs_codes_hs8_idx').on(t.hs8),
     hs10Idx: index('hs_codes_hs10_idx').on(t.hs10),
     parent10Idx: index('hs_codes_parent10_idx').on(t.parent10),
-    leafIdx: index('hs_codes_leaf_idx').on(t.isLeaf),
-    // BM25 / HNSW / trgm indexes added via raw SQL in 0001_indexes_triggers.sql.
-  })
+  }),
 );
 
 export type HsCodeRow = typeof hsCodes.$inferSelect;
