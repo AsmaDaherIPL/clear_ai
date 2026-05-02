@@ -10,9 +10,6 @@ export interface Thresholds {
   MIN_GAP_describe: number;
   MIN_SCORE_expand: number;
   MIN_GAP_expand: number;
-  MIN_SCORE_boost: number;
-  MIN_GAP_boost: number;
-  BOOST_MARGIN: number;
   RRF_K: number;
 
   /** Max distinct HS-2 chapters in top-N before treating input as "not understood". */
@@ -52,7 +49,12 @@ export interface Thresholds {
   SUBMISSION_DESC_ENABLED: number;
   SUBMISSION_DESC_MAX_TOKENS: number;
 
-  BROKER_MAPPING_ENABLED: number;
+  /**
+   * Renamed from BROKER_MAPPING_ENABLED in 0025_setup_meta_cleanup.sql when
+   * the broker_code_mapping table was renamed to tenant_code_overrides.
+   * Same semantics, same 0/1 encoding.
+   */
+  TENANT_OVERRIDES_ENABLED: number;
 
   RESEARCH_WEB_ENABLED: number;
   RESEARCH_WEB_MAX_TOKENS: number;
@@ -63,9 +65,6 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'MIN_GAP_describe',
   'MIN_SCORE_expand',
   'MIN_GAP_expand',
-  'MIN_SCORE_boost',
-  'MIN_GAP_boost',
-  'BOOST_MARGIN',
   'RRF_K',
   'UNDERSTOOD_MAX_DISTINCT_CHAPTERS',
   'UNDERSTOOD_TOP_K_describe',
@@ -87,7 +86,7 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'BRANCH_RANK_MAX_TOKENS',
   'SUBMISSION_DESC_ENABLED',
   'SUBMISSION_DESC_MAX_TOKENS',
-  'BROKER_MAPPING_ENABLED',
+  'TENANT_OVERRIDES_ENABLED',
   'RESEARCH_WEB_ENABLED',
   'RESEARCH_WEB_MAX_TOKENS',
 ];
@@ -98,7 +97,7 @@ export type BooleanFlag =
   | 'MERCHANT_CLEANUP_ENABLED'
   | 'BRANCH_RANK_ENABLED'
   | 'SUBMISSION_DESC_ENABLED'
-  | 'BROKER_MAPPING_ENABLED'
+  | 'TENANT_OVERRIDES_ENABLED'
   | 'RESEARCH_WEB_ENABLED';
 
 export function isEnabled(t: Thresholds, flag: BooleanFlag): boolean {

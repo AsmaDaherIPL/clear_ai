@@ -176,6 +176,13 @@
       "when": 1777212400000,
       "tag": "0024_ancestor_context",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777212500000,
+      "tag": "0025_setup_meta_cleanup",
+      "breakpoints": true
     }
   ]
 }

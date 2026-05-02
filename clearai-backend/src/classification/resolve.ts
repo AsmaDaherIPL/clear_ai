@@ -32,7 +32,7 @@ export function resolve(input: ResolveInput): ResolveOutput {
       decisionReason: 'already_most_specific',
       confidenceBand: 'high',
       chosenCode: null,
-      rationale: 'No sibling beats the declared code by the configured BOOST_MARGIN.',
+      rationale: 'Already at the most specific level; no narrower descendant available.',
       missingAttributes: [],
     };
   }

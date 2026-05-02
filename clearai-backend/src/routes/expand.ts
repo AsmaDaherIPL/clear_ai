@@ -88,8 +88,8 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
 
     const t = await loadThresholds();
 
-    // Broker-mapping short-circuit — trust the curated table over retrieval+LLM.
-    if (isEnabled(t, 'BROKER_MAPPING_ENABLED')) {
+    // Tenant-override short-circuit — trust the per-tenant curated table over retrieval+LLM.
+    if (isEnabled(t, 'TENANT_OVERRIDES_ENABLED')) {
       const hit = await lookupBrokerMapping(parentPrefix);
       if (hit) {
         // Defense in depth: a curated broker-mapping row may point to a code
