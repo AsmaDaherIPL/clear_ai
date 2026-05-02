@@ -28,7 +28,7 @@ import { enumerateBranch, type BranchLeaf } from '../classification/branch-enume
 import { dutyInfoFromColumns } from '../catalog/duty-info.js';
 import { lookupProcedures, type ProcedureInfo } from '../catalog/procedure-codes.js';
 import { rankBranch, type BranchRankResult } from '../classification/branch-rank.js';
-import type { MerchantCleanupResult } from '../preprocess/description-cleanup.js';
+import type { DescriptionCleanupResult } from '../preprocess/description-cleanup.js';
 import { round4 } from '../util/score.js';
 import { withRequestId, trimAlternativeDashes, trimCatalogDashes, loadDisplayInfoOne } from './_helpers.js';
 import { sanitiseRationale } from '../util/sanitise.js';
@@ -55,7 +55,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     let effectiveDescription = description;
     let research: ResearchOutcome | null = null;
     let researchWeb: ResearchWithWebOutcome | null = null;
-    let cleanup: MerchantCleanupResult | null = null;
+    let cleanup: DescriptionCleanupResult | null = null;
 
     /** Per-request trace of every LLM call that fired, in order. */
     const modelCalls: ModelCallTrace[] = [];

@@ -3,13 +3,13 @@
  * hint) so retrieval sees both the original lexical signal and the extracted
  * noun + attributes.
  */
-import { cleanMerchantInput, type MerchantCleanupResult } from '../../preprocess/merchant-cleanup.js';
+import { cleanDescription, type DescriptionCleanupResult } from '../../preprocess/description-cleanup.js';
 import { isEnabled, type Thresholds } from '../../catalog/setup-meta.js';
 import type { ModelCallTrace } from '../../llm/structured-call.js';
 import type { InterpretationStage } from '../interpretation.js';
 
 export interface CleanupStageResult {
-  cleanup: MerchantCleanupResult | null;
+  cleanup: DescriptionCleanupResult | null;
   effectiveDescription: string;
   stage: InterpretationStage;
 }
@@ -30,7 +30,7 @@ export async function runCleanupStage(params: {
     };
   }
 
-  const cleanup = await cleanMerchantInput(description, {
+  const cleanup = await cleanDescription(description, {
     maxTokens: t.MERCHANT_CLEANUP_MAX_TOKENS,
   });
 

@@ -1,15 +1,15 @@
 /** Builds the "interpretation" block surfaced to the user — what cleanup / researcher / chapter-hint did to the input. */
 import type { ResearchOutcome } from '../preprocess/research.js';
-import type { MerchantCleanupResult } from '../preprocess/description-cleanup.js';
+import type { DescriptionCleanupResult } from '../preprocess/description-cleanup.js';
 import type { ChapterHintResult } from '../preprocess/chapter-hint.js';
-import type { InterpretationStage, MerchantCleanupKind } from '../types/domain.js';
+import type { InterpretationStage, DescriptionCleanupKind } from '../types/domain.js';
 export type { InterpretationStage } from '../types/domain.js';
 
 export interface InterpretationBlock {
   original: string;
   stage: InterpretationStage;
   cleaned_as?: string;
-  cleanup_kind?: MerchantCleanupKind;
+  cleanup_kind?: DescriptionCleanupKind;
   cleanup_attributes?: string[];
   cleanup_stripped?: string[];
   /** Single-word typo fixes the cleanup applied (heals→heels, etc.). Populated when non-empty. */
@@ -29,7 +29,7 @@ export interface BuildInterpretationParams {
   stage: InterpretationStage;
   effectiveDescription: string;
   research: ResearchOutcome | null;
-  cleanup: MerchantCleanupResult | null;
+  cleanup: DescriptionCleanupResult | null;
   chapterHint?: ChapterHintResult | null;
 }
 

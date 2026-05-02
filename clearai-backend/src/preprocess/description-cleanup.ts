@@ -25,8 +25,8 @@
 import { z } from 'zod';
 import { structuredLlmCall } from '../llm/structured-call.js';
 import { env } from '../config/env.js';
-import type { MerchantCleanupKind } from '../types/domain.js';
-export type { MerchantCleanupKind } from '../types/domain.js';
+import type { DescriptionCleanupKind } from '../types/domain.js';
+export type { DescriptionCleanupKind } from '../types/domain.js';
 
 /** A single typo correction emitted by the LLM (e.g. heals → heels). */
 export interface TypoCorrection {
@@ -37,7 +37,7 @@ export interface TypoCorrection {
 export interface DescriptionCleanupResult {
   invoked: 'skipped_clean' | 'llm' | 'llm_failed' | 'llm_unparseable';
   /** Only meaningful when invoked='llm'. */
-  kind: MerchantCleanupKind;
+  kind: DescriptionCleanupKind;
   /** Falls back to raw input on skip/failure — pipeline never blocks on cleanup. */
   effective: string;
   attributes: string[];
@@ -93,7 +93,7 @@ const ParsedCleanupSchema = z
   })
   .passthrough();
 
-const KIND_VALUES = new Set<MerchantCleanupKind>([
+const KIND_VALUES = new Set<DescriptionCleanupKind>([
   'product',
   'merchant_shorthand',
   'ungrounded',
@@ -209,8 +209,8 @@ export async function cleanDescription(
   const parsed = outcome.data;
   const llmTrace = outcome.trace;
 
-  const kind: MerchantCleanupKind = KIND_VALUES.has(parsed.kind as MerchantCleanupKind)
-    ? (parsed.kind as MerchantCleanupKind)
+  const kind: DescriptionCleanupKind = KIND_VALUES.has(parsed.kind as DescriptionCleanupKind)
+    ? (parsed.kind as DescriptionCleanupKind)
     : 'product';
 
   const cleanRaw =
@@ -249,13 +249,3 @@ export async function cleanDescription(
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Back-compat aliases (transitional — to be removed in a follow-up commit
-// once every consumer has been updated to the new symbol names).
-// ────────────────────────────────────────────────────────────────────────────
-
-/** @deprecated Use {@link DescriptionCleanupResult}. Kept for transitional callers. */
-export type MerchantCleanupResult = DescriptionCleanupResult;
-
-/** @deprecated Use {@link cleanDescription}. Kept for transitional callers. */
-export const cleanMerchantInput = cleanDescription;

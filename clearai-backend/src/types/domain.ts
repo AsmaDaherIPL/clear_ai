@@ -58,7 +58,7 @@ export type InterpretationStage = 'passthrough' | 'cleaned' | 'researched' | 'un
  * surfaced separately from `product` so the route can refuse instead of
  * silently classifying one of the items.
  */
-export type MerchantCleanupKind =
+export type DescriptionCleanupKind =
   | 'product'
   | 'merchant_shorthand'
   | 'ungrounded'
