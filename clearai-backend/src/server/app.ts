@@ -123,7 +123,6 @@ const start = async (): Promise<void> => {
       ),
       Promise.all([
         loadPrompt('description-cleanup.md'),
-        loadPrompt('chapter-hint.md'),
         loadPrompt('picker-describe.md'),
         loadPrompt('picker-expand.md'),
         loadPrompt('gir-system.md'),

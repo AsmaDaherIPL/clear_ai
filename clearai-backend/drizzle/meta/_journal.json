@@ -253,6 +253,13 @@
       "when": 1777213500000,
       "tag": "0035_observability_columns_and_cleanup_rename",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1777213600000,
+      "tag": "0036_drop_chapter_hint",
+      "breakpoints": true
     }
   ]
 }

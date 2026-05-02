@@ -17,7 +17,6 @@ import { detectLang } from '../util/lang.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 import { env } from '../config/env.js';
 import { checkUnderstanding } from '../preprocess/check-understanding.js';
-import { predictChapterHint, type ChapterHintResult } from '../preprocess/chapter-hint.js';
 import { researchInput, type ResearchOutcome } from '../preprocess/research.js';
 import {
   researchInputWithWeb,
@@ -134,38 +133,21 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       };
     }
 
-    // Stage 0b — chapter hint (new-pipeline commit #2). Predicts likely
-    // HS-2 chapters from the cleaned text so retrieval can prefix-filter
-    // the recall pool. Skipped when cleanup said the input is shorthand /
-    // ungrounded (no point asking which chapter for "Arizona EXQ Lena").
+    // Cleanup-kind flags drive the Researcher routing below — kept after
+    // the chapter-hint module was dropped (0036) because the routing
+    // logic still depends on them.
     const cleanupIsShorthand =
       cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'merchant_shorthand';
     const cleanupIsUngrounded =
       cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'ungrounded';
-    const skipChapterHint = cleanupIsShorthand || cleanupIsUngrounded;
 
-    let chapterHint: ChapterHintResult | null = null;
-    if (!skipChapterHint) {
-      chapterHint = await predictChapterHint(effectiveDescription, {
-        maxTokens: 100,
-      });
-      recordCall(
-        chapterHint.model,
-        chapterHint.latencyMs,
-        'chapter_hint',
-        chapterHint.invoked === 'llm' ? 'ok' : 'error',
-      );
-    }
-
-    // Stage 1 — retrieve top-K on the (possibly cleaned) input, with
-    // optional chapter-hint prefix filter from above.
+    // Stage 1 — retrieve top-K on the (possibly cleaned) input.
+    // The 2-stage retrieval (vector recall → BM25/trigram rerank) handles
+    // cross-chapter noise structurally; no chapter prefix-filter needed.
     const norm1 = digitNormalize(effectiveDescription, known);
     let candidates: Candidate[] = await retrieveCandidates(norm1.cleanedText, {
       leavesOnly: true,
       ...(norm1.prefixBias ? { prefixBias: norm1.prefixBias } : {}),
-      ...(chapterHint
-        ? { chapterHint: { likelyChapters: chapterHint.likelyChapters, confidence: chapterHint.confidence } }
-        : {}),
       topK: t.RETRIEVAL_TOP_K_describe,
     });
 
@@ -202,25 +184,10 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       if (research.kind === 'recognised') {
         stage = 'researched';
         effectiveDescription = research.canonical;
-        // Re-predict chapter on the researcher's canonical phrase — the
-        // original input was likely shorthand/jargon for which the
-        // first hint was either skipped or low-confidence.
-        chapterHint = await predictChapterHint(effectiveDescription, {
-          maxTokens: 100,
-        });
-        recordCall(
-          chapterHint.model,
-          chapterHint.latencyMs,
-          'chapter_hint_post_research',
-          chapterHint.invoked === 'llm' ? 'ok' : 'error',
-        );
         const norm2 = digitNormalize(effectiveDescription, known);
         candidates = await retrieveCandidates(norm2.cleanedText, {
           leavesOnly: true,
           ...(norm2.prefixBias ? { prefixBias: norm2.prefixBias } : {}),
-          ...(chapterHint
-            ? { chapterHint: { likelyChapters: chapterHint.likelyChapters, confidence: chapterHint.confidence } }
-            : {}),
           topK: t.RETRIEVAL_TOP_K_describe,
         });
       } else if (research.kind === 'unknown') {
@@ -235,23 +202,10 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
           if (researchWeb.kind === 'recognised') {
             stage = 'researched';
             effectiveDescription = researchWeb.canonical;
-            // Same re-hint reasoning as above.
-            chapterHint = await predictChapterHint(effectiveDescription, {
-              maxTokens: 100,
-            });
-            recordCall(
-              chapterHint.model,
-              chapterHint.latencyMs,
-              'chapter_hint_post_research_web',
-              chapterHint.invoked === 'llm' ? 'ok' : 'error',
-            );
             const norm2 = digitNormalize(effectiveDescription, known);
             candidates = await retrieveCandidates(norm2.cleanedText, {
               leavesOnly: true,
               ...(norm2.prefixBias ? { prefixBias: norm2.prefixBias } : {}),
-              ...(chapterHint
-                ? { chapterHint: { likelyChapters: chapterHint.likelyChapters, confidence: chapterHint.confidence } }
-                : {}),
               topK: t.RETRIEVAL_TOP_K_describe,
             });
           } else {
@@ -568,17 +522,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       // frontend that renders rationale as HTML (CSP today blocks the
       // active-XSS vector but stored content is forever).
       rationale: sanitiseRationale(accepted ? accepted.rationale : (decision.rationale ?? null)),
-      // Observability columns (0035) — typed surface for the trace page.
-      // chapter_hint is null when the cleanup said merchant_shorthand /
-      // ungrounded (no point predicting a chapter for "Arizona EXQ Lena").
-      chapterHint:
-        chapterHint && chapterHint.invoked === 'llm'
-          ? {
-              likely_chapters: chapterHint.likelyChapters,
-              confidence: chapterHint.confidence,
-              rationale: chapterHint.rationale,
-            }
-          : null,
+      // Observability columns (0035, less chapterHint dropped in 0036).
       // Surface nounGrounded for both LLM-invoked AND skipped_clean paths
       // (the looksClean fast path defaults nounGrounded=true since
       // already-clean broker input by definition has a customs noun).
@@ -625,7 +569,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
               review_reason: accepted.reviewReason,
             }
           : {}),
-        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup, chapterHint }),
+        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
         model: {
           embedder: EMBEDDER_VERSION(),
           llm: llm?.llmModel ?? null,
@@ -648,7 +592,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         decision_status: 'needs_clarification' as const,
         decision_reason: 'brand_not_recognised' as const,
         alternatives: [],
-        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup, chapterHint }),
+        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
         model: {
           embedder: EMBEDDER_VERSION(),
           llm: null,
@@ -737,7 +681,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
             },
           }
         : {}),
-      interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup, chapterHint }),
+      interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
       model: {
         embedder: EMBEDDER_VERSION(),
         llm: llm?.llmModel ?? null,

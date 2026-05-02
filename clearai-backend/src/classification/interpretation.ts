@@ -1,7 +1,6 @@
-/** Builds the "interpretation" block surfaced to the user — what cleanup / researcher / chapter-hint did to the input. */
+/** Builds the "interpretation" block surfaced to the user — what cleanup / researcher did to the input. */
 import type { ResearchOutcome } from '../preprocess/research.js';
 import type { DescriptionCleanupResult } from '../preprocess/description-cleanup.js';
-import type { ChapterHintResult } from '../preprocess/chapter-hint.js';
 import type { InterpretationStage, DescriptionCleanupKind } from '../types/domain.js';
 export type { InterpretationStage } from '../types/domain.js';
 
@@ -16,12 +15,6 @@ export interface InterpretationBlock {
   cleanup_typo_corrections?: { from: string; to: string }[];
   rewritten_as?: string;
   researcher_note?: string;
-  /** Chapter-hint output (commit #5 of new-pipeline rollout). Surfaced when invoked. */
-  chapter_hint?: {
-    likely_chapters: string[];
-    confidence: number;
-    rationale: string;
-  };
 }
 
 export interface BuildInterpretationParams {
@@ -30,11 +23,10 @@ export interface BuildInterpretationParams {
   effectiveDescription: string;
   research: ResearchOutcome | null;
   cleanup: DescriptionCleanupResult | null;
-  chapterHint?: ChapterHintResult | null;
 }
 
 export function buildInterpretation(params: BuildInterpretationParams): InterpretationBlock {
-  const { description, stage, effectiveDescription, research, cleanup, chapterHint } = params;
+  const { description, stage, effectiveDescription, research, cleanup } = params;
   const out: InterpretationBlock = {
     original: description,
     stage,
@@ -55,14 +47,6 @@ export function buildInterpretation(params: BuildInterpretationParams): Interpre
   if (stage === 'researched') out.rewritten_as = effectiveDescription;
   if (stage === 'unknown' && research && research.kind === 'unknown') {
     out.researcher_note = research.reason;
-  }
-
-  if (chapterHint && chapterHint.invoked === 'llm') {
-    out.chapter_hint = {
-      likely_chapters: chapterHint.likelyChapters,
-      confidence: chapterHint.confidence,
-      rationale: chapterHint.rationale,
-    };
   }
 
   return out;

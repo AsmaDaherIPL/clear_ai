@@ -1,0 +1,39 @@
+-- ============================================================================
+-- 0036_drop_chapter_hint.sql
+--
+-- Drops the chapter_hint observability column from classification_events.
+-- Paired with the chapter-hint module deletion in the same commit.
+--
+-- Why:
+--   The chapter-hint pre-step (Haiku LLM call between cleanup and retrieval)
+--   was added in new-pipeline commit #5 (a6ecd39) and instrumented in
+--   0035. Real-traffic test against 15 randomly-sampled invoice rows
+--   showed:
+--     • The 2-stage retrieval rewrite (commit 4b89049) already
+--       structurally eliminates the cross-chapter contamination the
+--       chapter-hint was designed to fix. Vector recall alone surfaces
+--       the right chapter in the top-12 for ~70% of common product nouns.
+--     • The chapter hint adds a maintenance-prone prompt cheat-sheet
+--       that grows forever, an extra LLM call (~$0.0001 + ~150ms per
+--       request), and a catastrophic failure mode: when the prompt is
+--       confidently wrong (e.g. "Sandwich Machine" → predicted [84]
+--       industrial machinery instead of [85] electrothermic appliances),
+--       the hard prefix-filter on Stage-1 retrieval locks the picker
+--       out of the right chapter entirely.
+--     • For the cases the hint WOULD theoretically help (Kettle,
+--       Sandwich Machine), the embedder ALSO fails to encode the
+--       concept correctly — so the hint can't rescue what the vector
+--       arm doesn't represent.
+--   Net: the hint was paying maintenance cost + per-request cost for
+--   marginal benefit on cases the vector arm already handles, and
+--   zero help on the cases it can't handle.
+--
+-- Drop strategy:
+--   • Drop the column. We added it 1 migration ago; only local dev DBs
+--     have any rows populated. No production data loss.
+--   • If we ever want it back, we can re-add — the type was jsonb so
+--     re-adding has no shape-migration concern.
+-- ============================================================================
+
+ALTER TABLE classification_events DROP COLUMN IF EXISTS chapter_hint;
+--> statement-breakpoint

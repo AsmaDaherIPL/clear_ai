@@ -7,7 +7,12 @@
  *     Pull RECALL_K (default 40) semantically-nearest rows from
  *     zatca_hs_code_search using HNSW cosine over the 384-dim e5 embedding.
  *     This is the recall stage — wide net, semantic similarity, no lexical
- *     constraints. Optional chapterHint constrains to 1-3 HS-2 chapters.
+ *     constraints. The chapter-hint LLM pre-step that used to optionally
+ *     constrain this stage was removed in 0036 — measurements showed the
+ *     2-stage rewrite (this module) already structurally eliminates the
+ *     cross-chapter noise the hint was designed to fix, and the hint's
+ *     catastrophic-wrong-prediction failure mode (locking the picker out
+ *     of the right chapter) outweighed its marginal-case wins.
  *
  *   STAGE 2 — RERANK (BM25 + trigram, scoped to the recalled pool)
  *     For the same 40 codes from Stage 1, score them via:
@@ -64,18 +69,6 @@ interface RetrieveOpts {
    */
   prefixFilter?: string;
   /**
-   * Chapter hint from the chapter-hint preprocess module (commit 2).
-   * When `confidence >= 0.80`, the listed chapters are used as a
-   * Stage-1 prefix filter (`code LIKE 'XX%'` for each chapter, OR'd).
-   * When confidence is below the threshold or the list is empty, no
-   * filter applied — Stage 1 sees the full catalog.
-   *
-   * Chapter hint and prefixFilter are mutually exclusive in semantics —
-   * if both are supplied, prefixFilter wins (it's a stricter caller-driven
-   * constraint, e.g. expand-path branch enumeration).
-   */
-  chapterHint?: { likelyChapters: string[]; confidence: number } | null;
-  /**
    * No-op since ADR-0008 (every catalog row is an HS-12 leaf). Preserved
    * for back-compat with existing callers; will be removed in a follow-up.
    */
@@ -97,12 +90,6 @@ interface RetrieveOpts {
 }
 
 const PREFIX_BIAS_BOOST = 0.05;
-/**
- * Hard threshold above which the chapter hint is converted into a
- * Stage-1 prefix filter. Below this, the hint is ignored — degrades
- * gracefully to today's unconstrained retrieval.
- */
-const CHAPTER_HINT_HARD_FILTER_THRESHOLD = 0.80;
 
 interface RawHit {
   code: string;
@@ -124,7 +111,6 @@ export async function retrieveCandidates(
 ): Promise<Candidate[]> {
   const {
     prefixFilter,
-    chapterHint = null,
     prefixBias,
     topK = 12,
     rrfK = 60,
@@ -142,9 +128,10 @@ export async function retrieveCandidates(
   //
   // Filter shape:
   //   • Always: h.is_deleted = false  (deletion is single-source-of-truth on hs_codes)
-  //   • If prefixFilter: s.code LIKE '<prefix>%'   (caller-driven, takes precedence)
-  //   • Else if chapterHint with confidence ≥ 0.80: substring(s.code, 1, 2) = ANY($N)
-  //   • Else no extra filter
+  //   • If prefixFilter: s.code LIKE '<prefix>%'   (caller-driven, takes precedence —
+  //     used by the expand route's branch enumeration)
+  //   • Else: no extra filter — Stage 2 BM25/trigram refinement within the recalled
+  //     pool already prevents cross-chapter pollution.
   //
   // Parameter slot 1 is reserved for the query vector, so all params live at $2+.
   const stage1Filters: string[] = ['h.is_deleted = false'];
@@ -154,13 +141,6 @@ export async function retrieveCandidates(
   if (prefixFilter) {
     stage1Filters.push(`s.code LIKE $${nextParam++}`);
     stage1Params.push(`${prefixFilter}%`);
-  } else if (
-    chapterHint &&
-    chapterHint.likelyChapters.length > 0 &&
-    chapterHint.confidence >= CHAPTER_HINT_HARD_FILTER_THRESHOLD
-  ) {
-    stage1Filters.push(`substring(s.code, 1, 2) = ANY($${nextParam++}::text[])`);
-    stage1Params.push(chapterHint.likelyChapters);
   }
 
   const stage1Sql = `

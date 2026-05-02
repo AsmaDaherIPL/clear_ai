@@ -57,18 +57,10 @@ export const classificationEvents = pgTable(
      */
     requestRedacted: jsonb('request_redacted'),
 
-    // ──── Observability columns (0035) ─────────────────────────────────
+    // ──── Observability columns (0035; chapter_hint dropped in 0036) ──
     // All NULLable. Existing rows can't be backfilled — the signals
     // weren't captured at insert time. Frontend / trace queries should
     // treat NULL as "wasn't recorded for this event".
-
-    /**
-     * Chapter-hint output stored verbatim as jsonb (LLM output shape):
-     *   { likely_chapters: [...], confidence: 0..1, rationale: "..." }
-     * Used by the trace page to show why retrieval was prefix-filtered
-     * (or why the hint was ignored — confidence < 0.80 threshold).
-     */
-    chapterHint: jsonb('chapter_hint'),
 
     /**
      * Cleanup module's nounGrounded flag (true iff a real customs noun
@@ -80,8 +72,7 @@ export const classificationEvents = pgTable(
 
     /**
      * Stage-1 vector recall pool size before BM25/trigram rerank.
-     * Useful for diagnosing "no candidates returned" vs "no candidates
-     * survived the chapter-hint prefix filter" failures.
+     * Useful for diagnosing "no candidates returned" failures.
      */
     retrievalStage1Count: integer('retrieval_stage1_count'),
   },
