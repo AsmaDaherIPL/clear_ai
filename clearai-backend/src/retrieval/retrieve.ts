@@ -1,6 +1,18 @@
 /**
  * Hybrid retrieval: pgvector cosine + tsvector BM25 + pg_trgm fuzzy fused
  * with RRF. Returns candidates ranked by a normalised score in [0, 1].
+ *
+ * Storage (ADR-0025 split-catalog):
+ *   • hs_code_search holds embedding/tsv/trgm columns + denormalised is_deleted
+ *     flag for hot-path filtering. Asymmetric per-arm input:
+ *       - vector arm reads `embedding` (built from path_en | path_ar)
+ *       - BM25 arm reads `tsv_en` / `tsv_ar` (built from deduplicated tsv_input_*)
+ *       - trigram arm reads `tsv_input_en` / `tsv_input_ar` directly
+ *   • hs_codes is JOINed only to surface the verbatim description columns
+ *     in the result shape (back-compat for callers).
+ *   • leaves-only filter no longer applies — all 19,105 ZATCA rows are
+ *     12-digit leaves post-ADR-0008. The `leavesOnly` option is preserved
+ *     for callers but is now a no-op; a future commit can remove it.
  */
 import { getPool } from '../db/client.js';
 import { embedQuery } from '../embeddings/embedder.js';
@@ -21,9 +33,12 @@ export interface Candidate {
 }
 
 interface RetrieveOpts {
-  /** Restrict to rows whose `parent10` starts with this prefix. */
+  /** Restrict to rows whose `code` starts with this prefix (formerly `parent10` filter). */
   prefixFilter?: string;
-  /** Restrict to 12-digit leaves only. Default true. */
+  /**
+   * No-op since ADR-0008 (every catalog row is an HS-12 leaf). Preserved
+   * for back-compat with existing callers; will be removed in a follow-up.
+   */
   leavesOnly?: boolean;
   /** Soft bias prefix from digit normalization. */
   prefixBias?: string | null;
@@ -37,13 +52,20 @@ interface RetrieveOpts {
 
 const PREFIX_BIAS_BOOST = 0.05;
 
+interface RawHit {
+  code: string;
+  description_en: string | null;
+  description_ar: string | null;
+  parent10: string;
+  score: number;
+}
+
 export async function retrieveCandidates(
   query: string,
-  opts: RetrieveOpts = {}
+  opts: RetrieveOpts = {},
 ): Promise<Candidate[]> {
   const {
     prefixFilter,
-    leavesOnly = true,
     prefixBias,
     topK = 20,
     rrfK = 60,
@@ -53,104 +75,94 @@ export async function retrieveCandidates(
   const pool = getPool();
   const queryVec = await embedQuery(query);
 
-  const filterClauses: string[] = [];
-  const filterParams: unknown[] = [];
-  let pIdx = 1;
-
+  // Common filter clauses live on hs_code_search (where is_deleted is the
+  // denormalised flag, kept in sync by trigger from hs_codes). Prefix
+  // filtering uses the code column itself — both sides are 12-char so
+  // `code LIKE '6402%'` is exact and uses the PK index.
   const buildFilters = (offset: number): { sql: string; params: unknown[] } => {
-    const parts: string[] = [];
+    const parts: string[] = ['s.is_deleted = false'];
     const params: unknown[] = [];
     let p = offset;
-    if (leavesOnly) parts.push(`is_leaf = true`);
-    // Never surface SABER-deleted codes to the picker (ADR-0021).
-    parts.push(`is_deleted = false`);
     if (prefixFilter) {
-      parts.push(`parent10 LIKE $${p++}`);
+      parts.push(`s.code LIKE $${p++}`);
       params.push(`${prefixFilter}%`);
     }
     return {
-      sql: parts.length ? `WHERE ${parts.join(' AND ')}` : '',
+      sql: `WHERE ${parts.join(' AND ')}`,
       params,
     };
   };
-  void filterClauses;
-  void filterParams;
-  void pIdx;
 
   // Vector arm (cosine).
   const vecVal = `[${queryVec.join(',')}]`;
   const vecFilters = buildFilters(2);
   const vecSql = `
-    SELECT code, description_en, description_ar, parent10,
-           1 - (embedding <=> $1::vector) AS score
-    FROM hs_codes
-    ${vecFilters.sql}
-    ORDER BY embedding <=> $1::vector
+    SELECT s.code,
+           h.description_en,
+           h.description_ar,
+           substring(s.code, 1, 10) AS parent10,
+           1 - (s.embedding <=> $1::vector) AS score
+      FROM hs_code_search s
+      JOIN hs_codes h ON h.code = s.code
+      ${vecFilters.sql}
+    ORDER BY s.embedding <=> $1::vector
     LIMIT ${perArmK}
   `;
   const vecRows = (
-    await pool.query<{
-      code: string;
-      description_en: string | null;
-      description_ar: string | null;
-      parent10: string;
-      score: number;
-    }>(vecSql, [vecVal, ...vecFilters.params])
+    await pool.query<RawHit>(vecSql, [vecVal, ...vecFilters.params])
   ).rows;
 
-  // BM25 arm (tsvector over ancestor-enriched columns, ADR-0024).
-  // tsv_en / tsv_ar are now populated from searchable_description_* by the
-  // updated trigger (0024_ancestor_context.sql), so they carry heading context
-  // and correctly index "Other"-style leaf nodes.
+  // BM25 arm — tsv_en / tsv_ar over the deduplicated token bag.
   const bm25Filters = buildFilters(2);
   const bm25Sql = `
-    SELECT code, description_en, description_ar, parent10,
+    SELECT s.code,
+           h.description_en,
+           h.description_ar,
+           substring(s.code, 1, 10) AS parent10,
            GREATEST(
-             ts_rank_cd(tsv_en, plainto_tsquery('english', $1)),
-             ts_rank_cd(tsv_ar, plainto_tsquery('simple',  $1))
+             ts_rank_cd(s.tsv_en, plainto_tsquery('english', $1)),
+             ts_rank_cd(s.tsv_ar, plainto_tsquery('simple',  $1))
            ) AS score
-    FROM hs_codes
-    ${bm25Filters.sql}
+      FROM hs_code_search s
+      JOIN hs_codes h ON h.code = s.code
+      ${bm25Filters.sql}
     ORDER BY score DESC NULLS LAST
     LIMIT ${perArmK}
   `;
   const bm25Rows = (
-    await pool.query<{
-      code: string;
-      description_en: string | null;
-      description_ar: string | null;
-      parent10: string;
-      score: number;
-    }>(bm25Sql, [query, ...bm25Filters.params])
+    await pool.query<RawHit>(bm25Sql, [query, ...bm25Filters.params])
   ).rows;
 
-  // Trigram arm — uses searchable_description_* (ancestor-enriched, ADR-0024).
-  // Falls back to display columns so rows ingested before 0024 still participate.
+  // Trigram arm — pg_trgm similarity over the same deduplicated text
+  // (so the lexical and trigram arms see consistent input shape).
   const trgmFilters = buildFilters(2);
   const trgmSql = `
-    SELECT code, description_en, description_ar, parent10,
+    SELECT s.code,
+           h.description_en,
+           h.description_ar,
+           substring(s.code, 1, 10) AS parent10,
            GREATEST(
-             similarity(coalesce(searchable_description_en, description_en, ''), $1),
-             similarity(coalesce(searchable_description_ar, description_ar, ''), $1)
+             similarity(coalesce(s.tsv_input_en, ''), $1),
+             similarity(coalesce(s.tsv_input_ar, ''), $1)
            ) AS score
-    FROM hs_codes
-    ${trgmFilters.sql}
+      FROM hs_code_search s
+      JOIN hs_codes h ON h.code = s.code
+      ${trgmFilters.sql}
     ORDER BY score DESC
     LIMIT ${perArmK}
   `;
   const trgmRows = (
-    await pool.query<{
-      code: string;
-      description_en: string | null;
-      description_ar: string | null;
-      parent10: string;
-      score: number;
-    }>(trgmSql, [query, ...trgmFilters.params])
+    await pool.query<RawHit>(trgmSql, [query, ...trgmFilters.params])
   ).rows;
 
   // RRF fusion: contribution per arm = 1 / (K + rank).
   const map = new Map<string, Candidate>();
-  function ensure(code: string, desc_en: string | null, desc_ar: string | null, parent10: string): Candidate {
+  function ensure(
+    code: string,
+    desc_en: string | null,
+    desc_ar: string | null,
+    parent10: string,
+  ): Candidate {
     let c = map.get(code);
     if (!c) {
       c = {

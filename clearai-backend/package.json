@@ -20,6 +20,7 @@
     "db:seed": "tsx src/scripts/ingest.ts",
     "db:seed:overrides:naqel": "tsx src/scripts/ingest-tenant-overrides.ts --tenant naqel",
     "db:seed:display": "tsx src/scripts/ingest-hs-code-display.ts",
+    "db:seed:search": "tsx src/scripts/ingest-hs-code-search.ts",
     "db:seed:procedures": "tsx src/scripts/ingest-procedure-codes.ts",
     "db:seed:deleted": "tsx src/scripts/ingest-deleted-codes.ts",
     "db:parse:saber": "tsx src/scripts/parse-saber-pdf.ts",

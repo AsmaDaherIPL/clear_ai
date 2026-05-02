@@ -197,6 +197,13 @@
       "when": 1777212700000,
       "tag": "0027_hs_code_display",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1777212800000,
+      "tag": "0028_hs_code_search",
+      "breakpoints": true
     }
   ]
 }
