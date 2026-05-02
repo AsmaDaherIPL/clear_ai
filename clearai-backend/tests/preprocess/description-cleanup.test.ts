@@ -1,12 +1,15 @@
 /**
- * Tests for the deterministic short-circuit in merchant-cleanup.
- *
- * The LLM path is exercised end-to-end via the route smoke tests; here we
- * pin down the rules of `looksClean` so future edits don't accidentally
- * widen or narrow the bypass set without us noticing.
+ * Tests for the deterministic short-circuit + return-shape contract in
+ * description-cleanup. The LLM path is exercised end-to-end via the route
+ * smoke tests; here we pin down:
+ *   • `looksClean` rules so future edits don't accidentally widen or narrow
+ *     the bypass set without us noticing
+ *   • the noun_grounded / typo_corrections / multi_product invariants on
+ *     the skipped-clean fast path (the LLM-emitted versions are tested
+ *     end-to-end where the real Haiku call provides them)
  */
 import { describe, expect, it } from 'vitest';
-import { looksClean } from '../../src/preprocess/merchant-cleanup.js';
+import { looksClean, cleanDescription } from '../../src/preprocess/description-cleanup.js';
 
 describe('looksClean — deterministic short-circuit', () => {
   it.each([
@@ -62,5 +65,28 @@ describe('looksClean — deterministic short-circuit', () => {
   it('strips whitespace before evaluating', () => {
     expect(looksClean('  Hair Clip  ')).toBe(true);
     expect(looksClean('   ')).toBe(true);
+  });
+});
+
+describe('cleanDescription — skipped_clean shape contract', () => {
+  // No DB / no LLM — the looksClean fast path is pure. We can therefore
+  // safely assert the full DescriptionCleanupResult shape here without a
+  // mocked client.
+  it('returns nounGrounded=true and empty typoCorrections on a clean noun', async () => {
+    const r = await cleanDescription('Hair Clip');
+    expect(r.invoked).toBe('skipped_clean');
+    expect(r.kind).toBe('product');
+    expect(r.effective).toBe('Hair Clip');
+    expect(r.nounGrounded).toBe(true);
+    expect(r.typoCorrections).toEqual([]);
+    expect(r.products).toEqual([]);
+    expect(r.attributes).toEqual([]);
+  });
+
+  it('returns nounGrounded=true on whitespace-trimmed clean input', async () => {
+    const r = await cleanDescription('  Cards  ');
+    expect(r.invoked).toBe('skipped_clean');
+    expect(r.effective).toBe('Cards');
+    expect(r.nounGrounded).toBe(true);
   });
 });

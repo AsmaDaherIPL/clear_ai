@@ -37,17 +37,27 @@ await app.register(cors, {
 });
 
 // In-process per-IP rate limit. Probe paths exempt to keep replicas healthy.
+//
+// Phase 2.7 hardening: exact-path match (was `startsWith` — that bypassed
+// the limiter for any future `/healthz`, `/healthcheck`, `/health-foo`,
+// `/ready-debug` route added by mistake). Strip query string defensively
+// because `req.url` includes it.
 await app.register(rateLimit, {
   max: e.RATE_LIMIT_MAX,
   timeWindow: e.RATE_LIMIT_WINDOW,
-  allowList: (req) =>
-    req.url.startsWith('/health') || req.url.startsWith('/ready'),
+  allowList: (req) => isProbePath(req.url),
 });
+
+/** Strip query string and match exactly. Phase 2.7. */
+function isProbePath(url: string | undefined): boolean {
+  const path = (url ?? '').split('?')[0];
+  return path === '/health' || path === '/ready';
+}
 
 // Origin lock: prod requests must carry the APIM shared secret. Probes exempt;
 // dev bypassed; missing secret in prod fails closed with a loud log.
 app.addHook('onRequest', async (req, reply) => {
-  if (req.url.startsWith('/health') || req.url.startsWith('/ready')) return;
+  if (isProbePath(req.url)) return;
   if (e.NODE_ENV !== 'production') return;
 
   const expected = e.APIM_SHARED_SECRET;
@@ -112,7 +122,7 @@ const start = async (): Promise<void> => {
         (err: unknown) => app.log.warn({ err }, 'setup_meta warmup failed (non-fatal)'),
       ),
       Promise.all([
-        loadPrompt('merchant-cleanup.md'),
+        loadPrompt('description-cleanup.md'),
         loadPrompt('picker-describe.md'),
         loadPrompt('gir-system.md'),
         loadPrompt('branch-rank.md'),
