@@ -1,10 +1,13 @@
 /**
  * Tests for the procedures-codes catalog helper.
  *
- * `parseProceduresField` is pure — covered exhaustively here.
- * `lookupProcedures` hits the real DB and is exercised by the route
- * smoke tests; we only unit-test it via a mocked pool to avoid pulling
- * the test DB into this module.
+ * Post-0031: `parseProceduresField` is removed (procedures column is now
+ * text[] in PG, no parsing needed). `lookupProcedures` accepts string[]
+ * directly + still tolerates legacy comma-string inputs for transitional
+ * callers; the back-compat string overload is what these tests exercise.
+ *
+ * lookupProcedures hits the real DB in production but is unit-tested here
+ * via a mocked pool to avoid pulling the test DB into this module.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
@@ -12,47 +15,8 @@ vi.mock('../../src/db/client.js', () => ({
   getPool: vi.fn(),
 }));
 
-import { parseProceduresField, lookupProcedures } from '../../src/catalog/procedure-codes.js';
+import { lookupProcedures } from '../../src/catalog/procedure-codes.js';
 import { getPool } from '../../src/db/client.js';
-
-describe('parseProceduresField', () => {
-  it('returns [] on null', () => {
-    expect(parseProceduresField(null)).toEqual([]);
-  });
-  it('returns [] on undefined', () => {
-    expect(parseProceduresField(undefined)).toEqual([]);
-  });
-  it('returns [] on empty string', () => {
-    expect(parseProceduresField('')).toEqual([]);
-  });
-  it('returns [] on whitespace-only string', () => {
-    expect(parseProceduresField('   ')).toEqual([]);
-  });
-  it('parses a single code', () => {
-    expect(parseProceduresField('2')).toEqual(['2']);
-  });
-  it('parses multiple comma-separated codes', () => {
-    expect(parseProceduresField('2,28,61')).toEqual(['2', '28', '61']);
-  });
-  it('strips whitespace around codes', () => {
-    expect(parseProceduresField('  2 , 28 , 61  ')).toEqual(['2', '28', '61']);
-  });
-  it('drops empty entries from doubled commas', () => {
-    expect(parseProceduresField('2,,28')).toEqual(['2', '28']);
-  });
-  it('drops trailing comma', () => {
-    expect(parseProceduresField('2,28,')).toEqual(['2', '28']);
-  });
-  it('drops leading comma', () => {
-    expect(parseProceduresField(',2,28')).toEqual(['2', '28']);
-  });
-  it('deduplicates — first occurrence wins, order preserved', () => {
-    expect(parseProceduresField('2,28,2,61,28')).toEqual(['2', '28', '61']);
-  });
-  it('preserves codes with non-numeric characters (future sub-codes like "23a")', () => {
-    expect(parseProceduresField('2,23a,28')).toEqual(['2', '23a', '28']);
-  });
-});
 
 describe('lookupProcedures', () => {
   const mockQuery = vi.fn();
@@ -95,7 +59,7 @@ describe('lookupProcedures', () => {
     expect(out[0]!.code).toBe('2');
     expect(warn).toHaveBeenCalledOnce();
     const [obj, msg] = warn.mock.calls[0]!;
-    expect(obj).toMatchObject({ missing_procedure_codes: ['99'], raw_field: '2,99' });
+    expect(obj).toMatchObject({ missing_procedure_codes: ['99'], raw_input: '2,99' });
     expect(msg).toMatch(/missing rows/);
   });
 

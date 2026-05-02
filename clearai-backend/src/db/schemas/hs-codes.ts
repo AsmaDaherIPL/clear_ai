@@ -19,6 +19,7 @@ import {
   index,
   boolean,
   json,
+  numeric,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -44,9 +45,17 @@ export const hsCodes = pgTable(
 
     descriptionEn: text('description_en'),
     descriptionAr: text('description_ar'),
-    dutyEn: text('duty_en'),
-    dutyAr: text('duty_ar'),
-    procedures: text('procedures'),
+
+    // Duty (post-0031): parsed at ingest into rate + status enum.
+    // duty_rate_pct is non-null IFF duty_status='rate'; the CHECK
+    // constraint hs_codes_duty_consistency_chk enforces this.
+    dutyRatePct: numeric('duty_rate_pct', { precision: 5, scale: 2 }),
+    dutyStatus: text('duty_status'),  // 'rate' | 'exempted' | 'prohibited_import' | 'prohibited_export' | 'prohibited_both'
+
+    // Required-procedures codes (post-0031): Postgres text[] of 1–4 char
+    // procedure-code identifiers, e.g. {'61','98'}. Looked up against
+    // procedure_codes for human-readable Arabic descriptions at request time.
+    procedures: text('procedures').array(),
 
     // SABER deletion tracking (ADR-0021). Trigger
     // hs_codes_propagate_deletion_trigger (added in 0028) mirrors

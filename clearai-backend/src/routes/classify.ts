@@ -24,7 +24,7 @@ import {
 } from '../preprocess/research-with-web.js';
 import { filterAlternatives } from '../classification/filter-alternatives.js';
 import { enumerateBranch, type BranchLeaf } from '../classification/branch-enumerate.js';
-import { parseDutyInfo } from '../catalog/duty-info.js';
+import { dutyInfoFromColumns } from '../catalog/duty-info.js';
 import { lookupProcedures, type ProcedureInfo } from '../catalog/procedure-codes.js';
 import { rankBranch, type BranchRankResult } from '../classification/branch-rank.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
@@ -424,22 +424,23 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     // Strip catalog tree-depth dashes in place — same array flows to logEvent and response.
     trimAlternativeDashes(alternatives);
 
-    // Duty + procedures lookup against the chosen leaf.
-    let dutyInfo: ReturnType<typeof parseDutyInfo> = null;
+    // Duty + procedures lookup against the chosen leaf. Post-0031:
+    // duty is read from structured columns, procedures from text[].
+    let dutyInfo: ReturnType<typeof dutyInfoFromColumns> = null;
     let procedures: ProcedureInfo[] = [];
     if (effectiveChosenCode && /^\d{12}$/.test(effectiveChosenCode)) {
       const pool = getPool();
       const r = await pool.query<{
-        duty_en: string | null;
-        duty_ar: string | null;
-        procedures: string | null;
+        duty_rate_pct: string | null;  // pg numeric returns as string
+        duty_status: string | null;
+        procedures: string[] | null;
       }>(
-        `SELECT duty_en, duty_ar, procedures FROM hs_codes WHERE code = $1`,
+        `SELECT duty_rate_pct, duty_status, procedures FROM hs_codes WHERE code = $1`,
         [effectiveChosenCode],
       );
       const row = r.rows[0];
       if (row) {
-        dutyInfo = parseDutyInfo(row.duty_en, row.duty_ar);
+        dutyInfo = dutyInfoFromColumns(row.duty_rate_pct, row.duty_status);
         procedures = await lookupProcedures(row.procedures, req.log);
       }
     }

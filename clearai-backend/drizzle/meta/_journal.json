@@ -218,6 +218,13 @@
       "when": 1777213000000,
       "tag": "0030_drop_redundant",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1777213100000,
+      "tag": "0031_procedures_array_duty_struct",
+      "breakpoints": true
     }
   ]
 }

@@ -44,6 +44,42 @@ interface RawRow {
   procedures: string;
 }
 
+/**
+ * Parse a ZATCA duty cell into the structured shape persisted in
+ * hs_codes.duty_rate_pct + hs_codes.duty_status (post-0031). Mirrors
+ * the SQL backfill in 0031 so a fresh xlsx ingest produces the same
+ * shape as the in-place migration.
+ */
+function parseDutyCell(raw: string): { ratePct: number | null; status: string | null } {
+  const t = raw.trim();
+  if (!t) return { ratePct: null, status: null };
+  const m = t.match(/^(\d+(?:\.\d+)?)\s*%\s*$/);
+  if (m) {
+    const n = Number(m[1]);
+    return Number.isFinite(n) ? { ratePct: n, status: 'rate' } : { ratePct: null, status: null };
+  }
+  switch (t.toLowerCase()) {
+    case 'exempted':
+      return { ratePct: null, status: 'exempted' };
+    case 'prohibited from importing':
+      return { ratePct: null, status: 'prohibited_import' };
+    case 'prohibited from exporting':
+      return { ratePct: null, status: 'prohibited_export' };
+    case 'prohibited from exporting and importing':
+      return { ratePct: null, status: 'prohibited_both' };
+    default:
+      return { ratePct: null, status: null };
+  }
+}
+
+/** Comma-list "61,98" → ['61','98'] | null on empty. Mirrors 0031 backfill. */
+function parseProceduresCell(raw: string): string[] | null {
+  const cleaned = raw.replace(/\s+/g, '');
+  if (!cleaned) return null;
+  const arr = cleaned.split(',').filter(Boolean);
+  return arr.length ? arr : null;
+}
+
 function deriveLevels(code12: string) {
   return {
     chapter: code12.slice(0, 2),
@@ -121,6 +157,8 @@ async function main(): Promise<void> {
     const values: unknown[] = [];
     let p = 1;
     for (const r of slice) {
+      const duty = parseDutyCell(r.dutyEn);
+      const procArr = parseProceduresCell(r.procedures);
       const ph = [
         `$${p++}`, // id (UUIDv7, TS-generated)
         `$${p++}`, // code
@@ -129,9 +167,9 @@ async function main(): Promise<void> {
         `$${p++}`, // hs6
         `$${p++}`, // description_en
         `$${p++}`, // description_ar
-        `$${p++}`, // duty_en
-        `$${p++}`, // duty_ar
-        `$${p++}`, // procedures
+        `$${p++}`, // duty_rate_pct
+        `$${p++}`, // duty_status
+        `$${p++}::text[]`, // procedures
       ].join(',');
       placeholders.push(`(${ph})`);
       values.push(
@@ -142,21 +180,18 @@ async function main(): Promise<void> {
         r.levels.hs6,
         r.en || null,
         r.ar || null,
-        r.dutyEn || null,
-        r.dutyAr || null,
-        r.procedures || null,
+        duty.ratePct,
+        duty.status,
+        procArr,
       );
     }
 
     // ON CONFLICT removed: the xlsx has unique HS12 codes, and a duplicate would
     // indicate a data corruption we want to surface, not silently drop.
-    // id supplied explicitly (UUIDv7); DB default gen_random_uuid() is left in
-    // place as a safety net for any legacy INSERT path that doesn't yet
-    // supply the column.
     const sql = `
       INSERT INTO hs_codes
         (id, code, chapter, heading, hs6,
-         description_en, description_ar, duty_en, duty_ar, procedures)
+         description_en, description_ar, duty_rate_pct, duty_status, procedures)
       VALUES ${placeholders.join(',')}
     `;
     await pool.query(sql, values);
