@@ -41,6 +41,7 @@
     "fastify": "^5.2.1",
     "pg": "^8.13.1",
     "pino-pretty": "^13.0.0",
+    "uuidv7": "^1.2.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.24.1"
   },

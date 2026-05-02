@@ -15,6 +15,7 @@ import * as XLSX from 'xlsx';
 import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPool, closeDb } from '../db/client.js';
+import { newId } from '../util/uuid.js';
 
 // XLSX_PATH resolution order (first match wins):
 //   1. ZATCA_XLSX env override — set in .env.local for CI / custom paths
@@ -124,6 +125,7 @@ async function main(): Promise<void> {
     let p = 1;
     for (const r of slice) {
       const ph = [
+        `$${p++}`, // id (UUIDv7, TS-generated)
         `$${p++}`, // code
         `$${p++}`, // chapter
         `$${p++}`, // heading
@@ -139,6 +141,7 @@ async function main(): Promise<void> {
       ].join(',');
       placeholders.push(`(${ph})`);
       values.push(
+        newId(), // UUIDv7 — time-ordered, btree-friendly during bulk load
         r.code12,
         r.levels.chapter,
         r.levels.heading,
@@ -156,9 +159,12 @@ async function main(): Promise<void> {
 
     // ON CONFLICT removed: the xlsx has unique HS12 codes, and a duplicate would
     // indicate a data corruption we want to surface, not silently drop.
+    // id supplied explicitly (UUIDv7); DB default gen_random_uuid() is left in
+    // place as a safety net for any legacy INSERT path that doesn't yet
+    // supply the column.
     const sql = `
       INSERT INTO hs_codes
-        (code, chapter, heading, hs6, hs8, hs10, parent10,
+        (id, code, chapter, heading, hs6, hs8, hs10, parent10,
          description_en, description_ar, duty_en, duty_ar, procedures)
       VALUES ${placeholders.join(',')}
     `;

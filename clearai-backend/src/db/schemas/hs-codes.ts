@@ -25,6 +25,11 @@ import { sql } from 'drizzle-orm';
 export const hsCodes = pgTable(
   'hs_codes',
   {
+    // PK policy: ids supplied by application code via src/util/uuid.ts
+    // (UUIDv7 — time-ordered, btree-friendly). The DB default is kept
+    // as a safety net for any path that doesn't yet supply id; it
+    // produces UUIDv4 which is still a valid UUID, just slightly less
+    // index-friendly. PG 18+ may swap this for native uuidv7().
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
     code: varchar('code', { length: 12 }).notNull().unique(),
 

@@ -5,6 +5,8 @@ import type {
   DecisionReason,
   ConfidenceBand,
 } from '../types/domain.js';
+import { redactRequestBody } from './redact.js';
+import { newId } from '../util/uuid.js';
 
 /** Pino-compatible logger shape (matches Fastify's `req.log`). */
 export interface LogEventLogger {
@@ -36,16 +38,36 @@ export interface EventInsert {
   rationale: string | null;
 }
 
-/** Insert one classification event row and return its UUID, or null on DB failure. */
+/**
+ * Insert one classification event row and return its UUID, or null on DB
+ * failure.
+ *
+ * Phase 2.4 (PII redaction): we now write a `request_redacted` shadow copy
+ * alongside the raw `request`. Storage layout:
+ *   - request          — full audit (admin/migrator only via column GRANT)
+ *   - request_redacted — phone/email/long-id/URL stripped to markers,
+ *                        readable by every role including readonly
+ *
+ * The redactor is pure + cheap (regex-only, no DB, no LLM) so we run it
+ * synchronously on the hot path. If it ever becomes a bottleneck we can
+ * move it to a background queue and accept brief windows where redacted
+ * is null — the column already nullable.
+ */
 export async function logEvent(
   e: EventInsert,
   logger?: LogEventLogger,
 ): Promise<string | null> {
   const pool = getPool();
   try {
+    const redacted = redactRequestBody(e.request);
+    // UUIDv7 generated in TS for time-ordered btree-friendly inserts
+    // (see src/util/uuid.ts). The DB default gen_random_uuid() stays as
+    // a safety net but should never fire in practice.
+    const id = newId();
     const r = await pool.query<{ id: string }>(
       `INSERT INTO classification_events (
-      endpoint, request, language_detected,
+      id,
+      endpoint, request, request_redacted, language_detected,
       decision_status, decision_reason, confidence_band,
       chosen_code, alternatives,
       top_retrieval_score, top2_gap, candidate_count, branch_size,
@@ -53,17 +75,20 @@ export async function logEvent(
       model_calls, embedder_version, llm_model, total_latency_ms, error,
       rationale
     ) VALUES (
-      $1, $2, $3,
-      $4, $5, $6,
-      $7, $8,
-      $9, $10, $11, $12,
-      $13, $14, $15,
-      $16, $17, $18, $19, $20,
-      $21
+      $1,
+      $2, $3, $4, $5,
+      $6, $7, $8,
+      $9, $10,
+      $11, $12, $13, $14,
+      $15, $16, $17,
+      $18, $19, $20, $21, $22,
+      $23
     ) RETURNING id`,
       [
+        id,
         e.endpoint,
         JSON.stringify(e.request),
+        redacted === null ? null : JSON.stringify(redacted),
         e.languageDetected,
         e.decisionStatus,
         e.decisionReason,

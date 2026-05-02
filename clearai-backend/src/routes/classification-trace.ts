@@ -5,6 +5,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../db/client.js';
+import { newId } from '../util/uuid.js';
 
 const idSchema = z.string().uuid({ message: 'classification id must be a UUID' });
 
@@ -170,10 +171,13 @@ export async function classificationTraceRoute(app: FastifyInstance): Promise<vo
     // UPSERT on (event_id, user_id) — one feedback row per user per event.
     // user_id null is a single bucket today; once auth lands every user
     // gets their own slot.
+    // id is supplied as UUIDv7 for new rows; on conflict the existing id
+    // stays put (DO UPDATE doesn't change the PK), so the time-ordering
+    // we get for new inserts is preserved across the table's lifetime.
     const userId = body.user_id ?? null;
     const r = await pool.query<{ id: string }>(
-      `INSERT INTO classification_feedback (event_id, kind, rejected_code, corrected_code, reason, user_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO classification_feedback (id, event_id, kind, rejected_code, corrected_code, reason, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (event_id, COALESCE(user_id, ''))
        DO UPDATE SET
          kind           = EXCLUDED.kind,
@@ -183,6 +187,7 @@ export async function classificationTraceRoute(app: FastifyInstance): Promise<vo
          updated_at     = now()
        RETURNING id`,
       [
+        newId(),
         id,
         body.kind,
         rejectedCode,
