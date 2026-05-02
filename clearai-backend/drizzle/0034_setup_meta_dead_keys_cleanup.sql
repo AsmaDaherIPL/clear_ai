@@ -1,0 +1,38 @@
+-- ============================================================================
+-- 0034_setup_meta_dead_keys_cleanup.sql
+--
+-- Drops three setup_meta keys that no production code reads any more.
+-- Audit performed against src/ — every key checked for `t.<KEY>` /
+-- `thresholds.<KEY>` / `isEnabled(.., '<KEY>')` references; the three
+-- below have ZERO runtime consumers (only declared in the Thresholds
+-- interface + REQUIRED_NUMERIC_KEYS list, which the same commit cleans
+-- up in src/catalog/setup-meta.ts).
+--
+-- Why each is dead:
+--
+--   RRF_K
+--     Was the configurable RRF K constant for retrieve.ts. The 2-stage
+--     rewrite (commit 4b89049) inlined `rrfK = 60` as a function-arg
+--     default; no caller passes a non-default. The setup_meta value is
+--     loaded into Thresholds but never read. The doc comment in
+--     retrieve.ts still mentions "RRF_K" — that comment is updated.
+--
+--   RESEARCHER_MAX_TOKENS
+--     Predates the structured-llm-call helper. The current
+--     researchInput() in src/preprocess/research.ts hardcodes
+--     maxTokens: 100 in its callLlmWithRetry options; the setup_meta
+--     value is never consulted.
+--
+--   SUBMISSION_DESC_ENABLED
+--     The submission-description route runs unconditionally — there is
+--     no isEnabled() check anywhere. The kill-switch was never wired.
+--     If we ever want to disable it, we'll re-add the flag with a real
+--     consumer; carrying a dead key meanwhile is just noise.
+--
+-- The MAX_TOKENS counterpart (SUBMISSION_DESC_MAX_TOKENS) is kept —
+-- it IS read by the submission-description route.
+-- ============================================================================
+
+DELETE FROM setup_meta
+ WHERE key IN ('RRF_K', 'RESEARCHER_MAX_TOKENS', 'SUBMISSION_DESC_ENABLED');
+--> statement-breakpoint

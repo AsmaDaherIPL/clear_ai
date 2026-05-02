@@ -1,4 +1,4 @@
-/** setup_meta — typed key/value config (gate thresholds, RRF_K, etc). */
+/** setup_meta — typed key/value config (gate thresholds, feature flags, token caps, etc). */
 import { pgTable, text, varchar, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
 
 export const setupMeta = pgTable('setup_meta', {

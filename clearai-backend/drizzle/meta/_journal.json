@@ -239,6 +239,13 @@
       "when": 1777213300000,
       "tag": "0033_rename_zatca_prefix",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1777213400000,
+      "tag": "0034_setup_meta_dead_keys_cleanup",
+      "breakpoints": true
     }
   ]
 }

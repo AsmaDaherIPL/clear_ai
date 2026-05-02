@@ -14,9 +14,9 @@
  *       • bm25_score = ts_rank_cd over tsv_en / tsv_ar (deduplicated bag)
  *       • trgm_score = pg_trgm similarity over tsv_input_en / tsv_input_ar
  *     Then RRF-fuse with the Stage-1 vector ranks.
- *     Trigram contributes with a high RRF K (TRGM_RRF_K = 200) so its
+ *     Trigram contributes with a high RRF K (trgmRrfK = 200) so its
  *     influence is weak — it acts as a tertiary tie-break, not a primary
- *     signal. BM25 and vector use the standard RRF_K (60).
+ *     signal. BM25 and vector use the standard rrfK (60).
  *     Return top RERANK_K (default 12) to the picker.
  *
  * KEY PROPERTY (vs the previous 3-arm parallel design):

@@ -10,13 +10,12 @@ export interface Thresholds {
   MIN_GAP_describe: number;
   MIN_SCORE_expand: number;
   MIN_GAP_expand: number;
-  RRF_K: number;
 
   /** Max distinct HS-2 chapters in top-N before treating input as "not understood". */
   UNDERSTOOD_MAX_DISTINCT_CHAPTERS: number;
   /** Window size for the chapter-coherence check. */
   UNDERSTOOD_TOP_K_describe: number;
-  /** Candidates pulled from pgvector + RRF for /describe. */
+  /** Candidates pulled from retrieval for /describe. */
   RETRIEVAL_TOP_K_describe: number;
   /** Candidates fed to the picker for /describe. */
   PICKER_CANDIDATES_describe: number;
@@ -25,7 +24,6 @@ export interface Thresholds {
   /** Minimum non-chosen alternatives; branch enumerator widens to satisfy. */
   ALTERNATIVES_MIN_SHOWN: number;
 
-  RESEARCHER_MAX_TOKENS: number;
   BEST_EFFORT_MAX_TOKENS: number;
   /** 0 = disabled (route returns needs_clarification); 1 = enabled. */
   BEST_EFFORT_ENABLED: number;
@@ -46,7 +44,6 @@ export interface Thresholds {
   BRANCH_RANK_ENABLED: number;
   BRANCH_RANK_MAX_TOKENS: number;
 
-  SUBMISSION_DESC_ENABLED: number;
   SUBMISSION_DESC_MAX_TOKENS: number;
 
   /**
@@ -65,14 +62,12 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'MIN_GAP_describe',
   'MIN_SCORE_expand',
   'MIN_GAP_expand',
-  'RRF_K',
   'UNDERSTOOD_MAX_DISTINCT_CHAPTERS',
   'UNDERSTOOD_TOP_K_describe',
   'RETRIEVAL_TOP_K_describe',
   'PICKER_CANDIDATES_describe',
   'ALTERNATIVES_SHOWN_describe',
   'ALTERNATIVES_MIN_SHOWN',
-  'RESEARCHER_MAX_TOKENS',
   'BEST_EFFORT_MAX_TOKENS',
   'BEST_EFFORT_ENABLED',
   'BEST_EFFORT_MAX_DIGITS',
@@ -84,7 +79,6 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'MERCHANT_CLEANUP_MAX_TOKENS',
   'BRANCH_RANK_ENABLED',
   'BRANCH_RANK_MAX_TOKENS',
-  'SUBMISSION_DESC_ENABLED',
   'SUBMISSION_DESC_MAX_TOKENS',
   'TENANT_OVERRIDES_ENABLED',
   'RESEARCH_WEB_ENABLED',
@@ -96,7 +90,6 @@ export type BooleanFlag =
   | 'BEST_EFFORT_ENABLED'
   | 'MERCHANT_CLEANUP_ENABLED'
   | 'BRANCH_RANK_ENABLED'
-  | 'SUBMISSION_DESC_ENABLED'
   | 'TENANT_OVERRIDES_ENABLED'
   | 'RESEARCH_WEB_ENABLED';
 
