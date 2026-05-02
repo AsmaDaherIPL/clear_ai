@@ -27,7 +27,9 @@
     "bench": "tsx src/scripts/bench-classify.ts",
     "bench:expand": "tsx src/scripts/bench-expand.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval": "tsx src/scripts/eval-run.ts",
+    "eval:smoke": "tsx src/scripts/eval-run.ts --limit 25 --tag smoke"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.1",
