@@ -5,7 +5,9 @@
  * `pnpm db:seed` (the main ZATCA xlsx ingest).
  *
  * Derivation rules (ADR-0025):
- *   • label_en/ar  = stripDashes(hs_codes.description_en/ar)
+ *   • label_en/ar  = normaliseLabel(hs_codes.description_en/ar)
+ *                    (strips leading dashes AND trailing colons/periods/
+ *                     commas — see normaliseLabel())
  *   • depth        = leading-dash count of description_en
  *                    (0 = heading-padded XXXX00000000 row,
  *                     1–3 = intermediate "- ", "- - ", "- - - " levels,
@@ -42,9 +44,27 @@ interface HsRow {
   description_ar: string | null;
 }
 
-function stripDashes(s: string | null | undefined): string {
+/**
+ * Normalise a ZATCA description into a clean display label.
+ *
+ * Strips, in order:
+ *   • Leading dashes / whitespace ("- - Other" → "Other")
+ *   • Trailing punctuation: colon, period, semicolon, comma, Arabic
+ *     comma (،), Arabic semicolon (؛). These appear at the end of
+ *     hierarchy-marker rows like "خيول من أصل عربي :" or "Sports footwear :".
+ *   • Internal whitespace runs collapsed to a single space.
+ *
+ * Run on the per-row EN/AR description before it lands in label_en/label_ar
+ * — and therefore before path_en/path_ar are assembled, so trailing colons
+ * never appear inside a breadcrumb either.
+ */
+function normaliseLabel(s: string | null | undefined): string {
   if (!s) return '';
-  return s.replace(/^[-\s]+/, '').trim();
+  return s
+    .replace(/^[-\s]+/, '')          // leading dashes / whitespace
+    .replace(/[\s:.;,،؛]+$/, '')     // trailing punctuation (incl. Arabic comma/semicolon)
+    .replace(/\s+/g, ' ')            // collapse internal whitespace
+    .trim();
 }
 
 /** Leading-dash count from the EN description. */
@@ -81,8 +101,8 @@ async function main(): Promise<void> {
   const labelOf = new Map<string, { labelEn: string; labelAr: string }>();
   for (const r of all.rows) {
     labelOf.set(r.code, {
-      labelEn: stripDashes(r.description_en),
-      labelAr: stripDashes(r.description_ar),
+      labelEn: normaliseLabel(r.description_en),
+      labelAr: normaliseLabel(r.description_ar),
     });
   }
 
@@ -105,8 +125,8 @@ async function main(): Promise<void> {
   const display: DisplayRow[] = [];
 
   for (const r of all.rows) {
-    const labelEn = stripDashes(r.description_en);
-    const labelAr = stripDashes(r.description_ar);
+    const labelEn = normaliseLabel(r.description_en);
+    const labelAr = normaliseLabel(r.description_ar);
     const heading = r.code.slice(0, 4);
     const headingPadded = headingPaddedCode(r.code);
 
