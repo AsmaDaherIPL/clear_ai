@@ -17,6 +17,7 @@ import { detectLang } from '../util/lang.js';
 import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
 import { env } from '../config/env.js';
 import { checkUnderstanding } from '../preprocess/check-understanding.js';
+import { predictChapterHint, type ChapterHintResult } from '../preprocess/chapter-hint.js';
 import { researchInput, type ResearchOutcome } from '../preprocess/research.js';
 import {
   researchInputWithWeb,
@@ -27,7 +28,7 @@ import { enumerateBranch, type BranchLeaf } from '../classification/branch-enume
 import { dutyInfoFromColumns } from '../catalog/duty-info.js';
 import { lookupProcedures, type ProcedureInfo } from '../catalog/procedure-codes.js';
 import { rankBranch, type BranchRankResult } from '../classification/branch-rank.js';
-import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
+import type { MerchantCleanupResult } from '../preprocess/description-cleanup.js';
 import { round4 } from '../util/score.js';
 import { withRequestId, trimAlternativeDashes, trimCatalogDashes, loadDisplayInfoOne } from './_helpers.js';
 import { sanitiseRationale } from '../util/sanitise.js';
@@ -133,11 +134,38 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       };
     }
 
-    // Stage 1 — retrieve top-K on the (possibly cleaned) input.
+    // Stage 0b — chapter hint (new-pipeline commit #2). Predicts likely
+    // HS-2 chapters from the cleaned text so retrieval can prefix-filter
+    // the recall pool. Skipped when cleanup said the input is shorthand /
+    // ungrounded (no point asking which chapter for "Arizona EXQ Lena").
+    const cleanupIsShorthand =
+      cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'merchant_shorthand';
+    const cleanupIsUngrounded =
+      cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'ungrounded';
+    const skipChapterHint = cleanupIsShorthand || cleanupIsUngrounded;
+
+    let chapterHint: ChapterHintResult | null = null;
+    if (!skipChapterHint) {
+      chapterHint = await predictChapterHint(effectiveDescription, {
+        maxTokens: 100,
+      });
+      recordCall(
+        chapterHint.model,
+        chapterHint.latencyMs,
+        'chapter_hint',
+        chapterHint.invoked === 'llm' ? 'ok' : 'error',
+      );
+    }
+
+    // Stage 1 — retrieve top-K on the (possibly cleaned) input, with
+    // optional chapter-hint prefix filter from above.
     const norm1 = digitNormalize(effectiveDescription, known);
     let candidates: Candidate[] = await retrieveCandidates(norm1.cleanedText, {
       leavesOnly: true,
       ...(norm1.prefixBias ? { prefixBias: norm1.prefixBias } : {}),
+      ...(chapterHint
+        ? { chapterHint: { likelyChapters: chapterHint.likelyChapters, confidence: chapterHint.confidence } }
+        : {}),
       topK: t.RETRIEVAL_TOP_K_describe,
     });
 
@@ -146,8 +174,6 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'product'
         ? cleanup.effective
         : null;
-    const cleanupIsShorthand =
-      cleanup && cleanup.invoked === 'llm' && cleanup.kind === 'merchant_shorthand';
     const understanding = checkUnderstanding(candidates, {
       maxDistinctChapters: t.UNDERSTOOD_MAX_DISTINCT_CHAPTERS,
       topK: t.UNDERSTOOD_TOP_K_describe,
@@ -155,6 +181,12 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     });
     if (cleanupIsShorthand && understanding.understood) {
       // Force shorthand inputs through the researcher even if coherence looks strong.
+      understanding.understood = false;
+      understanding.strength = 'weak';
+      understanding.reason = 'noun_misaligned';
+    }
+    // New-pipeline route: ungrounded input also forces the researcher.
+    if (cleanupIsUngrounded && understanding.understood) {
       understanding.understood = false;
       understanding.strength = 'weak';
       understanding.reason = 'noun_misaligned';
@@ -170,10 +202,25 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       if (research.kind === 'recognised') {
         stage = 'researched';
         effectiveDescription = research.canonical;
+        // Re-predict chapter on the researcher's canonical phrase — the
+        // original input was likely shorthand/jargon for which the
+        // first hint was either skipped or low-confidence.
+        chapterHint = await predictChapterHint(effectiveDescription, {
+          maxTokens: 100,
+        });
+        recordCall(
+          chapterHint.model,
+          chapterHint.latencyMs,
+          'chapter_hint_post_research',
+          chapterHint.invoked === 'llm' ? 'ok' : 'error',
+        );
         const norm2 = digitNormalize(effectiveDescription, known);
         candidates = await retrieveCandidates(norm2.cleanedText, {
           leavesOnly: true,
           ...(norm2.prefixBias ? { prefixBias: norm2.prefixBias } : {}),
+          ...(chapterHint
+            ? { chapterHint: { likelyChapters: chapterHint.likelyChapters, confidence: chapterHint.confidence } }
+            : {}),
           topK: t.RETRIEVAL_TOP_K_describe,
         });
       } else if (research.kind === 'unknown') {
@@ -188,10 +235,23 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
           if (researchWeb.kind === 'recognised') {
             stage = 'researched';
             effectiveDescription = researchWeb.canonical;
+            // Same re-hint reasoning as above.
+            chapterHint = await predictChapterHint(effectiveDescription, {
+              maxTokens: 100,
+            });
+            recordCall(
+              chapterHint.model,
+              chapterHint.latencyMs,
+              'chapter_hint_post_research_web',
+              chapterHint.invoked === 'llm' ? 'ok' : 'error',
+            );
             const norm2 = digitNormalize(effectiveDescription, known);
             candidates = await retrieveCandidates(norm2.cleanedText, {
               leavesOnly: true,
               ...(norm2.prefixBias ? { prefixBias: norm2.prefixBias } : {}),
+              ...(chapterHint
+                ? { chapterHint: { likelyChapters: chapterHint.likelyChapters, confidence: chapterHint.confidence } }
+                : {}),
               topK: t.RETRIEVAL_TOP_K_describe,
             });
           } else {
@@ -511,6 +571,15 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
     }, req.log);
 
     // Best-effort response (verify-toggle gated on the frontend).
+    //
+    // needs_review surfaces the residual-heading guardrail signal from
+    // commit #4 of the new-pipeline rollout. When true, the best-effort
+    // LLM picked a residual catch-all heading (e.g. "Other footwear" 6405)
+    // and the guardrail downgraded to chapter level (64). The frontend
+    // shows a "verify before declaring" badge; the broker can refine via
+    // /classifications/expand. Per project rule "always return a code,
+    // alert if needs review, never refuse" — accepted.code is always
+    // present in this branch.
     if (accepted) {
       return {
         ...withRequestId(requestId),
@@ -525,7 +594,13 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         },
         rationale: sanitiseRationale(accepted.rationale),
         alternatives: [],
-        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
+        ...(accepted.needsReview
+          ? {
+              needs_review: true,
+              review_reason: accepted.reviewReason,
+            }
+          : {}),
+        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup, chapterHint }),
         model: {
           embedder: EMBEDDER_VERSION(),
           llm: llm?.llmModel ?? null,
@@ -548,7 +623,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         decision_status: 'needs_clarification' as const,
         decision_reason: 'brand_not_recognised' as const,
         alternatives: [],
-        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
+        interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup, chapterHint }),
         model: {
           embedder: EMBEDDER_VERSION(),
           llm: null,
@@ -637,7 +712,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
             },
           }
         : {}),
-      interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup }),
+      interpretation: buildInterpretation({ description, stage, effectiveDescription, research, cleanup, chapterHint }),
       model: {
         embedder: EMBEDDER_VERSION(),
         llm: llm?.llmModel ?? null,
