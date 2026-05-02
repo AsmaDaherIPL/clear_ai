@@ -70,18 +70,39 @@ export type MissingAttribute =
   | 'composition';
 
 /** ZATCA duty rate. Either a numeric percentage or a status word; never both. */
+/**
+ * Customs duty for a chosen leaf. Shape changed in the most recent
+ * backend update — `status_en/ar/raw_en/raw_ar` were dropped in
+ * favour of a single canonical `status` enum. Frontend reads only
+ * `rate_percent` (numeric percentage) and `status` (the enum).
+ *
+ * `status` and `rate_percent` are mutually exclusive:
+ *   - `status === null` + `rate_percent: number` → numeric rate (most leaves)
+ *   - `status: 'exempted' | …` + `rate_percent: null` → no numeric duty;
+ *     the status is the entire signal.
+ */
 export interface DutyInfo {
   rate_percent: number | null;
-  status_en: string | null;
-  status_ar: string | null;
-  raw_en: string | null;
-  raw_ar: string | null;
+  status: DutyStatus | null;
 }
+
+export type DutyStatus =
+  | 'exempted'
+  | 'prohibited_import'
+  | 'prohibited_export'
+  | 'prohibited_both';
 
 export interface ResultLine {
   code: string;
+  /** Verbatim ZATCA — may carry leading dashes/colons. Prefer `label_*`. */
   description_en: string | null;
   description_ar: string | null;
+  /** Cleaned display text — same field stripped of catalog tree dashes. */
+  label_en?: string | null;
+  label_ar?: string | null;
+  /** Heading-path breadcrumb, e.g. "Footwear › Outer soles leather › …". */
+  path_en?: string | null;
+  path_ar?: string | null;
   retrieval_score?: number | null;
   duty?: DutyInfo | null;
   /** Order is meaningful — first item is the most blocking. Do not re-sort. */
@@ -111,7 +132,12 @@ export interface AlternativeLine {
 export interface ModelInfo {
   embedder: string;
   llm: string | null;
+  /** Present when the cleanup stage actually ran. */
+  cleanup?: string;
+  /** Present when the researcher stage actually ran. */
   researcher?: string;
+  /** Present when best-effort fallback fired. */
+  best_effort?: string;
 }
 
 /** What the system actually classified — surfaces cleanup / researcher transformations. */
@@ -122,8 +148,19 @@ export interface Interpretation {
   cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded' | 'multi_product';
   cleanup_attributes?: string[];
   cleanup_stripped?: string[];
+  /** Per-token typo corrections recorded by the cleanup pass. */
+  cleanup_typo_corrections?: Array<{ from: string; to: string }>;
   rewritten_as?: string;
   researcher_note?: string;
+  /**
+   * Predicted HS-2 chapters used to constrain Stage-1 retrieval.
+   * Present when the chapter-hint stage ran (most accepted requests).
+   */
+  chapter_hint?: {
+    likely_chapters: string[];
+    confidence: number;
+    rationale: string;
+  };
 }
 
 /** Inline submission description (legacy — new code uses NewDescriptionResponse). */
@@ -147,6 +184,15 @@ export interface DecisionEnvelopeBase {
   interpretation?: Interpretation;
   /** Set only on decision_reason='multi_product_input'. */
   products_detected?: string[];
+  /**
+   * Backend guardrail downgraded the result and is asking for human
+   * review before declaration. Pairs with `review_reason`. When
+   * `needs_review === true`, the main result page renders the amber
+   * banner; when absent, no banner.
+   */
+  needs_review?: boolean;
+  /** Free-form explanation for the downgrade. Pairs with needs_review. */
+  review_reason?: string;
   /** @deprecated Fetch via POST /classifications/{id}/submission-description. */
   submission_description?: SubmissionDescription;
   model: ModelInfo;
@@ -344,7 +390,8 @@ export interface TraceEvent {
   id: string;
   created_at: string;
   endpoint: 'describe' | 'expand' | 'boost';
-  request: unknown;
+  /** Persisted request envelope; carries per-stage breadcrumbs. See TraceRequestMeta. */
+  request: TraceRequestMeta | unknown;
   language_detected: string | null;
   decision_status: string;
   decision_reason: string;
@@ -370,6 +417,65 @@ export interface TraceEvent {
   rationale?: string | null;
   /** Threshold values the gate evaluated this request against. */
   thresholds?: TraceThresholds | null;
+}
+
+/**
+ * Per-stage breadcrumbs the backend logs onto `event.request` so the
+ * trace UI can determine which stages actually ran without fishing
+ * through `model_calls[]` for inferred presence. Every field is
+ * optional — older trace rows logged before the breadcrumb fields
+ * were added simply omit them, and the UI must render placeholders
+ * (not fabricate values) when absent.
+ *
+ * Mapping for the trace stage timeline:
+ *   cleanup_invoked  / cleanup_kind        → Cleanup stage card
+ *   research_kind     / research_latency_ms  → Researcher stage card
+ *   research_web_kind → Researcher (web) stage card
+ *   understanding_chapters / chapter_hint    → Chapter-hint stage card
+ *   branch_rank_invoked / branch_rank_*      → Branch-rank stage card
+ *   best_effort_invoked / best_effort_*      → Best-effort stage card
+ *
+ * Retrieval and the evidence gate are non-LLM stages — we infer they
+ * ran by the presence of `top_retrieval_score`, `top2_gap`, and
+ * `candidate_count` on the event (NOT via this struct).
+ */
+export interface TraceRequestMeta {
+  description?: string;
+
+  // Cleanup stage
+  cleanup_invoked?: boolean;
+  cleanup_effective?: boolean;
+  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded' | 'multi_product' | string;
+  cleanup_attributes_count?: number;
+  cleanup_stripped_count?: number;
+  cleanup_latency_ms?: number;
+
+  // Researcher
+  research_kind?: string | null;
+  research_latency_ms?: number | null;
+  research_web_kind?: string | null;
+  research_web_latency_ms?: number | null;
+  rewritten_as?: string | null;
+
+  // Chapter-hint / understanding
+  understanding_chapters?: string[] | null;
+  understanding_distinct_chapters?: number | null;
+  interpretation_stage?: 'passthrough' | 'cleaned' | 'researched' | 'unknown' | string;
+
+  // Branch-rank
+  branch_rank_invoked?: boolean;
+  branch_rank_latency_ms?: number | null;
+  branch_rank_overrode?: boolean;
+  branch_rank_picker_choice?: string | null;
+  branch_rank_top_pick?: string | null;
+
+  // Best-effort
+  best_effort_invoked?: boolean;
+  best_effort_specificity?: number | null;
+
+  // Other observable signals
+  prefix_bias?: string | null;
+  digit_normalisation?: string | null;
 }
 
 /** Gate thresholds applied to a trace event. */

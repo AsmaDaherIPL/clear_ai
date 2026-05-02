@@ -164,13 +164,36 @@ function pillFor(status: DecisionStatus, reason: DecisionReason): PillSpec {
   }
 }
 
-/** Format duty as chip text. Returns null when neither rate nor status is set. */
+/**
+ * Format duty as chip text. Returns null when neither rate nor status
+ * is set so the caller can hide the chip entirely (rather than render
+ * an em-dash that suggests "we know the duty is —").
+ *
+ * The DutyInfo shape changed in the backend's most recent release:
+ * `status_en/ar/raw_en/raw_ar` dropped in favour of a single
+ * `status` enum. We localise the enum via `dutyStatusLabel(t, …)`.
+ */
 function dutyText(
   duty: NonNullable<NonNullable<DescribeResponse['result']>['duty']>,
+  t: (key: TKey) => string,
 ): string | null {
   if (duty.rate_percent != null) return `${duty.rate_percent} %`;
-  if (duty.status_en) return duty.status_en;
+  if (duty.status) return dutyStatusLabel(t, duty.status);
   return null;
+}
+
+/** Map a DutyStatus enum to its localised label via i18n. */
+function dutyStatusLabel(
+  t: (key: TKey) => string,
+  status: NonNullable<NonNullable<DescribeResponse['result']>['duty']>['status'],
+): string {
+  switch (status) {
+    case 'exempted':           return t('result_duty_status_exempted' as TKey);
+    case 'prohibited_import':  return t('result_duty_status_prohibited_import' as TKey);
+    case 'prohibited_export':  return t('result_duty_status_prohibited_export' as TKey);
+    case 'prohibited_both':    return t('result_duty_status_prohibited_both' as TKey);
+    default:                   return String(status);
+  }
 }
 
 /** Card for degraded-with-candidates: retrieval succeeded but the picker didn't. */
@@ -592,7 +615,7 @@ export default function ResultSingle({
 
   const segments = splitCodeSegments(r.code);
   // Resolve duty up-front: r.duty can be a populated object whose fields are all null.
-  const dutyLabel = r.duty ? dutyText(r.duty) : null;
+  const dutyLabel = r.duty ? dutyText(r.duty, t) : null;
 
   const traceHref = data.request_id ? `/trace?id=${data.request_id}` : '#';
 
