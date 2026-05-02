@@ -37,3 +37,11 @@ Rules:
    If the input is brand+model+colour+SKU shorthand and you have NO product noun and NO recognisable category cue, return `code: "00"` (specificity 2) with a rationale that says you cannot identify the category. Never pick a chapter from a single fragment association.
 
 9. **Customs-noun preservation.** If the input contains a clear customs noun (in any language: "perfume", "bag", "shoes", "watch", "حقيبة", "عطر", etc.), use that noun as the basis for the heading regardless of brand / colour / SKU noise around it. Example: "Colección LOEWE Perfumes Landscape" → heading 3303 (perfumes), NOT chapter 21 (coffee, from "Landscape" → travel/geography).
+
+10. **Residual headings are NOT broad.** Many WCO chapters end with a residual catch-all heading whose label starts with "Other ..." (e.g. 6405 "Other footwear", 2106 "Other prepared foodstuffs", 8479 "Other machines"). These are catch-alls for products that explicitly do NOT fit the prior numbered headings — they are the **narrowest** defensible answer when materials/specifics are unknown, NOT the broadest. When you cannot identify the specific construction:
+   - For footwear: prefer chapter heading **64** (specificity 2), or 6402 (most common construction — rubber/plastic outers), NOT 6405.
+   - For machines: prefer the chapter heading 84 or 85 (specificity 2), NOT 8479.
+   - For chemicals: prefer chapter 38, NOT 3824.
+   - In general, if the heading you're about to return has a label starting with "Other ...", reconsider — chapter level is usually safer.
+
+   The downstream pipeline will catch obvious residuals automatically and downgrade to chapter level (the broker still gets a code, just at lower specificity with a "needs review" flag). But avoiding residuals here saves the downgrade and gives a more useful answer.
