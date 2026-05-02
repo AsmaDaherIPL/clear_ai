@@ -29,7 +29,7 @@ import { lookupProcedures, type ProcedureInfo } from '../catalog/procedure-codes
 import { rankBranch, type BranchRankResult } from '../classification/branch-rank.js';
 import type { MerchantCleanupResult } from '../preprocess/merchant-cleanup.js';
 import { round4 } from '../util/score.js';
-import { withRequestId, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
+import { withRequestId, trimAlternativeDashes, trimCatalogDashes, loadDisplayInfoOne } from './_helpers.js';
 import { sanitiseRationale } from '../util/sanitise.js';
 import type { ModelCallTrace } from '../llm/structured-call.js';
 import type { LlmStatus } from '../llm/client.js';
@@ -572,6 +572,12 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         ? headingLevelPromoted
         : undefined;
 
+    // ADR-0025 commit #6: enrich the result block with hs_code_display
+    // breadcrumbs (label_en/ar + path_en/ar) when an HS-12 code is chosen.
+    const displayInfo = effectiveChosenCode
+      ? await loadDisplayInfoOne(effectiveChosenCode)
+      : null;
+
     // Standard envelope (accepted / needs_clarification / degraded).
     return {
       ...withRequestId(requestId),
@@ -581,6 +587,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
       ...(effectiveChosenCode && {
         result: {
           code: effectiveChosenCode,
+          // Back-compat: keep description_en/_ar (frontend reads these).
           description_en: trimCatalogDashes(
             chosenHeadingMatch?.description_en ??
               chosenCandidate?.description_en ??
@@ -593,6 +600,17 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
               chosenLeaf?.description_ar ??
               null,
           ),
+          // ADR-0025: pre-cleaned label + breadcrumb path from hs_code_display.
+          // Falls back to null when the chosen code isn't in display (e.g.
+          // best-effort heading-pad codes that don't have a matching HS-12 row).
+          ...(displayInfo
+            ? {
+                label_en: displayInfo.label_en,
+                label_ar: displayInfo.label_ar,
+                path_en: displayInfo.path_en,
+                path_ar: displayInfo.path_ar,
+              }
+            : {}),
           // Null on branch-rank override: the code may not be in `candidates`.
           retrieval_score: chosenCandidate ? round4(chosenCandidate.rrf_score) : null,
           duty: dutyInfo,

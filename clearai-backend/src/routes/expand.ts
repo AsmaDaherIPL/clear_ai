@@ -12,7 +12,7 @@ import { env } from '../config/env.js';
 import { getPool } from '../db/client.js';
 import { lookupTenantOverride } from '../classification/tenant-overrides.js';
 import { round4 } from '../util/score.js';
-import { withRequestId, baseModelInfo, trimAlternativeDashes, trimCatalogDashes } from './_helpers.js';
+import { withRequestId, baseModelInfo, trimAlternativeDashes, trimCatalogDashes, loadDisplayInfoOne } from './_helpers.js';
 import { sanitiseRationale } from '../util/sanitise.js';
 import { getDeletionInfo } from '../catalog/deleted-codes.js';
 
@@ -203,6 +203,9 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
           rationale: tenantOverrideRationale,
         }, req.log);
 
+        // ADR-0025 commit #6: enrich after{} with hs_code_display info.
+        const overrideDisplay = await loadDisplayInfoOne(hit.targetCode);
+
         return {
           ...withRequestId(requestId),
           decision_status: 'accepted' as const,
@@ -215,8 +218,16 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
             // Per-tenant override no longer carries its own AR description in
             // the slim schema (ADR-0025); fall back to the catalog AR. The
             // canonical per-code submission AR will live in
-            // hs_code_display.submission_description_ar (commit #3+).
+            // hs_code_display.submission_description_ar (future seed script).
             description_ar: trimCatalogDashes(cat?.description_ar ?? null),
+            ...(overrideDisplay
+              ? {
+                  label_en: overrideDisplay.label_en,
+                  label_ar: overrideDisplay.label_ar,
+                  path_en: overrideDisplay.path_en,
+                  path_ar: overrideDisplay.path_ar,
+                }
+              : {}),
             retrieval_score: null,
           },
           alternatives: [],
@@ -357,23 +368,35 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
     }, req.log);
 
     const sanitisedRationale = sanitiseRationale(decision.rationale);
+    // ADR-0025 commit #6: load display info for the chosen code (if any).
+    const chosenDisplay = decision.chosenCode
+      ? await loadDisplayInfoOne(decision.chosenCode)
+      : null;
+    const chosenCandidateRow = decision.chosenCode
+      ? candidates.find((c) => c.code === decision.chosenCode)
+      : null;
     return {
       ...withRequestId(requestId),
       decision_status: decision.decisionStatus,
       decision_reason: decision.decisionReason,
       ...(decision.confidenceBand && { confidence_band: decision.confidenceBand }),
-      ...(decision.chosenCode && (() => {
-        const chosen = candidates.find((c) => c.code === decision.chosenCode);
-        return {
-          before: { code: parentPrefix },
-          after: {
-            code: decision.chosenCode,
-            description_en: trimCatalogDashes(chosen?.description_en ?? null),
-            description_ar: trimCatalogDashes(chosen?.description_ar ?? null),
-            retrieval_score: round4(chosen?.rrf_score ?? 0),
-          },
-        };
-      })()),
+      ...(decision.chosenCode && {
+        before: { code: parentPrefix },
+        after: {
+          code: decision.chosenCode,
+          description_en: trimCatalogDashes(chosenCandidateRow?.description_en ?? null),
+          description_ar: trimCatalogDashes(chosenCandidateRow?.description_ar ?? null),
+          ...(chosenDisplay
+            ? {
+                label_en: chosenDisplay.label_en,
+                label_ar: chosenDisplay.label_ar,
+                path_en: chosenDisplay.path_en,
+                path_ar: chosenDisplay.path_ar,
+              }
+            : {}),
+          retrieval_score: round4(chosenCandidateRow?.rrf_score ?? 0),
+        },
+      }),
       alternatives,
       ...(sanitisedRationale && { rationale: sanitisedRationale }),
       ...(decision.missingAttributes.length > 0 && { missing_attributes: decision.missingAttributes }),
