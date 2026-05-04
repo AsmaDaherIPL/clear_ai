@@ -16,8 +16,7 @@
   "main": "dist/src/functions/*.js",
   "dependencies": {
     "@azure/functions": "^4.6.0",
-    "@azure/identity": "^4.5.0",
-    "@azure/keyvault-secrets": "^4.9.0"
+    "@azure/identity": "^4.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
