@@ -12,14 +12,24 @@
 #      reused from KV on subsequent runs)
 #   5b. Generate a 48-char URL-safe APIM shared secret (only on first deploy;
 #       reused from KV on subsequent runs)
-#   6. Run the Bicep deployment
-#   7. Assign Container App MI -> 'Key Vault Secrets User' on the KV
-#   7b. Assign APIM MI -> 'Key Vault Secrets User' on the KV (so the
+#   6. Read Entra app-reg metadata (tenant id, API app client_id) — fail
+#      loudly if `infp-clearai-api-dev-01` doesn't exist yet (operator
+#      must run bootstrap-entra.sh first; see that script's comments)
+#   7. Run the Bicep deployment
+#   8. Assign Container App MI -> 'Key Vault Secrets User' on the KV
+#   8b. Assign APIM MI -> 'Key Vault Secrets User' on the KV (so the
 #       KV-backed named-value `apim-shared-secret` resolves)
-#   8. Trigger one revision restart so secretrefs resolve
-#   9. Print outputs (no secrets)
+#   9. Trigger one revision restart so secretrefs resolve
+#  10. Print outputs (no secrets)
 #
 # Re-runs are safe. Existing resources update in place.
+#
+# OPTION A CUTOVER NOTE (2026-05-01, see docs/SECURITY-REMEDIATION-PLAN.md §1):
+# The previous "mint an APIM subscription key" step is GONE. APIM no longer
+# requires subscription keys — auth is via Entra-issued JWT validated by the
+# `validate-jwt` policy in apim.bicep. The frontend BFF (SWA Function in
+# clearai-frontend/api/) holds the Entra client_secret server-side and never
+# leaks it to the browser. C1 / H1 fixed.
 # =============================================================================
 
 set -euo pipefail
@@ -246,7 +256,116 @@ if [[ -n "$EXISTING_KV_ID" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 6. Bicep deployment
+# 5c. Phase 2.1 — role-separated DB credentials
+# -----------------------------------------------------------------------------
+# The role-creation SQL (drizzle/0019_role_separation.sql) creates three
+# logins WITHOUT passwords. Passwords MUST be set out-of-band so they don't
+# end up in version control. We:
+#   1. Look up an existing password for each role in KV; generate if missing.
+#   2. Pass the passwords into the bicep deploy as @secure() params; the
+#      postgres + keyvault-secrets modules emit/store the connection strings.
+#   3. After the deploy, run `ALTER ROLE ... PASSWORD ...` against the DB
+#      via the admin connection so the live Postgres login matches what we
+#      stored in KV. (Step 5d below.)
+#
+# Cutover gate (USE_ROLE_SEPARATION):
+#   First deploy after 0019_role_separation.sql lands: leave at 'false' so
+#   the Container App keeps using the admin conn string while the new roles
+#   are created and passwords are set. Once `psql` smoke-test confirms the
+#   new logins work, set USE_ROLE_SEPARATION=true and re-run deploy.sh —
+#   that flips the env var split (DATABASE_URL -> app, MIGRATOR_DATABASE_URL
+#   -> migrator) and triggers a Container App revision restart.
+
+USE_ROLE_SEPARATION="${USE_ROLE_SEPARATION:-false}"
+log "Role separation flag: USE_ROLE_SEPARATION=$USE_ROLE_SEPARATION"
+
+mint_role_password() {
+  local kv_secret_name="$1"
+  local existing
+  existing="$(az keyvault secret show \
+    --vault-name "$KV_NAME" \
+    --name "$kv_secret_name" \
+    --query value -o tsv 2>/dev/null || true)"
+  if [[ -n "$existing" ]]; then
+    echo "$existing"
+    return
+  fi
+  # Same alphabet as PG_PASSWORD: alnum + URL-safe punctuation.
+  python3 -c '
+import secrets, string
+alphabet = string.ascii_letters + string.digits + "-_~."
+print("".join(secrets.choice(alphabet) for _ in range(32)))
+'
+}
+
+if [[ -n "$EXISTING_KV_ID" ]]; then
+  log "Resolving role passwords (clearai_app / clearai_migrator / clearai_readonly)"
+  PG_APP_PASSWORD="$(mint_role_password 'postgres-app-password')"
+  PG_MIGRATOR_PASSWORD="$(mint_role_password 'postgres-migrator-password')"
+  PG_READONLY_PASSWORD="$(mint_role_password 'postgres-readonly-password')"
+
+  # Persist each password under a dedicated KV secret. These are SEPARATE
+  # from the connection-string secrets (which the bicep keyvault-secrets
+  # module writes); having both lets us rotate just the password and
+  # recompute the conn string without touching bicep.
+  for pair in \
+    "postgres-app-password:$PG_APP_PASSWORD" \
+    "postgres-migrator-password:$PG_MIGRATOR_PASSWORD" \
+    "postgres-readonly-password:$PG_READONLY_PASSWORD"; do
+    name="${pair%%:*}"
+    value="${pair#*:}"
+    az keyvault secret set \
+      --vault-name "$KV_NAME" --name "$name" --value "$value" \
+      --query id -o tsv >/dev/null
+  done
+  echo "  Three role passwords stored in KV (32 chars each)."
+else
+  PG_APP_PASSWORD=""
+  PG_MIGRATOR_PASSWORD=""
+  PG_READONLY_PASSWORD=""
+  warn "Skipping role-password generation — KV not yet created (first deploy)."
+fi
+
+# -----------------------------------------------------------------------------
+# 6. Entra app-registration metadata (for APIM validate-jwt policy)
+# -----------------------------------------------------------------------------
+# UPDATED 2026-05-04: app registrations now live in the *Infinite Apps* tenant
+# (ef324fec-...) — separate from the workforce tenant that owns this Azure
+# subscription (4efdd8aa-...). The 4 apps were created manually via the
+# session script (see main.dev.bicepparam Entra block for the GUIDs).
+#
+# As a result deploy.sh no longer auto-detects ENTRA_TENANT_ID from
+# `az account show` (that returns the workforce tenant, which is the wrong
+# answer). Instead the values come from main.dev.bicepparam directly — Bicep
+# already declares them as params with concrete values.
+#
+# Override behaviour:
+#   - If env vars ENTRA_TENANT_ID / ENTRA_API_CLIENT_ID are set in the shell
+#     they win (allows ad-hoc deploys against a different app reg).
+#   - Otherwise the values from main.dev.bicepparam are used as-is (we don't
+#     pass --parameters overrides for them on the az command line).
+#
+# SKIP_ENTRA_CHECK=true is preserved for the partial-deploy escape hatch.
+
+SKIP_ENTRA_CHECK="${SKIP_ENTRA_CHECK:-false}"
+
+log "Resolving Entra metadata"
+if [[ -n "${ENTRA_TENANT_ID:-}" && -n "${ENTRA_API_CLIENT_ID:-}" ]]; then
+  echo "  Using ENTRA_TENANT_ID + ENTRA_API_CLIENT_ID from shell env (override mode)."
+  ENTRA_OVERRIDE="true"
+elif [[ "$SKIP_ENTRA_CHECK" == "true" ]]; then
+  warn "SKIP_ENTRA_CHECK=true — passing placeholder values; APIM will reject all JWTs."
+  ENTRA_TENANT_ID="00000000-0000-0000-0000-000000000000"
+  ENTRA_API_CLIENT_ID="00000000-0000-0000-0000-000000000000"
+  ENTRA_OVERRIDE="true"
+else
+  echo "  Using values from main.dev.bicepparam (no shell override)."
+  ENTRA_OVERRIDE="false"
+fi
+[[ "$ENTRA_OVERRIDE" == "true" ]] && echo "  Tenant override: $ENTRA_TENANT_ID  /  API client override: $ENTRA_API_CLIENT_ID"
+
+# -----------------------------------------------------------------------------
+# 7. Bicep deployment
 # -----------------------------------------------------------------------------
 
 DEPLOY_NAME="clearai-dev-$(date +%Y%m%d-%H%M%S)"
@@ -261,6 +380,13 @@ log "Running Bicep deployment: $DEPLOY_NAME"
 # (-_~.) so encoding == raw. Postgres also accepts these in the userinfo part.
 # (If you change the alphabet, re-verify URL-safety here.)
 
+# Build optional Entra param overrides only if shell env or SKIP_ENTRA_CHECK
+# set them. Otherwise the bicepparam file's values are used unchanged.
+ENTRA_OVERRIDE_ARGS=()
+if [[ "${ENTRA_OVERRIDE:-false}" == "true" ]]; then
+  ENTRA_OVERRIDE_ARGS+=( "entraTenantId=$ENTRA_TENANT_ID" "entraApiClientId=$ENTRA_API_CLIENT_ID" )
+fi
+
 az deployment group create \
   --name "$DEPLOY_NAME" \
   --resource-group "$RESOURCE_GROUP" \
@@ -268,9 +394,14 @@ az deployment group create \
   --parameters "$PARAM_FILE" \
   --parameters \
       postgresAdminPassword="$PG_PASSWORD" \
+      postgresAppPassword="$PG_APP_PASSWORD" \
+      postgresMigratorPassword="$PG_MIGRATOR_PASSWORD" \
+      postgresReadonlyPassword="$PG_READONLY_PASSWORD" \
+      useRoleSeparation="$USE_ROLE_SEPARATION" \
       operatorIpAddress="$OPERATOR_IP" \
       anthropicApiKey="$ANTHROPIC_KEY" \
       createNetworkWatcher="$CREATE_NW" \
+      ${ENTRA_OVERRIDE_ARGS[@]+"${ENTRA_OVERRIDE_ARGS[@]}"} \
   --output json \
   > /tmp/clearai-deploy-output.json
 
@@ -397,37 +528,95 @@ if [[ -n "$APIM_PRINCIPAL_ID" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 8b. APIM subscription key (idempotent — create or fetch)
+# 8c. Phase 2.1 — set passwords on the live Postgres roles
 # -----------------------------------------------------------------------------
-# A subscription scoped to the `clearai` product. Display key is fetched on
-# demand so it stays out of any deployment state files.
-if [[ -n "$APIM_NAME" ]]; then
-  log "Ensuring APIM subscription 'clearai-default' under product 'clearai'"
-  SUB_SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/products/clearai"
-  if ! az apim api show >/dev/null 2>&1 \
-       --resource-group "$RESOURCE_GROUP" \
-       --service-name "$APIM_NAME" \
-       --api-id clearai-backend; then
-    warn "Protected API 'clearai-backend' not visible yet — subscription create may fail. Retry deploy.sh in a minute."
-  fi
-  az rest \
-    --method PUT \
-    --url "https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/subscriptions/clearai-default?api-version=2024-05-01" \
-    --headers "Content-Type=application/json" \
-    --body "{
-      \"properties\": {
-        \"displayName\": \"ClearAI default subscription\",
-        \"scope\": \"$SUB_SCOPE\",
-        \"state\": \"active\"
-      }
-    }" \
-    >/dev/null
+# The role-creation migration (0019_role_separation.sql) creates the roles
+# WITHOUT passwords. We set them out-of-band here via the admin connection:
+#
+#   ALTER ROLE clearai_app PASSWORD '<minted>';
+#   ALTER ROLE clearai_migrator PASSWORD '<minted>';
+#   ALTER ROLE clearai_readonly PASSWORD '<minted>';
+#
+# Idempotent: re-running with the same password is a no-op from the
+# application's perspective (the existing connection-string in KV stays
+# valid). If `mint_role_password` generated a new one, that new password
+# is what we set, AND the new conn string secrets in KV reflect it.
+#
+# Sequencing note: this step is a no-op on the FIRST deploy that adds
+# 0019_role_separation.sql, because the migration only runs when the
+# Container App restarts (step 9), AFTER this step. The IF EXISTS guard
+# means we silently skip; on the second deploy the roles exist and the
+# ALTER ROLE applies cleanly. Two deploys to fully cut over — documented
+# as the expected sequence.
+#
+# We use `az postgres flexible-server execute` (no `psql` binary needed
+# locally). It connects via the public network from your operator IP —
+# already allow-listed by the Postgres firewall rule.
 
-  APIM_SUB_KEY="$(az rest \
-    --method POST \
-    --url "https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/subscriptions/clearai-default/listSecrets?api-version=2024-05-01" \
-    --query primaryKey -o tsv)"
+if [[ -n "$PG_APP_PASSWORD" && -n "$PG_MIGRATOR_PASSWORD" && -n "$PG_READONLY_PASSWORD" ]]; then
+  log "Setting passwords on the three role-separated Postgres logins"
+  PG_DB_NAME="clearai"
+
+  # The DO block is robust to roles not yet existing — emits a NOTICE
+  # rather than ERROR so the deploy doesn't abort during the first-deploy
+  # window before 0019_role_separation.sql has applied.
+  ROLE_PW_SQL=$(cat <<EOF
+DO \$\$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'clearai_app') THEN
+    EXECUTE format('ALTER ROLE clearai_app PASSWORD %L', '$PG_APP_PASSWORD');
+    RAISE NOTICE 'clearai_app password set';
+  ELSE
+    RAISE NOTICE 'clearai_app role missing — run migrations first';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'clearai_migrator') THEN
+    EXECUTE format('ALTER ROLE clearai_migrator PASSWORD %L', '$PG_MIGRATOR_PASSWORD');
+    RAISE NOTICE 'clearai_migrator password set';
+  ELSE
+    RAISE NOTICE 'clearai_migrator role missing — run migrations first';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'clearai_readonly') THEN
+    EXECUTE format('ALTER ROLE clearai_readonly PASSWORD %L', '$PG_READONLY_PASSWORD');
+    RAISE NOTICE 'clearai_readonly password set';
+  ELSE
+    RAISE NOTICE 'clearai_readonly role missing — run migrations first';
+  END IF;
+END
+\$\$;
+EOF
+)
+
+  if az postgres flexible-server execute \
+        --name "$PG_SERVER_NAME" \
+        --admin-user clearai_admin \
+        --admin-password "$PG_PASSWORD" \
+        --database-name "$PG_DB_NAME" \
+        --querytext "$ROLE_PW_SQL" \
+        --output none 2>&1; then
+    echo "  Role passwords applied (or no-op'd if roles not yet created)."
+  else
+    warn "ALTER ROLE step failed — likely the migration hasn't run yet. Re-run deploy.sh after the next Container App revision applies 0019_role_separation.sql."
+  fi
 fi
+
+# -----------------------------------------------------------------------------
+# 8b. (RETIRED) APIM subscription key mint
+# -----------------------------------------------------------------------------
+# Removed in the Option A cutover (frontend security review C1):
+#   - The protected API now has subscriptionRequired: false
+#   - Auth is via Entra-issued JWT validated by APIM's validate-jwt policy
+#   - The frontend BFF holds an Entra client_secret server-side, exchanges
+#     it for an access token, and forwards. The browser bundle ships zero
+#     credentials.
+#
+# If you need to roll back to subscription-key auth as a fallback:
+#   1. Set subscriptionRequired: true on apiProtected in apim.bicep
+#   2. Drop the validate-jwt block from apiInboundPolicyXml
+#   3. Re-add the mint step here (preserved in git history at the previous
+#      commit on this file)
+APIM_SUB_KEY=""
 
 # -----------------------------------------------------------------------------
 # 9. Trigger a single revision restart so secretrefs resolve
@@ -485,8 +674,9 @@ ClearAI dev deploy complete.
 
   APIM           : ${APIM_NAME:-not-deployed}
   Gateway URL    : ${APIM_GATEWAY_URL:-pending}
-  Subscription   : clearai-default (product: clearai)
-  Sub Key        : ${APIM_SUB_KEY:-not-yet-minted}
+  Auth model     : Entra JWT (validate-jwt). NO subscription key.
+  Tenant id      : ${ENTRA_TENANT_ID:-(from main.dev.bicepparam)}
+  API app        : ${ENTRA_API_CLIENT_ID:-(from main.dev.bicepparam)}
 ============================================================
 
 Next steps:
@@ -496,6 +686,17 @@ Next steps:
         az containerapp update --name $CA_NAME --resource-group $RESOURCE_GROUP \\
           --set-env-vars LLM_MODEL=<name> LLM_MODEL_STRONG=<name> \\
                          ANTHROPIC_BASE_URL=<url>
-  3. Curl the health endpoint to verify:
-        curl -fsS https://$CA_FQDN/health
+  3. Curl the public /health endpoint (anonymous, returns {"status":"ok"}):
+        curl -fsS ${APIM_GATEWAY_URL:-https://$CA_FQDN}/health
+  4. Smoke-test the protected API by acquiring a service-principal token
+     and calling /classifications (requires the BFF app reg + a granted
+     scope — see infra/bootstrap-entra.sh):
+        TOKEN=\$(az account get-access-token \\
+          --resource api://infp-clearai-api-dev-01 \\
+          --query accessToken -o tsv)
+        curl -sS -X POST \\
+          -H "Authorization: Bearer \$TOKEN" \\
+          -H "Content-Type: application/json" \\
+          -d '{"description":"men white cotton shirt"}' \\
+          ${APIM_GATEWAY_URL:-https://$CA_FQDN}/classifications
 EOF

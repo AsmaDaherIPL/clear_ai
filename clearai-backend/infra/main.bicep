@@ -43,6 +43,21 @@ param postgresAdminLogin string = 'clearai_admin'
 @secure()
 param postgresAdminPassword string = ''
 
+@description('Phase 2.1: app role (clearai_app) password. Empty until first cutover deploy.')
+@secure()
+param postgresAppPassword string = ''
+
+@description('Phase 2.1: migrator role (clearai_migrator) password.')
+@secure()
+param postgresMigratorPassword string = ''
+
+@description('Phase 2.1: readonly role (clearai_readonly) password.')
+@secure()
+param postgresReadonlyPassword string = ''
+
+@description('Phase 2.1: flip the Container App over to least-privilege DB roles. Set to true on the cutover deploy after the role-creation migration has applied and the new KV secrets exist.')
+param useRoleSeparation bool = false
+
 @description('Operator (developer) public IP for Postgres firewall allow. Injected by deploy.sh.')
 param operatorIpAddress string = ''
 
@@ -94,6 +109,22 @@ param apimPublisherEmail string = 'asma.said020@gmail.com'
 @description('APIM publisher name.')
 param apimPublisherName string = 'ClearAI'
 
+// ---- Entra (for APIM validate-jwt policy) -----------------------------------
+// Drives the OIDC config URL + audiences/issuers in the inbound API policy.
+// Tenant id is your Workforce Entra tenant (the one that owns this Azure
+// subscription). The API Application ID URI is the `api://...` value set
+// when registering infp-clearai-api-dev-01. The audience can be either the
+// app's URI or its client_id (GUID); we accept both.
+
+@description('Entra tenant id (GUID). Workforce tenant that hosts the app registrations.')
+param entraTenantId string
+
+@description('Application ID URI for the protected API app registration. e.g. api://infp-clearai-api-dev-01')
+param entraApiAppIdUri string = 'api://infp-clearai-api-dev-01'
+
+@description('Application (client) ID GUID for the protected API app registration. Accepted as an alternate audience alongside entraApiAppIdUri.')
+param entraApiClientId string = ''
+
 // ---- Network Watcher --------------------------------------------------------
 
 @description('Set true to create a regional Network Watcher in this RG. Set false if NetworkWatcher_germanywestcentral already exists in NetworkWatcherRG (recommended).')
@@ -126,6 +157,9 @@ module postgres 'modules/postgres.bicep' = {
     administratorLogin: postgresAdminLogin
     administratorPassword: postgresAdminPassword
     operatorIpAddress: operatorIpAddress
+    appPassword: postgresAppPassword
+    migratorPassword: postgresMigratorPassword
+    readonlyPassword: postgresReadonlyPassword
     tags: tags
   }
 }
@@ -148,6 +182,13 @@ module keyVaultSecrets 'modules/keyvault-secrets.bicep' = {
     postgresPassword: postgresAdminPassword
     postgresConnectionString: postgres.outputs.connectionString
     anthropicApiKey: empty(anthropicApiKey) ? '__REPLACE__' : anthropicApiKey
+    // Phase 2.1: pass through the role-separated conn strings. The
+    // postgres module emits empty strings until the corresponding password
+    // params are populated, and the keyvault-secrets module gates the
+    // resource creation on `!empty(...)` so first-deploy is unaffected.
+    postgresAppConnectionString: postgres.outputs.appConnectionString
+    postgresMigratorConnectionString: postgres.outputs.migratorConnectionString
+    postgresReadonlyConnectionString: postgres.outputs.readonlyConnectionString
   }
 }
 
@@ -190,6 +231,7 @@ module containerApp 'modules/containerapp.bicep' = {
     image: containerImage
     keyVaultName: keyVault.outputs.name
     anthropicBaseUrl: anthropicBaseUrl
+    useRoleSeparation: useRoleSeparation
     tags: tags
   }
   dependsOn: [
@@ -222,6 +264,9 @@ module apim 'modules/apim.bicep' = {
     publisherEmail: apimPublisherEmail
     backendUrl: 'https://${containerApp.outputs.fqdn}'
     logAnalyticsWorkspaceId: logAnalytics.outputs.id
+    entraTenantId: entraTenantId
+    entraApiAppIdUri: entraApiAppIdUri
+    entraApiClientId: entraApiClientId
     tags: tags
   }
 }

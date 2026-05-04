@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy to local.settings.json for local `func start`. Never commit local.settings.json (it's gitignored). In SWA the same names live as Application Settings (Configuration blade) — also injected via the SWA workflow secrets at deploy time. See SECURITY-REMEDIATION-PLAN.md §1 for the full env-var contract.",
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+
+    "_comment_apim": "APIM gateway base URL — the BFF appends the /classifications/* path then forwards.",
+    "APIM_BASE_URL": "https://apim-infp-clearai-be-dev-gwc-01.azure-api.net",
+
+    "_comment_entra": "Entra client-credentials for the BFF. tenant_id is your Workforce tenant. client_id is infp-clearai-web-bff-dev-01. client_secret is minted via `az ad app credential reset`. scope is the API's resource URI + /.default (default scope = all application permissions granted to this client).",
+    "ENTRA_TENANT_ID": "00000000-0000-0000-0000-000000000000",
+    "ENTRA_CLIENT_ID": "00000000-0000-0000-0000-000000000000",
+    "ENTRA_CLIENT_SECRET": "REPLACE_ME_LOCAL_DEV_ONLY",
+    "ENTRA_API_SCOPE": "api://infp-clearai-api-dev-01/.default",
+
+    "_comment_request_size": "Hard cap on the request body size the BFF will accept from the SPA. Backend caps at 1 MB; we cap tighter (250 KB) since the only route that needs more than 1 KB is feedback-with-reason (capped at 500 chars by the backend Zod schema). Defence against runaway-pasted-text payloads.",
+    "BFF_MAX_REQUEST_BYTES": "262144"
+  }
+}

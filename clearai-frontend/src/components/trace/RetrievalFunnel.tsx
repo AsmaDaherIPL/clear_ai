@@ -1,8 +1,18 @@
-/** Retrieval-stage composite for the trace page: method cards, fusion flow, candidate rows. */
+/**
+ * Retrieval-stage composite for the trace page.
+ *
+ * Rewritten in the May-3 trace iteration to reflect the actual
+ * 2-stage hybrid pipeline (vector recall → BM25/trigram rerank,
+ * fused via RRF). The pre-iteration version showed three "parallel
+ * arms" run against the full catalog with equal weight — that is no
+ * longer how retrieval works and the diagram lied about the system.
+ *
+ * The candidate-rows component is unchanged; only the diagram on top
+ * was replaced.
+ */
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { StageGloss } from './StageBlock';
 
 export interface AltRow {
   code: string;
@@ -11,111 +21,101 @@ export interface AltRow {
   retrieval_score: number | null;
 }
 
-/** Static per-retrieval-method documentation. */
-export interface MethodInfo {
-  /** Display label, e.g. "Vectors" / "BM25 (keyword)" / "Trigram (fuzzy)". */
-  name: string;
-  /** Short paragraph explaining what this method does. */
-  description: string;
-}
-
 interface RetrievalFunnelProps {
-  methods: [MethodInfo, MethodInfo, MethodInfo];
   candidates: AltRow[];
-  /** Total candidate count after fusion + dedup + filter (event.candidate_count). */
+  /** Total candidate count after fusion (event.candidate_count). */
   finalCount: number;
+  /** Top-K returned by Stage 1 vector recall before sparse rerank. */
+  stage1Count: number | null;
   /** event.top2_gap; used to flag the top-2 rows as "tied" when small. */
   top2Gap: number | null;
-  /** Threshold below which the top-2 rows are flagged as "tied #1" (visual cue only). */
+  /** Threshold below which the top-2 rows are flagged as "tied #1". */
   top2GapMin?: number;
   /** Initial number of candidate rows shown; rest behind a "Show more" toggle. */
   initialRows?: number;
 }
 
 export function RetrievalFunnel({
-  methods,
   candidates,
   finalCount,
+  stage1Count,
   top2Gap,
-  top2GapMin = 0.05,
+  top2GapMin = 0.04,
   initialRows = 5,
 }: RetrievalFunnelProps) {
   return (
     <div className="flex flex-col gap-3">
-      <MethodCards methods={methods} />
-      <FlowStrip finalCount={finalCount} />
+      <TwoStageDiagram stage1Count={stage1Count} finalCount={finalCount} />
       <CandidateRows
         candidates={candidates}
         top2Gap={top2Gap}
         top2GapMin={top2GapMin}
         initialRows={initialRows}
+        finalCount={finalCount}
       />
     </div>
   );
 }
 
-/** Three-up grid of method cards with name + description. */
-export function MethodCards({ methods }: { methods: MethodInfo[] }) {
-  return (
-    <div className="grid gap-2.5 sm:grid-cols-3">
-      {methods.map((m, i) => (
-        <article
-          key={`${m.name}-${i}`}
-          className="border border-[var(--line)] rounded-[var(--radius)] p-3 bg-[var(--surface)]"
-        >
-          <div className="font-mono text-[11px] tracking-[0.08em] uppercase text-[var(--ink-2)] font-medium mb-1.5">
-            {m.name}
-          </div>
-          <p className="text-[12.5px] text-[var(--ink-3)] leading-[1.5] m-0">
-            {m.description}
-          </p>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-/** One-line flow strip: three method names → fuse pill → final candidate count. */
-export function FlowStrip({ finalCount }: { finalCount: number }) {
+/**
+ * Two-stage retrieval diagram. Replaces the old MethodCards 3-up grid
+ * (which suggested three parallel arms with equal weight against the
+ * full catalog). The current pipeline is sequential: Stage 1 narrows
+ * the catalog by vector similarity, Stage 2 reranks those narrowed
+ * rows with BM25 + trigram, and RRF fuses the two ranking signals.
+ */
+function TwoStageDiagram({
+  stage1Count,
+  finalCount,
+}: {
+  stage1Count: number | null;
+  finalCount: number;
+}) {
   const t = useT();
   return (
-    <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius)] p-4">
-      <div className="font-mono text-[10px] tracking-[0.1em] text-[var(--ink-3)] uppercase mb-3 flex items-center gap-1.5">
-        {t('t2_retrieval_flow_title' as Parameters<typeof t>[0])}
-        <StageGloss text={t('t2_glossary_rrf')} />
-      </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+      {/* Stage 1 — Vector recall card */}
+      <article className="border border-[var(--line)] rounded-[var(--radius)] p-3.5 bg-[var(--surface)]">
+        <header className="flex items-baseline justify-between gap-2 mb-1.5">
+          <h3 className="font-mono text-[11px] tracking-[0.08em] uppercase text-[var(--ink-2)] font-medium m-0">
+            {t('t2_retrieval_stage1_title')}
+          </h3>
+          {stage1Count != null && (
+            <span className="font-mono text-[11.5px] text-[var(--ink-3)] tabular-nums">
+              {stage1Count} rows
+            </span>
+          )}
+        </header>
+        <p className="text-[12.5px] text-[var(--ink-3)] leading-[1.5] m-0">
+          {t('t2_retrieval_stage1_desc')}
+        </p>
+      </article>
 
-      <div
-        className="flex items-center gap-3 flex-wrap"
-        aria-label="retrieval flow"
-      >
-        <span className="font-mono text-[12.5px] text-[var(--ink-2)] px-3 py-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)]">
-          {t('t2_retrieval_method_vectors')}
-          {' + '}
-          {t('t2_retrieval_method_bm25_short' as Parameters<typeof t>[0])}
-          {' + '}
-          {t('t2_retrieval_method_trigram_short' as Parameters<typeof t>[0])}
-        </span>
-
-        <span aria-hidden className="font-mono text-[var(--ink-3)] text-[18px] leading-none rtl:scale-x-[-1]">
-          →
-        </span>
-
-        <span className="px-3 py-1.5 rounded-full border border-dashed border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent-soft)_60%,var(--surface))] font-mono text-[12.5px] text-[var(--accent)]">
-          {t('t2_retrieval_funnel_fuse_title')}
-        </span>
-
-        <span aria-hidden className="font-mono text-[var(--ink-3)] text-[18px] leading-none rtl:scale-x-[-1]">
-          →
-        </span>
-
-        <span className="font-mono text-[12.5px] font-semibold text-[var(--accent)] px-3 py-1.5 rounded-full border border-[var(--accent)] bg-[var(--surface)]">
-          {finalCount}{' '}
-          <span className="font-normal text-[var(--ink-3)]">
-            {t('t2_retrieval_flow_candidates_label' as Parameters<typeof t>[0])}
+      {/* Stage 2 — Sparse rerank card */}
+      <article className="border border-[var(--line)] rounded-[var(--radius)] p-3.5 bg-[var(--surface)]">
+        <header className="flex items-baseline justify-between gap-2 mb-1.5">
+          <h3 className="font-mono text-[11px] tracking-[0.08em] uppercase text-[var(--ink-2)] font-medium m-0">
+            {t('t2_retrieval_stage2_title')}
+          </h3>
+          <span className="font-mono text-[11.5px] text-[var(--ink-3)] tabular-nums">
+            top {finalCount}
           </span>
-        </span>
-      </div>
+        </header>
+        <p className="text-[12.5px] text-[var(--ink-3)] leading-[1.5] m-0">
+          {t('t2_retrieval_stage2_desc')}
+        </p>
+      </article>
+
+      {/* RRF fusion params */}
+      <article className="border border-[var(--line)] rounded-[var(--radius)] p-3.5 bg-[var(--line-2)] md:col-span-2">
+        <header className="font-mono text-[11px] tracking-[0.08em] uppercase text-[var(--ink-2)] font-medium mb-1.5">
+          {t('t2_retrieval_fusion_title')}
+        </header>
+        <ul className="text-[12.5px] text-[var(--ink-3)] leading-[1.55] m-0 ps-4 list-disc">
+          <li>{t('t2_retrieval_fusion_desc_k60')}</li>
+          <li>{t('t2_retrieval_fusion_desc_k200')}</li>
+        </ul>
+      </article>
     </div>
   );
 }
@@ -125,11 +125,12 @@ interface CandidateRowsProps {
   top2Gap: number | null;
   top2GapMin: number;
   initialRows: number;
+  finalCount: number;
 }
 
 /** Ranked candidate list with tied-top-2 highlighting and a "Show more" toggle. */
 export function CandidateRows({
-  candidates, top2Gap, top2GapMin, initialRows,
+  candidates, top2Gap, top2GapMin, initialRows, finalCount,
 }: CandidateRowsProps) {
   const t = useT();
   const [showAll, setShowAll] = useState(false);
@@ -142,7 +143,7 @@ export function CandidateRows({
   return (
     <div>
       <div className="font-mono text-[10px] tracking-[0.1em] uppercase text-[var(--ink-3)] mb-2">
-        {t('t2_retrieval_candidates_label')}
+        {t('t2_retrieval_topk_label').replace('{n}', String(finalCount))}
         {' · '}
         <span className="text-[var(--ink-2)]">
           {visible.length} / {candidates.length}
@@ -171,7 +172,7 @@ export function CandidateRows({
                   <span
                     dir="rtl"
                     lang="ar"
-                    className="text-[12px] text-[var(--ink-3)] text-right truncate"
+                    className="text-[12px] text-[var(--ink-3)] text-end truncate"
                     style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
                   >
                     {c.description_ar}

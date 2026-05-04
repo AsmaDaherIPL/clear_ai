@@ -48,6 +48,19 @@ export interface Candidate {
   description_en: string | null;
   description_ar: string | null;
   parent10: string;
+  /**
+   * Breadcrumb path to this leaf, joined by " > ", from
+   * zatca_hs_code_display.path_en. Aligned 1:1 with `path_codes`.
+   * Element [0] is the heading title (XXXX00000000) when this row has
+   * a heading ancestor; for rows that ARE the heading the array contains
+   * only the leaf label. Empty string if the display row is missing
+   * (defensive — should never happen post-ingest).
+   */
+  path_en: string;
+  /** Same shape as path_en, Arabic. Empty string if missing. */
+  path_ar: string;
+  /** Aligned codes for path_en/path_ar. e.g. ["150900000000","150910000000","150910100000"]. */
+  path_codes: string[];
   /** Stage-1 rank (1-based), or null if missed by vector recall (impossible — every Candidate IS a vector hit). */
   vec_rank: number | null;
   /** Stage-2 BM25 rank (1-based, within the recalled pool), or null if BM25 produced 0 score. */
@@ -96,6 +109,9 @@ interface RawHit {
   description_en: string | null;
   description_ar: string | null;
   parent10: string;
+  path_en: string | null;
+  path_ar: string | null;
+  path_codes: string[] | null;
   score: number;
 }
 
@@ -143,14 +159,24 @@ export async function retrieveCandidates(
     stage1Params.push(`${prefixFilter}%`);
   }
 
+  // LEFT JOIN zatca_hs_code_display — every leaf SHOULD have a display row
+  // post-ingest, but defensive LEFT JOIN keeps retrieval working if the
+  // derived table is partially out of date. Missing rows fall through with
+  // null path_en/path_ar/path_codes, which buildUser() treats as "no path
+  // available" (mode 0 behaviour for that single candidate, regardless of
+  // PICKER_PATH_MODE).
   const stage1Sql = `
     SELECT s.code,
            h.description_en,
            h.description_ar,
            substring(s.code, 1, 10) AS parent10,
+           d.path_en,
+           d.path_ar,
+           d.path_codes,
            1 - (s.embedding <=> $1::vector) AS score
       FROM zatca_hs_code_search s
       JOIN zatca_hs_codes h ON h.code = s.code
+ LEFT JOIN zatca_hs_code_display d ON d.code = s.code
      WHERE ${stage1Filters.join(' AND ')}
      ORDER BY s.embedding <=> $1::vector
      LIMIT ${recallK}
@@ -256,6 +282,9 @@ export async function retrieveCandidates(
       description_en: row.description_en,
       description_ar: row.description_ar,
       parent10: row.parent10,
+      path_en: row.path_en ?? '',
+      path_ar: row.path_ar ?? '',
+      path_codes: row.path_codes ?? [],
       vec_rank: vecRank,
       bm25_rank: bm25Rank,
       trgm_rank: trgmRank,

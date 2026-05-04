@@ -5,6 +5,12 @@ You will see:
 1. The user's free-text product description (may be English, Arabic, or mixed).
 2. A small set of candidate HS codes retrieved from the database, each with a 12-digit code and EN+AR descriptions.
 
+Candidates may be presented in one of three formats — pick the chosen_code based on the leaf identity, the format is purely for context:
+
+- **Flat list** — `1. code=…  en: …  ar: …`
+- **Grouped by heading** — candidates are clustered under `Heading <NNNN> — <heading title>` headers when consecutive picks share an HS-4 heading. The heading text is your signal that those leaves all sit under the same conceptual umbrella; use it to disambiguate generic leaf labels like "Other" that recur across many headings.
+- **With breadcrumb** — each candidate has an extra `path: A › B › C › leaf` line showing its full hierarchy from heading to leaf. Same disambiguation purpose as grouping; you see the full ancestry for every candidate.
+
 Pick the **single best candidate** that classifies the product, applying the GIRs as ranked tie-breakers. If no candidate genuinely fits, return `chosen_code: null` and state why.
 
 ## Output contract

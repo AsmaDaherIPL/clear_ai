@@ -71,7 +71,10 @@ export function CopyChip({ text, label, disabled, title, className }: CopyChipPr
       disabled={disabled}
       title={title}
       className={cn(
-        'inline-flex items-center gap-2 px-2.5 py-1 rounded-full border bg-[var(--surface)] text-[12px] transition-colors duration-150',
+        // Sizing kept in lock-step with the header MetaChip (h-7,
+        // px-2.5, rounded-full, 12px text) so the duty badge and the
+        // copy button render at identical heights side by side.
+        'inline-flex items-center gap-2 h-7 px-2.5 rounded-full border bg-[var(--surface)] text-[12px] leading-none transition-colors duration-150',
         disabled
           ? 'border-[var(--line)] cursor-not-allowed opacity-60'
           : 'border-[var(--line)] hover:border-[var(--ink-3)]',

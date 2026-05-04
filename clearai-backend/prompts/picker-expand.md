@@ -6,6 +6,8 @@ You will see:
 2. The user's free-text description.
 3. The 12-digit leaves that descend from the declared parent.
 
+Candidates may be presented as a flat numbered list, grouped under `Heading <NNNN> — <title>` headers, or with `path: A › B › C › leaf` breadcrumbs per candidate. The format is purely for context; pick the chosen_code based on leaf identity.
+
 Pick the **single best 12-digit leaf** under that parent, applying GIRs.
 
 ## Output contract

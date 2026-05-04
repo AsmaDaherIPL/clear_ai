@@ -186,39 +186,49 @@ export default function ClassifyApp() {
     <>
       <TopBar />
 
-      <main className="max-w-[760px] mx-auto px-7 pt-20 pb-12">
-        <Hero />
+      {/*
+        Result region wants the full 1180px column-width per the
+        "Layout language" spec; the hero+composer above stays
+        narrower (760px) because long line-lengths hurt the writing
+        experience there. We widen the outer <main> to 1180 and
+        re-constrain the hero/composer in their own 760-max wrapper.
+      */}
+      <main className="max-w-[1180px] mx-auto px-7 pt-20 pb-12">
+        <div className="max-w-[760px] mx-auto">
+          <Hero />
 
-        <div className="flex flex-col items-center">
-          <ModeTabs mode={mode} onModeChange={setMode} />
-          <Composer
-            mode={mode}
-            onSubmit={handleSubmit}
-            loading={phase === 'classifying'}
-            className="w-full"
-          />
+          <div className="flex flex-col items-center">
+            <ModeTabs mode={mode} onModeChange={setMode} />
+            <Composer
+              mode={mode}
+              onSubmit={handleSubmit}
+              loading={phase === 'classifying'}
+              className="w-full"
+            />
+          </div>
+
+          {/* Anchor wrappers stay mounted across phase transitions so refs are stable. */}
+          <div ref={stepsRef} className="scroll-mt-20">
+            <ProcessingSteps
+              visible={phase === 'classifying'}
+              activeStep={activeStep}
+              className="mt-6"
+            />
+          </div>
+
+          <div ref={errorRef} className="scroll-mt-20">
+            {phase === 'error' && errorMessage && (
+              <div
+                role="alert"
+                className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
+              >
+                {errorMessage}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Anchor wrappers stay mounted across phase transitions so refs are stable. */}
-        <div ref={stepsRef} className="scroll-mt-20">
-          <ProcessingSteps
-            visible={phase === 'classifying'}
-            activeStep={activeStep}
-            className="mt-6"
-          />
-        </div>
-
-        <div ref={errorRef} className="scroll-mt-20">
-          {phase === 'error' && errorMessage && (
-            <div
-              role="alert"
-              className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
-            >
-              {errorMessage}
-            </div>
-          )}
-        </div>
-
+        {/* Result lives outside the 760 inner wrapper so it breathes at full 1180px. */}
         <div ref={resultRef} className="scroll-mt-20">
           {phase === 'result' && (
             <div className="mt-6">

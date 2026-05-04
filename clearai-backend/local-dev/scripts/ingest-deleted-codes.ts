@@ -1,5 +1,5 @@
 /**
- * UPSERT data/saber-deleted-codes.csv into the hs_codes table's deletion
+ * UPSERT local-dev/data/saber-deleted-codes.csv into the hs_codes table's deletion
  * columns (is_deleted, deletion_effective_date, replacement_codes).
  *
  * Usage:  pnpm db:seed:deleted
@@ -16,9 +16,9 @@
 import { createReadStream } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { getPool, closeDb } from '../db/client.js';
+import { getPool, closeDb } from '../../src/db/client.js';
 
-const CSV_PATH = join(process.cwd(), 'data', 'saber-deleted-codes.csv');
+const CSV_PATH = join(process.cwd(), 'local-dev', 'data', 'saber-deleted-codes.csv');
 
 interface DeletedRow {
   deletedCode: string;

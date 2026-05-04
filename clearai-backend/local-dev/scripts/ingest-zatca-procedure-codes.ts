@@ -1,12 +1,12 @@
 /**
- * UPSERT data/procedure-codes.csv into procedure_codes. Detects the (ملغي)
+ * UPSERT local-dev/data/procedure-codes.csv into procedure_codes. Detects the (ملغي)
  * repealed marker; skips rows with empty descriptions.
  */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getPool, closeDb } from '../db/client.js';
+import { getPool, closeDb } from '../../src/db/client.js';
 
-const CSV_PATH = join(process.cwd(), 'data', 'procedure-codes.csv');
+const CSV_PATH = join(process.cwd(), 'local-dev', 'data', 'procedure-codes.csv');
 
 const REPEALED_RE = /\(\s*ملغي\s*\)\s*$/u;
 

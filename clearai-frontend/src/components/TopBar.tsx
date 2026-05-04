@@ -35,13 +35,22 @@ export default function TopBar({ className }: TopBarProps) {
           href="/"
           className="inline-flex items-center gap-2.5 font-semibold text-base tracking-tight text-[var(--ink)] no-underline"
         >
-          <span className="w-[22px] h-[22px] rounded-[6px] bg-[var(--ink)] inline-flex items-center justify-center relative flex-shrink-0">
-            <span className="w-2 h-2 rounded-[2px] bg-[var(--accent)]" />
-          </span>
+          <svg
+            width="22"
+            height="23"
+            viewBox="0 0 60 63"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="flex-shrink-0"
+            aria-hidden="true"
+          >
+            <rect width="60" height="11.55" rx="2.8" fill="currentColor" />
+            <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="currentColor" fillOpacity={0.7} />
+            <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="currentColor" fillOpacity={0.4} />
+            <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="var(--accent)" />
+            <circle cx="52.125" cy="57.225" r="3.5" fill="var(--bg)" fillOpacity={0.9} />
+          </svg>
           <span>{t('brand')}</span>
-          <span className="text-[var(--ink-3)] font-normal text-[13px] ms-1.5">
-            {t('brand_meta')}
-          </span>
         </a>
 
         <div className="flex items-center gap-2">

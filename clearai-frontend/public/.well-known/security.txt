@@ -1,0 +1,4 @@
+Contact: mailto:asma.said020@gmail.com
+Expires: 2027-05-01T23:59:59Z
+Preferred-Languages: en, ar
+Canonical: https://clearai-dev.infinitepl.app/.well-known/security.txt

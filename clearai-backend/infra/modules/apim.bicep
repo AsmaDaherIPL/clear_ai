@@ -79,6 +79,15 @@ param backendUrl string
 @description('Log Analytics workspace resource ID. Diagnostic settings forward GatewayLogs and GatewayMetrics here.')
 param logAnalyticsWorkspaceId string
 
+@description('Entra tenant id (GUID). Workforce tenant that issues JWTs accepted by validate-jwt.')
+param entraTenantId string
+
+@description('Application ID URI of the protected API app registration (infp-clearai-api-dev-01). Primary accepted audience.')
+param entraApiAppIdUri string
+
+@description('Optional client_id GUID of the protected API app. Accepted as alternate audience alongside entraApiAppIdUri.')
+param entraApiClientId string = ''
+
 @description('Common tags.')
 param tags object
 
@@ -86,28 +95,50 @@ param tags object
 // Derived
 // -----------------------------------------------------------------------------
 
-// The inbound policy — same XML on both APIs. exists-action="delete" to
-// defeat header-spoofing, then exists-action="override" to re-inject from
-// the named-value.
+// The inbound policy — same XML on both APIs.
 //
-// On rate limiting:
-//   `rate-limit-by-key` is NOT available on the Consumption SKU (the docs
-//   table marks it "all except Consumption"). The simple `rate-limit` policy
-//   IS available and rate-limits per subscription. For the public /health
-//   API which has no subscription, `rate-limit` has no effect — defence on
-//   that path comes from the Fastify in-process limiter (allowList exempts
-//   /health for liveness probes) and Container Apps' replica autoscaler.
+// Auth model (post-Option-A cutover, see docs/SECURITY-REMEDIATION-PLAN.md §1):
+//
+//   1. `validate-jwt` is the SOLE auth gate. APIM validates Entra-issued
+//      bearer tokens against the Workforce tenant's OIDC config, requires
+//      the audience to match `api://infp-clearai-api-dev-01` (or the
+//      app's client_id GUID as alternate audience), and rejects everything
+//      else with HTTP 401.
+//
+//   2. `subscriptionRequired: false` on the API resource (see below) —
+//      the previous architecture's APIM subscription key is gone. JWTs
+//      come from a confidential client (the SWA BFF Function), never
+//      from the browser bundle. C1 / H1 fixed.
+//
+//   3. The `x-apim-shared-secret` header is still set (defence-in-depth
+//      against direct CA-FQDN bypass) but is no longer the primary auth.
+//      The Fastify hook on the Container App still requires it; APIM
+//      injects it from the KV-backed named-value. Anti-spoof:
+//      exists-action="delete" on the inbound replaces any client-supplied
+//      value before re-setting from the named-value.
+//
+//   4. CORS still origin-locks to the SWA hostnames (custom domain +
+//      auto-hostname) for browser preflights. allowed-headers no longer
+//      includes `ocp-apim-subscription-key` (the BFF doesn't send it
+//      from the browser; it's a server-side concern only) and DOES
+//      include `authorization` for the Bearer token preflight.
+//
+//   5. `rate-limit calls="60" renewal-period="60"` is per-subscription on
+//      the Consumption SKU (rate-limit-by-key isn't available). Without
+//      a subscription requirement this becomes a per-API-instance global
+//      cap instead of per-tenant — coarser but still useful as a runaway
+//      script absorber. Per-user rate limiting moves to the BFF Function
+//      (in-process per-IP) and to the in-app Fastify rate-limit.
+//
 // CORS allow-list. Browser-side callers are the SWA (auto-hostname and
-// the custom domain); the gateway origin is included so server-to-server
-// smoke tests (curl from CI / from the gateway URL itself) work; the two
-// localhost ports are Vite (5173) and Astro dev (4321) for local browser
-// sessions hitting prod APIM directly. Keep this list in sync with
-// `CORS_ORIGINS` in containerapp.bicep — both layers must allow the same
-// origins or the second layer rejects after APIM passes.
+// custom domain); the gateway origin is included so server-to-server
+// smoke tests work; localhost ports for Astro/Vite local dev. Keep in
+// sync with `CORS_ORIGINS` in containerapp.bicep.
 var corsAllowedOrigins = [
   'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net'
   'http://localhost:5173'
   'http://localhost:4321'
+  'http://localhost:5180'
   // SWA auto-hostname (kept while the custom domain bedds in; can be
   // dropped later if all clients move to the custom domain).
   'https://yellow-glacier-05e43ee03.7.azurestaticapps.net'
@@ -121,7 +152,24 @@ var corsAllowedOrigins = [
 // the policy is built as one regular interpolated string.
 var corsOriginXml = join(map(corsAllowedOrigins, o => '      <origin>${o}</origin>'), '\n')
 
-var apiInboundPolicyXml = '<policies>\n  <inbound>\n    <base />\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n        <method>POST</method>\n        <method>OPTIONS</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n        <header>ocp-apim-subscription-key</header>\n      </allowed-headers>\n    </cors>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <set-header name="x-apim-shared-secret" exists-action="override">\n      <value>{{apim-shared-secret}}</value>\n    </set-header>\n    <rate-limit calls="60" renewal-period="60" />\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
+// Optional alternate audience (the app's client_id GUID). When the user
+// hasn't filled `entraApiClientId` yet, we still emit a single audience
+// (the AppId URI) — empty audience strings would fail validation.
+var altAudienceXml = empty(entraApiClientId) ? '' : '      <audience>${entraApiClientId}</audience>\n'
+
+// OIDC discovery URL. Workforce tenant uses the v2.0 endpoint; the issuer
+// claim it emits is `https://login.microsoftonline.com/{tenant-id}/v2.0`
+// and that's what we whitelist. (External ID / CIAM tenants would use
+// `{tenant-id}.ciamlogin.com` — not what we have here.)
+var entraOidcUrl = 'https://login.microsoftonline.com/${entraTenantId}/v2.0/.well-known/openid-configuration'
+var entraIssuer  = 'https://login.microsoftonline.com/${entraTenantId}/v2.0'
+
+var apiInboundPolicyXml = '<policies>\n  <inbound>\n    <base />\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n        <method>POST</method>\n        <method>OPTIONS</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n        <header>authorization</header>\n        <header>accept-language</header>\n      </allowed-headers>\n    </cors>\n    <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized — bearer token missing or invalid" require-scheme="Bearer" require-signed-tokens="true" require-expiration-time="true">\n      <openid-config url="${entraOidcUrl}" />\n      <audiences>\n        <audience>${entraApiAppIdUri}</audience>\n${altAudienceXml}      </audiences>\n      <issuers>\n        <issuer>${entraIssuer}</issuer>\n      </issuers>\n    </validate-jwt>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <set-header name="x-apim-shared-secret" exists-action="override">\n      <value>{{apim-shared-secret}}</value>\n    </set-header>\n    <rate-limit calls="60" renewal-period="60" />\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
+
+// Anonymous policy for the public /health probe — same CORS + shared-secret
+// injection as above, but NO validate-jwt, NO rate-limit. This is what
+// Container Apps probes hit and what the BFF probe hits without a token.
+var publicInboundPolicyXml = '<policies>\n  <inbound>\n    <base />\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n      </allowed-headers>\n    </cors>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <set-header name="x-apim-shared-secret" exists-action="override">\n      <value>{{apim-shared-secret}}</value>\n    </set-header>\n    <return-response>\n      <set-status code="200" reason="OK" />\n      <set-header name="Content-Type" exists-action="override">\n        <value>application/json</value>\n      </set-header>\n      <set-body>{"status":"ok"}</set-body>\n    </return-response>\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
 
 // -----------------------------------------------------------------------------
 // APIM service (Consumption)
@@ -177,15 +225,18 @@ resource apiProtected 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   name: 'clearai-backend'
   properties: {
     displayName: 'ClearAI Backend'
-    description: 'Protected ClearAI backend operations. Requires subscription key.'
+    description: 'Protected ClearAI backend operations. Requires Entra-issued bearer token (validate-jwt policy). No subscription key — that mechanism was retired in the Option A cutover (frontend security review C1).'
     path: ''   // mounted at root
     protocols: [ 'https' ]
     serviceUrl: backendUrl
-    subscriptionRequired: true
-    subscriptionKeyParameterNames: {
-      header: 'Ocp-Apim-Subscription-Key'
-      query: 'subscription-key'
-    }
+    // No APIM subscription key — JWT is the sole auth gate. The
+    // `validate-jwt` policy in the inbound XML rejects unauthenticated
+    // requests with 401 before they reach the backend. Multiple frontends
+    // (the Astro SPA's BFF today, mobile/partner BFFs in future) each
+    // register as their own confidential client in the same Workforce
+    // tenant; APIM trusts JWTs whose audience matches the API app
+    // registration regardless of which client issued them.
+    subscriptionRequired: false
     apiType: 'http'
     type: 'http'
   }
@@ -371,9 +422,14 @@ resource apiPublic 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
 resource apiPublicPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = {
   parent: apiPublic
   name: 'policy'
+  // Short-circuits with `{"status":"ok"}` directly from APIM — no
+  // backend hop. This closes the I1 finding from the frontend security
+  // review (anonymous /health used to leak `db: true` confirming the
+  // database was reachable). For richer health (db connectivity etc.)
+  // hit the backend's /ready probe via the protected API with a JWT.
   properties: {
     format: 'rawxml'
-    value: apiInboundPolicyXml
+    value: publicInboundPolicyXml
   }
   dependsOn: [
     sharedSecretNamedValue
@@ -404,9 +460,11 @@ resource product 'Microsoft.ApiManagement/service/products@2024-05-01' = {
   name: 'clearai'
   properties: {
     displayName: 'ClearAI'
-    description: 'ClearAI backend access — gates POST /classify/* and POST /boost.'
-    subscriptionRequired: true
-    approvalRequired: false
+    description: 'ClearAI backend access. Auth is via Entra-issued JWT (validate-jwt on the API), not via subscription key — the product is kept for organisational grouping only.'
+    subscriptionRequired: false
+    // approvalRequired intentionally omitted: APIM rejects the field with
+    // "Cannot provide value for approvalRequired when no subscriptions are
+    // required" when subscriptionRequired=false.
     state: 'published'
   }
 }

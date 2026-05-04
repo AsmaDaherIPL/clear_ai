@@ -1,6 +1,6 @@
 /**
  * One-shot dev tool: parse a SABER platform "deleted HS codes" PDF and emit
- * data/saber-deleted-codes.csv.
+ * local-dev/data/saber-deleted-codes.csv.
  *
  * Usage:
  *   npx tsx src/scripts/parse-saber-pdf.ts <path-to-pdf>
@@ -42,11 +42,11 @@ import { join } from 'node:path';
 
 const pdfPath = process.argv[2];
 if (!pdfPath) {
-  console.error('Usage: npx tsx src/scripts/parse-saber-pdf.ts <path-to-pdf>');
+  console.error('Usage: pnpm db:parse:saber <path-to-pdf>');
   process.exit(1);
 }
 
-const OUT_CSV = join(process.cwd(), 'data', 'saber-deleted-codes.csv');
+const OUT_CSV = join(process.cwd(), 'local-dev', 'data', 'saber-deleted-codes.csv');
 
 // Run a Python script inline via execSync (keeps us from needing a separate
 // .py file or a Node PDF library that understands Arabic-mixed PDFs).
@@ -137,7 +137,7 @@ console.log(`✓ Wrote ${rows} deleted-code records to ${OUT_CSV}`);
 // eslint-disable-next-line no-console
 console.log('Next steps:');
 // eslint-disable-next-line no-console
-console.log('  1. Review data/saber-deleted-codes.csv');
+console.log('  1. Review local-dev/data/saber-deleted-codes.csv');
 // eslint-disable-next-line no-console
 console.log('  2. pnpm db:seed:deleted    (update local DB)');
 // eslint-disable-next-line no-console

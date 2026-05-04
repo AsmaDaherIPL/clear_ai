@@ -21,7 +21,14 @@ export default function Hero({ className }: HeroProps) {
         </span>
       )}
 
-      <h1 className="text-[clamp(40px,6vw,64px)] leading-[1.02] tracking-[-0.035em] font-medium m-0 mb-5 text-[var(--ink)]">
+      {/* Line-height is locale-aware: EN keeps the tight 1.02 tracking
+          we tuned for Latin script; AR uses 1.35 because IBM Plex Sans
+          Arabic carries diacritic stacks (shadda + fatha on words like
+          "مُخمَّن") that collide with the previous line's descenders at
+          1.02. The `rtl:leading-[1.35]` selector flips on the
+          html[dir="rtl"] root so the same component serves both
+          locales without prop drilling. */}
+      <h1 className="text-[clamp(40px,6vw,64px)] leading-[1.02] rtl:leading-[1.35] tracking-[-0.035em] font-medium m-0 mb-5 text-[var(--ink)]">
         <span>{t('title_1')}</span>
         {' '}
         <span className="text-[var(--accent)] italic font-medium">{t('title_2')}</span>

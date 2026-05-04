@@ -360,7 +360,7 @@ function V1Panel() {
           ))}
         </div>
 
-        <SubHeading>The three endpoints</SubHeading>
+        <SubHeading>The seven endpoints</SubHeading>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {CONTRACT.endpoints.map((ep) => (
             <EndpointCard key={ep.path} {...ep} />

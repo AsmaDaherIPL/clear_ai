@@ -1,12 +1,50 @@
 {
   "$schema": "https://json.schemastore.org/staticwebapp.config.json",
-  "_comment_navigationFallback": "Standard SPA fallback — when a user reloads any unknown path, serve index.html so client-side routing handles it. Excludes asset paths so static files keep 404'ing cleanly when missing. /trace?id=<uuid> doesn't need a custom rewrite because /trace/index.html is a real file (Astro builds it from src/pages/trace/index.astro); only the ?id= query param is dynamic.",
+
+  "_comment_navigationFallback": "SPA fallback — unknown paths serve index.html so client-side routing handles them. Excludes asset paths AND recon paths so /.env, /.git/*, /admin etc. return real 404s instead of the SPA shell (frontend security review L2). /api/* must be excluded so SWA managed-functions get the request, not the rewrite.",
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [
       "/_astro/*",
+      "/api/*",
       "/assets/*",
+      "/.well-known/*",
+      "/.env*",
+      "/.git/*",
+      "/admin",
+      "/admin/*",
+      "/web.config",
+      "/404.html",
+      "/500.html",
       "/*.{css,js,ico,svg,png,jpg,jpeg,gif,webp,woff,woff2,ttf,eot}"
     ]
-  }
+  },
+
+  "_comment_responseOverrides": "Real status codes for known not-found paths. Without this they'd return 200 + index.html (frontend L2).",
+  "responseOverrides": {
+    "404": { "rewrite": "/404.html", "statusCode": 404 }
+  },
+
+  "_comment_globalHeaders": "Defence-in-depth headers applied to every response. The CSP listed here is enforced; Astro's experimental.csp emits the per-page nonce'd script-src override during build. Rationale per finding (frontend security review): H2 CSP, M1 X-Frame-Options + frame-ancestors, M2 Permissions-Policy, L1 HSTS extended to 1y, I2 X-XSS-Protection removed (defaults to off when absent — we explicitly set 0 to override the previous infrastructure default).",
+  "globalHeaders": {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; object-src 'none'; upgrade-insecure-requests",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(self), geolocation=(), gyroscope=(), keyboard-map=(), magnetometer=(), microphone=(), midi=(), navigation-override=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=(), interest-cohort=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-XSS-Protection": "0"
+  },
+
+  "_comment_routes": "Force Cache-Control on the API path so SWA's edge never caches a per-user (future) or per-request (today) BFF response. The bundle assets at /_astro/* are immutably hashed by Astro; SWA's default Cache-Control: public,max-age=300,must-revalidate is fine for them.",
+  "routes": [
+    {
+      "route": "/api/*",
+      "headers": {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"
+      }
+    }
+  ]
 }

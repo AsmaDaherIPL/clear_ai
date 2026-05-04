@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CopyChip } from '@/components/ui/copy-chip';
 import { api, ApiError, type NewDescriptionResponse } from '@/lib/api';
 
 interface SubmissionDescriptionCardProps {
@@ -85,15 +84,18 @@ export default function SubmissionDescriptionCard({
   if (status === 'not_applicable') return null;
 
   return (
+    // Mockup-match: this block is NOT a separate card with its own
+    // border. It sits inline inside the main result card as a labeled
+    // section — label up top, two stacked text rows on a slightly
+    // darker cream surface (--line-2), italic disclaimer at the
+    // bottom. Each row carries an icon-only copy button on the inline
+    // end so brokers can copy EN or AR independently.
     <div
-      className={cn(
-        'border border-[var(--line)] rounded-[var(--radius)] p-4 bg-[var(--surface)] flex flex-col gap-3',
-        className,
-      )}
+      className={cn('flex flex-col gap-2', className)}
     >
       {/* Header row — label + optional review-required pill. */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
+        <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
           {t('res_suggest')}
         </div>
         {/* Review-required pill: shown when the LLM fell back to the deterministic guard. */}
@@ -111,30 +113,28 @@ export default function SubmissionDescriptionCard({
         )}
       </div>
 
-      {/* EN row. */}
-      <div className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3 min-h-[44px]">
-        <div className="flex-1 min-w-0 text-[14.5px] text-[var(--ink)] leading-[1.5]">
+      {/* EN row */}
+      <div className="flex items-center gap-2 px-4 py-3 rounded-md text-[14px] text-[var(--ink)] leading-[1.5]"
+           style={{ background: 'oklch(0.97 0.005 80)' }}>
+        <div className="flex-1 min-w-0">
           {status === 'loading' && <Skeleton className="h-5 w-2/3" />}
           {status === 'success' && data?.description_en}
           {status === 'error' && (
             <span className="text-[var(--ink-3)] font-mono">—</span>
           )}
         </div>
+        {status === 'success' && data?.description_en && (
+          <CopyIcon text={data.description_en} title="Copy English" />
+        )}
       </div>
 
-      {/* AR row — LTR flex keeps Copy chip on the visual left; Arabic text dir=rtl. */}
-      <div className="flex items-center gap-3 bg-[var(--line-2)] rounded-[var(--radius)] px-3.5 py-3 min-h-[44px]">
-        <CopyChip
-          text={data?.description_ar ?? ''}
-          label="Copy AR"
-          disabled={status !== 'success'}
-          className="flex-shrink-0"
-        />
-
+      {/* AR row — RTL with copy icon on inline-end */}
+      <div className="flex items-center gap-2 px-4 py-3 rounded-md text-[14px] text-[var(--ink)] leading-[1.5]"
+           style={{ background: 'oklch(0.97 0.005 80)' }}>
         <div
           dir="rtl"
           lang="ar"
-          className="flex-1 min-w-0 text-[14.5px] text-[var(--ink)] leading-[1.5] text-right"
+          className="flex-1 min-w-0 text-end"
           style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
         >
           {status === 'loading' && (
@@ -153,11 +153,14 @@ export default function SubmissionDescriptionCard({
             </button>
           )}
         </div>
+        {status === 'success' && data?.description_ar && (
+          <CopyIcon text={data.description_ar} title="Copy Arabic" />
+        )}
       </div>
 
       {/* Model footer — only on LLM success with model_call metadata. */}
       {status === 'success' && data?.source === 'llm' && data.model_call && (
-        <div className="text-[11.5px] text-[var(--ink-3)] font-mono pt-2 border-t border-[var(--line-2)] flex items-center gap-2">
+        <div className="text-[11.5px] text-[var(--ink-3)] font-mono mt-1 flex items-center gap-2">
           <span aria-hidden>🤖</span>
           <span>{familyOf(data.model_call.model)}</span>
           <span>·</span>
@@ -165,11 +168,43 @@ export default function SubmissionDescriptionCard({
         </div>
       )}
 
-      {/* AI disclaimer — always visible. */}
-      <div className="text-[12.5px] text-[var(--ink-3)] italic leading-[1.5] pt-2 border-t border-[var(--line-2)]">
+      {/* AI disclaimer — always visible, italic ink-3, no top border per mockup. */}
+      <div className="text-[12px] text-[var(--ink-3)] italic leading-[1.5] mt-1.5">
         {t('ai_disclaimer')}
       </div>
     </div>
+  );
+}
+
+/** Minimal icon-only copy button used inside the suggested-submission rows. */
+function CopyIcon({ text, title }: { text: string; title: string }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className="inline-flex items-center justify-center p-1.5 rounded-md text-[var(--ink-3)] hover:bg-[color-mix(in_oklab,var(--ink)_6%,transparent)] hover:text-[var(--ink)] transition-colors duration-150 cursor-pointer border-0 bg-transparent flex-shrink-0"
+    >
+      {copied ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <rect x="9" y="9" width="11" height="11" rx="2" />
+          <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+        </svg>
+      )}
+    </button>
   );
 }
 

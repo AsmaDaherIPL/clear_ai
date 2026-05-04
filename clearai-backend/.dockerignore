@@ -32,6 +32,15 @@ CHANGELOG.md
 tracker
 docs
 
+# local-dev/ — ingest/eval/bench scripts + reference data files.
+# These run only from a developer's laptop pointed at local Postgres
+# (see local-dev/README and Microsoft Learn pg_dump/restore guidance:
+# fresh prod DBs are seeded via `pg_dump | pg_restore` from dev, NOT
+# by re-running ingest scripts inside the container). Excluding them
+# from the image keeps the runtime layer lean and removes the false
+# affordance that one could `kubectl exec` into prod and re-seed.
+local-dev
+
 # Drizzle backups + studio output. We DO ship drizzle/*.sql and drizzle/meta.
 drizzle/**/*.sql.bak
 drizzle-studio

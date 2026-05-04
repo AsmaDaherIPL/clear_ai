@@ -27,9 +27,9 @@
  * mirror (dropped in 0030) — retrieval JOINs hs_codes and reads
  * h.is_deleted directly (single source of truth).
  */
-import { getPool, closeDb } from '../db/client.js';
-import { embedPassageBatch } from '../embeddings/embedder.js';
-import { newId } from '../util/uuid.js';
+import { getPool, closeDb } from '../../src/db/client.js';
+import { embedPassageBatch } from '../../src/embeddings/embedder.js';
+import { newId } from '../../src/util/uuid.js';
 
 const BATCH_EMBED = 32;
 const BATCH_INSERT = 200;

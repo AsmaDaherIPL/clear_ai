@@ -260,6 +260,13 @@
       "when": 1777213600000,
       "tag": "0036_drop_chapter_hint",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1777213700000,
+      "tag": "0037_picker_path_mode",
+      "breakpoints": true
     }
   ]
 }

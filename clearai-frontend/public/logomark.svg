@@ -1,0 +1,20 @@
+<svg width="60" height="63" viewBox="0 0 60 63" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Clear AI logomark: stacked filter bars with candidate dots narrowing to one answer -->
+  <rect width="60" height="11.55" rx="2.8" fill="#15110D"/>
+  <circle cx="12" cy="5.775" r="2.2" fill="#15110D" fill-opacity="0.25"/>
+  <circle cx="26" cy="5.775" r="2.2" fill="#15110D" fill-opacity="0.25"/>
+  <circle cx="40" cy="5.775" r="2.2" fill="#15110D" fill-opacity="0.25"/>
+  <circle cx="52" cy="5.775" r="2.2" fill="#15110D" fill-opacity="0.25"/>
+
+  <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="#15110D" fill-opacity="0.7"/>
+  <circle cx="25" cy="22.925" r="2.2" fill="#15110D" fill-opacity="0.2"/>
+  <circle cx="38" cy="22.925" r="2.2" fill="#15110D" fill-opacity="0.2"/>
+  <circle cx="51" cy="22.925" r="2.2" fill="#15110D" fill-opacity="0.2"/>
+
+  <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="#594028" fill-opacity="0.4"/>
+  <circle cx="38" cy="40.075" r="2.2" fill="#594028" fill-opacity="0.35"/>
+  <circle cx="50" cy="40.075" r="2.2" fill="#594028" fill-opacity="0.35"/>
+
+  <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="#E97B3A"/>
+  <circle cx="52.125" cy="57.225" r="2.6" fill="white" fill-opacity="0.9"/>
+</svg>

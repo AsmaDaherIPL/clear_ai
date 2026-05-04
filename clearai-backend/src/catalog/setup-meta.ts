@@ -55,6 +55,17 @@ export interface Thresholds {
 
   RESEARCH_WEB_ENABLED: number;
   RESEARCH_WEB_MAX_TOKENS: number;
+
+  /**
+   * Picker prompt path-injection mode. Must be one of {0, 1, 2}.
+   *   0 = none (current behaviour — picker sees code + en/ar leaf only)
+   *   1 = heading-only (group candidates by HS-4, prefix each group with
+   *       `Heading <NNNN> — <heading title>`)
+   *   2 = full-path breadcrumb per candidate (Section › Chapter › Heading
+   *       › Sub-heading › Leaf), source: zatca_hs_code_display.path_en/ar
+   * Validator below + setup_meta CHECK constraint both enforce the set.
+   */
+  PICKER_PATH_MODE: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -83,6 +94,7 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'TENANT_OVERRIDES_ENABLED',
   'RESEARCH_WEB_ENABLED',
   'RESEARCH_WEB_MAX_TOKENS',
+  'PICKER_PATH_MODE',
 ];
 
 /** Closed set of boolean flag names. Encoded as 0/1 in setup_meta.value_numeric. */
@@ -149,6 +161,13 @@ export async function loadThresholds(): Promise<Thresholds> {
   if (!allowedDigits.has(result.BEST_EFFORT_MAX_DIGITS!)) {
     throw new Error(
       `setup_meta.BEST_EFFORT_MAX_DIGITS must be one of {2,4,6,8,10}; got ${result.BEST_EFFORT_MAX_DIGITS}.`,
+    );
+  }
+
+  const allowedPathModes = new Set([0, 1, 2]);
+  if (!allowedPathModes.has(result.PICKER_PATH_MODE!)) {
+    throw new Error(
+      `setup_meta.PICKER_PATH_MODE must be one of {0,1,2}; got ${result.PICKER_PATH_MODE}.`,
     );
   }
 

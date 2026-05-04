@@ -53,6 +53,17 @@ interface RunArgs {
   outDir: string;
   tag: string;
   limit: number | null;
+  /**
+   * Stratified sample size. When set, replaces the in-order `--limit` slice
+   * with a proportional random sample across all length_bucket values, so a
+   * 100-row sample reflects the same 30/50/15/5 mix as the full set rather
+   * than collapsing to a single bucket.
+   *
+   * Mutually exclusive with --limit; --stratified-sample wins if both are set.
+   * Deterministic — uses a fixed seeded shuffle so back-to-back runs use the
+   * same row IDs (essential for A/B comparisons).
+   */
+  stratifiedSample: number | null;
   concurrency: number;
 }
 
@@ -65,18 +76,69 @@ function parseArgs(argv: string[]): RunArgs {
     else if (a === '--out' && argv[i + 1]) args.outDir = argv[++i];
     else if (a === '--tag' && argv[i + 1]) args.tag = argv[++i];
     else if (a === '--limit' && argv[i + 1]) args.limit = Number(argv[++i]);
+    else if (a === '--stratified-sample' && argv[i + 1]) args.stratifiedSample = Number(argv[++i]);
     else if (a === '--concurrency' && argv[i + 1]) args.concurrency = Number(argv[++i]);
   }
   return {
     base: args.base ?? 'http://localhost:3000',
-    dataPath: args.dataPath ?? 'eval/data/broker-invoices-v1.jsonl',
-    outDir: args.outDir ?? 'eval/results',
+    dataPath: args.dataPath ?? 'local-dev/eval/data/broker-invoices-v1.jsonl',
+    outDir: args.outDir ?? 'local-dev/eval/results',
     tag: args.tag ?? 'baseline',
     limit: args.limit ?? null,
+    stratifiedSample: args.stratifiedSample ?? null,
     // Default concurrency 2 — Anthropic's tier-1 rate-limits choke at 4+
     // for our token sizes. Bump only if you've upgraded the API tier.
     concurrency: Math.max(1, Math.min(16, args.concurrency ?? 2)),
   };
+}
+
+/**
+ * Mulberry32 — small deterministic PRNG. Same seed → same sequence across runs.
+ * Plenty good enough for sampling row indices; not for crypto.
+ */
+function mulberry32(seed: number): () => number {
+  let t = seed >>> 0;
+  return () => {
+    t = (t + 0x6D2B79F5) >>> 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Proportional stratified sample: pick `target` rows total, sized per
+ * length_bucket so the sample mirrors the source distribution.
+ *
+ * Seed fixed to 42 (matches build-eval-set.py) so re-runs sample the same
+ * IDs — A/B comparisons need identical row sets across runs.
+ */
+function stratifiedSample(rows: EvalRow[], target: number): EvalRow[] {
+  const buckets: Record<string, EvalRow[]> = {};
+  for (const r of rows) {
+    if (!buckets[r.length_bucket]) buckets[r.length_bucket] = [];
+    buckets[r.length_bucket]!.push(r);
+  }
+  const total = rows.length;
+  const rand = mulberry32(42);
+  const out: EvalRow[] = [];
+  for (const [bucket, pool] of Object.entries(buckets)) {
+    const want = Math.max(1, Math.round((pool.length / total) * target));
+    // Fisher-Yates shuffle (in-place on a copy), then take first `want`.
+    const copy = pool.slice();
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [copy[i], copy[j]] = [copy[j]!, copy[i]!];
+    }
+    const slice = copy.slice(0, Math.min(want, copy.length));
+    console.log(`  stratified-sample: ${bucket} → ${slice.length} of ${pool.length} (target ~${want})`);
+    out.push(...slice);
+  }
+  // Sort by id for stable ordering across runs (concurrency interleaves anyway,
+  // but stable input order keeps the saved results JSON byte-stable when
+  // results land in the same order).
+  out.sort((a, b) => a.id - b.id);
+  return out;
 }
 
 function classify(brokerCode: string, aiCode: string | null): MatchKind {
@@ -293,15 +355,21 @@ async function main(): Promise<void> {
   console.log(`  data:        ${args.dataPath}`);
   console.log(`  tag:         ${args.tag}`);
   console.log(`  limit:       ${args.limit ?? '(all)'}`);
+  console.log(`  stratified:  ${args.stratifiedSample ?? '(off)'}`);
   console.log(`  concurrency: ${args.concurrency}`);
 
   // Load eval rows
   const raw = await readFile(args.dataPath, 'utf8');
-  const rows: EvalRow[] = raw
+  let rows: EvalRow[] = raw
     .split('\n')
     .filter((l) => l.trim())
     .map((l) => JSON.parse(l) as EvalRow);
-  if (args.limit) rows.length = Math.min(rows.length, args.limit);
+  if (args.stratifiedSample) {
+    console.log(`\nStratified sampling ${args.stratifiedSample} rows (seed=42, deterministic):`);
+    rows = stratifiedSample(rows, args.stratifiedSample);
+  } else if (args.limit) {
+    rows.length = Math.min(rows.length, args.limit);
+  }
 
   console.log(`\nRunning ${rows.length} rows against ${args.base}/classifications …`);
   const results = await runWithConcurrency(rows, args.base, args.concurrency);

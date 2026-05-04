@@ -34,8 +34,8 @@
  * hs6 (XXXXXX000000), hs8 (XXXXXXXX0000), and hs10 (XXXXXXXXXX00) when
  * they exist in the catalog.
  */
-import { getPool, closeDb } from '../db/client.js';
-import { newId } from '../util/uuid.js';
+import { getPool, closeDb } from '../../src/db/client.js';
+import { newId } from '../../src/util/uuid.js';
 
 const BATCH_INSERT = 200;
 

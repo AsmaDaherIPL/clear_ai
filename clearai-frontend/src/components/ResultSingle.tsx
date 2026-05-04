@@ -1,5 +1,6 @@
 /** Generate-mode result card. Presentational; parent owns the DescribeResponse. */
 
+import { useState } from 'react';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
@@ -12,7 +13,6 @@ import {
 } from '@/lib/api';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
 import RequiredProcedures from './RequiredProcedures';
-import { CopyChip } from '@/components/ui/copy-chip';
 
 interface ResultSingleProps {
   visible: boolean;
@@ -43,30 +43,36 @@ function padCodeTo12(code: string | null | undefined): string {
   return (code ?? '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
 }
 
-/** Split a 12-digit HS code into 6 two-digit segments; first three are accented. */
-function splitCodeSegments(code: string) {
-  const padded = padCodeTo12(code);
-  const labels: Array<{ key: 'seg_chapter' | 'seg_heading' | 'seg_sub' | 'seg_national' | 'seg_stat' | 'seg_ext'; accented: boolean }> = [
-    { key: 'seg_chapter', accented: true },
-    { key: 'seg_heading', accented: true },
-    { key: 'seg_sub', accented: true },
-    { key: 'seg_national', accented: false },
-    { key: 'seg_stat', accented: false },
-    { key: 'seg_ext', accented: false },
-  ];
-  return labels.map((l, i) => ({
-    digits: padded.slice(i * 2, i * 2 + 2),
-    labelKey: l.key,
-    accented: l.accented,
-  }));
+// `formatCode` (the dotted display form `1509.00.000000`) is retired
+// in mockup-pivot v2 — the CodeMonument renders the 12-digit code
+// as a 6-cell pair grid, not as a dotted string. Brokers compare
+// codes column-by-column in the new layout, so the dots are gone.
+
+/**
+ * Display label for the chosen result. Prefers the cleaned `label_*`
+ * fields (no leading dashes/colons) when present; falls back to
+ * `description_*` for older backend payloads that don't yet emit
+ * label fields.
+ */
+function pickLabel(
+  r: NonNullable<DescribeResponse['result']>,
+  lang: 'en' | 'ar',
+): string | null {
+  if (lang === 'en') return r.label_en ?? r.description_en ?? null;
+  return r.label_ar ?? r.description_ar ?? null;
 }
 
-// Inline arrow icon used for the trace link in the dev footer.
-const ArrowIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="rtl:scale-x-[-1]">
-    <path d="M5 12h14M13 6l6 6-6 6" />
-  </svg>
-);
+// `splitPath`, `parseHsBreakdown`, `sectionForChapter`, `formatReqId`,
+// `formatTimestampUTC` (and the SECTION/CHAPTER/HEADING/SUBHEADING
+// grid + REQ-ID timestamp strip they fed) were retired in the
+// mockup-match rebuild — the landing-page mockup deliberately omits
+// both, keeping the result card focused on code + ZATCA description
+// + suggested submission + GIR rationale + sidebar.
+//
+// `splitCodeSegments` (and the seg_* i18n keys) was retired earlier
+// with the 6-segment gradient grid — replaced inline by `BigCode`
+// below ResultSingle's default export, which renders the code as a
+// single 12-digit string with the first 6 digits in --accent.
 
 // Circular-arrow retry icon used by ManualPickCard's retry button.
 const RetryArrowIcon = () => (
@@ -76,31 +82,15 @@ const RetryArrowIcon = () => (
   </svg>
 );
 
+// `DisclosureCaret` and `MetaChip` were retired in the May-2 mockup
+// pivot. The pivot layout shows alternatives + rationale always-on
+// (no <details>) and folds duty into a sidebar block (no inline
+// chip), so neither helper has a caller. They lived a long life.
+
 const FieldLabel = ({ children }: { children: React.ReactNode }) => (
   <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase mb-1.5">
     {children}
   </div>
-);
-
-/** Compact meta chip used for duty in the header (mono label + value). */
-const MetaChip = ({
-  label,
-  value,
-  title,
-}: {
-  label: string;
-  value: string;
-  title?: string;
-}) => (
-  <span
-    title={title}
-    className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[12px]"
-  >
-    <span className="font-mono text-[10px] font-medium tracking-[0.08em] uppercase text-[var(--ink-3)]">
-      {label}
-    </span>
-    <span className="font-mono font-medium text-[var(--ink)]">{value}</span>
-  </span>
 );
 
 /** Match pill tone keyed off decision_status (good=green, warn=amber, bad=red). */
@@ -164,23 +154,10 @@ function pillFor(status: DecisionStatus, reason: DecisionReason): PillSpec {
   }
 }
 
-/**
- * Format duty as chip text. Returns null when neither rate nor status
- * is set so the caller can hide the chip entirely (rather than render
- * an em-dash that suggests "we know the duty is —").
- *
- * The DutyInfo shape changed in the backend's most recent release:
- * `status_en/ar/raw_en/raw_ar` dropped in favour of a single
- * `status` enum. We localise the enum via `dutyStatusLabel(t, …)`.
- */
-function dutyText(
-  duty: NonNullable<NonNullable<DescribeResponse['result']>['duty']>,
-  t: (key: TKey) => string,
-): string | null {
-  if (duty.rate_percent != null) return `${duty.rate_percent} %`;
-  if (duty.status) return dutyStatusLabel(t, duty.status);
-  return null;
-}
+// `dutyText` retired in the May-2 mockup pivot. Sidebar Import-Duty
+// row now reads `r.duty.rate_percent` directly and falls back to
+// `dutyStatusLabel` only on the prohibited/exempt path; the combined
+// "5%" / "Exempted" string the chip used has no caller anymore.
 
 /** Map a DutyStatus enum to its localised label via i18n. */
 function dutyStatusLabel(
@@ -188,10 +165,10 @@ function dutyStatusLabel(
   status: NonNullable<NonNullable<DescribeResponse['result']>['duty']>['status'],
 ): string {
   switch (status) {
-    case 'exempted':           return t('result_duty_status_exempted' as TKey);
-    case 'prohibited_import':  return t('result_duty_status_prohibited_import' as TKey);
-    case 'prohibited_export':  return t('result_duty_status_prohibited_export' as TKey);
-    case 'prohibited_both':    return t('result_duty_status_prohibited_both' as TKey);
+    case 'exempted':           return t('result_duty_status_exempted');
+    case 'prohibited_import':  return t('result_duty_status_prohibited_import');
+    case 'prohibited_export':  return t('result_duty_status_prohibited_export');
+    case 'prohibited_both':    return t('result_duty_status_prohibited_both');
     default:                   return String(status);
   }
 }
@@ -200,8 +177,6 @@ function dutyStatusLabel(
 function ManualPickCard({
   candidates,
   interpretation,
-  latencyMs,
-  requestId,
   onRetry,
   onPickAlternative,
   labels,
@@ -209,8 +184,6 @@ function ManualPickCard({
 }: {
   candidates: AlternativeLine[];
   interpretation: DescribeResponse['interpretation'];
-  latencyMs?: number;
-  requestId?: string;
   onRetry?: () => void;
   onPickAlternative?: (code: string) => void;
   labels: {
@@ -221,17 +194,19 @@ function ManualPickCard({
     retry: string;
     understood: string;
     stripped: string;
-    latency: string;
-    trace: string;
   };
   className?: string;
 }) {
-  const traceHref = requestId ? `/trace?id=${requestId}` : '#';
   return (
     <>
       <div
         className={cn(
+          // Primary result card per design spec: 18px radius, hairline
+          // border, warm-but-imperceptible resting shadow that lifts
+          // subtly on hover. No coloured side-borders, no left-rail
+          // accents — the card lives by its own geometry.
           'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
+          'shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200',
           'animate-[fadeUp_0.35s_ease_both]',
           className,
         )}
@@ -325,34 +300,7 @@ function ManualPickCard({
         </div>
       </div>
 
-      {/* Dev-only latency + trace footer. */}
-      <div className="mt-3 flex items-center justify-between gap-3 px-[18px] py-3 border border-[var(--line)] rounded-[var(--radius)] bg-[var(--line-2)]">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="font-mono text-[12px] font-semibold tracking-[0.08em] uppercase px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-3)]"
-            title="Development-only diagnostic panel"
-          >
-            DEV
-          </span>
-          <div className="font-mono text-[12px] text-[var(--ink-2)]">
-            <span>{labels.latency}</span>{' '}
-            <b className="text-[var(--ink)] font-medium">
-              {latencyMs != null ? `${(latencyMs / 1000).toFixed(2)} s` : '—'}
-            </b>
-          </div>
-        </div>
-        <a
-          href={traceHref}
-          className={cn(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)]',
-            'font-mono text-[12px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] no-underline transition-colors duration-150',
-            !requestId && 'opacity-50 pointer-events-none',
-          )}
-        >
-          <span>{labels.trace}</span>
-          <ArrowIcon />
-        </a>
-      </div>
+      {/* DEV/latency + trace footer link strip removed at user request. */}
     </>
   );
 }
@@ -365,8 +313,6 @@ function ClarifyCard({
   hint,
   interpretation,
   candidates,
-  latencyMs,
-  requestId,
   labels,
   className,
 }: {
@@ -376,17 +322,19 @@ function ClarifyCard({
   hint: string | null;
   interpretation: DescribeResponse['interpretation'];
   candidates: AlternativeLine[];
-  latencyMs?: number;
-  requestId?: string;
-  labels: { alts: string; understood: string; stripped: string; latency: string; trace: string };
+  labels: { alts: string; understood: string; stripped: string };
   className?: string;
 }) {
-  const traceHref = requestId ? `/trace?id=${requestId}` : '#';
   return (
     <>
       <div
         className={cn(
+          // Primary result card per design spec: 18px radius, hairline
+          // border, warm-but-imperceptible resting shadow that lifts
+          // subtly on hover. No coloured side-borders, no left-rail
+          // accents — the card lives by its own geometry.
           'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
+          'shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200',
           'animate-[fadeUp_0.35s_ease_both]',
           className,
         )}
@@ -470,40 +418,110 @@ function ClarifyCard({
         </div>
       </div>
 
-      {/* Dev-only latency + trace footer. */}
-      <div className="mt-3 flex items-center justify-between gap-3 px-[18px] py-3 border border-[var(--line)] rounded-[var(--radius)] bg-[var(--line-2)]">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="font-mono text-[12px] font-semibold tracking-[0.08em] uppercase px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-3)]"
-            title="Development-only diagnostic panel"
-          >
-            DEV
-          </span>
-          <div className="font-mono text-[12px] text-[var(--ink-2)]">
-            <span>{labels.latency}</span>{' '}
-            <b className="text-[var(--ink)] font-medium">
-              {latencyMs != null ? `${(latencyMs / 1000).toFixed(2)} s` : '—'}
-            </b>
-          </div>
-        </div>
-        <a
-          href={traceHref}
-          className={cn(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)]',
-            'font-mono text-[12px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] no-underline transition-colors duration-150',
-            !requestId && 'opacity-50 pointer-events-none',
-          )}
-        >
-          <span>{labels.trace}</span>
-          <ArrowIcon />
-        </a>
-      </div>
+      {/* DEV/latency + trace footer link strip removed at user request. */}
     </>
   );
 }
 
 /** Classify an alternative against the chosen code via HS hierarchy (chapter/heading). */
 type Relationship = 'same-family' | 'related-family' | 'cross-family' | 'no-chosen';
+
+// `CodeMonument` (the 6-cell gradient grid) was retired in the
+// mockup-match rebuild. The mockup renders the code as a single
+// inline 12-digit string with `.` separators, the first 6 digits in
+// --accent and the last 6 in --ink. See `BigCode` at the bottom of
+// this file for the replacement.
+
+/**
+ * Sidebar alternative row with per-row collapsable description.
+ *
+ * The mockup shows the sidebar's CONSIDERED ALTERNATIVES as a quiet
+ * always-visible list (code + relationship pill). The user added one
+ * extra requirement on top: each row should be collapsable on its
+ * description. Default is collapsed (just code + pill), and a
+ * disclosure caret toggles the EN/AR description text below it. We
+ * own per-row open state with a local `useState`; lifting it would
+ * complicate the sidebar block without buying anything.
+ */
+function AlternativeSidebarRow({
+  alt,
+  chosenCode,
+  t,
+}: {
+  alt: AlternativeLine;
+  chosenCode: string;
+  t: (key: TKey) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rel = relationshipFor(alt.code, chosenCode);
+  const hasDesc = Boolean(alt.description_en || alt.description_ar);
+
+  return (
+    <div className="flex flex-col gap-1.5 py-1">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => hasDesc && setOpen((o) => !o)}
+          disabled={!hasDesc}
+          className={cn(
+            'inline-flex items-center gap-1.5 font-mono text-[14px] font-medium text-[var(--ink)] leading-none',
+            hasDesc ? 'cursor-pointer hover:text-[var(--accent)] transition-colors duration-150' : 'cursor-default',
+          )}
+          aria-expanded={hasDesc ? open : undefined}
+          aria-label={hasDesc ? (open ? t('res_alts_hide_desc') : t('res_alts_show_desc')) : undefined}
+        >
+          {hasDesc && (
+            <svg
+              width="9"
+              height="9"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+              className={cn(
+                'transition-transform duration-150 text-[var(--ink-3)] rtl:scale-x-[-1]',
+                open && 'rotate-90',
+              )}
+            >
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          )}
+          <span>{alt.code}</span>
+        </button>
+        {rel !== 'no-chosen' && (
+          <RelationshipChip rel={rel} label={t(REL_KEY[rel])} />
+        )}
+      </div>
+      {open && hasDesc && (
+        <div className="pe-1 ps-[15px] flex flex-col gap-0.5 animate-[fadeIn_0.15s_ease_both]">
+          {alt.description_en && (
+            <span className="text-[12.5px] text-[var(--ink-2)] leading-[1.45]">
+              {clampDescription(alt.description_en, ALT_DESC_MAX)}
+            </span>
+          )}
+          {alt.description_ar && (
+            <span
+              dir="rtl"
+              lang="ar"
+              className="text-[12.5px] text-[var(--ink-3)] leading-[1.5] text-end"
+              style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
+            >
+              {clampDescription(alt.description_ar, ALT_DESC_MAX)}
+            </span>
+          )}
+          {alt.reason && (
+            <span className="text-[11.5px] text-[var(--ink-3)] leading-[1.45] italic">
+              {alt.reason}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function relationshipFor(altCode: string, chosenCode: string | null | undefined): Relationship {
   if (!chosenCode) return 'no-chosen';
@@ -543,7 +561,8 @@ const REL_KEY: Record<Exclude<Relationship, 'no-chosen'>, TKey> = {
 export default function ResultSingle({
   visible,
   data,
-  latencyMs,
+  // latencyMs prop kept on the interface for caller-side compat, but
+  // no longer rendered — the dev latency footer was removed.
   onRetry,
   onPickAlternative,
   className,
@@ -568,8 +587,6 @@ export default function ResultSingle({
       <ManualPickCard
         candidates={candidates}
         interpretation={interp}
-        latencyMs={latencyMs}
-        requestId={data.request_id}
         onRetry={onRetry}
         onPickAlternative={onPickAlternative}
         className={className}
@@ -581,8 +598,6 @@ export default function ResultSingle({
           retry: t('act_retry'),
           understood: t('res_understood'),
           stripped: t('res_stripped'),
-          latency: t('meta_latency'),
-          trace: t('view_trace'),
         }}
       />
     );
@@ -599,225 +614,365 @@ export default function ResultSingle({
         hint={hint}
         interpretation={interp}
         candidates={candidates}
-        latencyMs={latencyMs}
-        requestId={data.request_id}
         className={className}
         labels={{
           alts: t('res_alts'),
           understood: t('res_understood'),
           stripped: t('res_stripped'),
-          latency: t('meta_latency'),
-          trace: t('view_trace'),
         }}
       />
     );
   }
 
-  const segments = splitCodeSegments(r.code);
   // Resolve duty up-front: r.duty can be a populated object whose fields are all null.
-  const dutyLabel = r.duty ? dutyText(r.duty, t) : null;
+  // `dutyText` (the combined "5% / Exempted" label) was used by the
+  // pre-pivot inline header chip; the pivot layout splits Import Duty
+  // and VAT into separate sidebar rows that read `rate_percent` and
+  // `dutyStatusLabel` directly. The helper stays exported for tests
+  // and possible re-use; the local label is no longer needed.
 
-  const traceHref = data.request_id ? `/trace?id=${data.request_id}` : '#';
+  // Mockup-pivot v2 (May-2, 2nd iteration): single-column layout
+  // language. The pre-v2 build leaned on a two-column grid that
+  // fragmented the page; this version goes back to a centered single
+  // column at max-width 1180 with cards stacked vertically and
+  // sections inside each card separated by --line-2 hairlines (no
+  // gaps). The signature CodeMonument carries the 12-digit HS code
+  // as a 6-column gradient grid — the typographic monument the spec
+  // asks for. See `CodeMonument` above for the rendering rule.
+
+  // Strong-match pill: only when the picker accepted with high confidence.
+  const showStrongMatch =
+    data.decision_status === 'accepted' &&
+    (data.confidence_band === 'high' || data.confidence_band == null);
+
+  // Visible alternatives: drop the chosen leaf so it doesn't show as
+  // both the picked code (left column) and a sibling (right column).
+  const altRows = (data.alternatives ?? []).filter((a) => a.code !== r.code);
+
+  // Duty rendering: `r.duty.rate_percent` for numeric rate, fallback
+  // to `dutyStatusLabel` for prohibited/exempt enums.
+  const importDutyValue = r.duty
+    ? r.duty.rate_percent != null
+      ? `${r.duty.rate_percent}%`
+      : dutyStatusLabel(t, r.duty.status)
+    : '—';
+
+  // Code split at HS-6 boundary so the inline render can colour the
+  // first 6 digits in --accent and the trailing national/stat
+  // extension in --ink. Matches the mockup's `big-code` block.
+  const code12 = padCodeTo12(r.code);
 
   return (
-    <>
-      <div
-        className={cn(
-          'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
-          'animate-[fadeUp_0.35s_ease_both]',
-          className,
-        )}
-      >
-        {/* Header: label + match-pill + 6-segment digits. */}
-        <div className="px-[22px] py-[18px] border-b border-[var(--line-2)]">
-          <div className="flex items-center justify-between gap-3 mb-2.5">
-            <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
-              {t('res_code_saudi')}
-            </span>
-            <TonePill tone={pill.tone}>{pillLabel}</TonePill>
-          </div>
+    // Mockup-correct landing-page layout: centered single column at
+    // 1080px max (matches mockup's `main`), two-column inner grid
+    // (main 1fr + sidebar 280px). Cards stack with 18px gap; the
+    // mockup uses gaps between cards, NOT hairlines inside one big
+    // card — that was the previous mockup-pivot v2 misread.
+    <div
+      className={cn(
+        'mx-auto max-w-[1080px] flex flex-col gap-4 animate-[fadeUp_0.35s_ease_both]',
+        className,
+      )}
+    >
+      <div className="grid gap-[18px] items-start grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] rtl:lg:[&>aside]:order-first">
 
-          {/* Digit-segment grid: HS-6 trunk gets the gradient; Saudi NSE stays solid ink. */}
-          <div className="grid grid-cols-6 gap-1 mt-1">
-            {segments.map(({ digits, labelKey, accented }) => (
-              <div key={labelKey} className="flex flex-col items-center py-1.5 px-1">
-                <span
-                  className={cn(
-                    'font-mono text-[36px] font-medium leading-none tracking-[0.01em]',
-                    accented
-                      ? 'bg-clip-text text-transparent bg-gradient-to-b from-[#E97B3A] via-[#B8551B] to-[#7B3D17]'
-                      : 'text-[var(--ink)]',
-                  )}
-                >
-                  {digits}
-                </span>
-                <span className="mt-2 font-mono text-[10px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
-                  {t(labelKey)}
-                </span>
+        {/* ──────────── MAIN COLUMN ──────────── */}
+        <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-6 sm:p-[26px] flex flex-col gap-[22px] shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200">
+
+          {/* §1 HEADER — code + copy + Strong-match pill. */}
+          <div>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex flex-col gap-3 min-w-0 flex-1">
+                <div className="font-mono text-[11.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
+                  {t('res_code_saudi')}
+                </div>
+                <BigCode code={code12} />
               </div>
-            ))}
-          </div>
-
-          {/* Code-context strip: Duty + Copy code chips. */}
-          <div className="mt-3 pt-3 border-t border-[var(--line-2)] flex items-center gap-2 flex-wrap">
-            {dutyLabel && (
-              <MetaChip label={t('res_duty')} value={dutyLabel} title="ZATCA duty rate" />
-            )}
-            <CopyChip
-              // Always copy the canonical 12-digit form so the clipboard matches what's on screen.
-              text={padCodeTo12(r.code)}
-              label={t('act_copy')}
-              title="Copy 12-digit HS code"
-            />
-          </div>
-        </div>
-
-        {/* Interpretation row, only when the researcher rewrote the input. */}
-        {interp && interp.stage !== 'passthrough' && (interp.cleaned_as || interp.rewritten_as) && (
-          <div className="px-[22px] py-3 border-b border-[var(--line-2)] bg-[var(--line-2)]">
-            <div className="text-[12.5px] text-[var(--ink-2)] leading-[1.5]">
-              <span className="font-mono text-[10px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-2">
-                {t('res_understood')}
-              </span>
-              <span className="text-[var(--ink)]">
-                {interp.rewritten_as ?? interp.cleaned_as}
-              </span>
-              {interp.cleanup_stripped && interp.cleanup_stripped.length > 0 && (
-                <span className="ms-2 text-[var(--ink-3)]">
-                  · {t('res_stripped')}: {interp.cleanup_stripped.join(', ')}
+              {showStrongMatch && (
+                <span
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-mono text-[11.5px] font-medium uppercase tracking-[0.06em]"
+                  style={{ background: 'oklch(0.94 0.06 155)', color: 'oklch(0.36 0.13 155)' }}
+                  title={`Decision: ${data.decision_status} · ${data.decision_reason}`}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M5 12.5l4.5 4.5L19 7" />
+                  </svg>
+                  {t('res_pill_strong_match')}
                 </span>
               )}
             </div>
-          </div>
-        )}
 
-        {/* Body: stacked content blocks. */}
-        <div className="px-[22px] py-[18px] flex flex-col gap-[18px]">
-          {/* Required procedures, only when the chosen leaf has any. */}
-          {r.procedures && r.procedures.length > 0 && (
-            <RequiredProcedures procedures={r.procedures} mode="result" />
+            {/* Chosen-leaf label (cleaned EN above AR), small under code. */}
+            {(pickLabel(r, 'en') || pickLabel(r, 'ar')) && (
+              <div className="mt-4 text-[14.5px] text-[var(--ink)] leading-[1.55]">
+                {pickLabel(r, 'en') && <div className="break-words">{pickLabel(r, 'en')}</div>}
+                {pickLabel(r, 'ar') && (
+                  <div
+                    dir="rtl"
+                    lang="ar"
+                    className="text-end mt-0.5 text-[var(--ink-2)] break-words"
+                    style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
+                  >
+                    {pickLabel(r, 'ar')}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* §2 INTERPRETATION ROW (only when researcher rewrote the input). */}
+          {interp && interp.stage !== 'passthrough' && (interp.cleaned_as || interp.rewritten_as) && (
+            <div className="px-3.5 py-2.5 rounded-[var(--radius)] bg-[var(--line-2)] border border-[var(--line)]">
+              <div className="text-[12.5px] text-[var(--ink-2)] leading-[1.5]">
+                <span className="font-mono text-[10px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-2">
+                  {t('res_understood')}
+                </span>
+                <span className="text-[var(--ink)]">{interp.rewritten_as ?? interp.cleaned_as}</span>
+                {interp.cleanup_stripped && interp.cleanup_stripped.length > 0 && (
+                  <span className="ms-2 text-[var(--ink-3)]">
+                    · {t('res_stripped')}: {interp.cleanup_stripped.join(', ')}
+                  </span>
+                )}
+              </div>
+            </div>
           )}
 
-          {/* ZATCA catalog description (EN above AR). */}
-          <div>
-            <FieldLabel>{t('res_zatca_desc')}</FieldLabel>
-            <div className="text-[14.5px] text-[var(--ink)] leading-[1.55]">
-              {clampDescription(r.description_en ?? '')}
-              {r.description_ar && (
-                <div
-                  dir="rtl"
-                  lang="ar"
-                  className="text-end mt-1 text-[var(--ink-2)]"
-                  style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-                >
-                  {clampDescription(r.description_ar)}
+          {/* §3 ZATCA DESCRIPTION — nested 2-col grey card (EN | AR) per mockup. */}
+          {(r.description_en || r.description_ar) && (
+            <div>
+              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2">
+                {t('res_main_zatca')}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-[18px] gap-y-3 px-4 py-3.5 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)]">
+                <div className="flex flex-col gap-1.5 min-w-0">
+                  <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">English</div>
+                  <div className="text-[14px] text-[var(--ink)] leading-[1.5] break-words">
+                    {r.description_en ? clampDescription(r.description_en) : '—'}
+                  </div>
                 </div>
-              )}
+                <div className="flex flex-col gap-1.5 min-w-0 md:items-end">
+                  <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">العربية</div>
+                  <div
+                    dir="rtl"
+                    lang="ar"
+                    className="text-[14px] text-[var(--ink)] leading-[1.5] break-words text-end"
+                    style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
+                  >
+                    {r.description_ar ? clampDescription(r.description_ar) : '—'}
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Suggested ZATCA submission description; the card owns its own fetch lifecycle. */}
+          {/* §4 SUGGESTED ZATCA SUBMISSION DESCRIPTION — owns its own fetch. */}
           <SubmissionDescriptionCard requestId={data.request_id} />
 
-          {/* Rationale card; only when present. */}
+          {/* §5 GIR rationale — always-visible prose, no collapse. */}
           {data.rationale && (
             <div>
-              <FieldLabel>{t('res_rationale')}</FieldLabel>
-              <div className="text-[14px] text-[var(--ink-2)] leading-[1.6] bg-[var(--line-2)] border border-[var(--line)] rounded-[var(--radius)] px-4 py-3.5">
+              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-3 pb-3 border-b border-[var(--line-2)]">
+                {t('res_main_why')}
+              </div>
+              <div className="text-[14px] text-[var(--ink)] leading-[1.6] whitespace-pre-line">
                 {data.rationale}
               </div>
             </div>
           )}
 
-          {/* Considered alternatives; skips the row matching the chosen code. */}
-          {data.alternatives && data.alternatives.length > 0 && (() => {
-            const rows = data.alternatives.filter(
-              (a) => a.code !== r.code,
-            );
-            if (rows.length === 0) return null;
-            return (
-              <div>
-                <FieldLabel>{t('res_alts')}</FieldLabel>
-                <div className="flex flex-col gap-1.5">
-                  {rows.map((a, i) => (
-                    <div
-                      key={`${a.code}-${i}`}
-                      className="flex items-start gap-3.5 px-3.5 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)] hover:border-[var(--ink-3)] transition-colors duration-150"
-                    >
-                      <span className="font-mono text-[12px] text-[var(--ink-3)] w-[18px] flex-shrink-0 pt-[2px]">
-                        {a.rank ?? i + 2}
-                      </span>
-                      <span className="font-mono text-[14px] text-[var(--ink)] font-medium flex-shrink-0 min-w-[120px] pt-[2px]">
-                        {a.code}
-                      </span>
-                      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                        <span className="text-[13px] text-[var(--ink-2)] leading-[1.4] truncate">
-                          {clampDescription(a.description_en ?? '', ALT_DESC_MAX)}
-                        </span>
-                        {a.description_ar && (
-                          <span
-                            dir="rtl"
-                            lang="ar"
-                            className="text-[13px] text-[var(--ink-3)] leading-[1.5] text-end truncate"
-                            style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-                          >
-                            {clampDescription(a.description_ar, ALT_DESC_MAX)}
-                          </span>
-                        )}
-                        {a.reason && (
-                          <span className="text-[12px] text-[var(--ink-3)] leading-[1.45] italic truncate">
-                            {a.reason}
-                          </span>
-                        )}
-                      </div>
-                      {/* Relationship-to-chosen chip; cross-family rows pop amber. */}
-                      {(() => {
-                        const rel = relationshipFor(a.code, r.code);
-                        if (rel === 'no-chosen') return null;
-                        return (
-                          <RelationshipChip
-                            rel={rel}
-                            label={t(REL_KEY[rel])}
-                          />
-                        );
-                      })()}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-
-      {/* Dev-only latency + trace footer. */}
-      <div className="mt-3 flex items-center justify-between gap-3 px-[18px] py-3 border border-[var(--line)] rounded-[var(--radius)] bg-[var(--line-2)]">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="font-mono text-[12px] font-semibold tracking-[0.08em] uppercase px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-3)]"
-            title="Development-only diagnostic panel"
-          >
-            DEV
-          </span>
-          <div className="font-mono text-[12px] text-[var(--ink-2)]">
-            <span>{t('meta_latency')}</span>{' '}
-            <b className="text-[var(--ink)] font-medium">
-              {latencyMs != null ? `${(latencyMs / 1000).toFixed(2)} s` : '—'}
-            </b>
+          {/* §6 FLAG FOR REVIEW — single ghost CTA at end, mono uppercase, mockup-style. */}
+          <div className="flex justify-end pt-[18px] border-t border-[var(--line-2)]">
+            <button
+              type="button"
+              className={cn(
+                'inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md',
+                'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]',
+                'font-mono text-[12px] font-medium tracking-[0.08em] uppercase',
+                'hover:border-[var(--ink-3)] transition-colors duration-150',
+              )}
+              aria-label={t('res_action_flag')}
+              onClick={() => {
+                // No-op — wiring to /classifications/{id}/flag queued.
+              }}
+            >
+              {t('res_action_flag')}
+            </button>
           </div>
         </div>
-        <a
-          href={traceHref}
-          className={cn(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)]',
-            'font-mono text-[12px] font-medium text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] no-underline transition-colors duration-150',
-            !data.request_id && 'opacity-50 pointer-events-none',
+
+        {/* ──────────── SIDEBAR ──────────── */}
+        <aside className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-[22px] flex flex-col gap-[22px] shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200">
+
+          {/* DUTY & REQUIREMENTS */}
+          <div>
+            <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
+              {t('res_sidebar_duty')}
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center justify-between gap-3 py-2 text-[13.5px] border-b border-[var(--line-2)]">
+                <span className="text-[var(--ink)]">{t('res_sidebar_duty_import')}</span>
+                <span className="font-mono text-[var(--ink)] font-medium">{importDutyValue}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 py-2 text-[13.5px]">
+                <span className="text-[var(--ink)]">{t('res_sidebar_duty_vat')}</span>
+                <span className="font-mono text-[var(--ink)] font-medium">15%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* REQUIRED PROCEDURES (only when chosen leaf has any). */}
+          {r.procedures && r.procedures.length > 0 && (
+            <div>
+              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
+                {t('res_sidebar_procedures')}
+              </div>
+              <RequiredProcedures procedures={r.procedures} mode="result" />
+            </div>
           )}
-        >
-          <span>{t('view_trace')}</span>
-          <ArrowIcon />
-        </a>
+
+          {/* CONSIDERED ALTERNATIVES — collapsible per-row + centred trace link. */}
+          {altRows.length > 0 && (
+            <div>
+              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
+                {t('res_sidebar_alternatives')}
+              </div>
+              <div className="flex flex-col divide-y divide-[var(--line-2)]">
+                {altRows.map((a, i) => (
+                  <AlternativeSidebarRow
+                    key={`${a.code}-${i}`}
+                    alt={a}
+                    chosenCode={r.code}
+                    t={t}
+                  />
+                ))}
+              </div>
+              {data.request_id && (
+                <a
+                  href={`/trace?id=${data.request_id}`}
+                  className="inline-flex w-full items-center justify-center gap-2 mt-4 pt-3.5 border-t border-[var(--line-2)] text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] no-underline transition-colors duration-150"
+                >
+                  <span>{t('view_trace')}</span>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                    className="rtl:scale-x-[-1]"
+                  >
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* If there are no alternatives, the trace link still lives at the foot of the sidebar. */}
+          {altRows.length === 0 && data.request_id && (
+            <a
+              href={`/trace?id=${data.request_id}`}
+              className="inline-flex w-full items-center justify-center gap-2 mt-auto pt-3.5 border-t border-[var(--line-2)] text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] no-underline transition-colors duration-150"
+            >
+              <span>{t('view_trace')}</span>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+                className="rtl:scale-x-[-1]"
+              >
+                <path d="M5 12h14M13 6l6 6-6 6" />
+              </svg>
+            </a>
+          )}
+        </aside>
       </div>
-    </>
+    </div>
+  );
+}
+
+/**
+ * Big inline HS code render: `15.09.20.00.00.00` with the first three
+ * 2-digit pairs in --accent and the last three in --ink. Matches the
+ * landing-page mockup's `big-code` element exactly. Includes a copy
+ * button on the side. Replaces the older 6-cell `CodeMonument` grid
+ * (which fragmented the code into floating cells with too much air
+ * between them).
+ */
+function BigCode({ code }: { code: string }) {
+  // code is already padded to 12 chars by the caller.
+  const pairs = [
+    code.slice(0, 2),
+    code.slice(2, 4),
+    code.slice(4, 6),
+    code.slice(6, 8),
+    code.slice(8, 10),
+    code.slice(10, 12),
+  ];
+  return (
+    <div className="flex items-center gap-3.5">
+      <code
+        className="font-mono font-medium leading-none whitespace-nowrap text-[clamp(28px,4.2vw,36px)] tracking-[0.01em]"
+        aria-label={`HS code ${code}`}
+      >
+        {pairs.map((pair, i) => (
+          <span key={i}>
+            <span className={i < 3 ? 'text-[var(--accent)]' : 'text-[var(--ink)]'}>
+              {pair}
+            </span>
+            {i < pairs.length - 1 && (
+              <span className="text-[var(--ink-3)] font-normal px-[1px]">.</span>
+            )}
+          </span>
+        ))}
+      </code>
+      <CopyIconButton text={code} title="Copy 12-digit HS code" />
+    </div>
+  );
+}
+
+/**
+ * Minimal icon-only copy button. Used inline next to BigCode and
+ * inside the SubmissionDescriptionCard rows. Wraps the existing
+ * navigator.clipboard pattern in a smaller surface than CopyChip
+ * (which sits beside form labels and needs the COPY-CODE wording).
+ */
+function CopyIconButton({ text, title }: { text: string; title?: string }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title ?? 'Copy'}
+      className="inline-flex items-center justify-center p-1.5 rounded-md text-[var(--ink-3)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] transition-colors duration-150 cursor-pointer border-0 bg-transparent"
+    >
+      {copied ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <rect x="9" y="9" width="11" height="11" rx="2" />
+          <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+        </svg>
+      )}
+    </button>
   );
 }

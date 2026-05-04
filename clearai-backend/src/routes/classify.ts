@@ -230,9 +230,19 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
           code: string;
           description_en: string | null;
           description_ar: string | null;
+          path_en: string | null;
+          path_ar: string | null;
+          path_codes: string[] | null;
         }>(
           // is_leaf dropped in 0029 — every hs_codes row is HS-12 leaf.
-          `SELECT code, description_en, description_ar FROM zatca_hs_codes WHERE code = $1`,
+          // LEFT JOIN display so path_en/path_ar/path_codes are populated for
+          // PICKER_PATH_MODE 1/2 (inert at mode 0). For a heading-padded row
+          // these will be the row's own labels — the heading IS its own path.
+          `SELECT h.code, h.description_en, h.description_ar,
+                  d.path_en, d.path_ar, d.path_codes
+             FROM zatca_hs_codes h
+        LEFT JOIN zatca_hs_code_display d ON d.code = h.code
+            WHERE h.code = $1`,
           [candidateHeadingCode],
         );
         const row = r.rows[0];
@@ -248,6 +258,9 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
                 description_en: row.description_en,
                 description_ar: row.description_ar,
                 parent10: row.code.slice(0, 10),
+                path_en: row.path_en ?? '',
+                path_ar: row.path_ar ?? '',
+                path_codes: row.path_codes ?? [],
                 vec_rank: null,
                 bm25_rank: null,
                 trgm_rank: null,
@@ -279,6 +292,7 @@ export async function classifyRoute(app: FastifyInstance): Promise<void> {
         kind: 'describe',
         query: effectiveDescription,
         candidates: candidates.slice(0, t.PICKER_CANDIDATES_describe),
+        pathMode: t.PICKER_PATH_MODE as 0 | 1 | 2,
         model: env().LLM_MODEL_STRONG,
       });
       recordCall(llm.llmModel, llm.latencyMs, 'picker', llm.llmStatus);

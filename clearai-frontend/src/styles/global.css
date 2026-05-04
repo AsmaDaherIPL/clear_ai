@@ -58,6 +58,17 @@
   --accent-ink: #B8551B;
   --accent-soft: oklch(0.96 0.025 55);
 
+  /*
+   * Code-grid vertical gradient. Used inside the signature 6-column
+   * HS-code monument: the first three digit pairs are filled with
+   * this gradient via `background-clip: text`, the last three are
+   * solid --ink-3. The gradient is warm-on-warm — same hue as the
+   * accent stamp, lighter at the top so the digits feel embossed
+   * into the cream rather than printed onto it.
+   */
+  --code-grad-from: #F09A60;
+  --code-grad-to:   #B8551B;
+
   /* Geometry */
   --radius: 14px;
   --radius-lg: 18px;

@@ -152,15 +152,10 @@ export interface Interpretation {
   cleanup_typo_corrections?: Array<{ from: string; to: string }>;
   rewritten_as?: string;
   researcher_note?: string;
-  /**
-   * Predicted HS-2 chapters used to constrain Stage-1 retrieval.
-   * Present when the chapter-hint stage ran (most accepted requests).
-   */
-  chapter_hint?: {
-    likely_chapters: string[];
-    confidence: number;
-    rationale: string;
-  };
+  // `chapter_hint` removed in May-3 pipeline iteration — the chapter-
+  // hint stage no longer exists. Understanding signals are read from
+  // `understanding_chapters` / `understanding_distinct_chapters` on
+  // the trace event row instead.
 }
 
 /** Inline submission description (legacy — new code uses NewDescriptionResponse). */
@@ -417,6 +412,35 @@ export interface TraceEvent {
   rationale?: string | null;
   /** Threshold values the gate evaluated this request against. */
   thresholds?: TraceThresholds | null;
+
+  // ── Observability columns added in the May-3 pipeline iteration ─────
+  /**
+   * Mirrors `cleanup_kind === 'product'` — true when cleanup classified
+   * the input as a recognisable noun. Null when the cleanup LLM
+   * failed/skipped, so we can distinguish "ungrounded" from "unknown".
+   */
+  cleanup_noun_grounded?: boolean | null;
+  /**
+   * Top-K returned by the retrieval stage 1 (vector recall) BEFORE the
+   * sparse rerank narrowed it down. Distinct from `candidate_count`
+   * (post-fusion). Used by the retrieval card to render "Pulled 40 →
+   * narrowed to 12" rather than just the final number.
+   */
+  retrieval_stage1_count?: number | null;
+  /**
+   * PII-stripped shadow of the request envelope. Useful for the raw
+   * JSON expander when the original request contains PII; we render
+   * `request_redacted` instead of `request` when both are present.
+   */
+  request_redacted?: TraceRequestMeta | unknown;
+  /**
+   * Backend guardrail downgraded the result and is asking for human
+   * review. When true, the trace header surfaces an amber needs_review
+   * badge. Mirrors the same field on `DecisionEnvelopeBase`.
+   */
+  needs_review?: boolean | null;
+  /** Free-form explanation paired with `needs_review`. */
+  review_reason?: string | null;
 }
 
 /**
@@ -427,55 +451,77 @@ export interface TraceEvent {
  * were added simply omit them, and the UI must render placeholders
  * (not fabricate values) when absent.
  *
- * Mapping for the trace stage timeline:
- *   cleanup_invoked  / cleanup_kind        → Cleanup stage card
- *   research_kind     / research_latency_ms  → Researcher stage card
- *   research_web_kind → Researcher (web) stage card
- *   understanding_chapters / chapter_hint    → Chapter-hint stage card
- *   branch_rank_invoked / branch_rank_*      → Branch-rank stage card
- *   best_effort_invoked / best_effort_*      → Best-effort stage card
+ * Mapping for the trace stage timeline (May-3 pipeline):
+ *   cleanup_invoked / cleanup_kind          → Cleanup stage card
+ *   research_kind / research_latency_ms     → Researcher stage card
+ *   research_web_kind                       → Researcher (web) stage card
+ *   branch_rank_invoked / branch_rank_*     → Branch-rank stage card
+ *   best_effort_invoked / best_effort_*     → Best-effort stage card
  *
- * Retrieval and the evidence gate are non-LLM stages — we infer they
- * ran by the presence of `top_retrieval_score`, `top2_gap`, and
- * `candidate_count` on the event (NOT via this struct).
+ * The chapter-hint stage was removed in the May-3 iteration. Retrieval
+ * and the evidence gate are non-LLM stages — we infer they ran by the
+ * presence of `top_retrieval_score`, `top2_gap`, and `candidate_count`
+ * on the event row (NOT via this struct).
  */
 export interface TraceRequestMeta {
   description?: string;
 
-  // Cleanup stage
-  cleanup_invoked?: boolean;
-  cleanup_effective?: boolean;
-  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded' | 'multi_product' | string;
+  // ── Cleanup stage ──────────────────────────────────────────────────
+  /**
+   * What cleanup did. Tightened to the actual backend enum:
+   *  - `skipped_clean`     → input was already clean, no LLM ran
+   *  - `llm`               → Haiku ran successfully
+   *  - `llm_failed`        → Haiku errored / timed out
+   *  - `llm_unparseable`   → Haiku returned malformed JSON
+   * Older rows may carry `null` (cleanup pre-dated this breadcrumb).
+   */
+  cleanup_invoked?: 'skipped_clean' | 'llm' | 'llm_failed' | 'llm_unparseable' | null;
+  /**
+   * The cleaned input string emitted by Haiku (e.g. "t-shirt"), or
+   * null when cleanup didn't run / failed. Was a boolean in the
+   * pre-May-3 frontend types; the backend always shipped the string.
+   */
+  cleanup_effective?: string | null;
+  cleanup_kind?: 'product' | 'merchant_shorthand' | 'ungrounded' | 'multi_product' | string | null;
   cleanup_attributes_count?: number;
   cleanup_stripped_count?: number;
   cleanup_latency_ms?: number;
 
-  // Researcher
-  research_kind?: string | null;
+  // ── Researcher (canonicalisation) ─────────────────────────────────
+  research_kind?: 'recognised' | 'unknown' | 'failed' | string | null;
   research_latency_ms?: number | null;
   research_web_kind?: string | null;
   research_web_latency_ms?: number | null;
+  /** Researcher's canonical phrase, when it ran successfully. */
   rewritten_as?: string | null;
 
-  // Chapter-hint / understanding
+  // ── Understanding ─────────────────────────────────────────────────
   understanding_chapters?: string[] | null;
   understanding_distinct_chapters?: number | null;
   interpretation_stage?: 'passthrough' | 'cleaned' | 'researched' | 'unknown' | string;
 
-  // Branch-rank
-  branch_rank_invoked?: boolean;
+  // ── Branch-rank ───────────────────────────────────────────────────
+  /**
+   * Tightened from boolean to the backend enum:
+   *  - `skipped`            → branch-rank didn't fire (gate refused / best-effort path)
+   *  - `llm`                → Sonnet ran and may have overridden the picker
+   *  - `skipped_confident`  → branch had only one leaf, no rerank needed
+   */
+  branch_rank_invoked?: 'skipped' | 'llm' | 'skipped_confident' | string | null;
   branch_rank_latency_ms?: number | null;
   branch_rank_overrode?: boolean;
   branch_rank_picker_choice?: string | null;
   branch_rank_top_pick?: string | null;
 
-  // Best-effort
+  // ── Best-effort fallback ──────────────────────────────────────────
   best_effort_invoked?: boolean;
+  /** Specificity in digits when best-effort fired (2/4/6/8/10). */
   best_effort_specificity?: number | null;
 
-  // Other observable signals
+  // ── Other observable signals ──────────────────────────────────────
   prefix_bias?: string | null;
-  digit_normalisation?: string | null;
+  /** Per-token digit normalisations (e.g. Arabic-Indic → Latin). */
+  digit_normalisation?: Array<{ from: string; to: string }> | string | null;
 }
 
 /** Gate thresholds applied to a trace event. */

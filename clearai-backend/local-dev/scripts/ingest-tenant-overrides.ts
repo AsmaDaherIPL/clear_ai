@@ -18,8 +18,8 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import ExcelJS from 'exceljs';
-import { getPool, closeDb } from '../db/client.js';
-import { newId } from '../util/uuid.js';
+import { getPool, closeDb } from '../../src/db/client.js';
+import { newId } from '../../src/util/uuid.js';
 
 interface RawRow {
   rowRef: string;

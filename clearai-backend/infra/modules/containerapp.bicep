@@ -46,6 +46,9 @@ param keyVaultName string
 @description('Foundry endpoint full Target URI including /anthropic/v1/messages. Maps to ANTHROPIC_BASE_URL in the container env.')
 param anthropicBaseUrl string = 'https://aif-infp-dev-swc-01.services.ai.azure.com/anthropic/v1/messages'
 
+@description('Phase 2.1 cutover flag. When true, DATABASE_URL binds to the clearai_app conn string and MIGRATOR_DATABASE_URL binds to the migrator conn string (least-privilege). When false (default until the role-separation deploy completes), DATABASE_URL keeps binding to the admin conn string and MIGRATOR_DATABASE_URL is unset. deploy.sh flips this to true after 0019_role_separation.sql has applied AND the new KV secrets exist.')
+param useRoleSeparation bool = false
+
 @description('Common tags.')
 param tags object
 
@@ -81,7 +84,37 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           }
         ]
       }
-      secrets: [
+      secrets: useRoleSeparation ? [
+        // Phase 2.1 cutover (post-role-separation):
+        //   DATABASE_URL          -> clearai_app conn string  (no DDL)
+        //   MIGRATOR_DATABASE_URL -> clearai_migrator conn string  (DDL on schema)
+        // The admin conn string stays in KV as break-glass but is no longer
+        // referenced by the running container.
+        {
+          name: 'postgres-app-connection-string'
+          keyVaultUrl: '${kvUri}/secrets/postgres-app-connection-string'
+          identity: 'system'
+        }
+        {
+          name: 'postgres-migrator-connection-string'
+          keyVaultUrl: '${kvUri}/secrets/postgres-migrator-connection-string'
+          identity: 'system'
+        }
+        {
+          name: 'anthropic-api-key'
+          keyVaultUrl: '${kvUri}/secrets/anthropic-api-key'
+          identity: 'system'
+        }
+        {
+          name: 'apim-shared-secret'
+          keyVaultUrl: '${kvUri}/secrets/apim-shared-secret'
+          identity: 'system'
+        }
+      ] : [
+        // Pre-cutover (legacy single-admin path): everything points at the
+        // admin connection string. Remove these entries from `secrets` and
+        // flip `useRoleSeparation: true` once 0019_role_separation.sql is
+        // applied and the new KV secrets are populated.
         {
           name: 'postgres-connection-string'
           keyVaultUrl: '${kvUri}/secrets/postgres-connection-string'
@@ -92,10 +125,6 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           keyVaultUrl: '${kvUri}/secrets/anthropic-api-key'
           identity: 'system'
         }
-        // Shared secret used to gate origin traffic — only requests passing
-        // through APIM (which injects this header from KV-backed named-value)
-        // are accepted by the Fastify auth hook. Direct requests to the
-        // Container App ingress are rejected with 401 origin_access_denied.
         {
           name: 'apim-shared-secret'
           keyVaultUrl: '${kvUri}/secrets/apim-shared-secret'
@@ -112,14 +141,22 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: [
+          env: concat([
             { name: 'NODE_ENV', value: 'production' }
             { name: 'PORT', value: '3000' }
             { name: 'LOG_LEVEL', value: 'info' }
-            // Secrets via secretref
-            { name: 'DATABASE_URL', secretRef: 'postgres-connection-string' }
             { name: 'ANTHROPIC_API_KEY', secretRef: 'anthropic-api-key' }
             { name: 'APIM_SHARED_SECRET', secretRef: 'apim-shared-secret' }
+          ], useRoleSeparation ? [
+            // Phase 2.1 (post-cutover): split DDL vs runtime credentials.
+            // The runtime app role has no DDL privileges; migrate-and-start
+            // reads MIGRATOR_DATABASE_URL specifically and uses a separate
+            // short-lived pool for the migration pass.
+            { name: 'DATABASE_URL',          secretRef: 'postgres-app-connection-string' }
+            { name: 'MIGRATOR_DATABASE_URL', secretRef: 'postgres-migrator-connection-string' }
+          ] : [
+            { name: 'DATABASE_URL',          secretRef: 'postgres-connection-string' }
+          ], [
             // Foundry-hosted Anthropic deployment. ANTHROPIC_BASE_URL is the
             // FULL Target URI including /anthropic/v1/messages; the deployed
             // model names match the Foundry deployment IDs documented in
@@ -144,7 +181,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             // When another custom domain is added it must be appended HERE
             // AND in apim.bicep's corsAllowedOrigins.
             { name: 'CORS_ORIGINS', value: 'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net,http://localhost:5173,http://localhost:4321,https://yellow-glacier-05e43ee03.7.azurestaticapps.net,https://clearai-dev.infinitepl.app' }
-          ]
+          ])
           probes: [
             {
               type: 'Liveness'

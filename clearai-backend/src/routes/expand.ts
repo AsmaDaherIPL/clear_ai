@@ -306,6 +306,7 @@ export async function expandRoute(app: FastifyInstance): Promise<void> {
         kind: 'expand',
         query: description,
         candidates: candidates.slice(0, 8),
+        pathMode: t.PICKER_PATH_MODE as 0 | 1 | 2,
         parentPrefix,
         model: env().LLM_MODEL,
       });

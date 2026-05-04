@@ -12,32 +12,48 @@ const STATE_PILL: Record<StageState, { bg: string; fg: string; dot: string }> = 
 };
 
 interface StageBlockProps {
-  /** 1-indexed stage position, e.g. 3 for "STAGE 3 / 5". */
-  index: number;
-  /** Total number of stages currently rendered. */
-  total: number;
+  /**
+   * 1-indexed stage position. Rendered as a small `01`/`02` mono
+   * label on the left of the header per the trace mockup; gives
+   * brokers a stable position cue without a misleading "X / N"
+   * counter (the pipeline isn't always N stages).
+   */
+  index?: number;
+  /** Total number of stages currently rendered. Reserved for future use. */
+  total?: number;
   /** Plain title for this stage. */
   title: string;
   /** Optional inline glossary marker after the title — see StageGloss. */
   titleGloss?: string;
-  /** State (drives header pill colour). */
+  /** State (drives status-dot colour). */
   state: StageState;
   /** Localised state label, e.g. "Done" / "Refused" / "Failed". */
   stateLabel: string;
-  /** Optional latency / metadata string on the right of the header (mono). */
+  /** Latency string for the header right side. */
   meta?: string;
-  /** Optional inline LLM badge for this stage (e.g. model + latency). */
-  llmBadge?: ReactNode;
-  /** Optional id for in-page anchoring (#stage-3, etc.). */
+  /** Optional model name for the inline `model` pill. */
+  model?: string;
+  /** Optional id for in-page anchoring (#stage-cleanup, etc.). */
   id?: string;
+  /** Initial open state. Default: false (collapsed). */
+  defaultOpen?: boolean;
   children: ReactNode;
   className?: string;
 }
 
+/**
+ * Collapsible stage card per the May-3 trace mockup.
+ *
+ * Header shape: `01 · Title · model-pill · status · latency · chev`.
+ * Body opens/closes via a chev rotation. Default is collapsed; the
+ * page can pass `defaultOpen` for the first stage if it wants to
+ * surface it on load.
+ */
 export function StageBlock({
-  index, total, title, titleGloss, state, stateLabel, meta, llmBadge, id, children, className,
+  index, title, titleGloss, state, stateLabel, meta, model, id, defaultOpen = false, children, className,
 }: StageBlockProps) {
   const pill = STATE_PILL[state];
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <section
       id={id}
@@ -47,29 +63,58 @@ export function StageBlock({
         className,
       )}
     >
-      <header className="flex items-center justify-between gap-3 px-[22px] py-[16px] border-b border-[var(--line-2)] flex-wrap">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] tracking-[0.1em] text-[var(--ink-3)] uppercase">
-            STAGE {index} / {total}
+      <header
+        className="flex items-center gap-4 px-[22px] py-[18px] cursor-pointer select-none"
+        onClick={() => setOpen((o) => !o)}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); }
+        }}
+      >
+        {index != null && (
+          <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] w-[22px] flex-shrink-0">
+            {String(index).padStart(2, '0')}
           </span>
-          <h2 className="text-[17px] font-medium text-[var(--ink)] tracking-[-0.005em] m-0 flex items-center gap-1.5">
-            {title}
-            {titleGloss && <StageGloss text={titleGloss} />}
-          </h2>
-        </div>
-        <div className="flex items-center gap-[10px] flex-wrap">
-          {llmBadge}
-          <span
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium"
-            style={{ background: pill.bg, color: pill.fg }}
-          >
+        )}
+        <h2 className="text-[16px] font-semibold text-[var(--ink)] tracking-[-0.01em] m-0 flex-1 min-w-0 flex items-center gap-1.5">
+          {title}
+          {titleGloss && <StageGloss text={titleGloss} />}
+        </h2>
+        <div className="flex items-center gap-3 flex-shrink-0 text-[12px] text-[var(--ink-3)]">
+          {model && (
+            <span className="font-mono text-[11px] px-2.5 py-1 rounded-full bg-[var(--line-2)] text-[var(--ink-2)]">
+              {model}
+            </span>
+          )}
+          <span className="font-mono text-[11px] text-[var(--ink-2)] inline-flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full" style={{ background: pill.dot }} />
             {stateLabel}
           </span>
-          {meta && <span className="font-mono text-[11.5px] text-[var(--ink-3)]">{meta}</span>}
+          {meta && <span className="font-mono text-[11px] text-[var(--ink-3)]">{meta}</span>}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+            className={cn(
+              'text-[var(--ink-3)] transition-transform duration-200 rtl:scale-x-[-1]',
+              open && 'rotate-90',
+            )}
+          >
+            <path d="M9 6l6 6-6 6" />
+          </svg>
         </div>
       </header>
-      <div className="px-[22px] pt-2 pb-[20px]">{children}</div>
+      {open && (
+        <div className="px-[22px] pt-1 pb-[22px] border-t border-[var(--line-2)]">{children}</div>
+      )}
     </section>
   );
 }

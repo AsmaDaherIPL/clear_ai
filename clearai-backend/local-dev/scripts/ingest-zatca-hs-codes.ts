@@ -14,8 +14,8 @@
 import * as XLSX from 'xlsx';
 import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getPool, closeDb } from '../db/client.js';
-import { newId } from '../util/uuid.js';
+import { getPool, closeDb } from '../../src/db/client.js';
+import { newId } from '../../src/util/uuid.js';
 
 // XLSX_PATH resolution order (first match wins):
 //   1. ZATCA_XLSX env override — set in .env.local for CI / custom paths

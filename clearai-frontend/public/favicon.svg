@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="22" height="22">
-  <!-- Brand mark: ink square with orange accent dot — mirrors the .brand-mark element -->
-  <rect width="22" height="22" rx="6" fill="#1d1a16"/>
-  <rect x="7" y="7" width="8" height="8" rx="2" fill="#E97B3A"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 63" width="22" height="23">
+  <!-- Brand mark: stacked filter bars with candidate dots narrowing to one answer -->
+  <rect width="60" height="11.55" rx="2.8" fill="#15110D"/>
+  <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="#15110D" fill-opacity="0.7"/>
+  <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="#594028" fill-opacity="0.4"/>
+  <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="#E97B3A"/>
+  <circle cx="52.125" cy="57.225" r="3.5" fill="white" fill-opacity="0.9"/>
 </svg>

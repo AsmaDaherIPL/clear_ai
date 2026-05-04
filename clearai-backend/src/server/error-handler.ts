@@ -78,6 +78,12 @@ export function registerErrorHandler(app: FastifyInstance): void {
       return reply.code(503).send(envelope());
     }
 
-    return reply.code(500).send({ error: 'internal_error', message: err.message });
+    // Phase 2.8: don't leak err.message to the client. Driver errors
+    // ("getaddrinfo ENOTFOUND psql-..."), Zod stack traces, library
+    // version strings — minor recon signals that aren't worth the
+    // generic-5xx readability cost. The full err is already logged above
+    // (`req.log.error({ err, endpoint }, ...)`), so operators retain the
+    // detail.
+    return reply.code(500).send({ error: 'internal_error' });
   });
 }

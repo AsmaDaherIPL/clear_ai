@@ -39,12 +39,109 @@ const ParsedPickerSchema = z
   })
   .passthrough();
 
-function buildUser(query: string, candidates: Candidate[], parentPrefix?: string): string {
+/** Path injection mode for the picker user message. Backed by setup_meta.PICKER_PATH_MODE. */
+export type PickerPathMode = 0 | 1 | 2;
+
+/**
+ * Heading title for a candidate, derived from its display path.
+ *   • If the candidate's first path-codes element is its HS-4 heading
+ *     (XXXX00000000 — non-self), the heading title is path_en split[0].
+ *   • Otherwise (the candidate IS its own heading), the heading title is
+ *     the leaf description itself.
+ *   • If path data is missing entirely, returns empty string — caller treats
+ *     as "no heading available" and falls back to the mode-0 emit.
+ */
+function headingTitleFor(c: Candidate): string {
+  if (!c.path_en) return '';
+  const parts = c.path_en.split(' > ');
+  // path_codes[0] === self when the candidate IS the heading. In that case
+  // we still want a sensible heading title — the leaf description doubles
+  // as the heading title in this catalog.
+  return parts[0] ?? '';
+}
+
+/** HS-4 heading code for a candidate. Always derivable from `code`. */
+function headingCodeFor(c: Candidate): string {
+  return c.code.slice(0, 4);
+}
+
+/**
+ * Mode-2 breadcrumb for a single candidate: full path joined by " › "
+ * (Unicode angle bracket — visually distinct from the regular `>` used by
+ * `path_en` to avoid the model parsing them as the same separator).
+ */
+function breadcrumbFor(c: Candidate): string {
+  if (!c.path_en) return '';
+  return c.path_en.split(' > ').join(' › ');
+}
+
+/**
+ * Build the picker's user message. `pathMode` controls candidate formatting:
+ *
+ *   mode 0 — current behaviour, code + en + ar per candidate, numbered list.
+ *
+ *   mode 1 — group consecutive same-heading candidates under a heading
+ *            header. RRF rank order is preserved (no re-sorting); we just
+ *            emit a `Heading <NNNN> — <heading title>` line whenever the
+ *            heading code changes from the previous candidate. Indexes
+ *            (1..N) are kept on each candidate so the model's chosen_code
+ *            response shape is unaffected.
+ *
+ *   mode 2 — append a `path: A › B › C › leaf` line to each candidate. No
+ *            grouping — each candidate gets its own breadcrumb. Higher
+ *            token cost than mode 1 but maximum context.
+ *
+ * Defensive fallback: if a candidate has no path data (LEFT JOIN miss),
+ * mode 1/2 emit it in mode-0 form for that single row rather than crashing.
+ */
+export function buildUser(
+  query: string,
+  candidates: Candidate[],
+  pathMode: PickerPathMode,
+  parentPrefix?: string,
+): string {
   const parentLine = parentPrefix ? `Declared parent prefix: ${parentPrefix}\n\n` : '';
-  const lines = candidates.map(
-    (c, i) =>
-      `${i + 1}. code=${c.code}\n   en: ${c.description_en ?? '(none)'}\n   ar: ${c.description_ar ?? '(none)'}`
-  );
+
+  const lines: string[] = [];
+
+  if (pathMode === 0) {
+    candidates.forEach((c, i) => {
+      lines.push(
+        `${i + 1}. code=${c.code}\n   en: ${c.description_en ?? '(none)'}\n   ar: ${c.description_ar ?? '(none)'}`,
+      );
+    });
+  } else if (pathMode === 1) {
+    let lastHeadingCode: string | null = null;
+    candidates.forEach((c, i) => {
+      const headingCode = headingCodeFor(c);
+      const headingTitle = headingTitleFor(c);
+      if (headingCode !== lastHeadingCode) {
+        // Blank line between groups (skip before the very first one).
+        if (lastHeadingCode !== null) lines.push('');
+        if (headingTitle) {
+          lines.push(`Heading ${headingCode} — ${headingTitle}`);
+        } else {
+          // No path data — emit a bare header so the index numbering still
+          // makes sense to the reader, but skip the title.
+          lines.push(`Heading ${headingCode}`);
+        }
+        lastHeadingCode = headingCode;
+      }
+      lines.push(
+        `  ${i + 1}. code=${c.code}\n     en: ${c.description_en ?? '(none)'}\n     ar: ${c.description_ar ?? '(none)'}`,
+      );
+    });
+  } else {
+    // mode 2 — full breadcrumb per candidate
+    candidates.forEach((c, i) => {
+      const crumb = breadcrumbFor(c);
+      const crumbLine = crumb ? `\n   path: ${crumb}` : '';
+      lines.push(
+        `${i + 1}. code=${c.code}\n   en: ${c.description_en ?? '(none)'}\n   ar: ${c.description_ar ?? '(none)'}${crumbLine}`,
+      );
+    });
+  }
+
   return `${parentLine}User description:\n${query}\n\nCandidates:\n${lines.join('\n')}\n\nReturn JSON only.`;
 }
 
@@ -52,6 +149,8 @@ export async function llmPick(params: {
   kind: 'describe' | 'expand';
   query: string;
   candidates: Candidate[];
+  /** From setup_meta.PICKER_PATH_MODE. 0 = none, 1 = heading-only, 2 = full path. */
+  pathMode: PickerPathMode;
   parentPrefix?: string;
   model?: string;
 }): Promise<LlmPickResult> {
@@ -61,7 +160,7 @@ export async function llmPick(params: {
     loadPrompt(pickerFile),
   ]);
   const system = `${gir}\n\n---\n\n${picker}`;
-  const user = buildUser(params.query, params.candidates, params.parentPrefix);
+  const user = buildUser(params.query, params.candidates, params.pathMode, params.parentPrefix);
 
   const llmResult: LlmCallResult = await callLlmWithRetry({
     system,
