@@ -206,7 +206,22 @@ async function handle(
   try {
     cfg = await loadConfig();
   } catch (err) {
-    ctx.error('BFF config missing', err);
+    // TEMPORARY DIAGNOSTIC — one-shot carve-out from §8 logging
+    // restrictions, authorised by user for MI/KV credential-chain
+    // diagnosis. Logs the exception identity + which env vars the
+    // sidecar actually sees. Does NOT log: secret value, access
+    // token, or KV secret content. Revert immediately after capture.
+    ctx.error('BFF config missing', {
+      errorMessage: err instanceof Error ? err.message : String(err),
+      errorName: err instanceof Error ? err.name : 'unknown',
+      hasIdentityEndpoint: !!process.env.IDENTITY_ENDPOINT,
+      hasIdentityHeader: !!process.env.IDENTITY_HEADER,
+      hasMsiEndpoint: !!process.env.MSI_ENDPOINT,
+      hasKvName: !!process.env.ENTRA_CLIENT_SECRET_KV_NAME,
+      hasKvSecret: !!process.env.ENTRA_CLIENT_SECRET_KV_SECRET,
+      hasLiteralSecret: !!process.env.ENTRA_CLIENT_SECRET,
+      kvNameValue: process.env.ENTRA_CLIENT_SECRET_KV_NAME,
+    });
     return { status: 500, jsonBody: { error: 'bff_misconfigured' } };
   }
 
