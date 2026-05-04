@@ -1,6 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/staticwebapp.config.json",
 
+  "_comment_platform": "apiRuntime tells SWA which Azure Functions runtime to provision for the managed function in clearai-frontend/api/. Required — without it the deployer fails with 'Function language info isn't provided.' Node 20 is the highest currently-supported runtime per Microsoft Learn's supported-languages-and-runtimes table (Node 22 not yet listed). Bump when SWA adds Node 22.",
+  "platform": {
+    "apiRuntime": "node:20"
+  },
+
   "_comment_navigationFallback": "SPA fallback — unknown paths serve index.html so client-side routing handles them. Excludes asset paths AND recon paths so /.env, /.git/*, /admin etc. return real 404s instead of the SPA shell (frontend security review L2). /api/* must be excluded so SWA managed-functions get the request, not the rewrite.",
   "navigationFallback": {
     "rewrite": "/index.html",

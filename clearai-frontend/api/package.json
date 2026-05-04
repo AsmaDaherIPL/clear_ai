@@ -5,7 +5,7 @@
   "description": "Azure Static Web Apps managed-function BFF for ClearAI. Forwards SPA /api/* calls to APIM with an Entra client-credentials Bearer token. Holds APIM subscription key + Entra client_secret server-side so the SPA bundle ships zero credentials. See docs/SECURITY-REMEDIATION-PLAN.md §1 (Option A) for the full architecture.",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc",
