@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   detectInjectionShape,
   sanitiseRationale,
-} from '../../src/util/sanitise.js';
+} from '../../src/common/utils/sanitize.js';
 
 describe('detectInjectionShape', () => {
   // --- Negative cases — clean inputs pass ---

@@ -9,8 +9,8 @@
  *   accuracy comparisons across runs).
  */
 import { describe, expect, it } from 'vitest';
-import { buildUser } from '../../src/classification/llm-pick.js';
-import type { Candidate } from '../../src/retrieval/retrieve.js';
+import { buildUser } from '../../src/modules/hs-classification/classify/llm-pick.js';
+import type { Candidate } from '../../src/inference/retrieval/retrieve.js';
 
 function cand(overrides: Partial<Candidate>): Candidate {
   return {

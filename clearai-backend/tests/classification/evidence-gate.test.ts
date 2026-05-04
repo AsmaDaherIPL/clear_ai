@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateGate } from '../../src/classification/evidence-gate.js';
-import type { Candidate } from '../../src/retrieval/retrieve.js';
+import { evaluateGate } from '../../src/modules/hs-classification/classify/evidence-gate.js';
+import type { Candidate } from '../../src/inference/retrieval/retrieve.js';
 
 function cand(code: string, score: number): Candidate {
   return {

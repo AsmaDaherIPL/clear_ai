@@ -14,7 +14,7 @@
  *     when looked up under another (regression guard for multi-tenant)
  */
 import { describe, expect, it, afterAll } from 'vitest';
-import { lookupTenantOverride } from '../../src/classification/tenant-overrides.js';
+import { lookupTenantOverride } from '../../src/modules/hs-classification/shared/hs-classification-overrides.js';
 import { closeDb } from '../../src/db/client.js';
 
 describe('lookupTenantOverride (live DB)', () => {
