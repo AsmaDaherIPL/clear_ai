@@ -51,9 +51,10 @@
       "esbuild",
       "protobufjs"
     ],
-    "//": "Force protobufjs >= 7.5.5 to remediate GHSA arbitrary-code-execution in <7.5.5. The vuln is in the type-field handling of compiled definitions; we don't compile untrusted definitions ourselves but the transitive (onnx-proto -> protobufjs) is flagged by Dependabot. Override at the lockfile level rather than swapping @xenova/transformers (which would require switching to @huggingface/transformers — different API surface, retest cost).",
+    "//": "Two transitive-dep remediations applied as lockfile overrides:\n  1. protobufjs >= 7.5.5 — GHSA arbitrary-code-execution in type-field handling of compiled definitions. We don't compile untrusted definitions but onnx-proto -> protobufjs is flagged. Swapping @xenova/transformers would require @huggingface/transformers (different API surface, retest cost), so override at lockfile level instead.\n  2. esbuild >= 0.25.0 — GHSA-67mh-4wv8-2f99 (dev-server CORS allows arbitrary requests). Pre-override we had esbuild 0.18 + 0.19 + 0.21 transitive via drizzle-kit + esbuild-register + vite. None of these run in production (build-time only), but Dependabot flags any vulnerable version in the lockfile. Override sweeps all dev-only paths to 0.25+ regardless of which dependency pulls them.",
     "overrides": {
-      "protobufjs@<7.5.5": ">=7.5.5"
+      "protobufjs@<7.5.5": ">=7.5.5",
+      "esbuild@<0.25.0": ">=0.25.0"
     }
   },
   "devDependencies": {
@@ -61,9 +62,9 @@
     "@types/pg": "^8.11.10",
     "drizzle-kit": "^0.30.1",
     "exceljs": "^4.4.0",
-    "tsx": "^4.19.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8",
+    "vitest": "^3.2.4",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }
