@@ -17,7 +17,8 @@ import {
   type HttpResponseInit,
   type InvocationContext,
 } from '@azure/functions';
-import { ClientSecretCredential } from '@azure/identity';
+import { ClientSecretCredential, DefaultAzureCredential } from '@azure/identity';
+import { SecretClient } from '@azure/keyvault-secrets';
 
 // -------------------------------------------------------------------------
 // Configuration (all from environment — see local.settings.json.example)
@@ -38,7 +39,49 @@ interface BffConfig {
 let _config: BffConfig | null = null;
 let _credential: ClientSecretCredential | null = null;
 
-function loadConfig(): BffConfig {
+/**
+ * Resolve the Entra app's client_secret. Production path: fetch from
+ * Key Vault at runtime via the SWA's system-assigned managed identity
+ * (DefaultAzureCredential picks up the SWA MI in the Functions
+ * sidecar). Local-dev path: read literal ENTRA_CLIENT_SECRET from env
+ * — this branch is only ever taken when the env var is set, which
+ * MUST NOT happen in any deployed environment (verified via the
+ * directive's defence-in-depth check that the App Setting is absent).
+ *
+ * The KV path uses the bare secret name (default: bff-client-secret),
+ * pinned by the ENTRA_CLIENT_SECRET_KV_NAME + ENTRA_CLIENT_SECRET_KV_SECRET
+ * App Settings. The SWA MI must hold 'Key Vault Secrets User' on the
+ * KV resource scope for this to work; if that role is missing the
+ * caller will see HTTP 500 + bff_misconfigured (NOT the secret
+ * itself, NOT the credential object — see ctx.error usage in handle).
+ */
+async function resolveClientSecret(): Promise<string> {
+  const literal = process.env.ENTRA_CLIENT_SECRET;
+  if (literal && literal.length > 0) {
+    // Local-dev escape hatch only. Production paths set ENTRA_CLIENT_SECRET_KV_NAME
+    // and leave ENTRA_CLIENT_SECRET unset so the secret never appears in App Settings.
+    return literal;
+  }
+
+  const kvName = process.env.ENTRA_CLIENT_SECRET_KV_NAME;
+  const secretName = process.env.ENTRA_CLIENT_SECRET_KV_SECRET ?? 'bff-client-secret';
+  if (!kvName || kvName.length === 0) {
+    throw new Error(
+      'BFF client_secret unavailable: set ENTRA_CLIENT_SECRET_KV_NAME (preferred) ' +
+        'or ENTRA_CLIENT_SECRET (literal, dev-only).',
+    );
+  }
+
+  const credential = new DefaultAzureCredential();
+  const client = new SecretClient(`https://${kvName}.vault.azure.net`, credential);
+  const result = await client.getSecret(secretName);
+  if (!result.value || result.value.length === 0) {
+    throw new Error(`Key Vault secret ${kvName}/${secretName} is empty or unreadable.`);
+  }
+  return result.value;
+}
+
+async function loadConfig(): Promise<BffConfig> {
   if (_config) return _config;
   const need = (key: string): string => {
     const v = process.env[key];
@@ -57,7 +100,7 @@ function loadConfig(): BffConfig {
     apimBaseUrl: need('APIM_BASE_URL').replace(/\/+$/, ''),
     tenantId: need('ENTRA_TENANT_ID'),
     clientId: need('ENTRA_CLIENT_ID'),
-    clientSecret: need('ENTRA_CLIENT_SECRET'),
+    clientSecret: await resolveClientSecret(),
     apiScope: need('ENTRA_API_SCOPE'),
     maxRequestBytes: Number.parseInt(
       process.env.BFF_MAX_REQUEST_BYTES ?? '262144',
@@ -161,7 +204,7 @@ async function handle(
 ): Promise<HttpResponseInit> {
   let cfg: BffConfig;
   try {
-    cfg = loadConfig();
+    cfg = await loadConfig();
   } catch (err) {
     ctx.error('BFF config missing', err);
     return { status: 500, jsonBody: { error: 'bff_misconfigured' } };
