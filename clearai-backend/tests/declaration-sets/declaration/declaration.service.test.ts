@@ -59,10 +59,28 @@ beforeEach(async () => {
   await db().insert(tenants).values({
     slug: TEST_TENANT_SLUG,
     displayName: 'Decl svc test',
-    bundleSize: 3,
-    hvThresholdSar: '1000.00',
     active: true,
   });
+  // Override the bundle size to 3 so the test exercises LV chunking with
+  // few items. ZATCA tunables live in setup_meta (see migration 0046); the
+  // declaration runner reads them at phase start. We mutate the value
+  // before each test and rely on loadThresholds re-loading on cache miss.
+  // Note: setup_meta has a UPDATE-only path for existing keys (the seed
+  // ships them at boot via 0046).
+  const { getPool } = await import('../../../src/db/client.js');
+  await getPool().query(
+    `UPDATE setup_meta
+       SET value_numeric = 3, value = '3'
+     WHERE key = 'ZATCA_BUNDLE_SIZE'`,
+  );
+  await getPool().query(
+    `UPDATE setup_meta
+       SET value_numeric = 1000, value = '1000'
+     WHERE key = 'ZATCA_HV_THRESHOLD_SAR'`,
+  );
+  // Force the loadThresholds cache to drop so the override is picked up.
+  const { clearSetupMetaCache } = await import('../../../src/modules/reference-data/setup-meta.repository.js');
+  clearSetupMetaCache();
   // The registry validates that every CANONICAL_REQUIRED_FIELDS field has a
   // mapping rule, so seed the minimum set even though the declaration phase
   // itself doesn't apply mappings.
@@ -191,6 +209,7 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
         consigneeName: 'Test Consignee',
         consigneeNationalId: '1069595681',
         consigneePhone: '966500000000',
+        invoiceDate: null,
       },
       rawRow: {},
       status: s.status,

@@ -18,23 +18,20 @@ import {
   mapDeclarationSetError,
 } from './declaration-set.controller.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
+import { dispatch as realDispatch } from '../dispatch/dispatch.use-case.js';
 
 export interface DeclarationSetsRoutesOpts {
   /**
-   * Dispatch implementation. The default uses a stub that fails every item
-   * with status='failed' until the dispatch agent ships the real one. Tests
-   * pass a mock; production code wires the real dispatch.
+   * Dispatch implementation. Defaults to the real 5-stage pipeline shipped
+   * by the dispatch-flow agent (modules/dispatch/dispatch.use-case.ts).
+   * Tests pass a mock to bypass the LLM.
    */
   dispatch?: DispatchFn;
 }
 
-const stubDispatch: DispatchFn = async () => {
-  throw new Error('dispatch.use-case is not yet implemented');
-};
-
 export async function declarationSetsRoutes(app: FastifyInstance, opts?: DeclarationSetsRoutesOpts): Promise<void> {
   await attachDeclarationSetPlugins(app);
-  const dispatch = opts?.dispatch ?? stubDispatch;
+  const dispatch = opts?.dispatch ?? realDispatch;
 
   app.post('/declaration-sets', async (req, reply) => {
     try {

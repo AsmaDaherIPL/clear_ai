@@ -72,6 +72,7 @@ function buildConfig(
       required: m.required,
       transform,
       defaultValue: m.defaultValue ?? null,
+      fallbackColumns: Object.freeze([...(m.fallbackColumns ?? [])]),
     });
   }
 
@@ -95,8 +96,6 @@ function buildConfig(
     id: tenant.id,
     slug: tenant.slug,
     displayName: tenant.displayName,
-    bundleSize: tenant.bundleSize,
-    hvThresholdSar: Number(tenant.hvThresholdSar),
     active: tenant.active,
     mappings: Object.freeze(mappings),
     constants: Object.freeze(constants),

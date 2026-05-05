@@ -41,8 +41,6 @@ beforeAll(async () => {
   await db().insert(tenants).values({
     slug: TEST_TENANT_SLUG,
     displayName: 'Use-case test',
-    bundleSize: 99,
-    hvThresholdSar: '1000.00',
     active: true,
   });
 

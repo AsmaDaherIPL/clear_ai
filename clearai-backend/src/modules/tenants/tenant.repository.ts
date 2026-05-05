@@ -52,8 +52,6 @@ export async function upsertTenant(input: NewTenantRow): Promise<TenantRow> {
       .update(tenants)
       .set({
         displayName: input.displayName,
-        bundleSize: input.bundleSize ?? existing.bundleSize,
-        hvThresholdSar: input.hvThresholdSar ?? existing.hvThresholdSar,
         active: input.active ?? existing.active,
       })
       .where(eq(tenants.slug, input.slug))

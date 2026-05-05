@@ -20,6 +20,7 @@ import { getBlobClient } from '../../../storage/blob.client.js';
 import { declarationKey } from '../../../storage/blob.paths.js';
 import { getDeclarationSet } from '../declaration-set.repository.js';
 import { env } from '../../../config/env.js';
+import { loadThresholds } from '../../reference-data/setup-meta.repository.js';
 
 export async function runDeclarationPhase(declarationSetId: string): Promise<PhaseDeclarationSummary> {
   const startMs = Date.now();
@@ -30,9 +31,12 @@ export async function runDeclarationPhase(declarationSetId: string): Promise<Pha
   const lookups = await getLookupsBySlugWithMetadata(tenant.slug);
   const items = await listClassifiedItems(declarationSetId);
 
+  // ZATCA tunables live in setup_meta — they're spec-wide, not per-tenant.
+  const thresholds = await loadThresholds();
+
   const bundles = partitionHvLv(items, {
-    hvThresholdSar: tenant.hvThresholdSar,
-    bundleSize: tenant.bundleSize,
+    hvThresholdSar: thresholds.ZATCA_HV_THRESHOLD_SAR,
+    bundleSize: thresholds.ZATCA_BUNDLE_SIZE,
   });
 
   const blob = getBlobClient();
@@ -44,8 +48,6 @@ export async function runDeclarationPhase(declarationSetId: string): Promise<Pha
     const xml = renderDeclarationXml({
       tenant: { slug: tenant.slug, displayName: tenant.displayName, constants: tenant.constants },
       bundleStrategy: bundle.strategy,
-      bundleIndex,
-      declarationSetId,
       items: bundle.items,
       submitter: {
         carrierId: e.ZATCA_SUBMITTER_CARRIER_ID,

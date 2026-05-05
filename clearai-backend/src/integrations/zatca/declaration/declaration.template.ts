@@ -104,13 +104,18 @@ function deriveTransportIdType(consigneeNationalId: string): string {
   return '5';
 }
 
-/** Last 3 digits of waybill, fallback to '000'. */
-function deriveCarrierPrefix(waybillNo: string, tenantConstants: Readonly<Record<string, string>>): string {
+/**
+ * carrierPrefix is a per-shipment lookup keyed on something Naqel hasn't
+ * shared with us yet (looks like an internal carrier table; samples show
+ * unrelated values 141, 346, 65). Until they ship the rule, emit a literal
+ * placeholder string `{carrier_prefix}` for Naqel's post-processing layer
+ * to find-and-replace. Tenant-level static override available via
+ * `default_carrier_prefix` constant.
+ */
+function deriveCarrierPrefix(_waybillNo: string, tenantConstants: Readonly<Record<string, string>>): string {
   const override = tenantConstants['default_carrier_prefix'];
   if (override) return override;
-  const digits = waybillNo.replace(/\D/g, '');
-  if (digits.length >= 3) return digits.slice(-3);
-  return digits.padStart(3, '0');
+  return '{carrier_prefix}';
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
@@ -180,15 +185,17 @@ function renderInvoiceItem(item: DeclarationSetItemRow, idx: number, input: Rend
   const tariffCode = item.finalCode ?? '';
   const goodsDescription = item.goodsDescriptionAr ?? c.description;
 
-  // Quantity is an integer in the sample. Use canonical.quantity; coerce
-  // numeric to string so trailing-zero behaviour matches input.
-  const qty = String(c.quantity);
-
-  // Per-item weight (sample emits the same value as the invoice total).
-  const weight = String(c.netWeightKg);
-
-  // ItemCost = canonical.valueAmount.
-  const itemCost = String(c.valueAmount);
+  const qty = c.quantity;
+  const weight = c.netWeightKg;
+  // unitInvoiceCost = the per-line price as Naqel's spec describes
+  // (`UnitInvoiceCost = Amount` in their InvoiceItem - Fields sheet).
+  // Always emitted: per-HS-code UnitPerPrice flag isn't available in v0
+  // (over-emission is forward-compatible; under-emission risks rejection).
+  const unitInvoiceCost = c.valueAmount;
+  // itemCost = unitInvoiceCost × quantity. For HV bundles (qty typically 1)
+  // this resolves to unitInvoiceCost; for LV bundles with qty > 1 the math
+  // matters (samples show item 1 in NQD60: qty=3, unit=37.08, cost=111.24).
+  const itemCost = unitInvoiceCost * qty;
 
   return [
     `        <decsub:items>`,
@@ -200,22 +207,28 @@ function renderInvoiceItem(item: DeclarationSetItemRow, idx: number, input: Rend
     `          <deccm:quantityInvoiceUnit>${xml(qty)}</deccm:quantityInvoiceUnit>`,
     `          <deccm:internationalMeasurementUnit>${xml(constant(input, 'item_international_measurement_unit'))}</deccm:internationalMeasurementUnit>`,
     `          <deccm:quantityInternationalUnit>${xml(qty)}</deccm:quantityInternationalUnit>`,
-    `          <deccm:grossWeight>${xml(weight)}</deccm:grossWeight>`,
-    `          <deccm:netWeight>${xml(weight)}</deccm:netWeight>`,
+    `          <deccm:grossWeight>${xml(formatNumeric(weight))}</deccm:grossWeight>`,
+    `          <deccm:netWeight>${xml(formatNumeric(weight))}</deccm:netWeight>`,
     `          <deccm:unitPerPackages>${xml(constant(input, 'item_unit_per_packages'))}</deccm:unitPerPackages>`,
-    `          <deccm:unitInvoiceCost>${xml(itemCost)}</deccm:unitInvoiceCost>`,
-    `          <deccm:itemCost>${xml(itemCost)}</deccm:itemCost>`,
+    `          <deccm:unitInvoiceCost>${xml(formatNumeric(unitInvoiceCost))}</deccm:unitInvoiceCost>`,
+    `          <deccm:itemCost>${xml(formatNumeric(itemCost))}</deccm:itemCost>`,
     `          <deccm:itemDutyType>${xml(constant(input, 'item_duty_type_id'))}</deccm:itemDutyType>`,
     `        </decsub:items>`,
   ].join('\n');
 }
 
 function renderInvoice(input: RenderInput): string {
-  // Sample envelope is "one invoice block per declaration"; for HV bundles
-  // that's the single item, for LV it's the chunk. Either way the invoice
-  // block carries summed totals.
+  // Sample envelope is "one invoice block per declaration"; HV = 1 item,
+  // LV = N items, both carry summed totals.
   const items = input.items;
-  const totalCost = items.reduce((s, it) => s + Number(it.canonical.valueAmount || 0), 0);
+  // totalNoItems = sum of quantities, NOT items.length. Verified against
+  // sample NQD60 (29 item blocks, totalNoItems=51 = sum of quantities).
+  const totalNoItems = items.reduce((s, it) => s + Number(it.canonical.quantity || 0), 0);
+  // invoiceCost = sum of itemCost = sum of valueAmount × quantity per item.
+  const totalCost = items.reduce(
+    (s, it) => s + Number(it.canonical.valueAmount || 0) * Number(it.canonical.quantity || 0),
+    0,
+  );
   const totalWeight = items.reduce((s, it) => s + Number(it.canonical.netWeightKg || 0), 0);
 
   // Currency / source-company are taken from the FIRST item (HV: only one;
@@ -245,7 +258,7 @@ function renderInvoice(input: RenderInput): string {
     `        <decsub:invoiceSeqNo>${xml(constant(input, 'invoice_seq_no'))}</decsub:invoiceSeqNo>`,
     `        <deccm:invoiceType>${xml(constant(input, 'invoice_type_id'))}</deccm:invoiceType>`,
     `        <deccm:invoiceNo>${xml(first.canonical.waybillNo)}</deccm:invoiceNo>`,
-    `        <deccm:totalNoItems>${items.length}</deccm:totalNoItems>`,
+    `        <deccm:totalNoItems>${totalNoItems}</deccm:totalNoItems>`,
     `        <deccm:invoiceCost>${xml(formatNumeric(totalCost))}</deccm:invoiceCost>`,
     `        <deccm:invoiceCurrency>${xml(currency.canonical)}</deccm:invoiceCurrency>`,
     `        <deccm:totalGrossWeight>${xml(formatNumeric(totalWeight))}</deccm:totalGrossWeight>`,
@@ -277,7 +290,10 @@ function formatNumeric(n: number): string {
 function renderExportAirBL(input: RenderInput): string {
   const first = input.items[0]!;
   const carrierPrefix = deriveCarrierPrefix(first.canonical.waybillNo, input.tenant.constants);
-  const blDate = isoDate(input.now);
+  // Prefer the source-row InvoiceDate when present (matches Naqel's
+  // post-processed XMLs); fall back to render-time UTC for sources that
+  // don't carry the column.
+  const blDate = first.canonical.invoiceDate ?? isoDate(input.now);
   return [
     '      <decsub:exportAirBL>',
     `        <deccm:carrierPrefix>${xml(carrierPrefix)}</deccm:carrierPrefix>`,
@@ -289,7 +305,11 @@ function renderExportAirBL(input: RenderInput): string {
 
 function renderDeclarationDocuments(input: RenderInput): string {
   const first = input.items[0]!;
-  const docDate = isoDate(input.now);
+  // Same fallback as airBLDate: prefer source-row InvoiceDate; fall back
+  // to render-time UTC. Naqel's samples show airBLDate and documentDate
+  // can differ — when their xlsx ships separate columns we'll add a
+  // second canonical field; for now both fall back to the same date.
+  const docDate = first.canonical.invoiceDate ?? isoDate(input.now);
   return [
     '      <decsub:declarationDocuments>',
     '        <deccm:documentSeqNo>1</deccm:documentSeqNo>',
@@ -341,10 +361,7 @@ export function renderDeclarationXml(input: RenderInput): string {
   }
 
   const docRefNo = buildDocRefNo({
-    date: input.now,
     prefix: input.tenant.constants['doc_ref_prefix'],
-    declarationSetId: input.declarationSetId,
-    bundleIndex: input.bundleIndex,
   });
 
   const parts: string[] = [
