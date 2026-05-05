@@ -29,14 +29,21 @@ import { getAccessToken } from './auth';
 // Direct browser → APIM. The BFF (clearai-frontend/api/) is dead; the
 // SPA now talks straight to the gateway with a USER-issued Entra token
 // fetched via MSAL (see src/lib/auth.ts). PUBLIC_APIM_BASE_URL is set
-// at build time per environment — production points at the SWA's
-// matching APIM, local dev at the same APIM but a localhost-callback
-// app reg redirect URI.
-export const APIM_BASE = import.meta.env.PUBLIC_APIM_BASE_URL as string | undefined;
-if (!APIM_BASE) {
-  throw new Error(
-    'Missing PUBLIC_APIM_BASE_URL. Set it in your .env or SWA app settings.',
-  );
+// at build time per environment.
+//
+// Resolved lazily — module-eval runs during Astro's static prerender
+// step on the build machine, where PUBLIC_* env vars may not be
+// present. A throw here would crash the build. `getApimBase()` only
+// fires at the first runtime call (which only happens client-side,
+// after a user is signed in).
+function getApimBase(): string {
+  const v = import.meta.env.PUBLIC_APIM_BASE_URL as string | undefined;
+  if (!v) {
+    throw new Error(
+      'Missing PUBLIC_APIM_BASE_URL. Set it in your .env or SWA app settings.',
+    );
+  }
+  return v;
 }
 
 // --- Decision envelope ----------------------------------------------------
@@ -262,7 +269,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
   };
-  const res = await fetch(`${APIM_BASE}${path}`, {
+  const res = await fetch(`${getApimBase()}${path}`, {
     ...init,
     headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
   });
