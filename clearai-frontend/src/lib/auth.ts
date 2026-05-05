@@ -134,12 +134,75 @@ export async function signIn(): Promise<void> {
   await client.loginRedirect({ scopes: [apiScope] });
 }
 
-/** Logs the user out via Entra and returns to postLogoutRedirectUri. */
+/**
+ * Sign the user out of Entra and return them to the login screen.
+ *
+ * Implementation notes (defensive layering, in failure-order):
+ *
+ * 1. Pre-clear our session-scoped MSAL cache BEFORE asking Entra to
+ *    redirect. This guarantees the login card flips on the moment
+ *    the user lands back on `/`, even if Entra's logout endpoint is
+ *    slow or returns to us via the browser cache.
+ *
+ * 2. Pass `postLogoutRedirectUri` and `account` explicitly on every
+ *    call. The PublicClientApplication-level default catches most
+ *    cases, but some Entra tenant configurations require the URI on
+ *    the request itself.
+ *
+ * 3. Use `onRedirectNavigate(url) => true` to confirm we WANT MSAL
+ *    to perform the navigation. Returning false would short-circuit
+ *    the redirect (useful for SPA-internal logout, but not what we
+ *    want here — we need Entra to clear ITS server-side session too,
+ *    otherwise the next sign-in is silently SSO'd back into the
+ *    same account).
+ *
+ * 4. If MSAL throws or the redirect doesn't fire (e.g.
+ *    postLogoutRedirectUri not registered as a Logout URL on the
+ *    SPA app reg), fall back to a hard `window.location` reload —
+ *    the cache is already cleared by step 1, so the user still
+ *    lands on the login card; they just don't get an Entra-side
+ *    server-session clear.
+ */
 export async function signOut(): Promise<void> {
   await ensureInitialized();
   const { client } = getMsal();
   const account = getActiveAccount();
-  await client.logoutRedirect({ account: account ?? undefined });
+  const postLogoutRedirectUri =
+    typeof window !== 'undefined' ? window.location.origin : '/';
+
+  // Clear session-storage cache eagerly so the login card flips on
+  // the moment we return — independent of whether Entra's redirect
+  // round-trips cleanly. clearCache() is sync; logoutRedirect navigates.
+  try {
+    await client.clearCache({ account: account ?? undefined });
+  } catch {
+    /* fall through — logoutRedirect will still try */
+  }
+
+  try {
+    await client.logoutRedirect({
+      account: account ?? undefined,
+      postLogoutRedirectUri,
+      // logoutHint = the user's login_hint claim from the id_token.
+      // Without it, Entra shows a "Which account do you want to sign
+      // out of?" picker (because login.microsoftonline.com may hold
+      // multiple work/personal sessions for the same browser) and
+      // never auto-redirects back. Passing the hint tells Entra
+      // exactly which session to terminate; it skips the picker and
+      // honours postLogoutRedirectUri.
+      logoutHint: account?.idTokenClaims?.login_hint as string | undefined,
+      // Returning true tells MSAL to proceed with the navigation to
+      // Entra's logout endpoint. We want Entra to clear its
+      // server-side session, not just our local cache.
+      onRedirectNavigate: () => true,
+    });
+  } catch {
+    // Defensive fallback — cache is already cleared, so a hard
+    // navigation to '/' lands the user on the login card.
+    if (typeof window !== 'undefined') {
+      window.location.assign(postLogoutRedirectUri);
+    }
+  }
 }
 
 /**
