@@ -1,22 +1,32 @@
 /**
- * Thin HTTP layer for batch endpoints. Multipart parse + zod validation +
- * delegation to batch.use-case. Maps errors to the shared envelope.
+ * Thin HTTP layer for declaration-set endpoints. Multipart parse + zod
+ * validation + delegation to declaration-set.use-case. Maps errors to the
+ * shared envelope.
  */
 import type { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import type { MultipartFile, MultipartValue } from '@fastify/multipart';
-import { CreateBatchFieldsSchema, PatchBatchSchema } from './batch.validation.js';
-import { createBatch, runProcessing, type UploadKind } from './batch.use-case.js';
+import { CreateDeclarationSetFieldsSchema, PatchDeclarationSetSchema } from './declaration-set.validation.js';
+import { createDeclarationSet, runProcessing, type UploadKind } from './declaration-set.use-case.js';
 import {
-  cancelBatchIfActive,
+  cancelDeclarationSetIfActive,
   countItemsByStatus,
-  getBatch,
+  getDeclarationSet,
   listItems,
-} from './batch.repository.js';
-import { BatchValidationError, BatchTooLargeError, BatchNotFoundError } from './batch.errors.js';
+} from './declaration-set.repository.js';
+import {
+  DeclarationSetValidationError,
+  DeclarationSetTooLargeError,
+  DeclarationSetNotFoundError,
+} from './declaration-set.errors.js';
 import { TenantNotFoundError, RequiredFieldMissingError } from '../tenants/tenant.errors.js';
-import type { BatchSummary } from './batch.types.js';
+import type { DeclarationSetSummary } from './declaration-set.types.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
-import type { BatchClassificationStatus, BatchDeclarationStatus, BatchMode, BatchStatus } from '../../db/schema.js';
+import type {
+  ClassificationStatus,
+  DeclarationStatus,
+  DeclarationSetMode,
+  DeclarationSetStatus,
+} from '../../db/schema.js';
 
 const ACCEPTED_EXTS: Record<string, UploadKind> = {
   csv: 'csv',
@@ -58,7 +68,7 @@ async function readMultipart(req: FastifyRequest): Promise<MultipartFields> {
   return { file, fields };
 }
 
-export async function handleCreateBatch(
+export async function handleCreateDeclarationSet(
   req: FastifyRequest,
   reply: FastifyReply,
   dispatch: DispatchFn,
@@ -66,11 +76,11 @@ export async function handleCreateBatch(
   const { file, fields } = await readMultipart(req);
 
   if (!file) {
-    throw new BatchValidationError('multipart upload missing the `file` part');
+    throw new DeclarationSetValidationError('multipart upload missing the `file` part');
   }
   const kind = sniffKindFromFilename(file.filename);
   if (!kind) {
-    throw new BatchValidationError(`unsupported file extension: ${file.filename}`);
+    throw new DeclarationSetValidationError(`unsupported file extension: ${file.filename}`);
   }
 
   // Decode the metadata field (if present, JSON-encoded).
@@ -81,80 +91,82 @@ export async function handleCreateBatch(
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         metadataObj = parsed as Record<string, unknown>;
       } else {
-        throw new BatchValidationError('metadata must be a JSON object');
+        throw new DeclarationSetValidationError('metadata must be a JSON object');
       }
     } catch {
-      throw new BatchValidationError('metadata must be valid JSON');
+      throw new DeclarationSetValidationError('metadata must be valid JSON');
     }
   }
 
-  const parsed = CreateBatchFieldsSchema.safeParse({
+  const parsed = CreateDeclarationSetFieldsSchema.safeParse({
     tenant_slug: fields.tenant_slug,
     mode: fields.mode || undefined,
     callback_url: fields.callback_url || undefined,
     metadata: metadataObj,
   });
   if (!parsed.success) {
-    throw new BatchValidationError('field validation failed', { issues: parsed.error.issues });
+    throw new DeclarationSetValidationError('field validation failed', { issues: parsed.error.issues });
   }
   const body = parsed.data;
 
   const buf = (file as MultipartFile & { _buffer: Buffer })._buffer;
 
-  const { batch } = await createBatch({
+  const { declarationSet } = await createDeclarationSet({
     tenantSlug: body.tenant_slug,
-    mode: body.mode as BatchMode,
+    mode: body.mode as DeclarationSetMode,
     uploadKind: kind,
     uploadBytes: buf,
     metadata: { ...body.metadata, original_filename: file.filename, ...(body.callback_url ? { callback_url: body.callback_url } : {}) },
     dispatch,
   });
 
-  // Kick off processing in background; surface the batch id immediately.
-  void runProcessing(batch.id, dispatch).catch((err: unknown) => {
-    req.log.error({ err, batch_id: batch.id }, 'background processing failed');
+  // Kick off processing in background; surface the id immediately.
+  void runProcessing(declarationSet.id, dispatch).catch((err: unknown) => {
+    req.log.error({ err, declaration_set_id: declarationSet.id }, 'background processing failed');
   });
 
   return reply.code(202).send({
-    batch_id: batch.id,
-    mode: batch.mode,
-    poll_url: `/batches/${batch.id}`,
-    classifications_url: `/batches/${batch.id}/classifications`,
-    ...(batch.mode === 'classify_and_declare' ? { declarations_url: `/batches/${batch.id}/declarations` } : {}),
+    declaration_set_id: declarationSet.id,
+    mode: declarationSet.mode,
+    poll_url: `/declaration-sets/${declarationSet.id}`,
+    classifications_url: `/declaration-sets/${declarationSet.id}/classifications`,
+    ...(declarationSet.mode === 'classify_and_declare'
+      ? { declarations_url: `/declaration-sets/${declarationSet.id}/declarations` }
+      : {}),
   });
 }
 
-export async function handleGetBatch(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
-  const batch = await getBatch(req.params.id);
-  const counts = await countItemsByStatus(batch.id);
-  const summary: BatchSummary = {
-    id: batch.id,
-    tenant_slug: batch.tenant,
-    mode: batch.mode as BatchMode,
-    status: batch.status as BatchStatus,
-    classification_status: batch.classificationStatus as BatchClassificationStatus,
-    declaration_status: (batch.declarationStatus ?? null) as BatchDeclarationStatus | null,
-    row_count: batch.rowCount,
+export async function handleGetDeclarationSet(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
+  const declarationSet = await getDeclarationSet(req.params.id);
+  const counts = await countItemsByStatus(declarationSet.id);
+  const summary: DeclarationSetSummary = {
+    id: declarationSet.id,
+    tenant_slug: declarationSet.tenant,
+    mode: declarationSet.mode as DeclarationSetMode,
+    status: declarationSet.status as DeclarationSetStatus,
+    classification_status: declarationSet.classificationStatus as ClassificationStatus,
+    declaration_status: (declarationSet.declarationStatus ?? null) as DeclarationStatus | null,
+    row_count: declarationSet.rowCount,
     succeeded: counts.succeeded,
     flagged: counts.flagged,
     blocked: counts.blocked,
     failed: counts.failed,
     pending: counts.pending + counts.classifying,
-    started_at: batch.startedAt?.toISOString() ?? null,
-    completed_at: batch.completedAt?.toISOString() ?? null,
-    error: batch.error,
+    started_at: declarationSet.startedAt?.toISOString() ?? null,
+    completed_at: declarationSet.completedAt?.toISOString() ?? null,
+    error: declarationSet.error,
   };
   return reply.send(summary);
 }
 
 export async function handleListClassifications(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
-  const batch = await getBatch(req.params.id);
-  if (batch.classificationStatus === 'pending' || batch.classificationStatus === 'running') {
+  const declarationSet = await getDeclarationSet(req.params.id);
+  if (declarationSet.classificationStatus === 'pending' || declarationSet.classificationStatus === 'running') {
     return reply.code(425).send({ error: { code: 'phase_not_ready', message: 'classification phase still running' } });
   }
-  const items = await listItems(batch.id);
+  const items = await listItems(declarationSet.id);
   return reply.send({
-    batch_id: batch.id,
+    declaration_set_id: declarationSet.id,
     items: items.map((i) => ({
       id: i.id,
       row_index: i.rowIndex,
@@ -167,23 +179,26 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
   });
 }
 
-export async function handlePatchBatch(req: FastifyRequest<{ Params: { id: string }; Body: unknown }>, reply: FastifyReply): Promise<unknown> {
-  const parsed = PatchBatchSchema.safeParse(req.body);
+export async function handlePatchDeclarationSet(
+  req: FastifyRequest<{ Params: { id: string }; Body: unknown }>,
+  reply: FastifyReply,
+): Promise<unknown> {
+  const parsed = PatchDeclarationSetSchema.safeParse(req.body);
   if (!parsed.success) {
-    throw new BatchValidationError('only { status: "cancelled" } is permitted', { issues: parsed.error.issues });
+    throw new DeclarationSetValidationError('only { status: "cancelled" } is permitted', { issues: parsed.error.issues });
   }
-  const updated = await cancelBatchIfActive(req.params.id);
+  const updated = await cancelDeclarationSetIfActive(req.params.id);
   return reply.send({ id: updated.id, status: updated.status });
 }
 
-export function mapBatchError(err: unknown): { statusCode: number; body: unknown } | null {
-  if (err instanceof BatchValidationError) {
+export function mapDeclarationSetError(err: unknown): { statusCode: number; body: unknown } | null {
+  if (err instanceof DeclarationSetValidationError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message, details: err.details } } };
   }
-  if (err instanceof BatchTooLargeError) {
+  if (err instanceof DeclarationSetTooLargeError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message, details: err.details } } };
   }
-  if (err instanceof BatchNotFoundError) {
+  if (err instanceof DeclarationSetNotFoundError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message } } };
   }
   if (err instanceof TenantNotFoundError) {
@@ -195,7 +210,7 @@ export function mapBatchError(err: unknown): { statusCode: number; body: unknown
   return null;
 }
 
-export async function attachBatchPlugins(app: FastifyInstance): Promise<void> {
+export async function attachDeclarationSetPlugins(app: FastifyInstance): Promise<void> {
   // Idempotent register guard via Symbol marker.
   const KEY = Symbol.for('clearai.multipart.registered');
   const flag = (app as unknown as Record<symbol, unknown>)[KEY];

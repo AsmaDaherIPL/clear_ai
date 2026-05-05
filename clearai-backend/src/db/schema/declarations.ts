@@ -1,18 +1,18 @@
 /**
  * declarations — one row per rendered ZATCA Declaration bundle.
  *
- * Inserted by Phase 2 (modules/batches/declaration/). HV bundles hold
- * exactly one item; LV bundles up to tenants.bundle_size.
+ * Inserted by Phase 2 (modules/declaration-sets/declaration/). HV bundles
+ * hold exactly one item; LV bundles up to tenants.bundle_size.
  *
  * `bayan_no` is populated post-submission (out-of-band today; future API
  * integration in v1).
  *
  * Related tables:
- *   • batches  — FK target (batch_id -> batches.id) ON DELETE CASCADE
+ *   • declaration_sets — FK target (declaration_set_id -> declaration_sets.id) ON DELETE CASCADE
  */
 import { pgTable, uuid, integer, text, timestamp, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { batches } from './batches.js';
+import { declarationSets } from './declaration-sets.js';
 
 export type BundleStrategy = 'HV_STANDALONE' | 'LV_BUNDLED';
 
@@ -20,9 +20,9 @@ export const declarations = pgTable(
   'declarations',
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    /** Parent batch. FK -> batches(id) ON DELETE CASCADE. */
-    batchId: uuid('batch_id').notNull(),
-    /** 0-based ordinal within the batch's render order. */
+    /** Parent declaration_set. FK -> declaration_sets(id) ON DELETE CASCADE. */
+    declarationSetId: uuid('declaration_set_id').notNull(),
+    /** 0-based ordinal within the set's render order. */
     bundleIndex: integer('bundle_index').notNull(),
     /** CHECK-locked closed enum; mirror in batch-declaration.types.ts. */
     bundleStrategy: text('bundle_strategy').notNull().$type<BundleStrategy>(),
@@ -35,15 +35,15 @@ export const declarations = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    batchFk: foreignKey({
-      name: 'declarations_batch_fk',
-      columns: [t.batchId],
-      foreignColumns: [batches.id],
+    setFk: foreignKey({
+      name: 'declarations_set_fk',
+      columns: [t.declarationSetId],
+      foreignColumns: [declarationSets.id],
     }).onDelete('cascade'),
 
-    batchBundleUniq: unique('declarations_batch_bundle_uniq').on(t.batchId, t.bundleIndex),
+    setBundleUniq: unique('declarations_set_bundle_uniq').on(t.declarationSetId, t.bundleIndex),
 
-    batchIdx: index('declarations_batch_idx').on(t.batchId),
+    setIdx: index('declarations_set_idx').on(t.declarationSetId),
   }),
 );
 

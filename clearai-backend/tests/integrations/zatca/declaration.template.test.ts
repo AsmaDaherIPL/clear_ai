@@ -12,12 +12,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderDeclarationXml, ZatcaRenderError } from '../../../src/integrations/zatca/declaration/declaration.template.js';
-import type { BatchItemRow } from '../../../src/db/schema.js';
+import type { DeclarationSetItemRow } from '../../../src/db/schema.js';
 
-function row(rowIndex: number, overrides: Partial<Record<string, unknown>> = {}): BatchItemRow {
+function row(rowIndex: number, overrides: Partial<Record<string, unknown>> = {}): DeclarationSetItemRow {
   return {
     id: `item-${rowIndex}`,
-    batchId: 'batch-1',
+    declarationSetId: 'set-1',
     rowIndex,
     canonical: {
       description: 'Cotton t-shirt',
@@ -36,10 +36,10 @@ function row(rowIndex: number, overrides: Partial<Record<string, unknown>> = {})
     error: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-  } as unknown as BatchItemRow;
+  } as unknown as DeclarationSetItemRow;
 }
 
-const baseInput = (items: BatchItemRow[]) => ({
+const baseInput = (items: DeclarationSetItemRow[]) => ({
   tenant: { slug: 'naqel', displayName: 'Naqel', constants: {} },
   bundleStrategy: 'LV_BUNDLED' as const,
   items,

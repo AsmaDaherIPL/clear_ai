@@ -1,12 +1,12 @@
-# ADR — `batch_items.canonical jsonb` (why + how)
+# ADR — `declaration_set_items.canonical jsonb` (why + how)
 
 Status: accepted, 2026-05-05
-Scope: `clearai-backend/src/db/schema/batch-items.ts`, migration `0043_batch_items.sql`
+Scope: `clearai-backend/src/db/schema/declaration-set-items.ts`, migration `0043_declaration_set_items.sql`
 Audience: database engineer reviewing the schema cold
 
 ## TL;DR
 
-`batch_items.canonical` is a **`jsonb NOT NULL`** column that stores the
+`declaration_set_items.canonical` is a **`jsonb NOT NULL`** column that stores the
 mapped, normalised line-item shape — the single payload every downstream
 consumer reads. The verbatim parsed source row lives in a **sibling
 `raw_row jsonb NOT NULL`** column (not nested inside canonical) so
@@ -25,7 +25,7 @@ holds the verbatim parsed source row alongside it.
 For one row of Naqel's commercial-invoice xlsx:
 
 ```jsonc
-// batch_items.canonical
+// declaration_set_items.canonical
 {
   "itemId": "019df51f-...",
   "rowIndex": 2,
@@ -45,7 +45,7 @@ For one row of Naqel's commercial-invoice xlsx:
   // ... the rest of CanonicalLineItem
 }
 
-// batch_items.raw_row  (PII-bearing; column-level GRANT excludes the
+// declaration_set_items.raw_row  (PII-bearing; column-level GRANT excludes the
 // analytics role — see migration 0043)
 {
   "WaybillNo": "394613346",
@@ -68,7 +68,7 @@ declaration renderer, the trace-debug routes) imports those types — there
 is no re-derivation.
 
 Trace consumers that need both columns get them with one row read:
-`SELECT canonical, raw_row FROM batch_items WHERE id = $1`. The
+`SELECT canonical, raw_row FROM declaration_set_items WHERE id = $1`. The
 "raw row sits next to canonical" property survived the split — just at the
 row level, not inside the same jsonb.
 
@@ -86,7 +86,7 @@ Rejected because:
 - **Tenant onboarding becomes a migration.** ClearAI's design treats
   tenants as data, not code (see ADR `folder-structure.md` and the
   `tenants/` ownership notes). Adding Aramex tomorrow shouldn't require
-  `ALTER TABLE batch_items ADD COLUMN ...`. Their xlsx might have a
+  `ALTER TABLE declaration_set_items ADD COLUMN ...`. Their xlsx might have a
   `consigneeNationalID` field Naqel doesn't have, or vice versa.
 - **The canonical shape is a moving target during the build-out.** Reading
   the two real Naqel ZATCA reference XMLs surfaced ~10 fields the v0
@@ -119,10 +119,10 @@ already enforced project-wide by rule 5 of the schema-rules contract.
 
 | Loss | Mitigation |
 |---|---|
-| **Per-field constraints** (e.g. `value_amount >= 0`, `currency_code ~ '^[A-Z]{3}$'`) | The mapper enforces these in TypeScript before insert. `RequiredFieldMissingError` is thrown for missing required fields. The DB enforces shape via `batch_items_canonical_object_chk` (`jsonb_typeof = 'object'`). |
+| **Per-field constraints** (e.g. `value_amount >= 0`, `currency_code ~ '^[A-Z]{3}$'`) | The mapper enforces these in TypeScript before insert. `RequiredFieldMissingError` is thrown for missing required fields. The DB enforces shape via `declaration_set_items_canonical_object_chk` (`jsonb_typeof = 'object'`). |
 | **Per-field FKs** (e.g. couldn't FK `currencyCode` → `iso_4217_codes`) | Currency translation happens via `tenant_lookups` (lookup_type='currency_code') at mapping time. The output value is whatever ZATCA expects (numeric carrier codes like `100` or `120`); a hard FK would be wrong. |
 | **Schema documentation lives in TS, not the DB** | The TypeScript type `CanonicalLineItem` is the source of truth. It's exported from one file, used everywhere, and changes go through code review. The DB is intentionally the dumb persistence layer for this column. |
-| **`SELECT description FROM batch_items WHERE …`** doesn't work | Use `canonical->>'description'` for ad-hoc reads. Where ergonomics matter (admin UI, CSV export of classifications), the route layer projects fields by name. Phase 1 of the pipeline never queries jsonb keys — it operates on the deserialised TS object. |
+| **`SELECT description FROM declaration_set_items WHERE …`** doesn't work | Use `canonical->>'description'` for ad-hoc reads. Where ergonomics matter (admin UI, CSV export of classifications), the route layer projects fields by name. Phase 1 of the pipeline never queries jsonb keys — it operates on the deserialised TS object. |
 
 ## What we did NOT compromise on
 
@@ -133,17 +133,17 @@ the application:
    `CHECK (jsonb_typeof(canonical) = 'object')` and
    `CHECK (jsonb_typeof(raw_row)   = 'object')`. Stops a misbehaving caller
    from inserting a JSON array, scalar, or `null` body into either column.
-2. **Lifecycle** — `batch_items.status` is a CHECK-locked text column
+2. **Lifecycle** — `declaration_set_items.status` is a CHECK-locked text column
    (NOT inside the jsonb). Closed enum:
    `'pending' | 'classifying' | 'succeeded' | 'flagged' | 'blocked' | 'failed'`.
 3. **Final HS code is promoted** — `final_code char(12)` is a top-level
-   column on `batch_items` with a real `FOREIGN KEY` to
+   column on `declaration_set_items` with a real `FOREIGN KEY` to
    `zatca_hs_codes(code) ON DELETE RESTRICT` and a format CHECK
    (`^[0-9]{12}$`). FKs and format checks can't bind to jsonb paths, so
    the data we genuinely need referential integrity on lives outside the
    jsonb. This was an explicit decision documented in the schema rules
    pre-implementation review.
-4. **Ordering invariant** — `batch_items_final_code_status_consistency_chk`
+4. **Ordering invariant** — `declaration_set_items_final_code_status_consistency_chk`
    ensures `final_code IS NOT NULL` iff `status ∈ {'succeeded', 'flagged'}`.
    You cannot have a "pending" item with a final code, or a "succeeded"
    item without one. This invariant straddles two top-level columns; jsonb
@@ -155,13 +155,13 @@ For the DB engineer planning indexes or queries:
 
 | Pattern | How to query | Indexed? |
 |---|---|---|
-| List items in a batch in row order | `SELECT * FROM batch_items WHERE batch_id = $1 ORDER BY row_index` | yes — `batch_items_batch_row_idx` (composite `(batch_id, row_index)`); the ORDER BY is satisfied by the index without a sort step |
-| Lookup all items in a batch (no ordering needed) | `SELECT * FROM batch_items WHERE batch_id = $1` | yes — same composite index via leftmost-prefix |
-| Phase 1 worker claims pending items | `SELECT * FROM batch_items WHERE batch_id = $1 AND status = 'pending'` | yes — `batch_items_pending_idx` (partial, `WHERE status = 'pending'`) |
-| All items resolved to a particular HS code | `SELECT * FROM batch_items WHERE final_code = $1` | yes — `batch_items_final_code_idx` (partial, `WHERE final_code IS NOT NULL`) |
-| Count items per status for a batch | `SELECT status, count(*) FROM batch_items WHERE batch_id = $1 GROUP BY status` | covered by `batch_items_batch_row_idx` + grouping over the in-batch result |
-| Search canonical text (e.g. all items where description contains 'Dresses') | `SELECT * FROM batch_items WHERE canonical->>'description' ILIKE '%Dresses%'` | **not indexed today** — see "Future indexing" below |
-| Reach into raw row (e.g. all items with WaybillNo `394613346`) | `SELECT * FROM batch_items WHERE raw_row->>'WaybillNo' = '394613346'` | **not indexed today** — see "Future indexing" below |
+| List items in a batch in row order | `SELECT * FROM declaration_set_items WHERE declaration_set_id = $1 ORDER BY row_index` | yes — `declaration_set_items_set_row_idx` (composite `(declaration_set_id, row_index)`); the ORDER BY is satisfied by the index without a sort step |
+| Lookup all items in a batch (no ordering needed) | `SELECT * FROM declaration_set_items WHERE declaration_set_id = $1` | yes — same composite index via leftmost-prefix |
+| Phase 1 worker claims pending items | `SELECT * FROM declaration_set_items WHERE declaration_set_id = $1 AND status = 'pending'` | yes — `declaration_set_items_pending_idx` (partial, `WHERE status = 'pending'`) |
+| All items resolved to a particular HS code | `SELECT * FROM declaration_set_items WHERE final_code = $1` | yes — `declaration_set_items_final_code_idx` (partial, `WHERE final_code IS NOT NULL`) |
+| Count items per status for a batch | `SELECT status, count(*) FROM declaration_set_items WHERE declaration_set_id = $1 GROUP BY status` | covered by `declaration_set_items_set_row_idx` + grouping over the in-batch result |
+| Search canonical text (e.g. all items where description contains 'Dresses') | `SELECT * FROM declaration_set_items WHERE canonical->>'description' ILIKE '%Dresses%'` | **not indexed today** — see "Future indexing" below |
+| Reach into raw row (e.g. all items with WaybillNo `394613346`) | `SELECT * FROM declaration_set_items WHERE raw_row->>'WaybillNo' = '394613346'` | **not indexed today** — see "Future indexing" below |
 
 ## Future indexing (only when we measure a need)
 
@@ -169,11 +169,11 @@ Per the schema-rules contract, we don't add indexes "just in case." If a
 real query path emerges, candidates are:
 
 - **GIN on `canonical`** for ad-hoc key/value lookups:
-  `CREATE INDEX batch_items_canonical_gin ON batch_items USING gin (canonical jsonb_path_ops);`
+  `CREATE INDEX declaration_set_items_canonical_gin ON declaration_set_items USING gin (canonical jsonb_path_ops);`
   Pays for itself if we run "find all items with merchant_hs_code = X"
   across many batches.
 - **Expression indexes for high-traffic single keys**:
-  `CREATE INDEX ... ON batch_items ((canonical->>'merchantHsCode'));`
+  `CREATE INDEX ... ON declaration_set_items ((canonical->>'merchantHsCode'));`
   Cheaper than full GIN if we only care about one or two keys.
 - **Promotion of a hot key to a top-level column** (like we already did
   with `final_code`). Worth it when (a) we want an FK or NOT NULL
@@ -183,26 +183,26 @@ real query path emerges, candidates are:
 
 ## Audit + retention
 
-PII lives exclusively in `batch_items.raw_row` (consignee names, national
+PII lives exclusively in `declaration_set_items.raw_row` (consignee names, national
 IDs, phone numbers from the source upload). The split of `raw_row` into
 its own column is what makes operational PII handling tractable:
 
 - **Column-level GRANTs do the heavy lifting.** Migration 0043 grants the
-  application role full access on `batch_items` but excludes `raw_row`
+  application role full access on `declaration_set_items` but excludes `raw_row`
   from the analytics role (`clearai_readonly`) — mirrors the column-level
   grants in `0019_role_separation.sql`. Analytics queries that select
   `canonical, status, final_code, ...` work; any query that touches
   `raw_row` from the analytics role fails at the planner.
 - **Future redaction operates on the `raw_row` column directly via
   column-level GRANTs and an in-place UPDATE, with no parsing of nested
-  jsonb required.** A retention sweep can run `UPDATE batch_items SET
+  jsonb required.** A retention sweep can run `UPDATE declaration_set_items SET
   raw_row = '{}'::jsonb WHERE created_at < now() - interval '90 days'`
   without touching `canonical`, and Phase 1 / Phase 2 keep working
   unchanged because they read the canonicalised fields, not raw cells.
 - **The redaction pipeline that scrubs `classification_events.request`
   (see `0020_pii_redaction.sql` + `src/common/logging/redact.ts`) is
   separate.** That pipeline targets free-text classification descriptions
-  flowing through the API; `batch_items.raw_row` carries structured row
+  flowing through the API; `declaration_set_items.raw_row` carries structured row
   cells from a tenant's commercial-invoice file. Different shape, different
   redaction strategy — currently a column-level access gate, not a
   pre-write redactor.

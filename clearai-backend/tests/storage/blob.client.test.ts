@@ -83,11 +83,11 @@ describe('blob.paths', () => {
     const { inputKey, classificationsResultKey, declarationKey } = await import(
       '../../src/storage/blob.paths.js'
     );
-    expect(inputKey('abc', 'csv')).toBe('batches/abc/input.csv');
-    expect(inputKey('abc', 'xlsx')).toBe('batches/abc/input.xlsx');
-    expect(classificationsResultKey('abc')).toBe('batches/abc/result.json');
-    expect(declarationKey('abc', 0)).toBe('batches/abc/declarations/0000.xml');
-    expect(declarationKey('abc', 17)).toBe('batches/abc/declarations/0017.xml');
+    expect(inputKey('abc', 'csv')).toBe('declaration-sets/abc/input.csv');
+    expect(inputKey('abc', 'xlsx')).toBe('declaration-sets/abc/input.xlsx');
+    expect(classificationsResultKey('abc')).toBe('declaration-sets/abc/result.json');
+    expect(declarationKey('abc', 0)).toBe('declaration-sets/abc/declarations/0000.xml');
+    expect(declarationKey('abc', 17)).toBe('declaration-sets/abc/declarations/0017.xml');
   });
 
   it('rejects negative bundle indices', async () => {

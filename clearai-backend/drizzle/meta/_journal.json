@@ -300,14 +300,14 @@
       "idx": 42,
       "version": "7",
       "when": 1777214200000,
-      "tag": "0042_batches",
+      "tag": "0042_declaration_sets",
       "breakpoints": true
     },
     {
       "idx": 43,
       "version": "7",
       "when": 1777214300000,
-      "tag": "0043_batch_items",
+      "tag": "0043_declaration_set_items",
       "breakpoints": true
     },
     {

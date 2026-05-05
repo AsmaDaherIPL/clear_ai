@@ -10,7 +10,7 @@
  * Pure function — no I/O, no DB. Input is the rows already classified
  * (status ∈ {succeeded, flagged}); the renderer turns each bundle into XML.
  */
-import type { BatchItemRow } from '../../../db/schema.js';
+import type { DeclarationSetItemRow } from '../../../db/schema.js';
 import type { BundleInput } from './declaration.types.js';
 
 export interface PartitionOpts {
@@ -19,7 +19,7 @@ export interface PartitionOpts {
 }
 
 export function partitionHvLv(
-  items: ReadonlyArray<BatchItemRow>,
+  items: ReadonlyArray<DeclarationSetItemRow>,
   opts: PartitionOpts,
 ): BundleInput[] {
   if (!Number.isFinite(opts.hvThresholdSar) || opts.hvThresholdSar < 0) {
@@ -29,8 +29,8 @@ export function partitionHvLv(
     throw new RangeError(`bundleSize must be a positive integer, got ${opts.bundleSize}`);
   }
 
-  const hv: BatchItemRow[] = [];
-  const lv: BatchItemRow[] = [];
+  const hv: DeclarationSetItemRow[] = [];
+  const lv: DeclarationSetItemRow[] = [];
   for (const item of items) {
     const value = readValueAmount(item);
     if (value >= opts.hvThresholdSar) hv.push(item);
@@ -52,7 +52,7 @@ export function partitionHvLv(
   return bundles;
 }
 
-function readValueAmount(row: BatchItemRow): number {
+function readValueAmount(row: DeclarationSetItemRow): number {
   const v = row.canonical.valueAmount;
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 }

@@ -139,7 +139,6 @@ export function mapRowToCanonical(
     tenantSlug: tenant.slug,
 
     description: get('description') ?? '',
-    descriptionAr: get('descriptionAr'),
     merchantHsCode: get('merchantHsCode'),
     merchantSku: get('merchantSku'),
 

@@ -1,5 +1,5 @@
 /**
- * batch_items — one row per parsed line item under a batch.
+ * declaration_set_items — one row per parsed line item under a declaration_set.
  *
  * Phase 1 (classification) flow:
  *   pending -> claimNextItem() -> classifying
@@ -17,17 +17,17 @@
  * classification fails loudly rather than silently orphaning the result.
  *
  * Related tables:
- *   • batches         — FK target (batch_id -> batches.id) ON DELETE CASCADE
- *   • zatca_hs_codes  — FK target (final_code -> zatca_hs_codes.code) ON DELETE RESTRICT
+ *   • declaration_sets — FK target (declaration_set_id -> declaration_sets.id) ON DELETE CASCADE
+ *   • zatca_hs_codes   — FK target (final_code -> zatca_hs_codes.code) ON DELETE RESTRICT
  */
 import { pgTable, uuid, integer, varchar, char, jsonb, text, timestamp, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { batches } from './batches.js';
+import { declarationSets } from './declaration-sets.js';
 import { hsCodes } from './zatca-hs-codes.js';
 import type { CanonicalLineItem, RawRow } from '../../modules/tenants/tenant-config.types.js';
 
-/** Mirror of batch_items_status_chk. */
-export type BatchItemStatus =
+/** Mirror of declaration_set_items_status_chk. */
+export type DeclarationSetItemStatus =
   | 'pending'
   | 'classifying'
   | 'succeeded'
@@ -35,13 +35,13 @@ export type BatchItemStatus =
   | 'blocked'
   | 'failed';
 
-export const batchItems = pgTable(
-  'batch_items',
+export const declarationSetItems = pgTable(
+  'declaration_set_items',
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
 
-    /** Parent batch. FK -> batches(id) ON DELETE CASCADE. */
-    batchId: uuid('batch_id').notNull(),
+    /** Parent declaration_set. FK -> declaration_sets(id) ON DELETE CASCADE. */
+    declarationSetId: uuid('declaration_set_id').notNull(),
 
     /** 1-based row position from the source file (post-header). */
     rowIndex: integer('row_index').notNull(),
@@ -56,12 +56,12 @@ export const batchItems = pgTable(
     rawRow: jsonb('raw_row').notNull().$type<RawRow>(),
 
     /** Phase 1 lifecycle; CHECK-locked. */
-    status: varchar('status', { length: 32 }).notNull().default('pending').$type<BatchItemStatus>(),
+    status: varchar('status', { length: 32 }).notNull().default('pending').$type<DeclarationSetItemStatus>(),
 
     /**
      * Final 12-digit ZATCA HS code from dispatch().finalCode. NULL until the
      * item reaches 'succeeded' or 'flagged' — enforced by
-     * batch_items_final_code_status_consistency_chk.
+     * declaration_set_items_final_code_status_consistency_chk.
      * FK -> zatca_hs_codes(code) ON DELETE RESTRICT.
      */
     finalCode: char('final_code', { length: 12 }),
@@ -76,32 +76,32 @@ export const batchItems = pgTable(
     error: text('error'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    /** Auto-bumped by batch_items_touch_updated_at_trg. */
+    /** Auto-bumped by declaration_set_items_touch_updated_at_trg. */
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    batchFk: foreignKey({
-      name: 'batch_items_batch_fk',
-      columns: [t.batchId],
-      foreignColumns: [batches.id],
+    setFk: foreignKey({
+      name: 'declaration_set_items_set_fk',
+      columns: [t.declarationSetId],
+      foreignColumns: [declarationSets.id],
     }).onDelete('cascade'),
 
     finalCodeFk: foreignKey({
-      name: 'batch_items_final_code_fk',
+      name: 'declaration_set_items_final_code_fk',
       columns: [t.finalCode],
       foreignColumns: [hsCodes.code],
     }).onDelete('restrict'),
 
-    batchRowUniq: unique('batch_items_batch_row_uniq').on(t.batchId, t.rowIndex),
+    setRowUniq: unique('declaration_set_items_set_row_uniq').on(t.declarationSetId, t.rowIndex),
 
     /**
-     * Composite (batch_id, row_index) index. Covers WHERE batch_id = $1
-     * lookups via leftmost-prefix AND satisfies ORDER BY row_index without
-     * an in-memory sort. Replaces the prior single-column (batch_id) index.
+     * Composite (declaration_set_id, row_index) index. Covers
+     * WHERE declaration_set_id = $1 lookups via leftmost-prefix AND
+     * satisfies ORDER BY row_index without an in-memory sort.
      */
-    batchRowIdx: index('batch_items_batch_row_idx').on(t.batchId, t.rowIndex),
+    setRowIdx: index('declaration_set_items_set_row_idx').on(t.declarationSetId, t.rowIndex),
   }),
 );
 
-export type BatchItemRow = typeof batchItems.$inferSelect;
-export type NewBatchItemRow = typeof batchItems.$inferInsert;
+export type DeclarationSetItemRow = typeof declarationSetItems.$inferSelect;
+export type NewDeclarationSetItemRow = typeof declarationSetItems.$inferInsert;

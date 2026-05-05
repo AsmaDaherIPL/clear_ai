@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { partitionHvLv } from '../../../src/integrations/zatca/declaration/declaration.bundler.js';
-import type { BatchItemRow } from '../../../src/db/schema.js';
+import type { DeclarationSetItemRow } from '../../../src/db/schema.js';
 
-function row(rowIndex: number, valueAmount: number): BatchItemRow {
+function row(rowIndex: number, valueAmount: number): DeclarationSetItemRow {
   return {
     id: `item-${rowIndex}`,
-    batchId: 'batch-1',
+    declarationSetId: 'set-1',
     rowIndex,
     canonical: { valueAmount } as Record<string, unknown>,
     status: 'succeeded',
@@ -15,7 +15,7 @@ function row(rowIndex: number, valueAmount: number): BatchItemRow {
     error: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-  } as unknown as BatchItemRow;
+  } as unknown as DeclarationSetItemRow;
 }
 
 describe('partitionHvLv', () => {

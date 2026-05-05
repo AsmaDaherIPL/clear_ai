@@ -20,7 +20,6 @@ function tenantConfig(): TenantConfig {
     active: true,
     mappings: Object.freeze([
       { sourceColumn: 'Description', canonicalField: 'description', required: true, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'Description Ar', canonicalField: 'descriptionAr', required: false, transform: 'trim', defaultValue: null },
       { sourceColumn: 'HS Code', canonicalField: 'merchantHsCode', required: false, transform: 'trim', defaultValue: null },
       { sourceColumn: 'SKU', canonicalField: 'merchantSku', required: false, transform: 'trim', defaultValue: null },
       { sourceColumn: 'Value', canonicalField: 'valueAmount', required: true, transform: null, defaultValue: null },
@@ -48,7 +47,6 @@ function tenantConfig(): TenantConfig {
 function happyRow(overrides: Partial<Record<string, string>> = {}): Record<string, string> {
   return {
     Description: '  Cotton t-shirt  ',
-    'Description Ar': 'تيشيرت قطني',
     'HS Code': '610910',
     SKU: 'TS-001',
     Value: '125.50',
@@ -87,7 +85,6 @@ describe('mapRowToCanonical — happy path', () => {
     expect(item.rowIndex).toBe(1);
     expect(item.tenantSlug).toBe('naqel');
     expect(item.description).toBe('Cotton t-shirt'); // trim
-    expect(item.descriptionAr).toBe('تيشيرت قطني');
     expect(item.merchantHsCode).toBe('610910');
     expect(item.valueAmount).toBe(125.5);
     expect(item.currencyCode).toBe('USD'); // uppercase + lookup pass-through
@@ -103,9 +100,8 @@ describe('mapRowToCanonical — happy path', () => {
   });
 
   it('returns null for nullable absent cells', () => {
-    const row = happyRow({ 'Description Ar': '', SKU: '', 'Gross Weight': '' });
+    const row = happyRow({ SKU: '', 'Gross Weight': '' });
     const item = mapRowToCanonical(row, tenantConfig(), 2, lookups);
-    expect(item.descriptionAr).toBeNull();
     expect(item.merchantSku).toBeNull();
     expect(item.grossWeightKg).toBeNull();
   });
