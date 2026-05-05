@@ -9,6 +9,7 @@ import ProcessingSteps from './ProcessingSteps';
 import ResultSingle from './ResultSingle';
 import ResultBatch from './ResultBatch';
 import Footer from './Footer';
+import { useAuthState, LoginCard } from './SignInGate';
 import { useT } from '@/lib/i18n';
 import { api, ApiError, type DescribeResponse } from '@/lib/api';
 
@@ -32,6 +33,11 @@ const initialModeState: ModeState = {
 
 export default function ClassifyApp() {
   const t = useT();
+  // Auth state drives the composer/login swap. The page chrome
+  // (TopBar, Hero, Footer) renders the same regardless — only the
+  // middle slot changes between the login card (unauthenticated)
+  // and the composer + result region (authenticated).
+  const authState = useAuthState();
   const [mode, setMode] = useState<ClassifyMode>('generate');
 
   const [modeStates, setModeStates] = useState<Record<ClassifyMode, ModeState>>({
@@ -197,40 +203,61 @@ export default function ClassifyApp() {
         <div className="max-w-[760px] mx-auto">
           <Hero />
 
-          <div className="flex flex-col items-center">
-            <ModeTabs mode={mode} onModeChange={setMode} />
-            <Composer
-              mode={mode}
-              onSubmit={handleSubmit}
-              loading={phase === 'classifying'}
-              className="w-full"
-            />
-          </div>
+          {/*
+            Centre slot. While MSAL is initialising we render an
+            invisible spacer matched to the composer's roughly 200px
+            footprint so the page doesn't jump when the auth state
+            resolves. Unauthenticated → LoginCard. Authenticated →
+            ModeTabs + Composer + processing steps + error region.
+          */}
+          {authState === 'initialising' && (
+            <div aria-hidden style={{ minHeight: '200px' }} />
+          )}
 
-          {/* Anchor wrappers stay mounted across phase transitions so refs are stable. */}
-          <div ref={stepsRef} className="scroll-mt-20">
-            <ProcessingSteps
-              visible={phase === 'classifying'}
-              activeStep={activeStep}
-              className="mt-6"
-            />
-          </div>
+          {authState === 'unauthenticated' && (
+            <div className="mt-2">
+              <LoginCard />
+            </div>
+          )}
 
-          <div ref={errorRef} className="scroll-mt-20">
-            {phase === 'error' && errorMessage && (
-              <div
-                role="alert"
-                className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
-              >
-                {errorMessage}
+          {authState === 'authenticated' && (
+            <>
+              <div className="flex flex-col items-center">
+                <ModeTabs mode={mode} onModeChange={setMode} />
+                <Composer
+                  mode={mode}
+                  onSubmit={handleSubmit}
+                  loading={phase === 'classifying'}
+                  className="w-full"
+                />
               </div>
-            )}
-          </div>
+
+              {/* Anchor wrappers stay mounted across phase transitions so refs are stable. */}
+              <div ref={stepsRef} className="scroll-mt-20">
+                <ProcessingSteps
+                  visible={phase === 'classifying'}
+                  activeStep={activeStep}
+                  className="mt-6"
+                />
+              </div>
+
+              <div ref={errorRef} className="scroll-mt-20">
+                {phase === 'error' && errorMessage && (
+                  <div
+                    role="alert"
+                    className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
+                  >
+                    {errorMessage}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Result lives outside the 760 inner wrapper so it breathes at full 1180px. */}
         <div ref={resultRef} className="scroll-mt-20">
-          {phase === 'result' && (
+          {authState === 'authenticated' && phase === 'result' && (
             <div className="mt-6">
               <ResultSingle
                 visible={mode === 'generate' || mode === 'expand'}

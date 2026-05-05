@@ -91,7 +91,9 @@ function getMsal(): { client: PublicClientApplication; apiScope: string } {
       storeAuthStateInCookie: false,
     },
   });
-  return { client: _msal, apiScope: _apiScope };
+  // Local narrowing — TS loses the non-null tracking through the
+  // assignment, so capture into a const after both writes.
+  return { client: _msal, apiScope: API_SCOPE };
 }
 
 let initPromise: Promise<void> | null = null;
