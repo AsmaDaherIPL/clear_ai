@@ -37,7 +37,7 @@ proposing a change.
 | [0003](0003-two-phase-batch-processing.md) | Two-phase batch processing with mode default | accepted, 2026-05-04 | backend batches module |
 | [0004](0004-uniform-scrutiny-pipeline.md) | Every classification path goes through the same scrutiny pipeline | accepted, 2026-05-05 | dispatch + hs-classification + batches |
 | [0005](0005-embedder-is-swappable.md) | The embedder is a swappable component, not a baked-in dependency | accepted, 2026-05-05 | inference/embeddings + inference/retrieval |
-| 0006 | Two-track classification with reconciliation | drafting | pipeline / dispatch |
+| [0006](0006-two-track-classification.md) | Two-track classification with reconciliation | accepted, 2026-05-05 | pipeline / dispatch |
 | [0007](0007-pipeline-shaped-folder-structure.md) | Backend folder structure follows the classification pipeline stages | accepted, 2026-05-05 | clearai-backend/src/ |
 
 ## Companion notes
