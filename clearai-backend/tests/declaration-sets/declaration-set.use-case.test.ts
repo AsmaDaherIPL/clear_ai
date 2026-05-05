@@ -44,15 +44,21 @@ beforeAll(async () => {
     active: true,
   });
 
-  // Minimum-viable mapping set covering all CANONICAL_REQUIRED_FIELDS.
+  // Mapping set covering CANONICAL_REQUIRED_FIELDS. Uses Naqel-style headers.
   const minMappings = [
     { sourceColumn: 'Description', canonicalField: 'description', required: true },
-    { sourceColumn: 'Value', canonicalField: 'valueAmount', required: true },
+    { sourceColumn: 'WaybillNo', canonicalField: 'waybillNo', required: true },
+    { sourceColumn: 'Amount', canonicalField: 'valueAmount', required: true },
     { sourceColumn: 'Currency', canonicalField: 'currencyCode', required: true, transform: 'uppercase' },
     { sourceColumn: 'Quantity', canonicalField: 'quantity', required: true },
-    { sourceColumn: 'UOM', canonicalField: 'uom', required: true, transform: 'uppercase' },
-    { sourceColumn: 'Net Weight', canonicalField: 'netWeightKg', required: true },
-    { sourceColumn: 'Country of Origin', canonicalField: 'countryOfOrigin', required: true, transform: 'uppercase' },
+    { sourceColumn: 'UnitType', canonicalField: 'uom', required: true, transform: 'uppercase' },
+    { sourceColumn: 'weight', canonicalField: 'netWeightKg', required: true },
+    { sourceColumn: 'ClientID', canonicalField: 'clientId', required: true },
+    { sourceColumn: 'CountryofManufacture', canonicalField: 'countryOfOrigin', required: true, transform: 'uppercase' },
+    { sourceColumn: 'DestinationStationID', canonicalField: 'destinationStationId', required: true },
+    { sourceColumn: 'ConsigneeName', canonicalField: 'consigneeName', required: true },
+    { sourceColumn: 'ConsigneeNationalID', canonicalField: 'consigneeNationalId', required: true },
+    { sourceColumn: 'Mobile', canonicalField: 'consigneePhone', required: true },
   ] as const;
 
   for (const m of minMappings) {
@@ -82,14 +88,16 @@ beforeEach(async () => {
 
 const passDispatch: DispatchFn = async () => ({
   finalCode: '010121000000',
-  sanityVerdict: 'PASS',
+  goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS',
   trace: { pathTaken: 'agree', stages: [] },
 });
 
 const CSV = Buffer.from(
-  ['Description,Value,Currency,Quantity,UOM,Net Weight,Country of Origin',
-   'Cotton t-shirt,125.50,usd,10,pcs,2.5,in',
-   'Wool sweater,250.00,usd,5,pcs,3.5,it'].join('\n') + '\n',
+  [
+    'WaybillNo,Description,Amount,Currency,Quantity,UnitType,weight,ClientID,CountryofManufacture,DestinationStationID,ConsigneeName,ConsigneeNationalID,Mobile',
+    '279274301,Cotton t-shirt,125.50,SAR,10,piece,2.5,9019628,SA,501,Roshan,2591527102,966565397861',
+    '394613346,Dresses,1080,SAR,5,piece,3.5,9022381,GB,503,Vogacloset,1069595681,966500026683',
+  ].join('\n') + '\n',
   'utf8',
 );
 

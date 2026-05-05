@@ -50,25 +50,20 @@ function canonical(rowIndex: number): CanonicalLineItem {
     tenantId: '00000000-0000-0000-0000-000000000000',
     tenantSlug: TEST_TENANT_SLUG,
     description: `Item ${rowIndex}`,
+    waybillNo: `WB-${rowIndex}`,
     merchantHsCode: null,
     merchantSku: null,
     valueAmount: 100,
-    currencyCode: 'USD',
+    currencyCode: 'SAR',
     quantity: 1,
-    uom: 'EA',
+    uom: 'PIECE',
     netWeightKg: 1,
-    grossWeightKg: null,
+    clientId: '9000000',
     countryOfOrigin: 'CN',
-    sourceCountry: null,
-    sourcePortCode: null,
-    regPortCode: null,
-    shipperName: null,
-    shipperAddress: null,
-    consigneeName: null,
-    consigneeAddress: null,
-    consigneeCity: null,
-    invoiceNumber: null,
-    invoiceDate: null,
+    destinationStationId: '501',
+    consigneeName: 'Test Consignee',
+    consigneeNationalId: '1069595681',
+    consigneePhone: '966500000000',
   };
 }
 
@@ -103,7 +98,7 @@ describe('runClassificationPhase', () => {
     const { declarationSetId } = await seedDeclarationSet(3);
     const dispatch: DispatchFn = async (item) => ({
       finalCode: '010121000000',
-      sanityVerdict: 'PASS',
+      goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS',
       trace: { pathTaken: 'agree', stages: [], meta: { rowIndex: item.rowIndex } },
     });
 
@@ -128,8 +123,8 @@ describe('runClassificationPhase', () => {
     let n = 0;
     const dispatch: DispatchFn = async () => {
       n++;
-      if (n === 1) return { finalCode: '010121000000', sanityVerdict: 'FLAG', trace: { pathTaken: 'flag', stages: [] } };
-      if (n === 2) return { finalCode: '010121000000', sanityVerdict: 'BLOCK', trace: { pathTaken: 'block', stages: [] } };
+      if (n === 1) return { finalCode: '010121000000', goodsDescriptionAr: 'فستان', sanityVerdict: 'FLAG', trace: { pathTaken: 'flag', stages: [] } };
+      if (n === 2) return { finalCode: '010121000000', goodsDescriptionAr: 'فستان', sanityVerdict: 'BLOCK', trace: { pathTaken: 'block', stages: [] } };
       throw new Error('boom');
     };
 
@@ -160,7 +155,7 @@ describe('runClassificationPhase', () => {
       max = Math.max(max, inFlight);
       await new Promise((r) => setTimeout(r, 5));
       inFlight--;
-      return { finalCode: '010121000000', sanityVerdict: 'PASS', trace: { pathTaken: 'agree', stages: [] } };
+      return { finalCode: '010121000000', goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS', trace: { pathTaken: 'agree', stages: [] } };
     };
     await runClassificationPhase(declarationSetId, { dispatch, concurrency: 2 });
     expect(max).toBeLessThanOrEqual(2);
@@ -187,7 +182,7 @@ describe('runClassificationPhase', () => {
     });
     const dispatch: DispatchFn = async () => ({
       finalCode: '010121000000',
-      sanityVerdict: 'PASS',
+      goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS',
       trace: { pathTaken: 'agree', stages: [] },
     });
     const summary = await runClassificationPhase(declarationSetId, { dispatch });
@@ -199,7 +194,7 @@ describe('runClassificationPhase', () => {
 
   it('handles empty declaration_sets without errors', async () => {
     const { declarationSetId } = await seedDeclarationSet(0);
-    const dispatch: DispatchFn = async () => ({ finalCode: 'x', sanityVerdict: 'PASS', trace: { pathTaken: '', stages: [] } });
+    const dispatch: DispatchFn = async () => ({ finalCode: 'x', goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS', trace: { pathTaken: '', stages: [] } });
     const summary = await runClassificationPhase(declarationSetId, { dispatch });
     expect(summary.total).toBe(0);
     expect(and).toBeTruthy(); // keep the import used

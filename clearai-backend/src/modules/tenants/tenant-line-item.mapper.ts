@@ -120,16 +120,17 @@ export function mapRowToCanonical(
   const num = (field: CanonicalField): number => {
     const s = get(field);
     if (s === null) {
-      // CANONICAL_REQUIRED_FIELDS contains every numeric "must-have"; this is
-      // defence-in-depth for non-required numerics handled below.
       throw new RequiredFieldMissingError(tenant.slug, rowIndex, field);
     }
     return toNumber(field, s);
   };
-  const numNullable = (field: CanonicalField): number | null => {
+
+  const requireString = (field: CanonicalField): string => {
     const s = get(field);
-    if (s === null) return null;
-    return toNumber(field, s);
+    if (s === null || s === '') {
+      throw new RequiredFieldMissingError(tenant.slug, rowIndex, field);
+    }
+    return s;
   };
 
   const item: CanonicalLineItem = {
@@ -138,48 +139,29 @@ export function mapRowToCanonical(
     tenantId: tenant.id,
     tenantSlug: tenant.slug,
 
-    description: get('description') ?? '',
+    description: requireString('description'),
+    waybillNo: requireString('waybillNo'),
     merchantHsCode: get('merchantHsCode'),
     merchantSku: get('merchantSku'),
 
     valueAmount: num('valueAmount'),
-    currencyCode: get('currencyCode') ?? '',
+    currencyCode: requireString('currencyCode'),
     quantity: num('quantity'),
-    uom: get('uom') ?? '',
+    uom: requireString('uom'),
     netWeightKg: num('netWeightKg'),
-    grossWeightKg: numNullable('grossWeightKg'),
 
-    countryOfOrigin: get('countryOfOrigin') ?? '',
-    sourceCountry: get('sourceCountry'),
-    sourcePortCode: get('sourcePortCode'),
-    regPortCode: get('regPortCode'),
+    clientId: requireString('clientId'),
+    countryOfOrigin: requireString('countryOfOrigin'),
 
-    shipperName: get('shipperName'),
-    shipperAddress: get('shipperAddress'),
-    consigneeName: get('consigneeName'),
-    consigneeAddress: get('consigneeAddress'),
-    consigneeCity: get('consigneeCity'),
+    destinationStationId: requireString('destinationStationId'),
 
-    invoiceNumber: get('invoiceNumber'),
-    invoiceDate: get('invoiceDate'),
+    consigneeName: requireString('consigneeName'),
+    consigneeNationalId: requireString('consigneeNationalId'),
+    consigneePhone: requireString('consigneePhone'),
   };
 
-  // Final defence-in-depth: required string fields must not be empty.
-  if (item.description === '') {
-    throw new RequiredFieldMissingError(tenant.slug, rowIndex, 'description');
-  }
-  if (item.currencyCode === '') {
-    throw new RequiredFieldMissingError(tenant.slug, rowIndex, 'currencyCode');
-  }
-  if (item.uom === '') {
-    throw new RequiredFieldMissingError(tenant.slug, rowIndex, 'uom');
-  }
-  if (item.countryOfOrigin === '') {
-    throw new RequiredFieldMissingError(tenant.slug, rowIndex, 'countryOfOrigin');
-  }
   // Sanity: numeric fields must be finite.
   for (const f of CANONICAL_NUMERIC_FIELDS) {
-    if (f === 'grossWeightKg') continue; // nullable
     const v = (item as unknown as Record<string, unknown>)[f];
     if (typeof v !== 'number' || !Number.isFinite(v)) {
       throw new RequiredFieldMissingError(tenant.slug, rowIndex, f);

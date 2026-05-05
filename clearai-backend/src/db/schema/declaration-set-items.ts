@@ -66,6 +66,14 @@ export const declarationSetItems = pgTable(
      */
     finalCode: char('final_code', { length: 12 }),
 
+    /**
+     * Arabic goods description from dispatch().goodsDescriptionAr — feeds
+     * `<deccm:goodsDescription>` in the rendered ZATCA Declaration envelope.
+     * NULL until the item reaches 'succeeded' or 'flagged' — enforced by
+     * declaration_set_items_goods_description_ar_status_consistency_chk.
+     */
+    goodsDescriptionAr: text('goods_description_ar'),
+
     /** Full dispatch() result payload (path, alternates, signals). Opaque jsonb. */
     classificationResult: jsonb('classification_result').$type<Record<string, unknown>>(),
 

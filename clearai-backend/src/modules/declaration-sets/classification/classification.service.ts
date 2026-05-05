@@ -72,11 +72,12 @@ export async function runClassificationPhase(
           const result: DispatchResult = await opts.dispatch(item);
           const outcome = classifyOutcome(result.sanityVerdict);
           counts[outcome]++;
+          const succeededOrFlagged = outcome === 'succeeded' || outcome === 'flagged';
           await recordItemResult({
             itemId: row.id,
             outcome,
-            finalCode:
-              outcome === 'succeeded' || outcome === 'flagged' ? result.finalCode : null,
+            finalCode: succeededOrFlagged ? result.finalCode : null,
+            goodsDescriptionAr: succeededOrFlagged ? result.goodsDescriptionAr : null,
             classificationResult: serialiseResult(result),
             trace: result.trace,
             error: null,
@@ -87,6 +88,7 @@ export async function runClassificationPhase(
             itemId: row.id,
             outcome: 'failed',
             finalCode: null,
+            goodsDescriptionAr: null,
             classificationResult: null,
             trace: null,
             error: truncateError(err),
