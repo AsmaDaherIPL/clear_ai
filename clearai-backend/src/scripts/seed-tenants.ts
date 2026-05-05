@@ -26,6 +26,8 @@ interface SeedMapping {
   required: boolean;
   transform: TransformKind;
   defaultValue: string | null;
+  /** Optional fallback header chain (per migration 0047). */
+  fallbackColumns?: string[];
 }
 
 const NAQEL_SLUG = 'naqel';
@@ -65,10 +67,17 @@ const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
   { sourceColumn: 'ClientID',              canonicalField: 'clientId',             required: true,  transform: 'trim',      defaultValue: null },
   { sourceColumn: 'CountryofManufacture',  canonicalField: 'countryOfOrigin',      required: true,  transform: 'uppercase', defaultValue: null },
   { sourceColumn: 'DestinationStationID',  canonicalField: 'destinationStationId', required: true,  transform: 'trim',      defaultValue: null },
-  // Consignee.
-  { sourceColumn: 'ConsigneeName',         canonicalField: 'consigneeName',        required: true,  transform: 'trim',      defaultValue: null },
+  // Consignee. Fallback chains support Naqel's two header variants:
+  //   light-example:  ConsigneeName, Mobile
+  //   alt sample:     Consignee,     MobileNo
+  // Both land on the same canonical field; mapper takes the first non-empty.
+  { sourceColumn: 'ConsigneeName',         canonicalField: 'consigneeName',        required: true,  transform: 'trim',      defaultValue: null, fallbackColumns: ['Consignee'] },
   { sourceColumn: 'ConsigneeNationalID',   canonicalField: 'consigneeNationalId',  required: true,  transform: 'trim',      defaultValue: null },
-  { sourceColumn: 'Mobile',                canonicalField: 'consigneePhone',       required: true,  transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'Mobile',                canonicalField: 'consigneePhone',       required: true,  transform: 'trim',      defaultValue: null, fallbackColumns: ['MobileNo', 'PhoneNumber', 'Phone'] },
+  // Document refs.
+  // InvoiceDate is in the alt sample header set; light-example doesn't carry
+  // it. Mapped optional — renderer falls back to render-time UTC when null.
+  { sourceColumn: 'InvoiceDate',           canonicalField: 'invoiceDate',          required: false, transform: 'trim',      defaultValue: null },
 ];
 
 /**
@@ -133,8 +142,6 @@ async function main(): Promise<void> {
   const tenantRow = await upsertTenant({
     slug: NAQEL_SLUG,
     displayName: 'Naqel',
-    bundleSize: 99,
-    hvThresholdSar: '1000.00',
     active: true,
   });
   console.log(`tenants  upsert ${tenantRow.slug} (${tenantRow.id}) active=${tenantRow.active}`);
@@ -149,6 +156,7 @@ async function main(): Promise<void> {
       required: m.required,
       transform: m.transform,
       defaultValue: m.defaultValue,
+      fallbackColumns: m.fallbackColumns ?? [],
     });
   }
   console.log(`mappings inserted ${NAQEL_MAPPINGS.length} rows for ${NAQEL_SLUG}`);

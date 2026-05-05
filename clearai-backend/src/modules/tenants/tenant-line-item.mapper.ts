@@ -22,13 +22,28 @@ export interface MapperLookups {
   byType: ReadonlyMap<string, ReadonlyMap<string, string>>;
 }
 
-/** Cell value after transform + default substitution. Empty string means "absent". */
+/**
+ * Read a single cell with the fallback chain.
+ *   • Try sourceColumn first.
+ *   • If empty, walk fallbackColumns in order; first non-empty wins.
+ *   • If still empty AND defaultValue is set, use defaultValue.
+ *   • Apply transform on the resolved value.
+ *
+ * Returns '' to signal "absent after every fallback exhausted".
+ */
 function readCell(row: Record<string, string>, rule: ColumnMappingRule): string {
-  const raw = row[rule.sourceColumn];
-  let v: string = raw === undefined || raw === null ? '' : String(raw);
+  const tryColumn = (col: string): string => {
+    const raw = row[col];
+    return raw === undefined || raw === null ? '' : String(raw).trim();
+  };
 
-  // Trim is implicit on every cell; explicit transforms are applied on top.
-  v = v.trim();
+  let v = tryColumn(rule.sourceColumn);
+  if (v === '') {
+    for (const fallback of rule.fallbackColumns) {
+      v = tryColumn(fallback);
+      if (v !== '') break;
+    }
+  }
 
   if (v === '' && rule.defaultValue !== null) {
     v = rule.defaultValue;
@@ -133,6 +148,8 @@ export function mapRowToCanonical(
     consigneeName: requireString('consigneeName'),
     consigneeNationalId: requireString('consigneeNationalId'),
     consigneePhone: requireString('consigneePhone'),
+
+    invoiceDate: get('invoiceDate'),
   };
 
   // Sanity: numeric fields must be finite.

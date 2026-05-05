@@ -39,6 +39,19 @@ export const tenantFieldMappings = pgTable(
 
     /** Substituted when source cell is empty AND required=false. */
     defaultValue: text('default_value'),
+
+    /**
+     * Fallback header chain. The mapper reads `sourceColumn` first; if that
+     * cell is empty, it tries each entry in `fallbackColumns` in order and
+     * takes the first non-empty value. Used when one tenant ships multiple
+     * xlsx variants — e.g. Naqel's 'ConsigneeName' (light-example) vs
+     * 'Consignee' (alt sample).
+     */
+    fallbackColumns: text('fallback_columns')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`)
+      .$type<string[]>(),
   },
   (t) => ({
     tenantFk: foreignKey({

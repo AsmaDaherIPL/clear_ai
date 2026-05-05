@@ -11,31 +11,49 @@ import { mapRowToCanonical, type MapperLookups } from '../../src/modules/tenants
 import { RequiredFieldMissingError } from '../../src/modules/tenants/tenant.errors.js';
 import type { TenantConfig } from '../../src/modules/tenants/tenant-config.types.js';
 
+function rule(
+  sourceColumn: string,
+  canonicalField: string,
+  required: boolean,
+  transform: 'trim' | 'uppercase' | 'lowercase' | null,
+  defaultValue: string | null,
+  fallbackColumns: string[] = [],
+): {
+  sourceColumn: string;
+  canonicalField: typeof canonicalField;
+  required: boolean;
+  transform: typeof transform;
+  defaultValue: string | null;
+  fallbackColumns: ReadonlyArray<string>;
+} {
+  return { sourceColumn, canonicalField, required, transform, defaultValue, fallbackColumns: Object.freeze(fallbackColumns) };
+}
+
 function tenantConfig(): TenantConfig {
   return Object.freeze({
     id: '00000000-0000-0000-0000-000000000001',
     slug: 'naqel',
     displayName: 'Naqel',
-    bundleSize: 99,
-    hvThresholdSar: 1000,
     active: true,
     mappings: Object.freeze([
-      { sourceColumn: 'Description', canonicalField: 'description', required: true, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'WaybillNo', canonicalField: 'waybillNo', required: true, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'CustomsCommodityCode', canonicalField: 'merchantHsCode', required: false, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'SKU', canonicalField: 'merchantSku', required: false, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'Amount', canonicalField: 'valueAmount', required: true, transform: null, defaultValue: null },
-      { sourceColumn: 'Currency', canonicalField: 'currencyCode', required: true, transform: 'uppercase', defaultValue: null },
-      { sourceColumn: 'Quantity', canonicalField: 'quantity', required: true, transform: null, defaultValue: null },
-      { sourceColumn: 'UnitType', canonicalField: 'uom', required: true, transform: 'uppercase', defaultValue: 'PIECE' },
-      { sourceColumn: 'weight', canonicalField: 'netWeightKg', required: true, transform: null, defaultValue: null },
-      { sourceColumn: 'ClientID', canonicalField: 'clientId', required: true, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'CountryofManufacture', canonicalField: 'countryOfOrigin', required: true, transform: 'uppercase', defaultValue: null },
-      { sourceColumn: 'DestinationStationID', canonicalField: 'destinationStationId', required: true, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'ConsigneeName', canonicalField: 'consigneeName', required: true, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'ConsigneeNationalID', canonicalField: 'consigneeNationalId', required: true, transform: 'trim', defaultValue: null },
-      { sourceColumn: 'Mobile', canonicalField: 'consigneePhone', required: true, transform: 'trim', defaultValue: null },
-    ] as const),
+      rule('Description', 'description', true, 'trim', null),
+      rule('WaybillNo', 'waybillNo', true, 'trim', null),
+      rule('CustomsCommodityCode', 'merchantHsCode', false, 'trim', null),
+      rule('SKU', 'merchantSku', false, 'trim', null),
+      rule('Amount', 'valueAmount', true, null, null),
+      rule('Currency', 'currencyCode', true, 'uppercase', null),
+      rule('Quantity', 'quantity', true, null, null),
+      rule('UnitType', 'uom', true, 'uppercase', 'PIECE'),
+      rule('weight', 'netWeightKg', true, null, null),
+      rule('ClientID', 'clientId', true, 'trim', null),
+      rule('CountryofManufacture', 'countryOfOrigin', true, 'uppercase', null),
+      rule('DestinationStationID', 'destinationStationId', true, 'trim', null),
+      // Consignee with the alt-sample fallback chain.
+      rule('ConsigneeName', 'consigneeName', true, 'trim', null, ['Consignee']),
+      rule('ConsigneeNationalID', 'consigneeNationalId', true, 'trim', null),
+      rule('Mobile', 'consigneePhone', true, 'trim', null, ['MobileNo', 'PhoneNumber']),
+      rule('InvoiceDate', 'invoiceDate', false, 'trim', null),
+    ]) as TenantConfig['mappings'],
     constants: Object.freeze({}),
   });
 }

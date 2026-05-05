@@ -13,8 +13,6 @@ import { TenantNotFoundError } from './tenant.errors.js';
 interface SummarisedTenant {
   slug: string;
   display_name: string;
-  bundle_size: number;
-  hv_threshold_sar: number;
   active: boolean;
   mapping_count: number;
   constant_count: number;
@@ -24,8 +22,6 @@ function summarise(c: Awaited<ReturnType<typeof resolve>>): SummarisedTenant {
   return {
     slug: c.slug,
     display_name: c.displayName,
-    bundle_size: c.bundleSize,
-    hv_threshold_sar: c.hvThresholdSar,
     active: c.active,
     mapping_count: c.mappings.length,
     constant_count: Object.keys(c.constants).length,

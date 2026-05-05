@@ -40,6 +40,7 @@ function row(overrides: Partial<{
   consigneeName: string;
   consigneeNationalId: string;
   consigneePhone: string;
+  invoiceDate: string | null;
 }> = {}): DeclarationSetItemRow {
   return {
     id: 'item-1',
@@ -65,6 +66,7 @@ function row(overrides: Partial<{
       consigneeName: 'رحمة العيسى',
       consigneeNationalId: '1069595681',
       consigneePhone: '966500026683',
+      invoiceDate: null,
       ...(overrides as Record<string, unknown>),
     },
     rawRow: {},
@@ -139,13 +141,11 @@ function baseInput(items: DeclarationSetItemRow[], strategy: 'HV_STANDALONE' | '
   return {
     tenant: { slug: 'naqel', displayName: 'Naqel', constants: constants() },
     bundleStrategy: strategy,
-    bundleIndex: 0,
-    declarationSetId: '019df51e-aaaa-bbbb-cccc-394613346001',
     items,
     submitter: { carrierId: 'NAQ-CARRIER-1', name: 'Naqel' },
     namespaces: { decsub: 'http://www.saudiedi.com/schema/decsub' },
     lookups: lookups(),
-    now: new Date(Date.UTC(2026, 2, 30)), // 2026-03-30 — matches sample 2 airBLDate
+    now: new Date(Date.UTC(2026, 2, 30)), // 2026-03-30
   };
 }
 
@@ -217,11 +217,34 @@ describe('renderDeclarationXml — sample 2 (Vogacloset / Dresses) lookup-driven
     expect(out).toContain('<deccm:telephone>966500026683</deccm:telephone>');
   });
 
-  it('exportAirBL: carrierPrefix=last3 of waybill, airBLNo=waybill, airBLDate=now', () => {
+  it('exportAirBL: airBLNo=waybill, airBLDate from invoiceDate or render-time, carrierPrefix is the literal placeholder', () => {
     const out = renderDeclarationXml(baseInput([row()]));
-    expect(out).toContain('<deccm:carrierPrefix>346</deccm:carrierPrefix>');
+    // carrierPrefix is a Naqel-internal lookup we don't have; emit a
+    // literal placeholder for Naqel's post-processing layer to substitute.
+    expect(out).toContain('<deccm:carrierPrefix>{carrier_prefix}</deccm:carrierPrefix>');
     expect(out).toContain('<deccm:airBLNo>394613346</deccm:airBLNo>');
+    // No invoiceDate on canonical -> fall back to baseInput.now (2026-03-30).
     expect(out).toContain('<deccm:airBLDate>2026-03-30</deccm:airBLDate>');
+  });
+
+  it('uses canonical.invoiceDate when present (for both airBLDate and documentDate)', () => {
+    const item = row({ invoiceDate: '2026-03-09' });
+    const out = renderDeclarationXml(baseInput([item]));
+    expect(out).toContain('<deccm:airBLDate>2026-03-09</deccm:airBLDate>');
+    expect(out).toContain('<deccm:documentDate>2026-03-09</deccm:documentDate>');
+  });
+
+  it('static default_carrier_prefix tenant-constant overrides the placeholder', () => {
+    const base = baseInput([row()]);
+    const overrideInput = {
+      ...base,
+      tenant: {
+        ...base.tenant,
+        constants: { ...base.tenant.constants, default_carrier_prefix: '141' },
+      },
+    };
+    const out = renderDeclarationXml(overrideInput);
+    expect(out).toContain('<deccm:carrierPrefix>141</deccm:carrierPrefix>');
   });
 });
 
@@ -280,10 +303,14 @@ describe('renderDeclarationXml — escaping + errors', () => {
 });
 
 describe('document-id format', () => {
-  it('emits NQD<YYMMDD><5-digit seq> derived from set id + bundle index', () => {
+  it('emits NQD followed by 11 random digits (root id + docRefNo match)', () => {
     const out = renderDeclarationXml(baseInput([row()]));
-    // 2026-03-30 -> 260330; seq is deterministic from declaration_set_id
-    expect(out).toMatch(/decsub:id="NQD260330\d{5}"/);
-    expect(out).toMatch(/<decsub:docRefNo>NQD260330\d{5}<\/decsub:docRefNo>/);
+    expect(out).toMatch(/decsub:id="NQD\d{11}"/);
+    expect(out).toMatch(/<decsub:docRefNo>NQD\d{11}<\/decsub:docRefNo>/);
+
+    // Pull both ids and confirm they match (same docRefNo populates both).
+    const idMatch = out.match(/decsub:id="(NQD\d{11})"/);
+    const refMatch = out.match(/<decsub:docRefNo>(NQD\d{11})<\/decsub:docRefNo>/);
+    expect(idMatch?.[1]).toBe(refMatch?.[1]);
   });
 });

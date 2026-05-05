@@ -19,8 +19,6 @@ export interface RenderInput {
     constants: Readonly<Record<string, string>>;
   };
   bundleStrategy: BundleStrategy;
-  bundleIndex: number;
-  declarationSetId: string;
   items: ReadonlyArray<DeclarationSetItemRow>;
   submitter: {
     carrierId: string;

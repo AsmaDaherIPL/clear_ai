@@ -66,6 +66,19 @@ export interface Thresholds {
    * Validator below + setup_meta CHECK constraint both enforce the set.
    */
   PICKER_PATH_MODE: number;
+
+  /**
+   * ZATCA HV/LV cutoff in SAR. Items whose valueAmount-converted-to-SAR
+   * is >= this go to standalone declarations; below get bundled. Spec-wide,
+   * not per-tenant — see migration 0046 for the move out of `tenants`.
+   */
+  ZATCA_HV_THRESHOLD_SAR: number;
+
+  /**
+   * Max items per LV consolidated ZATCA declaration. Naqel ships 99; ZATCA
+   * spec allows up to 99 per consolidated Pre-Bayan.
+   */
+  ZATCA_BUNDLE_SIZE: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -95,6 +108,8 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'RESEARCH_WEB_ENABLED',
   'RESEARCH_WEB_MAX_TOKENS',
   'PICKER_PATH_MODE',
+  'ZATCA_HV_THRESHOLD_SAR',
+  'ZATCA_BUNDLE_SIZE',
 ];
 
 /** Closed set of boolean flag names. Encoded as 0/1 in setup_meta.value_numeric. */

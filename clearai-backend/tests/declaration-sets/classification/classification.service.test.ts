@@ -64,6 +64,7 @@ function canonical(rowIndex: number): CanonicalLineItem {
     consigneeName: 'Test Consignee',
     consigneeNationalId: '1069595681',
     consigneePhone: '966500000000',
+    invoiceDate: null,
   };
 }
 
