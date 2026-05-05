@@ -50,25 +50,21 @@ export default defineConfig({
     },
   },
 
-  // CSP nonce injection.
+  // CSP is enforced via the HTTP response header configured in
+  // public/staticwebapp.config.json (NOT via a <meta> tag emitted
+  // here). The static-host header is the single source of truth.
   //
-  // Astro emits a small set of inline <script> blocks (Astro hydration
-  // runtime, language switcher). Strict CSP (no 'unsafe-inline') would
-  // block them unless we explicitly allow each one. `experimental.csp`
-  // automates that: every inline script gets a per-build nonce, the
-  // emitted <meta http-equiv="Content-Security-Policy"> includes the
-  // matching `'nonce-...'` source, and external scripts loaded from
-  // /_astro get pinned by integrity hash. The page-level CSP overrides
-  // staticwebapp.config.json's `script-src 'self'` with `script-src
-  // 'self' 'nonce-...' 'sha256-...'` so the static-host header is the
-  // floor and Astro tightens it per page.
+  // Astro's `csp: { algorithm: 'SHA-256' }` was tried previously but
+  // didn't emit a <meta http-equiv="Content-Security-Policy"> on
+  // 6.1.10 (verified by inspecting dist/index.html), and even if it
+  // had, the browser intersects HTTP-header CSP with <meta> CSP — a
+  // <meta> tag can only TIGHTEN, never loosen. So the only working
+  // path for our static-deploy setup is to list every inline-script
+  // SHA-256 directly in staticwebapp.config.json's script-src.
   //
-  // Rationale per finding: frontend security review H2 (no CSP) and M3
-  // (no SRI on script/link). Astro 4.7 shipped this under `experimental.csp`;
-  // it graduated to a top-level `csp` option in Astro 6.x — moved out of
-  // `experimental` here so the config validator on 6.1.10 stops rejecting
-  // the dev server boot.
-  csp: {
-    algorithm: 'SHA-256',
-  },
+  // The 3 inline scripts Astro emits are:
+  //   1. lang detection IIFE (src/layouts/Layout.astro <head>)
+  //   2. Astro hydration loader (window.Astro.load)
+  //   3. astro-island custom-element definition
+  // Their hashes are pinned in staticwebapp.config.json.
 });
