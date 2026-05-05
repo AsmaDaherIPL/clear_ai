@@ -47,34 +47,6 @@ function readCell(row: Record<string, string>, rule: ColumnMappingRule): string 
   }
 }
 
-/**
- * Apply tenant_lookups translation to specific fields by canonical name.
- * The lookup_type for each field is the field's snake_case form — e.g.
- *   currencyCode  -> tenant_lookups.lookup_type = 'currency_code'
- * If a lookup_type exists for the field AND a mapping for source_value
- * exists, the canonical_value is substituted. Otherwise the value passes
- * through unchanged.
- *
- * (This convention keeps tenant_lookups data-driven — no per-field branch
- * here; ops just inserts rows under the right lookup_type to enable
- * translation for that field.)
- */
-function applyLookup(
-  field: CanonicalField,
-  value: string,
-  lookups: MapperLookups | null,
-): string {
-  if (!lookups || value === '') return value;
-  const type = camelToSnake(field);
-  const bucket = lookups.byType.get(type);
-  if (!bucket) return value;
-  return bucket.get(value) ?? value;
-}
-
-function camelToSnake(s: string): string {
-  return s.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
-}
-
 function toNumber(field: CanonicalField, raw: string): number {
   // Strip thousand separators and currency-symbol noise; allow comma decimal.
   const cleaned = raw.replace(/[,\s]/g, '');
@@ -90,13 +62,16 @@ function toNumber(field: CanonicalField, raw: string): number {
  *   row        — parsed CSV/XLSX row
  *   tenant     — already-resolved TenantConfig
  *   rowIndex   — 1-based source-file row number for error context
- *   lookups    — preloaded tenant_lookups; pass null to skip translation
+ *   lookups    — preserved in the signature for backward-compat. The mapper
+ *                does NOT pre-translate via tenant_lookups; translations
+ *                are the renderer's concern (currency code → carrier code,
+ *                country ISO → carrier code, etc.). Passing null is fine.
  */
 export function mapRowToCanonical(
   row: Record<string, string>,
   tenant: TenantConfig,
   rowIndex: number,
-  lookups: MapperLookups | null,
+  _lookups: MapperLookups | null,
 ): CanonicalLineItem {
   // Index mappings by canonicalField for fast lookup.
   const byField = new Map<CanonicalField, ColumnMappingRule>();
@@ -114,7 +89,7 @@ export function mapRowToCanonical(
       }
       return null;
     }
-    return applyLookup(field, cell, lookups);
+    return cell;
   };
 
   const num = (field: CanonicalField): number => {

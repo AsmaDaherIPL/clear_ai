@@ -15,6 +15,8 @@ import { db, closeDb } from '../../src/db/client.js';
 import {
   tenants,
   tenantFieldMappings,
+  tenantConstants,
+  tenantLookups,
   declarationSets,
   declarations,
 } from '../../src/db/schema.js';
@@ -71,12 +73,65 @@ beforeAll(async () => {
       defaultValue: null,
     });
   }
+
+  // Tenant constants required by the renderer (subset matching what the
+  // declaration phase actually emits in this test).
+  const minConstants: Array<[string, string]> = [
+    ['reference_userid', 'uwqfr002'],
+    ['reference_acct_id', 'uwqf'],
+    ['default_reg_port_code', '23'],
+    ['sender_broker_license_type', '5'],
+    ['sender_broker_license_no', '1'],
+    ['sender_broker_representative_no', '1732'],
+    ['declaration_type', '2'],
+    ['final_country', 'SA'],
+    ['inspection_group_id', '10'],
+    ['payment_method', '1'],
+    ['invoice_seq_no', '1'],
+    ['invoice_type_id', '5'],
+    ['invoice_payment_method_id', '1'],
+    ['payment_document_status_id', '0'],
+    ['deal_value', '1'],
+    ['item_invoice_measurement_unit', '7'],
+    ['item_international_measurement_unit', '7'],
+    ['item_unit_per_packages', '1'],
+    ['item_duty_type_id', '1'],
+    ['express_transport_type', '4'],
+    ['express_add_country_code', '100'],
+    ['express_country', '100'],
+    ['express_default_city', '131'],
+    ['express_zip_code', '1111'],
+    ['express_po_box', '11'],
+    ['default_source_company_name', 'ناقل'],
+    ['default_source_company_no', '340476'],
+  ];
+  for (const [k, v] of minConstants) {
+    await db().insert(tenantConstants).values({ tenant: TEST_TENANT_SLUG, key: k, value: v });
+  }
+
+  // Lookups for the renderer to resolve currency_code + country_of_origin.
+  const minLookups: Array<[string, string, string]> = [
+    ['currency_code', 'SAR', '100'],
+    ['country_of_origin', 'SA', '100'],
+    ['country_of_origin', 'GB', '521'],
+  ];
+  for (const [t, src, can] of minLookups) {
+    await db().insert(tenantLookups).values({
+      tenant: TEST_TENANT_SLUG,
+      lookupType: t,
+      sourceValue: src,
+      canonicalValue: can,
+      metadata: {},
+    });
+  }
   clearCache();
 });
 
 afterAll(async () => {
   await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
+  await db().delete(tenantConstants).where(eq(tenantConstants.tenant, TEST_TENANT_SLUG));
+  await db().delete(tenantLookups).where(eq(tenantLookups.tenant, TEST_TENANT_SLUG));
   await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
   await closeDb();
   await rm(blobDir, { recursive: true, force: true });
