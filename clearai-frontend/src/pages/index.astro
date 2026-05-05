@@ -1,8 +1,11 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import ClassifyApp from '../components/ClassifyApp';
+import SignInGate from '../components/SignInGate';
 import '../styles/global.css';
 ---
 <Layout>
-  <ClassifyApp client:load />
+  <SignInGate client:load>
+    <ClassifyApp client:load />
+  </SignInGate>
 </Layout>

@@ -1,40 +1,43 @@
 /**
- * ClearAI API client. Typed wrapper over the same-origin BFF proxy.
+ * ClearAI API client. Typed wrapper that calls APIM directly from the
+ * browser, attaching a USER-issued Entra access token.
  *
- * The browser bundle holds NO credentials. All requests go to /api/* which
- * is served by the SWA managed-function BFF in clearai-frontend/api/. The
- * BFF holds the Entra client_secret server-side, exchanges it for an
- * access_token via client-credentials grant, and forwards to APIM with
- * `Authorization: Bearer ${token}`.
+ * Architecture (post-MSAL cutover, 2026-05-05):
+ *   Browser → MSAL.js Auth-Code+PKCE → Entra → access_token →
+ *   Browser → APIM (validates JWT) → backend.
  *
- * Why this shape (frontend security review C1, H1):
- *   - C1: previously the bundle inlined a 32-char APIM subscription key.
- *         Anyone could read it from DevTools and call APIM directly,
- *         burning LLM tokens at scale. Now the bundle ships zero secrets.
- *   - H1: previously there was no real authentication — only a static
- *         shared key. Now APIM gets an Entra-issued JWT identifying the
- *         BFF as `infp-clearai-web-bff-dev-01`, validates the audience
- *         and signature, and rejects anything else.
+ * The previous SWA managed-Functions BFF in clearai-frontend/api/ held
+ * an app-credential secret. SWA Free does not support managed identity
+ * for Functions, so the secret had to live as plaintext app-setting —
+ * not acceptable. Switched to per-user delegated tokens via MSAL.js
+ * for the dev environment; production will move to a Container App
+ * BFF with proper MI + KV later.
+ *
+ * The bundle still holds NO credentials. The four PUBLIC_* env vars
+ * (tenant, client, scope, APIM base URL) are public discovery values,
+ * not secrets — same risk profile as a published OpenID Connect
+ * configuration.
  *
  * Local dev:
- *   - `astro dev` on :5180 + `func start` on :7071 in clearai-frontend/api/
- *   - astro.config.mjs proxies /api/* → :7071 (set PUBLIC_CLEARAI_DEV_API_PROXY
- *     when running both locally — defaults to /api on the same origin in prod).
- *
- * Production:
- *   - SWA serves the static bundle and the managed-function /api/* on the
- *     same origin (https://clearai-dev.infinitepl.app), so this client
- *     uses relative URLs only — no CORS preflight, no cross-origin auth
- *     surface.
+ *   - `astro dev` on :5180 + a localhost redirect URI registered on
+ *     the ClearAI SPA DEV app reg.
+ *   - APIM CORS allow-list must include http://localhost:4321/5180.
  */
+import { getAccessToken } from './auth';
 
-// Same-origin only. The SPA never speaks to APIM directly anymore.
-// PUBLIC_CLEARAI_DEV_API_PROXY exists as a build-time escape hatch for
-// devs who want to point at a remote BFF (e.g. running azd preview slot)
-// — set to e.g. `https://yellow-glacier-...preview.azurestaticapps.net`.
-// Defaults to '' (relative same-origin) which is what production wants.
-export const API_BASE =
-  (import.meta.env.PUBLIC_CLEARAI_DEV_API_PROXY as string | undefined) ?? '';
+
+// Direct browser → APIM. The BFF (clearai-frontend/api/) is dead; the
+// SPA now talks straight to the gateway with a USER-issued Entra token
+// fetched via MSAL (see src/lib/auth.ts). PUBLIC_APIM_BASE_URL is set
+// at build time per environment — production points at the SWA's
+// matching APIM, local dev at the same APIM but a localhost-callback
+// app reg redirect URI.
+export const APIM_BASE = import.meta.env.PUBLIC_APIM_BASE_URL as string | undefined;
+if (!APIM_BASE) {
+  throw new Error(
+    'Missing PUBLIC_APIM_BASE_URL. Set it in your .env or SWA app settings.',
+  );
+}
 
 // --- Decision envelope ----------------------------------------------------
 
@@ -249,12 +252,17 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  // Always prefix /api so SWA routes the request to the BFF Function.
-  // No Authorization header here — the BFF adds Bearer token server-side.
-  // No Ocp-Apim-Subscription-Key — APIM no longer requires it (JWT is the
-  // sole auth gate).
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const res = await fetch(`${API_BASE}/api${path}`, {
+  // Direct browser → APIM. The Authorization header carries the
+  // user's Entra access token (acquireTokenSilent under the hood;
+  // a redirect-fallback fires if interaction is required).
+  // No Ocp-Apim-Subscription-Key — APIM no longer requires it (JWT
+  // is the sole auth gate).
+  const token = await getAccessToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
+  const res = await fetch(`${APIM_BASE}${path}`, {
     ...init,
     headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
   });

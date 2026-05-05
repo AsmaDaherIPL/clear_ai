@@ -1,9 +1,19 @@
-/** Sticky top navigation: brand mark + LanguageToggle, with scroll-triggered border. */
+/**
+ * Sticky top navigation: brand mark + LanguageToggle + signed-in
+ * user info, with scroll-triggered border.
+ *
+ * The user/sign-out section only renders once MSAL has initialised
+ * AND there's an active account. Before init we render a placeholder
+ * sized to the eventual content so the topbar doesn't jump when MSAL
+ * resolves; on the login screen the section stays empty (no name to
+ * show, no token to revoke).
+ */
 
 import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import LanguageToggle from './LanguageToggle';
+import { ensureInitialized, getActiveAccount, signOut } from '@/lib/auth';
 
 interface TopBarProps {
   className?: string;
@@ -12,11 +22,32 @@ interface TopBarProps {
 export default function TopBar({ className }: TopBarProps) {
   const t = useT();
   const [scrolled, setScrolled] = useState(false);
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 0);
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Subscribe to MSAL: pull the active account once it's available.
+  // Defensive — auth.ts throws at module-eval time if PUBLIC_ENTRA_*
+  // vars are missing, so we wrap in try/catch to keep the topbar
+  // rendering even in a misconfigured-build state.
+  useEffect(() => {
+    let alive = true;
+    ensureInitialized()
+      .then(() => {
+        if (!alive) return;
+        setAccountName(getActiveAccount()?.name ?? null);
+        setAuthReady(true);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setAuthReady(true);
+      });
+    return () => { alive = false; };
   }, []);
 
   return (
@@ -53,7 +84,24 @@ export default function TopBar({ className }: TopBarProps) {
           <span>{t('brand')}</span>
         </a>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {authReady && accountName && (
+            <div className="flex items-center gap-2.5">
+              <span
+                className="text-[13px] text-[var(--ink-2)] max-w-[180px] truncate"
+                title={accountName}
+              >
+                {accountName}
+              </span>
+              <button
+                type="button"
+                onClick={() => { void signOut(); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--surface)] border border-[var(--line)] text-[12.5px] font-medium text-[var(--ink-2)] transition-colors duration-150 hover:bg-[var(--line-2)] hover:border-[var(--ink-3)]"
+              >
+                {t('signout')}
+              </button>
+            </div>
+          )}
           <LanguageToggle />
         </div>
       </div>

@@ -1,0 +1,30 @@
+---
+/**
+ * MSAL redirect-flow landing page.
+ *
+ * The browser arrives here after Microsoft's authorisation server
+ * redirects back with the auth response in the URL fragment. Our job
+ * is just to load the auth module so `handleRedirectPromise()` runs
+ * and consumes the fragment; MSAL then navigates back to the URL the
+ * user was on when signIn() was called (because the PublicClient is
+ * configured with `navigateToLoginRequestUrl: true`).
+ *
+ * The visible UI is a single line because we'll only be on this page
+ * for a few hundred ms — long enough for MSAL to finish processing
+ * the response and trigger the navigation. No spinner: the empty
+ * cream surface from the layout is calm enough on its own.
+ */
+import Layout from '../../layouts/Layout.astro';
+import '../../styles/global.css';
+---
+<Layout>
+  <main class="grid place-items-center px-7" style="min-height: calc(100vh - 76px)">
+    <p class="text-[14px] text-[var(--ink-3)]">Signing you in…</p>
+  </main>
+  <script>
+    // Side-effect import: ensureInitialized() consumes the URL
+    // fragment and (per navigateToLoginRequestUrl: true) navigates
+    // back to the originating page. No further code needed here.
+    import('../../lib/auth').then((m) => m.ensureInitialized()).catch(() => {});
+  </script>
+</Layout>

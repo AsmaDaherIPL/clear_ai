@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@astrojs/react": "^5.0.3",
+    "@azure/msal-browser": "^3.30.0",
     "@fontsource/ibm-plex-mono": "^5.1.1",
     "@fontsource/ibm-plex-sans": "^5.1.0",
     "@fontsource/ibm-plex-sans-arabic": "^5.1.0",
