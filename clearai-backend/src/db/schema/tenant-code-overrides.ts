@@ -1,4 +1,4 @@
-
+ 
 import { pgTable, varchar, char, index, uuid, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 

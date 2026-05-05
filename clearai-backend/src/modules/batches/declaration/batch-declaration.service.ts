@@ -1,18 +1,27 @@
-// Owner: BatchPlumber agent.
-// Phase 2 of a batch — runs ONLY when batches.mode === 'classify_and_declare'.
-//
-//   1. fetch all items where status ∈ {'succeeded','flagged'} for this batch
-//      (items in 'blocked' or 'failed' state are EXCLUDED — they need human review)
-//   2. resolve tenant config (bundle_size, hv_threshold_sar, tenant_constants)
-//   3. call integrations/zatca/declaration/declaration.bundler.ts to partition into HV / LV bundles
-//   4. for each bundle:
-//        - call integrations/zatca/declaration/declaration.template.ts to render decsub:saudiEDI XML
-//        - upload to blob via storage/blob.client.ts
-//        - record a row via batch-declaration.repository
-//   5. update batches.declaration_status='completed'
-//   6. return PhaseDeclarationSummary
-//
-// CRITICAL: this service does NOT call dispatch() or touch the LLM.
-//           Phase 1 (classification) is the only producer of final_code.
+/**
+ * Phase 2 — declaration service.
+ * Runs ONLY when batches.mode === 'classify_and_declare'.
+ *
+ * v0 scope (Phase 5 fills in the bundler + template + persistence):
+ *   1. listClassifiedItems(batchId)  — items in {succeeded, flagged}
+ *   2. resolve tenant config (bundleSize, hvThresholdSar, constants)
+ *   3. partition HV / LV via integrations/zatca/declaration/declaration.bundler
+ *   4. per bundle: render via declaration.template, upload to blob, persist row
+ *   5. set batches.declaration_status='completed'
+ *
+ * NEVER calls dispatch(). NEVER reads canonical via the LLM. The phase only
+ * consumes already-classified items.
+ */
+import { getBatch } from '../batch.repository.js';
+import { runDeclarationPhase } from './batch-declaration.runner.js';
 
-export {};
+/**
+ * Public entrypoint called by the top-level use-case AFTER Phase 1 finishes.
+ * No-op when mode='classify_only'; the use-case never reaches this for a
+ * classify_only batch but we double-check defensively.
+ */
+export async function runDeclarationPhaseIfNeeded(batchId: string): Promise<void> {
+  const batch = await getBatch(batchId);
+  if (batch.mode !== 'classify_and_declare') return;
+  await runDeclarationPhase(batchId);
+}

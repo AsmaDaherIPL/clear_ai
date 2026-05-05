@@ -1,20 +1,125 @@
-// Owner: BatchPlumber agent.
-// Phase 1 of every batch — runs ALWAYS, regardless of mode.
-//
-// Drives the dispatch pipeline (modules/dispatch/dispatch.use-case.ts) over
-// every pending item in the batch, using a p-limit semaphore so concurrency
-// is bounded by env.BATCH_LLM_CONCURRENCY.
-//
-// Per item:
-//   1. mark item status='classifying'
-//   2. await dispatch(canonicalLineItem)
-//   3. write classification_result + trace + status ∈ {'succeeded','flagged','blocked','failed'}
-//
-// When all items terminal:
-//   - update batches.classification_status='completed'
-//   - return PhaseClassificationSummary
-//
-// CRITICAL: this service does NOT touch ZATCA, XML, or blob storage.
-//           Phase 2 (declaration) is a separate concern.
+/**
+ * Phase 1 — classification service.
+ * Runs for every batch regardless of mode.
+ *
+ * Drives `dispatch(item)` per pending row under a p-limit semaphore
+ * (BATCH_LLM_CONCURRENCY). NEVER touches XML, ZATCA, or blob storage.
+ */
+import { env } from '../../../config/env.js';
+import { withSemaphore } from '../../../common/concurrency/semaphore.js';
+import {
+  listPendingItems,
+  markBatchClassificationPhase,
+  markItemClassifying,
+  recordItemResult,
+} from './batch-classification.repository.js';
+import type {
+  ClassificationOutcome,
+  DispatchResult,
+  ItemTrace,
+  PhaseClassificationSummary,
+  SanityVerdict,
+} from './batch-classification.types.js';
+import type { CanonicalLineItem } from '../../tenants/tenant-config.types.js';
+import type { DispatchFn } from '../../dispatch/dispatch.contract.ts';
 
-export {};
+export interface RunOptions {
+  /**
+   * Override the dispatch implementation. Phase 4 wires the real one
+   * (modules/dispatch/dispatch.use-case.dispatch). Tests pass mocks.
+   */
+  dispatch: DispatchFn;
+  /** Override the concurrency limit; default reads env(). */
+  concurrency?: number;
+}
+
+function classifyOutcome(verdict: SanityVerdict): ClassificationOutcome {
+  switch (verdict) {
+    case 'PASS':
+      return 'succeeded';
+    case 'FLAG':
+      return 'flagged';
+    case 'BLOCK':
+      return 'blocked';
+  }
+}
+
+/**
+ * Run Phase 1 for one batch. Phase 1 NEVER throws on per-item failures;
+ * those land as status='failed'. It only throws on infrastructure errors
+ * (DB unreachable, etc.) — the use-case turns that into batch failure.
+ */
+export async function runClassificationPhase(
+  batchId: string,
+  opts: RunOptions,
+): Promise<PhaseClassificationSummary> {
+  const startMs = Date.now();
+  await markBatchClassificationPhase(batchId, 'running');
+
+  const concurrency = opts.concurrency ?? env().BATCH_LLM_CONCURRENCY;
+  const run = withSemaphore(concurrency);
+
+  const pending = await listPendingItems(batchId);
+  const counts = { succeeded: 0, flagged: 0, blocked: 0, failed: 0 };
+
+  await Promise.all(
+    pending.map((row) =>
+      run(async () => {
+        const item = row.canonical as unknown as CanonicalLineItem;
+        await markItemClassifying(row.id);
+        try {
+          const result: DispatchResult = await opts.dispatch(item);
+          const outcome = classifyOutcome(result.sanityVerdict);
+          counts[outcome]++;
+          await recordItemResult({
+            itemId: row.id,
+            outcome,
+            finalCode:
+              outcome === 'succeeded' || outcome === 'flagged' ? result.finalCode : null,
+            classificationResult: serialiseResult(result),
+            trace: result.trace,
+            error: null,
+          });
+        } catch (err) {
+          counts.failed++;
+          await recordItemResult({
+            itemId: row.id,
+            outcome: 'failed',
+            finalCode: null,
+            classificationResult: null,
+            trace: null,
+            error: truncateError(err),
+          });
+        }
+      }),
+    ),
+  );
+
+  await markBatchClassificationPhase(batchId, 'completed');
+
+  return {
+    total: pending.length,
+    succeeded: counts.succeeded,
+    flagged: counts.flagged,
+    blocked: counts.blocked,
+    failed: counts.failed,
+    durationMs: Date.now() - startMs,
+  };
+}
+
+function serialiseResult(r: DispatchResult): Record<string, unknown> {
+  return {
+    final_code: r.finalCode,
+    sanity_verdict: r.sanityVerdict,
+    path_taken: r.trace.pathTaken,
+  };
+}
+
+function truncateError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.length > 500 ? msg.slice(0, 500) + '…' : msg;
+}
+
+// Suppress unused symbol when ItemTrace is consumed only via type imports.
+// (No-op; kept so removing it is intentional, not a slip.)
+export type { ItemTrace };

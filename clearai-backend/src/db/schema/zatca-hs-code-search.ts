@@ -2,6 +2,10 @@
  * hs_code_search — search index for hybrid retrieval. See 0028_hs_code_search.sql
  * + ADR-0025 for rationale.
  *
+ * Note on physical column order: the `id` UUID PK was added via ALTER TABLE
+ * ADD COLUMN in migration 0032, so in Postgres storage it sits at the end of
+ * the heap. No functional impact — Postgres resolves by name.
+ *
  * Asymmetric per-arm input:
  *   • Vector arm   → embedding (computed from `embedding_input`, one passage)
  *   • BM25 arm     → tsv_en / tsv_ar (trigger-built from tsv_input_*)

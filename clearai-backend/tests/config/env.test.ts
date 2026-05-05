@@ -28,6 +28,11 @@ const baseEnv = (): NodeJS.ProcessEnv => ({
   DATABASE_URL: 'postgres://user:pass@localhost:5432/clearai?sslmode=require',
   ANTHROPIC_API_KEY: 'sk-test-not-real',
   ANTHROPIC_BASE_URL: 'https://example.com/anthropic/v1/messages',
+  // BatchPlumber additions (all required at boot, no defaults).
+  BATCH_BLOB_CONNECTION: 'file://./.local-blob',
+  ZATCA_DECLARATION_NS: 'http://www.saudiedi.com/schema/decsub',
+  ZATCA_SUBMITTER_CARRIER_ID: 'TEST-CARRIER',
+  ZATCA_SUBMITTER_NAME: 'Test Carrier',
 });
 
 describe('env() — Phase 2.10 superRefine', () => {

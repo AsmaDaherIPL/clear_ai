@@ -2,6 +2,12 @@
  * hs_code_display — derived display + explainability data, one row per
  * hs_codes row. See 0027_hs_code_display.sql + ADR-0025 for the rationale.
  *
+ * Note on physical column order: the `id` UUID PK was added via ALTER TABLE
+ * ADD COLUMN in migration 0032, so in Postgres storage it sits at the end of
+ * the heap rather than first. PostgreSQL resolves columns by name so this has
+ * zero functional impact. Drizzle's logical schema (id first) intentionally
+ * reflects intent, not physical order.
+ *
  * Source-of-truth split:
  *   • hs_codes        — verbatim ZATCA strings (audit, legal record)
  *   • hs_code_display — derived clean labels, breadcrumb paths, flags

@@ -1,5 +1,50 @@
-// Owner: BatchPlumber agent. See tracker/AGENT_BRIEFS/batch-plumber.md
-// Purpose: shared DTOs for the batch processing module.
-// Expected exports: BatchStatus, ItemStatus, BatchSummary, BatchItemRecord, ItemTrace.
+/**
+ * Batch-domain DTOs.
+ *
+ * Status enums are re-exported from the schema layer so the union types
+ * stay in lock-step with the DB CHECK constraints (rule 6).
+ */
+export type {
+  BatchMode,
+  BatchStatus,
+  BatchClassificationStatus,
+  BatchDeclarationStatus,
+  BatchItemStatus,
+} from '../../db/schema.js';
 
-export {};
+import type {
+  BatchClassificationStatus,
+  BatchDeclarationStatus,
+  BatchItemStatus,
+  BatchMode,
+  BatchStatus,
+} from '../../db/schema.js';
+
+export interface BatchSummary {
+  id: string;
+  tenant_slug: string;
+  mode: BatchMode;
+  status: BatchStatus;
+  classification_status: BatchClassificationStatus;
+  declaration_status: BatchDeclarationStatus | null;
+  row_count: number;
+  succeeded: number;
+  flagged: number;
+  blocked: number;
+  failed: number;
+  pending: number;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+}
+
+export interface BatchItemRecord {
+  id: string;
+  batch_id: string;
+  row_index: number;
+  status: BatchItemStatus;
+  final_code: string | null;
+  classification_result: Record<string, unknown> | null;
+  trace: Record<string, unknown> | null;
+  error: string | null;
+}

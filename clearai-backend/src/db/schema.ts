@@ -34,3 +34,39 @@ export type {
   ProcedureCodeRow,
   NewProcedureCodeRow,
 } from './schema/zatca-procedure-codes.js';
+
+// ─── BatchPlumber: tenants registry + batch processing tables ────────────────
+
+export { tenants } from './schema/tenants.js';
+export type { TenantRow, NewTenantRow } from './schema/tenants.js';
+
+export { tenantFieldMappings } from './schema/tenant-field-mappings.js';
+export type {
+  TenantFieldMappingRow,
+  NewTenantFieldMappingRow,
+} from './schema/tenant-field-mappings.js';
+
+export { tenantConstants } from './schema/tenant-constants.js';
+export type {
+  TenantConstantRow,
+  NewTenantConstantRow,
+} from './schema/tenant-constants.js';
+
+export { tenantLookups } from './schema/tenant-lookups.js';
+export type { TenantLookupRow, NewTenantLookupRow } from './schema/tenant-lookups.js';
+
+export { batches } from './schema/batches.js';
+export type {
+  BatchRow,
+  NewBatchRow,
+  BatchMode,
+  BatchStatus,
+  BatchClassificationStatus,
+  BatchDeclarationStatus,
+} from './schema/batches.js';
+
+export { batchItems } from './schema/batch-items.js';
+export type { BatchItemRow, NewBatchItemRow, BatchItemStatus } from './schema/batch-items.js';
+
+export { declarations } from './schema/declarations.js';
+export type { DeclarationRow, NewDeclarationRow, BundleStrategy } from './schema/declarations.js';

@@ -8,6 +8,8 @@ import { classifyRoute } from '../modules/hs-classification/classify/classify.ro
 import { expandRoute } from '../modules/hs-classification/expand/expand.routes.js';
 import { classificationTraceRoute } from '../modules/hs-classification/classify/classification-trace.routes.js';
 import { submissionDescriptionRoute } from '../modules/hs-classification/classify/submission-description.routes.js';
+import { tenantsRoutes } from '../modules/tenants/tenants.routes.js';
+import { batchesRoutes } from '../modules/batches/batches.routes.js';
 import { getPool, closeDb } from '../db/client.js';
 import { registerErrorHandler } from './error-handler.js';
 import { warmEmbedder } from '../inference/embeddings/embedder.js';
@@ -106,6 +108,10 @@ await app.register(classifyRoute);
 await app.register(expandRoute);
 await app.register(classificationTraceRoute);
 await app.register(submissionDescriptionRoute);
+
+// BatchPlumber routes — tenants registry + batch processing.
+await app.register(tenantsRoutes);
+await app.register(batchesRoutes);
 
 const start = async (): Promise<void> => {
   try {
