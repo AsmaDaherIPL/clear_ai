@@ -7,20 +7,19 @@
  * `clearai-frontend/api/` code is dead and will be deleted by infra
  * once this rollout verifies green in production.
  *
- * Why memoryStorage:
- *   The directive forbids localStorage to keep tokens out of the
- *   persistent Origin partition. memoryStorage means the cache lives
- *   on the JS heap of this tab only — close the tab and it's gone.
- *   sessionStorage was offered as a fallback for tab persistence; we
- *   don't need that for v1.
- *
- * Why memoryStorage instead of sessionStorage:
- *   sessionStorage survives navigations and reloads within the same
- *   tab. That's a slight UX improvement (no re-login on F5) but it
- *   also means the token sits in a place a same-origin XSS payload
- *   can read via `sessionStorage.getItem(...)`. The user explicitly
- *   asked us to default to in-memory; revisit if the broker UX is
- *   too painful.
+ * Why sessionStorage (not memoryStorage, not localStorage):
+ *   The redirect flow REQUIRES a cache that survives a page unload.
+ *   When loginRedirect() fires, the page navigates away to
+ *   login.microsoftonline.com; when the response comes back, MSAL
+ *   needs the original PKCE code-verifier + state + nonce to
+ *   validate it. memoryStorage cannot survive the navigation, so
+ *   MSAL silently no-ops loginRedirect when configured with it. We
+ *   tried memoryStorage first and the page froze on click —
+ *   confirmed by Microsoft's MSAL docs that redirect-flow + memory
+ *   cache is unsupported. localStorage would work but persists
+ *   across tabs/sessions and is XSS-readable. sessionStorage is the
+ *   minimum that works for redirect flow: per-tab, cleared on tab
+ *   close, still XSS-readable but lifetime is short.
  *
  * Single-source-of-truth lock:
  *   `ensureInitialized()` memoises a single `initPromise` so that
@@ -85,7 +84,10 @@ function getMsal(): { client: PublicClientApplication; apiScope: string } {
       navigateToLoginRequestUrl: true,
     },
     cache: {
-      cacheLocation: 'memoryStorage',
+      // sessionStorage (not memoryStorage) — see top-of-file note.
+      // Required because loginRedirect() unloads the page; the cache
+      // must survive the round-trip back from login.microsoftonline.com.
+      cacheLocation: 'sessionStorage',
       storeAuthStateInCookie: false,
     },
   });

@@ -100,8 +100,12 @@ export default function SignInGate({ children }: SignInGateProps) {
                 }
               }}
               disabled={signingIn}
-              className="w-full inline-flex items-center justify-center gap-3 px-5 py-[13px] bg-[var(--ink)] text-white border border-[var(--ink)] rounded-[10px] text-[14.5px] font-medium tracking-[0.01em] transition-[background,transform] duration-150 hover:bg-[oklch(0.28_0.01_60)] active:translate-y-[1px] disabled:opacity-70 disabled:cursor-progress"
-              style={{ boxShadow: '0 4px 12px -4px rgba(20,16,12,0.25)' }}
+              className="w-full inline-flex items-center justify-center gap-3 px-5 py-[13px] bg-[var(--ink)] border border-[var(--ink)] rounded-[10px] text-[14.5px] font-medium tracking-[0.01em] transition-[background,transform] duration-150 hover:bg-[oklch(0.28_0.01_60)] active:translate-y-[1px] disabled:opacity-70 disabled:cursor-progress"
+              // Force white text inline because the global reset
+              // `button { color: inherit; }` outranks Tailwind's
+              // `text-white` utility on the button element. Inline
+              // style wins specificity and the label stays legible.
+              style={{ color: '#fff', boxShadow: '0 4px 12px -4px rgba(20,16,12,0.25)' }}
             >
               {signingIn ? (
                 <>
