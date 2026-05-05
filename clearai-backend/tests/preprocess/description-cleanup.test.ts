@@ -9,7 +9,7 @@
  *     end-to-end where the real Haiku call provides them)
  */
 import { describe, expect, it } from 'vitest';
-import { looksClean, cleanDescription } from '../../src/preprocess/description-cleanup.js';
+import { looksClean, cleanDescription } from '../../src/modules/hs-classification/classify/preprocess/description-cleanup.js';
 
 describe('looksClean — deterministic short-circuit', () => {
   it.each([

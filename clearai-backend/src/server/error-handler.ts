@@ -4,8 +4,8 @@
  * thrown route dependencies still produce an audit trail.
  */
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { logEvent } from '../observability/log-event.js';
-import { EMBEDDER_VERSION } from '../embeddings/embedder.js';
+import { logEvent } from '../common/logging/log-event.js';
+import { EMBEDDER_VERSION } from '../inference/embeddings/embedder.js';
 
 const CLASSIFY_ENDPOINTS = new Map<string, 'describe' | 'expand'>([
   ['/classifications', 'describe'],

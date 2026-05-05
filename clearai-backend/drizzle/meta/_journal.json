@@ -267,6 +267,55 @@
       "when": 1777213700000,
       "tag": "0037_picker_path_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1777213800000,
+      "tag": "0038_tenants",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1777213900000,
+      "tag": "0039_tenant_field_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1777214000000,
+      "tag": "0040_tenant_constants",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1777214100000,
+      "tag": "0041_tenant_lookups",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1777214200000,
+      "tag": "0042_batches",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1777214300000,
+      "tag": "0043_batch_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1777214400000,
+      "tag": "0044_declarations",
+      "breakpoints": true
     }
   ]
 }

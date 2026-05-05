@@ -75,6 +75,33 @@ const EnvSchema = z
     /** Per-IP rate limit (defence-in-depth on top of APIM's policy). */
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
     RATE_LIMIT_WINDOW: z.string().default('1 minute'),
+
+    // ─── BatchPlumber: bulk batch processing ────────────────────────────────
+
+    /** Max concurrent dispatch() calls per batch (in-process p-limit semaphore). */
+    BATCH_LLM_CONCURRENCY: z.coerce.number().int().positive().default(8),
+    /** Reject uploads larger than this many parsed rows. */
+    BATCH_INPUT_MAX_ROWS: z.coerce.number().int().positive().default(1000),
+    /** Azure Blob container name for source + result files. */
+    BATCH_BLOB_CONTAINER: z.string().min(1).default('batches'),
+    /**
+     * Azure Blob connection string OR a `file://` URI rooted at a local
+     * directory (dev fallback). The blob.client picks the adapter based on
+     * the prefix; see src/storage/blob.client.ts.
+     * Required at boot — never silently fall back to in-memory storage.
+     */
+    BATCH_BLOB_CONNECTION: z.string().min(1),
+    /** TTL for retained batch results before garbage collection. */
+    BATCH_RESULT_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
+    // ─── ZATCA Declaration envelope (rendered by BatchPlumber Phase 5) ──────
+
+    /** XML namespace URI for the decsub:saudiEDI envelope. */
+    ZATCA_DECLARATION_NS: z.string().min(1),
+    /** Static carrier id assigned by ZATCA to the submitting carrier. */
+    ZATCA_SUBMITTER_CARRIER_ID: z.string().min(1),
+    /** Display name of the submitting carrier in the envelope. */
+    ZATCA_SUBMITTER_NAME: z.string().min(1),
   })
   /**
    * Phase 2.10: APIM_SHARED_SECRET is required in production. The previous

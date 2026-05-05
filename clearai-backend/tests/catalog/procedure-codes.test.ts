@@ -15,7 +15,7 @@ vi.mock('../../src/db/client.js', () => ({
   getPool: vi.fn(),
 }));
 
-import { lookupProcedures } from '../../src/catalog/procedure-codes.js';
+import { lookupProcedures } from '../../src/modules/reference-data/procedure-codes.repository.js';
 import { getPool } from '../../src/db/client.js';
 
 describe('lookupProcedures', () => {

@@ -3,7 +3,7 @@ import {
   redactString,
   redactJsonValue,
   redactRequestBody,
-} from '../../src/observability/redact.js';
+} from '../../src/common/logging/redact.js';
 
 describe('redactString', () => {
   it('passes clean text through', () => {

@@ -1,0 +1,51 @@
+/**
+ * declarations — one row per rendered ZATCA Declaration bundle.
+ *
+ * Inserted by Phase 2 (modules/batches/declaration/). HV bundles hold
+ * exactly one item; LV bundles up to tenants.bundle_size.
+ *
+ * `bayan_no` is populated post-submission (out-of-band today; future API
+ * integration in v1).
+ *
+ * Related tables:
+ *   • batches  — FK target (batch_id -> batches.id) ON DELETE CASCADE
+ */
+import { pgTable, uuid, integer, text, timestamp, foreignKey, index, unique } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { batches } from './batches.js';
+
+export type BundleStrategy = 'HV_STANDALONE' | 'LV_BUNDLED';
+
+export const declarations = pgTable(
+  'declarations',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    /** Parent batch. FK -> batches(id) ON DELETE CASCADE. */
+    batchId: uuid('batch_id').notNull(),
+    /** 0-based ordinal within the batch's render order. */
+    bundleIndex: integer('bundle_index').notNull(),
+    /** CHECK-locked closed enum; mirror in batch-declaration.types.ts. */
+    bundleStrategy: text('bundle_strategy').notNull().$type<BundleStrategy>(),
+    /** HV_STANDALONE = 1; LV_BUNDLED in [1, tenant.bundle_size]. */
+    itemCount: integer('item_count').notNull(),
+    /** Blob key (under BATCH_BLOB_CONTAINER). */
+    blobKey: text('blob_key').notNull(),
+    /** Carrier's submission receipt id. Nullable until submitted. */
+    bayanNo: text('bayan_no'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    batchFk: foreignKey({
+      name: 'declarations_batch_fk',
+      columns: [t.batchId],
+      foreignColumns: [batches.id],
+    }).onDelete('cascade'),
+
+    batchBundleUniq: unique('declarations_batch_bundle_uniq').on(t.batchId, t.bundleIndex),
+
+    batchIdx: index('declarations_batch_idx').on(t.batchId),
+  }),
+);
+
+export type DeclarationRow = typeof declarations.$inferSelect;
+export type NewDeclarationRow = typeof declarations.$inferInsert;

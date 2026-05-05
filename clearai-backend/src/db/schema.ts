@@ -1,36 +1,72 @@
 /** Aggregator — re-exports every per-table schema from ./schemas/. */
-export { hsCodes } from './schemas/zatca-hs-codes.js';
-export type { HsCodeRow, NewHsCodeRow } from './schemas/zatca-hs-codes.js';
+export { hsCodes } from './schema/zatca-hs-codes.js';
+export type { HsCodeRow, NewHsCodeRow } from './schema/zatca-hs-codes.js';
 
-export { hsCodeDisplay } from './schemas/zatca-hs-code-display.js';
+export { hsCodeDisplay } from './schema/zatca-hs-code-display.js';
 export type {
   HsCodeDisplayRow,
   NewHsCodeDisplayRow,
-} from './schemas/zatca-hs-code-display.js';
+} from './schema/zatca-hs-code-display.js';
 
-export { hsCodeSearch } from './schemas/zatca-hs-code-search.js';
+export { hsCodeSearch } from './schema/zatca-hs-code-search.js';
 export type {
   HsCodeSearchRow,
   NewHsCodeSearchRow,
-} from './schemas/zatca-hs-code-search.js';
+} from './schema/zatca-hs-code-search.js';
 
-export { tenantCodeOverrides } from './schemas/tenant-code-overrides.js';
+export { tenantCodeOverrides } from './schema/tenant-code-overrides.js';
 export type {
   TenantCodeOverride,
   NewTenantCodeOverride,
-} from './schemas/tenant-code-overrides.js';
+} from './schema/tenant-code-overrides.js';
 
-export { setupMeta } from './schemas/setup-meta.js';
-export type { SetupMetaRow } from './schemas/setup-meta.js';
+export { setupMeta } from './schema/setup-meta.js';
+export type { SetupMetaRow } from './schema/setup-meta.js';
 
-export { classificationEvents } from './schemas/classification-events.js';
+export { classificationEvents } from './schema/classification-events.js';
 export type {
   ClassificationEventRow,
   NewClassificationEventRow,
-} from './schemas/classification-events.js';
+} from './schema/classification-events.js';
 
-export { procedureCodes } from './schemas/zatca-procedure-codes.js';
+export { procedureCodes } from './schema/zatca-procedure-codes.js';
 export type {
   ProcedureCodeRow,
   NewProcedureCodeRow,
-} from './schemas/zatca-procedure-codes.js';
+} from './schema/zatca-procedure-codes.js';
+
+// ─── BatchPlumber: tenants registry + batch processing tables ────────────────
+
+export { tenants } from './schema/tenants.js';
+export type { TenantRow, NewTenantRow } from './schema/tenants.js';
+
+export { tenantFieldMappings } from './schema/tenant-field-mappings.js';
+export type {
+  TenantFieldMappingRow,
+  NewTenantFieldMappingRow,
+} from './schema/tenant-field-mappings.js';
+
+export { tenantConstants } from './schema/tenant-constants.js';
+export type {
+  TenantConstantRow,
+  NewTenantConstantRow,
+} from './schema/tenant-constants.js';
+
+export { tenantLookups } from './schema/tenant-lookups.js';
+export type { TenantLookupRow, NewTenantLookupRow } from './schema/tenant-lookups.js';
+
+export { batches } from './schema/batches.js';
+export type {
+  BatchRow,
+  NewBatchRow,
+  BatchMode,
+  BatchStatus,
+  BatchClassificationStatus,
+  BatchDeclarationStatus,
+} from './schema/batches.js';
+
+export { batchItems } from './schema/batch-items.js';
+export type { BatchItemRow, NewBatchItemRow, BatchItemStatus } from './schema/batch-items.js';
+
+export { declarations } from './schema/declarations.js';
+export type { DeclarationRow, NewDeclarationRow, BundleStrategy } from './schema/declarations.js';

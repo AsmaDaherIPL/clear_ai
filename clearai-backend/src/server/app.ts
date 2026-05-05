@@ -4,15 +4,17 @@ import sensible from '@fastify/sensible';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { env } from '../config/env.js';
-import { classifyRoute } from '../routes/classify.js';
-import { expandRoute } from '../routes/expand.js';
-import { classificationTraceRoute } from '../routes/classification-trace.js';
-import { submissionDescriptionRoute } from '../routes/submission-description.js';
+import { classifyRoute } from '../modules/hs-classification/classify/classify.routes.js';
+import { expandRoute } from '../modules/hs-classification/expand/expand.routes.js';
+import { classificationTraceRoute } from '../modules/hs-classification/classify/classification-trace.routes.js';
+import { submissionDescriptionRoute } from '../modules/hs-classification/classify/submission-description.routes.js';
+import { tenantsRoutes } from '../modules/tenants/tenants.routes.js';
+import { batchesRoutes } from '../modules/batches/batches.routes.js';
 import { getPool, closeDb } from '../db/client.js';
 import { registerErrorHandler } from './error-handler.js';
-import { warmEmbedder } from '../embeddings/embedder.js';
-import { loadThresholds } from '../catalog/setup-meta.js';
-import { loadPrompt } from '../llm/structured-call.js';
+import { warmEmbedder } from '../inference/embeddings/embedder.js';
+import { loadThresholds } from '../modules/reference-data/setup-meta.repository.js';
+import { loadPrompt } from '../inference/llm/structured-call.js';
 
 const e = env();
 
@@ -106,6 +108,10 @@ await app.register(classifyRoute);
 await app.register(expandRoute);
 await app.register(classificationTraceRoute);
 await app.register(submissionDescriptionRoute);
+
+// BatchPlumber routes — tenants registry + batch processing.
+await app.register(tenantsRoutes);
+await app.register(batchesRoutes);
 
 const start = async (): Promise<void> => {
   try {
