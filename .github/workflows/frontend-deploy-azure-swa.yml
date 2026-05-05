@@ -77,14 +77,30 @@ jobs:
         working-directory: clearai-frontend
         run: npm ci
 
-      # Build the static SPA bundle. After the BFF cutover the bundle ships
-      # ZERO secrets — there are no PUBLIC_CLEARAI_* env vars to inject. All
-      # credentials (Entra client_secret, APIM details) live in SWA
-      # Application Settings and are read by the BFF Function at request
-      # time. See docs/SECURITY-REMEDIATION-PLAN.md §1 (Option A) for the
-      # full architecture.
+      # Build the static SPA bundle.
+      #
+      # The PUBLIC_* env vars below are injected at BUILD TIME by Vite/Astro
+      # (import.meta.env.PUBLIC_*) and inlined into the final JS bundle. They
+      # are NOT secrets — every value is already discoverable in the deployed
+      # SPA's network traffic (Entra tenant id, client id, API audience, APIM
+      # gateway URL). They are stored as GitHub Actions repository VARIABLES
+      # (not Secrets) at: repo settings → Actions → Variables.
+      #
+      # If a value changes (new tenant, new APIM gateway, new app reg), update
+      # the repo variable in the GitHub UI — no code edit required.
+      #
+      # Architecture context: as of 2026-05-05, the SPA does its own auth via
+      # MSAL.js (Authorization Code + PKCE) and calls APIM directly with the
+      # user's access token. The SWA-managed-Functions BFF is being removed in
+      # a follow-up; the BFF build/deploy steps below remain for one revision
+      # to keep the api_location surface populated until the cleanup commit.
       - name: Build SPA
         working-directory: clearai-frontend
+        env:
+          PUBLIC_ENTRA_TENANT_ID: ${{ vars.PUBLIC_ENTRA_TENANT_ID }}
+          PUBLIC_ENTRA_CLIENT_ID: ${{ vars.PUBLIC_ENTRA_CLIENT_ID }}
+          PUBLIC_ENTRA_API_SCOPE: ${{ vars.PUBLIC_ENTRA_API_SCOPE }}
+          PUBLIC_APIM_BASE_URL: ${{ vars.PUBLIC_APIM_BASE_URL }}
         run: npm run build
 
       # Build the BFF Function. This compiles api/src/**/*.ts to api/dist/.
