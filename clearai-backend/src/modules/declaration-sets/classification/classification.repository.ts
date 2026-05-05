@@ -1,38 +1,40 @@
 /**
- * Phase 1 (classification) Drizzle queries scoped to batch_items mutations.
+ * Phase 1 (classification) Drizzle queries scoped to declaration_set_items
+ * mutations.
  *
  * v0 is single-process. We do NOT use SELECT FOR UPDATE SKIP LOCKED because
- * the orchestrator drives one in-process worker per batch with a p-limit
- * semaphore — there's no across-process contention. If we move to a worker
- * per Container Apps Job (v2), this is the file that grows the row-level lock.
+ * the orchestrator drives one in-process worker per declaration_set with a
+ * p-limit semaphore — there's no across-process contention. If we move to a
+ * worker per Container Apps Job (v2), this is the file that grows the
+ * row-level lock.
  */
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import {
-  batchItems,
-  batches,
-  type BatchItemRow,
-  type BatchClassificationStatus,
+  declarationSetItems,
+  declarationSets,
+  type DeclarationSetItemRow,
+  type ClassificationStatus,
 } from '../../../db/schema.js';
 import type {
   ClassificationOutcome,
   ItemTrace,
-} from './batch-classification.types.js';
+} from './classification.types.js';
 
-export async function listPendingItems(batchId: string): Promise<BatchItemRow[]> {
+export async function listPendingItems(declarationSetId: string): Promise<DeclarationSetItemRow[]> {
   return db()
     .select()
-    .from(batchItems)
-    .where(and(eq(batchItems.batchId, batchId), eq(batchItems.status, 'pending')))
-    .orderBy(batchItems.rowIndex);
+    .from(declarationSetItems)
+    .where(and(eq(declarationSetItems.declarationSetId, declarationSetId), eq(declarationSetItems.status, 'pending')))
+    .orderBy(declarationSetItems.rowIndex);
 }
 
 /** Optimistic transition pending -> classifying for a single item. */
 export async function markItemClassifying(itemId: string): Promise<void> {
   await db()
-    .update(batchItems)
+    .update(declarationSetItems)
     .set({ status: 'classifying' })
-    .where(and(eq(batchItems.id, itemId), eq(batchItems.status, 'pending')));
+    .where(and(eq(declarationSetItems.id, itemId), eq(declarationSetItems.status, 'pending')));
 }
 
 export interface ItemResultRecord {
@@ -46,7 +48,7 @@ export interface ItemResultRecord {
 
 export async function recordItemResult(rec: ItemResultRecord): Promise<void> {
   await db()
-    .update(batchItems)
+    .update(declarationSetItems)
     .set({
       status: rec.outcome,
       finalCode: rec.finalCode,
@@ -54,19 +56,19 @@ export async function recordItemResult(rec: ItemResultRecord): Promise<void> {
       trace: (rec.trace as unknown as Record<string, unknown>) ?? null,
       error: rec.error,
     })
-    .where(eq(batchItems.id, rec.itemId));
+    .where(eq(declarationSetItems.id, rec.itemId));
 }
 
-export async function markBatchClassificationPhase(
-  batchId: string,
-  status: BatchClassificationStatus,
+export async function markClassificationPhase(
+  declarationSetId: string,
+  status: ClassificationStatus,
   err?: string,
 ): Promise<void> {
   await db()
-    .update(batches)
+    .update(declarationSets)
     .set({
       classificationStatus: status,
       ...(err ? { error: err } : {}),
     })
-    .where(eq(batches.id, batchId));
+    .where(eq(declarationSets.id, declarationSetId));
 }

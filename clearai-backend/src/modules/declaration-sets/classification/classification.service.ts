@@ -1,6 +1,6 @@
 /**
  * Phase 1 — classification service.
- * Runs for every batch regardless of mode.
+ * Runs for every declaration_set regardless of mode.
  *
  * Drives `dispatch(item)` per pending row under a p-limit semaphore
  * (BATCH_LLM_CONCURRENCY). NEVER touches XML, ZATCA, or blob storage.
@@ -9,17 +9,17 @@ import { env } from '../../../config/env.js';
 import { withSemaphore } from '../../../common/concurrency/semaphore.js';
 import {
   listPendingItems,
-  markBatchClassificationPhase,
+  markClassificationPhase,
   markItemClassifying,
   recordItemResult,
-} from './batch-classification.repository.js';
+} from './classification.repository.js';
 import type {
   ClassificationOutcome,
   DispatchResult,
   ItemTrace,
   PhaseClassificationSummary,
   SanityVerdict,
-} from './batch-classification.types.js';
+} from './classification.types.js';
 import type { CanonicalLineItem } from '../../tenants/tenant-config.types.js';
 import type { DispatchFn } from '../../dispatch/dispatch.contract.ts';
 
@@ -45,21 +45,22 @@ function classifyOutcome(verdict: SanityVerdict): ClassificationOutcome {
 }
 
 /**
- * Run Phase 1 for one batch. Phase 1 NEVER throws on per-item failures;
- * those land as status='failed'. It only throws on infrastructure errors
- * (DB unreachable, etc.) — the use-case turns that into batch failure.
+ * Run Phase 1 for one declaration_set. Phase 1 NEVER throws on per-item
+ * failures; those land as status='failed'. It only throws on infrastructure
+ * errors (DB unreachable, etc.) — the use-case turns that into a top-level
+ * declaration_set failure.
  */
 export async function runClassificationPhase(
-  batchId: string,
+  declarationSetId: string,
   opts: RunOptions,
 ): Promise<PhaseClassificationSummary> {
   const startMs = Date.now();
-  await markBatchClassificationPhase(batchId, 'running');
+  await markClassificationPhase(declarationSetId, 'running');
 
   const concurrency = opts.concurrency ?? env().BATCH_LLM_CONCURRENCY;
   const run = withSemaphore(concurrency);
 
-  const pending = await listPendingItems(batchId);
+  const pending = await listPendingItems(declarationSetId);
   const counts = { succeeded: 0, flagged: 0, blocked: 0, failed: 0 };
 
   await Promise.all(
@@ -95,7 +96,7 @@ export async function runClassificationPhase(
     ),
   );
 
-  await markBatchClassificationPhase(batchId, 'completed');
+  await markClassificationPhase(declarationSetId, 'completed');
 
   return {
     total: pending.length,

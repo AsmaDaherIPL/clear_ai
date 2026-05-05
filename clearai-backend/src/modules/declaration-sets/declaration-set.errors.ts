@@ -1,10 +1,10 @@
 /**
- * Typed error classes for the batches module.
+ * Typed error classes for the declaration-sets module.
  * Surface .code on every instance so the centralised error handler can map
  * to the shared envelope { error: { code, message, details? } }.
  */
 
-class BatchError extends Error {
+class DeclarationSetError extends Error {
   readonly code: string;
   readonly statusCode: number;
   readonly details: Record<string, unknown> | undefined;
@@ -16,47 +16,47 @@ class BatchError extends Error {
     details?: Record<string, unknown>;
   }) {
     super(opts.message);
-    this.name = 'BatchError';
+    this.name = 'DeclarationSetError';
     this.code = opts.code;
     this.statusCode = opts.statusCode;
     this.details = opts.details;
   }
 }
 
-export class BatchValidationError extends BatchError {
+export class DeclarationSetValidationError extends DeclarationSetError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super({ code: 'batch_validation_failed', message, statusCode: 400, details });
-    this.name = 'BatchValidationError';
+    super({ code: 'declaration_set_validation_failed', message, statusCode: 400, details });
+    this.name = 'DeclarationSetValidationError';
   }
 }
 
-export class BatchProcessingError extends BatchError {
+export class DeclarationSetProcessingError extends DeclarationSetError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super({ code: 'batch_processing_failed', message, statusCode: 500, details });
-    this.name = 'BatchProcessingError';
+    super({ code: 'declaration_set_processing_failed', message, statusCode: 500, details });
+    this.name = 'DeclarationSetProcessingError';
   }
 }
 
-export class BatchNotFoundError extends BatchError {
+export class DeclarationSetNotFoundError extends DeclarationSetError {
   constructor(id: string) {
     super({
-      code: 'batch_not_found',
-      message: `Batch not found: ${id}`,
+      code: 'declaration_set_not_found',
+      message: `Declaration set not found: ${id}`,
       statusCode: 404,
       details: { id },
     });
-    this.name = 'BatchNotFoundError';
+    this.name = 'DeclarationSetNotFoundError';
   }
 }
 
-export class BatchTooLargeError extends BatchError {
+export class DeclarationSetTooLargeError extends DeclarationSetError {
   constructor(rowCount: number, maxRows: number) {
     super({
-      code: 'batch_too_large',
+      code: 'declaration_set_too_large',
       message: `Upload has ${rowCount} rows, which exceeds the limit of ${maxRows}`,
       statusCode: 413,
       details: { rowCount, maxRows },
     });
-    this.name = 'BatchTooLargeError';
+    this.name = 'DeclarationSetTooLargeError';
   }
 }

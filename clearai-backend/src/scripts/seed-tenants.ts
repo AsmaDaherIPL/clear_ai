@@ -35,9 +35,10 @@ const NAQEL_SLUG = 'naqel';
  * required. This is the only Naqel-specific data in the codebase.
  */
 const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
-  // Identity & description.
+  // Identity & description. Naqel ships English-or-Arabic in the same
+  // Description column; the classifier detects language. The Arabic
+  // description for the ZATCA envelope is produced by dispatch.
   { sourceColumn: 'Description', canonicalField: 'description', required: true, transform: 'trim', defaultValue: null },
-  { sourceColumn: 'Description Ar', canonicalField: 'descriptionAr', required: false, transform: 'trim', defaultValue: null },
   { sourceColumn: 'HS Code', canonicalField: 'merchantHsCode', required: false, transform: 'trim', defaultValue: null },
   { sourceColumn: 'SKU', canonicalField: 'merchantSku', required: false, transform: 'trim', defaultValue: null },
   // Commercial values.

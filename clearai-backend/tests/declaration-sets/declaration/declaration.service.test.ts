@@ -20,8 +20,8 @@ import { db, closeDb } from '../../../src/db/client.js';
 import {
   tenants,
   tenantFieldMappings,
-  batches,
-  batchItems,
+  declarationSets,
+  declarationSetItems,
   declarations,
 } from '../../../src/db/schema.js';
 import { clearCache } from '../../../src/modules/tenants/tenant-config.registry.js';
@@ -39,7 +39,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(batches).where(eq(batches.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
   await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
   await closeDb();
@@ -47,7 +47,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await db().delete(batches).where(eq(batches.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
   await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
   await db().insert(tenants).values({
@@ -88,9 +88,9 @@ interface SeedItem {
 }
 
 async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
-  const batchId = newId();
-  await db().insert(batches).values({
-    id: batchId,
+  const declarationSetId = newId();
+  await db().insert(declarationSets).values({
+    id: declarationSetId,
     tenant: TEST_TENANT_SLUG,
     mode: 'classify_and_declare',
     declarationStatus: 'pending',
@@ -104,8 +104,8 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
     const finalCode = s.status === 'succeeded' || s.status === 'flagged' ? '010121000000' : null;
     // The declaration phase only reads canonical.valueAmount; full
     // CanonicalLineItem shape isn't enforced at the DB so we cast a partial.
-    await db().insert(batchItems).values({
-      batchId,
+    await db().insert(declarationSetItems).values({
+      declarationSetId,
       rowIndex: i + 1,
       canonical: ({
         itemId: 'placeholder',
@@ -113,7 +113,6 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
         tenantId: 'placeholder',
         tenantSlug: TEST_TENANT_SLUG,
         description: `Item ${i + 1}`,
-        descriptionAr: null,
         merchantHsCode: null,
         merchantSku: null,
         valueAmount: s.valueAmount,
@@ -140,13 +139,13 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
       classificationResult: cls,
     });
   }
-  return batchId;
+  return declarationSetId;
 }
 
 describe('runDeclarationPhase', () => {
   it('produces HV bundles for items >= threshold and LV chunks for the rest', async () => {
     // bundleSize=3, threshold=1000.
-    const batchId = await seed([
+    const declarationSetId = await seed([
       { status: 'succeeded', valueAmount: 1500 }, // HV
       { status: 'succeeded', valueAmount: 200 },
       { status: 'flagged', valueAmount: 300 },
@@ -155,43 +154,47 @@ describe('runDeclarationPhase', () => {
       { status: 'succeeded', valueAmount: 2000 }, // HV
     ]);
 
-    const { runDeclarationPhase } = await import('../../../src/modules/batches/declaration/batch-declaration.runner.js');
-    const summary = await runDeclarationPhase(batchId);
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-sets/declaration/declaration.runner.js');
+    const summary = await runDeclarationPhase(declarationSetId);
     // Expected: 2 HV + ceil(4/3)=2 LV = 4 bundles total.
     expect(summary.bundleCount).toBe(4);
 
-    const rows = await db().select().from(declarations).where(eq(declarations.batchId, batchId)).orderBy(declarations.bundleIndex);
+    const rows = await db()
+      .select()
+      .from(declarations)
+      .where(eq(declarations.declarationSetId, declarationSetId))
+      .orderBy(declarations.bundleIndex);
     expect(rows).toHaveLength(4);
     const strategies = rows.map((r) => r.bundleStrategy);
     expect(strategies.filter((s) => s === 'HV_STANDALONE')).toHaveLength(2);
     expect(strategies.filter((s) => s === 'LV_BUNDLED')).toHaveLength(2);
 
     // declaration_status flips to completed.
-    const after = await db().select().from(batches).where(eq(batches.id, batchId)).limit(1);
+    const after = await db().select().from(declarationSets).where(eq(declarationSets.id, declarationSetId)).limit(1);
     expect(after[0]!.declarationStatus).toBe('completed');
   });
 
   it('excludes blocked and failed items', async () => {
-    const batchId = await seed([
+    const declarationSetId = await seed([
       { status: 'succeeded', valueAmount: 100 },
       { status: 'blocked', valueAmount: 200 },
       { status: 'failed', valueAmount: 300 },
       { status: 'flagged', valueAmount: 400 },
     ]);
-    const { runDeclarationPhase } = await import('../../../src/modules/batches/declaration/batch-declaration.runner.js');
-    const summary = await runDeclarationPhase(batchId);
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-sets/declaration/declaration.runner.js');
+    const summary = await runDeclarationPhase(declarationSetId);
     // Only 2 included items; bundleSize=3 so 1 LV bundle.
     expect(summary.bundleCount).toBe(1);
-    const rows = await db().select().from(declarations).where(eq(declarations.batchId, batchId));
+    const rows = await db().select().from(declarations).where(eq(declarations.declarationSetId, declarationSetId));
     expect(rows[0]!.itemCount).toBe(2);
   });
 
   it('writes XML to the configured blob backend', async () => {
-    const batchId = await seed([{ status: 'succeeded', valueAmount: 100 }]);
-    const { runDeclarationPhase } = await import('../../../src/modules/batches/declaration/batch-declaration.runner.js');
-    await runDeclarationPhase(batchId);
-    const rows = await db().select().from(declarations).where(eq(declarations.batchId, batchId));
-    expect(rows[0]!.blobKey).toMatch(new RegExp(`batches/${batchId}/declarations/0000\\.xml`));
+    const declarationSetId = await seed([{ status: 'succeeded', valueAmount: 100 }]);
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-sets/declaration/declaration.runner.js');
+    await runDeclarationPhase(declarationSetId);
+    const rows = await db().select().from(declarations).where(eq(declarations.declarationSetId, declarationSetId));
+    expect(rows[0]!.blobKey).toMatch(new RegExp(`declaration-sets/${declarationSetId}/declarations/0000\\.xml`));
 
     const { getBlobClient } = await import('../../../src/storage/blob.client.js');
     const buf = await getBlobClient().get(rows[0]!.blobKey);

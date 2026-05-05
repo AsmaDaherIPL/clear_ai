@@ -1,32 +1,32 @@
 /**
- * Batch-domain DTOs.
+ * Declaration-set domain DTOs.
  *
  * Status enums are re-exported from the schema layer so the union types
  * stay in lock-step with the DB CHECK constraints (rule 6).
  */
 export type {
-  BatchMode,
-  BatchStatus,
-  BatchClassificationStatus,
-  BatchDeclarationStatus,
-  BatchItemStatus,
+  DeclarationSetMode,
+  DeclarationSetStatus,
+  ClassificationStatus,
+  DeclarationStatus,
+  DeclarationSetItemStatus,
 } from '../../db/schema.js';
 
 import type {
-  BatchClassificationStatus,
-  BatchDeclarationStatus,
-  BatchItemStatus,
-  BatchMode,
-  BatchStatus,
+  ClassificationStatus,
+  DeclarationStatus,
+  DeclarationSetItemStatus,
+  DeclarationSetMode,
+  DeclarationSetStatus,
 } from '../../db/schema.js';
 
-export interface BatchSummary {
+export interface DeclarationSetSummary {
   id: string;
   tenant_slug: string;
-  mode: BatchMode;
-  status: BatchStatus;
-  classification_status: BatchClassificationStatus;
-  declaration_status: BatchDeclarationStatus | null;
+  mode: DeclarationSetMode;
+  status: DeclarationSetStatus;
+  classification_status: ClassificationStatus;
+  declaration_status: DeclarationStatus | null;
   row_count: number;
   succeeded: number;
   flagged: number;
@@ -38,11 +38,11 @@ export interface BatchSummary {
   error: string | null;
 }
 
-export interface BatchItemRecord {
+export interface DeclarationSetItemRecord {
   id: string;
-  batch_id: string;
+  declaration_set_id: string;
   row_index: number;
-  status: BatchItemStatus;
+  status: DeclarationSetItemStatus;
   final_code: string | null;
   classification_result: Record<string, unknown> | null;
   trace: Record<string, unknown> | null;

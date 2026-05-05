@@ -55,18 +55,22 @@ export type {
 export { tenantLookups } from './schema/tenant-lookups.js';
 export type { TenantLookupRow, NewTenantLookupRow } from './schema/tenant-lookups.js';
 
-export { batches } from './schema/batches.js';
+export { declarationSets } from './schema/declaration-sets.js';
 export type {
-  BatchRow,
-  NewBatchRow,
-  BatchMode,
-  BatchStatus,
-  BatchClassificationStatus,
-  BatchDeclarationStatus,
-} from './schema/batches.js';
+  DeclarationSetRow,
+  NewDeclarationSetRow,
+  DeclarationSetMode,
+  DeclarationSetStatus,
+  ClassificationStatus,
+  DeclarationStatus,
+} from './schema/declaration-sets.js';
 
-export { batchItems } from './schema/batch-items.js';
-export type { BatchItemRow, NewBatchItemRow, BatchItemStatus } from './schema/batch-items.js';
+export { declarationSetItems } from './schema/declaration-set-items.js';
+export type {
+  DeclarationSetItemRow,
+  NewDeclarationSetItemRow,
+  DeclarationSetItemStatus,
+} from './schema/declaration-set-items.js';
 
 export { declarations } from './schema/declarations.js';
 export type { DeclarationRow, NewDeclarationRow, BundleStrategy } from './schema/declarations.js';

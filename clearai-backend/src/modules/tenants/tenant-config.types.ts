@@ -14,7 +14,6 @@ export type TransformKind = 'trim' | 'uppercase' | 'lowercase' | null;
 /** Names of fields the mapper is allowed to populate on CanonicalLineItem. */
 export type CanonicalField =
   | 'description'
-  | 'descriptionAr'
   | 'merchantHsCode'
   | 'merchantSku'
   | 'valueAmount'
@@ -84,8 +83,14 @@ export interface CanonicalLineItem {
   tenantSlug: string;
 
   /* ---- Identity & description (Stage 2A inputs) ---- */
+  /**
+   * Free-text description as it arrived in the source row. Either English or
+   * Arabic — Naqel ships either in the same `Description` column. Language
+   * detection happens downstream in the classifier; the dispatch agent
+   * returns the Arabic version (`goodsDescriptionAr`) needed for the ZATCA
+   * envelope.
+   */
   description: string;
-  descriptionAr: string | null;
   merchantHsCode: string | null;
   merchantSku: string | null;
 
@@ -137,7 +142,6 @@ export const CANONICAL_NUMERIC_FIELDS: ReadonlyArray<CanonicalField> = [
 /** All known canonical-field names — used by the registry to validate mappings. */
 export const KNOWN_CANONICAL_FIELDS: ReadonlySet<CanonicalField> = new Set([
   'description',
-  'descriptionAr',
   'merchantHsCode',
   'merchantSku',
   'valueAmount',

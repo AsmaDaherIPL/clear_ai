@@ -14,7 +14,7 @@
  * pins what we currently emit.
  */
 import type { RenderInput } from './declaration.types.js';
-import type { BatchItemRow } from '../../../db/schema.js';
+import type { DeclarationSetItemRow } from '../../../db/schema.js';
 
 export class ZatcaRenderError extends Error {
   readonly code = 'zatca_render_error';
@@ -35,7 +35,7 @@ function xml(value: unknown): string {
     .replace(/'/g, '&apos;');
 }
 
-function renderItemBlock(item: BatchItemRow, idx: number): string {
+function renderItemBlock(item: DeclarationSetItemRow, idx: number): string {
   const c = item.canonical;
   const description = xml(c.description);
   const finalCode = xml(item.finalCode ?? '');

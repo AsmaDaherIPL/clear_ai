@@ -3,8 +3,8 @@
  *
  * The dispatch contract — `dispatch(item) -> { finalCode, sanityVerdict, trace }`
  * — is owned by the dispatch-flow agent. Until they ship a concrete
- * implementation, BatchPlumber depends on the interface shape declared here
- * (mirrored in dispatch.contract.ts).
+ * implementation, the declaration-sets module depends on the interface shape
+ * declared here (mirrored in dispatch.contract.ts).
  */
 
 export type SanityVerdict = 'PASS' | 'FLAG' | 'BLOCK';
