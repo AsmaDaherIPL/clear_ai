@@ -25,7 +25,19 @@ export interface ItemTrace {
 }
 
 export interface DispatchResult {
+  /** 12-digit ZATCA HS code resolved by the dispatch pipeline. */
   finalCode: string;
+  /**
+   * Arabic goods description that feeds `<deccm:goodsDescription>` in the
+   * ZATCA Declaration envelope. Sourced from the resolved hs_code's Arabic
+   * gloss in zatca_hs_codes (with non-Arabic characters stripped per Naqel's
+   * `Naqel (Fields details + Mapping data).xlsx` -> `InvoiceItem - Fields`
+   * spec: "GoodsDescription = HSCode Arabic Description (Removing
+   * non-arabic characters)").
+   *
+   * Always present when sanityVerdict ∈ {'PASS','FLAG'}; absent on 'BLOCK'.
+   */
+  goodsDescriptionAr: string;
   sanityVerdict: SanityVerdict;
   trace: ItemTrace;
 }

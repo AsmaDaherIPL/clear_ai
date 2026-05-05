@@ -4,13 +4,39 @@
  * Source:
  *   naqel-shared-data/Naqel (Fields details + Mapping data).xlsx
  *
- * Each sheet maps to a lookup_type:
- *   CityMaping                       -> 'consignee_city'
- *   Tabdul City                      -> 'tabadul_city'
- *   CurrencyMapping                  -> 'currency_code'
- *   SourceCompanyPortMaping          -> 'source_port_code'
- *   Tabadul CountryCode              -> 'country_of_origin'
- *   CountryOfOriginClientMapping     -> 'country_of_origin_client'
+ * Six mapping sheets land as six lookup_types under tenant='naqel':
+ *
+ *   sheet                          lookup_type            source -> canonical (+ metadata)
+ *   ─────────────────────────────  ─────────────────────  ──────────────────────────────────
+ *   CurrencyMapping                currency_code          ISO-4217 (e.g. SAR)
+ *                                                         -> TabdulCurrencyId (e.g. '100')
+ *   Tabadul CountryCode            country_of_origin      INTLCODE (ISO alpha-2, e.g. 'SA')
+ *                                                         -> CountryCode (e.g. '145');
+ *                                                         metadata: { name, fname }
+ *   CountryOfOriginClientMapping   client_country         ClientID -> Countryoforigin (numeric)
+ *   SourceCompanyPortMaping        client_source_company  ClientID -> SourceCompanyNo;
+ *                                                         metadata: { sourceCompanyName,
+ *                                                         custRegPortCode }
+ *   CityMaping                     destination_station    InfoCityId (== DestinationStationID)
+ *                                                         -> TabdulCityId (the canonical city
+ *                                                         code used in the ZATCA envelope)
+ *   Tabdul City                    tabdul_city            CITY_CD (Tabdul city id)
+ *                                                         -> CITY_ARB_NAME (Arabic city name);
+ *                                                         metadata: { engName, intlCode,
+ *                                                         countryCode }
+ *
+ * Hot-path renderer queries:
+ *   • currency:        lookup('currency_code', row.currencyCode) -> '100'
+ *   • country origin:  lookup('country_of_origin', row.countryOfOrigin) -> '145'
+ *   • client default:  lookup('client_country', row.clientId) -> '145'
+ *   • source company:  lookup('client_source_company', row.clientId)
+ *                        -> { canonical: '383668', metadata: { sourceCompanyName: 'Vogacloset', custRegPortCode: '...' } }
+ *   • destination:     city = lookup('destination_station', row.destinationStationId)
+ *                      then nameAr = lookup('tabdul_city', city)
+ *
+ * The composite "destination city -> tabdul city -> Arabic name" is two
+ * hops on purpose — the source data ships them as two separate sheets,
+ * and the rendering layer composes them at request time.
  *
  * Per-tenant DELETE+re-insert scoped to ('naqel', lookup_type) so re-running
  * is idempotent and other tenants are untouched.
@@ -29,24 +55,151 @@ import { and, eq } from 'drizzle-orm';
 import { db, closeDb } from '../db/client.js';
 import { tenantLookups } from '../db/schema.js';
 
+interface SheetRow {
+  source: string;
+  canonical: string;
+  metadata: Record<string, unknown>;
+}
+
+/** Build a list of (source, canonical, metadata) from one sheet. */
+type SheetReader = (sheet: XLSX.WorkSheet) => SheetRow[];
+
 interface SheetSpec {
-  /** Verbatim sheet name in the xlsx. */
   sheetName: string;
-  /** lookup_type to write into tenant_lookups. */
   lookupType: string;
-  /** Header (row 1) name of the source column. */
-  sourceColumn: string;
-  /** Header (row 1) name of the canonical column. */
-  canonicalColumn: string;
+  read: SheetReader;
 }
 
 const NAQEL_SHEETS: ReadonlyArray<SheetSpec> = [
-  { sheetName: 'CityMaping', lookupType: 'consignee_city', sourceColumn: 'Source', canonicalColumn: 'Canonical' },
-  { sheetName: 'Tabdul City', lookupType: 'tabadul_city', sourceColumn: 'Source', canonicalColumn: 'Canonical' },
-  { sheetName: 'CurrencyMapping', lookupType: 'currency_code', sourceColumn: 'Source', canonicalColumn: 'Canonical' },
-  { sheetName: 'SourceCompanyPortMaping', lookupType: 'source_port_code', sourceColumn: 'Source', canonicalColumn: 'Canonical' },
-  { sheetName: 'Tabadul CountryCode', lookupType: 'country_of_origin', sourceColumn: 'Source', canonicalColumn: 'Canonical' },
-  { sheetName: 'CountryOfOriginClientMapping', lookupType: 'country_of_origin_client', sourceColumn: 'Source', canonicalColumn: 'Canonical' },
+  {
+    sheetName: 'CurrencyMapping',
+    lookupType: 'currency_code',
+    read: (sheet) => {
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+      return rows
+        .map((r) => ({
+          source: String(r['InfoTraclCurCode'] ?? '').trim(),
+          canonical: String(r['TabdulCurrencyId'] ?? '').trim(),
+          metadata: { infoTrackCurrencyId: String(r['InfoTrackCurrencyId'] ?? '').trim() },
+        }))
+        .filter((x) => x.source !== '' && x.canonical !== '');
+    },
+  },
+  {
+    sheetName: 'Tabadul CountryCode',
+    lookupType: 'country_of_origin',
+    read: (sheet) => {
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+      // The sheet contains:
+      //   • genuine countries (one row per ISO INTLCODE)
+      //   • Saudi customs-gate rows where INTLCODE is a 5-char station code
+      //     (e.g. 'SAJED', 'SADAM' — multiple gate facilities under one
+      //     prefix) — not country-of-origin data
+      //   • bookkeeping rows where INTLCODE is literally 'NULL'
+      //
+      // We want exactly one canonical mapping per ISO alpha-2 input. Filter
+      // to 2-char INTLCODE values, drop 'NULL', keep the first occurrence
+      // of each — Tabadul ships the canonical row first.
+      const seen = new Set<string>();
+      const out: SheetRow[] = [];
+      for (const r of rows) {
+        const intlRaw = String(r['INTLCODE'] ?? '').trim();
+        if (intlRaw === '' || intlRaw === 'NULL' || intlRaw.length !== 2) continue;
+        const source = intlRaw.toUpperCase();
+        if (seen.has(source)) continue;
+        seen.add(source);
+        const canonical = String(r['CountryCode'] ?? '').trim();
+        if (canonical === '') continue;
+        out.push({
+          source,
+          canonical,
+          metadata: {
+            name: String(r['Name'] ?? '').trim(),
+            fname: String(r['FName'] ?? '').trim(),
+          },
+        });
+      }
+      return out;
+    },
+  },
+  {
+    sheetName: 'CountryOfOriginClientMapping',
+    lookupType: 'client_country',
+    read: (sheet) => {
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+      return rows
+        .map((r) => ({
+          source: String(r['ClientID'] ?? '').trim(),
+          canonical: String(r['Countryoforigin'] ?? '').trim(),
+          metadata: {},
+        }))
+        .filter((x) => x.source !== '' && x.canonical !== '');
+    },
+  },
+  {
+    sheetName: 'SourceCompanyPortMaping',
+    lookupType: 'client_source_company',
+    read: (sheet) => {
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+      // Multiple rows can share the same ClientID (one per CustRegPortCode).
+      // For v0 we keep ALL rows but de-duplicate by (ClientID, CustRegPortCode)
+      // — the natural-key UNIQUE on tenant_lookups is on (tenant,
+      // lookup_type, source_value). To honour it, we encode the composite
+      // key into source_value: '{ClientID}:{CustRegPortCode}' so every
+      // (client, port) combination has its own row. The renderer composes
+      // the lookup key the same way.
+      const out: SheetRow[] = [];
+      const seen = new Set<string>();
+      for (const r of rows) {
+        const clientId = String(r['ClientID'] ?? '').trim();
+        const port = String(r['CustRegPortCode'] ?? '').trim();
+        const sourceCompanyNo = String(r['SourceCompanyNo'] ?? '').trim();
+        const sourceCompanyName = String(r['SourceCompanyName'] ?? '').trim();
+        if (clientId === '' || port === '' || sourceCompanyNo === '') continue;
+        const composite = `${clientId}:${port}`;
+        if (seen.has(composite)) continue;
+        seen.add(composite);
+        out.push({
+          source: composite,
+          canonical: sourceCompanyNo,
+          metadata: { sourceCompanyName, custRegPortCode: port, clientId },
+        });
+      }
+      return out;
+    },
+  },
+  {
+    sheetName: 'CityMaping',
+    lookupType: 'destination_station',
+    read: (sheet) => {
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+      return rows
+        .map((r) => ({
+          source: String(r['InfoCityId'] ?? '').trim(),
+          canonical: String(r['TabdulCityId'] ?? '').trim(),
+          metadata: {},
+        }))
+        .filter((x) => x.source !== '' && x.canonical !== '');
+    },
+  },
+  {
+    sheetName: 'Tabdul City',
+    lookupType: 'tabdul_city',
+    read: (sheet) => {
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+      return rows
+        .map((r) => ({
+          source: String(r['CITY_CD'] ?? '').trim(),
+          canonical: String(r['CITY_ARB_NAME'] ?? '').trim(),
+          metadata: {
+            engName: String(r['CITY_ENG_NAME'] ?? '').trim(),
+            intlCode: String(r['CITY_INTL_CD'] ?? '').trim(),
+            countryCode: String(r['CTRY_CD'] ?? '').trim(),
+          },
+        }))
+        .filter((x) => x.source !== '' && x.canonical !== '');
+    },
+  },
 ];
 
 const DEFAULT_NAQEL_PATH = resolvePath(
@@ -75,31 +228,6 @@ function parseArgs(): Args {
   return { filePath, tenant };
 }
 
-interface LookupRow {
-  source: string;
-  canonical: string;
-}
-
-function readSheet(workbook: XLSX.WorkBook, spec: SheetSpec): LookupRow[] {
-  const sheet = workbook.Sheets[spec.sheetName];
-  if (!sheet) {
-    console.warn(`  ! sheet '${spec.sheetName}' not found — skipping`);
-    return [];
-  }
-  const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-  const out: LookupRow[] = [];
-  for (const row of json) {
-    const sourceRaw = row[spec.sourceColumn];
-    const canonicalRaw = row[spec.canonicalColumn];
-    if (sourceRaw === undefined || canonicalRaw === undefined) continue;
-    const source = String(sourceRaw).trim();
-    const canonical = String(canonicalRaw).trim();
-    if (source === '' || canonical === '') continue;
-    out.push({ source, canonical });
-  }
-  return out;
-}
-
 async function main(): Promise<void> {
   const { filePath, tenant } = parseArgs();
 
@@ -114,21 +242,52 @@ async function main(): Promise<void> {
 
   let totalInserted = 0;
   for (const spec of NAQEL_SHEETS) {
-    const rows = readSheet(wb, spec);
+    const sheet = wb.Sheets[spec.sheetName];
+    if (!sheet) {
+      console.warn(`  ! sheet '${spec.sheetName}' not found — skipping`);
+      continue;
+    }
+    const rawRows = spec.read(sheet);
+
+    // Defence-in-depth dedup: the natural-key UNIQUE on tenant_lookups is
+    // (tenant, lookup_type, source_value). Source xlsx sheets occasionally
+    // ship duplicate rows; keep the first occurrence and warn.
+    const seen = new Set<string>();
+    const rows: SheetRow[] = [];
+    let dupCount = 0;
+    for (const r of rawRows) {
+      if (seen.has(r.source)) {
+        dupCount++;
+        continue;
+      }
+      seen.add(r.source);
+      rows.push(r);
+    }
+    if (dupCount > 0) {
+      console.warn(`  ! ${spec.lookupType}: dropped ${dupCount} duplicate rows`);
+    }
+
     // Replace just (tenant, lookup_type) — leave other types untouched.
     await db()
       .delete(tenantLookups)
       .where(and(eq(tenantLookups.tenant, tenant), eq(tenantLookups.lookupType, spec.lookupType)));
-    for (const r of rows) {
-      await db().insert(tenantLookups).values({
-        tenant,
-        lookupType: spec.lookupType,
-        sourceValue: r.source,
-        canonicalValue: r.canonical,
-      });
-      totalInserted++;
+
+    // Bulk insert with chunking for large sheets (Tabdul City ~2168 rows).
+    const CHUNK = 200;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const slice = rows.slice(i, i + CHUNK);
+      await db().insert(tenantLookups).values(
+        slice.map((r) => ({
+          tenant,
+          lookupType: spec.lookupType,
+          sourceValue: r.source,
+          canonicalValue: r.canonical,
+          metadata: r.metadata,
+        })),
+      );
     }
     console.log(`  ${spec.lookupType.padEnd(28)} ${rows.length} rows`);
+    totalInserted += rows.length;
   }
 
   console.log(`Total: ${totalInserted} rows inserted under tenant '${tenant}'`);

@@ -1,8 +1,15 @@
 /**
- * Seed the Naqel tenant row + its column-mapping rules + constants.
- * Idempotent: re-running re-asserts the rows. Constants and mappings are
- * cleared and re-inserted (per-tenant) so the seed file is the
- * authoritative source for the tenant's config.
+ * Seed the Naqel tenant row + its column-mapping rules + ZATCA-envelope
+ * constants. Idempotent: re-running re-asserts the rows. Mappings and
+ * constants are cleared and re-inserted (per-tenant) so the seed file is
+ * the authoritative source for the tenant's config.
+ *
+ * Real source columns from
+ *   naqel-shared-data/sample_input_commercial_invoice/light-example/pre-processed (commercial invoice).xlsx
+ * Real envelope constants from
+ *   naqel-shared-data/Naqel (Fields details + Mapping data).xlsx
+ *     - "Invoice - Fields"
+ *     - "ExpressMailInfomation - Fields"
  *
  * Usage:
  *   pnpm db:seed:tenants
@@ -12,7 +19,6 @@ import { db, closeDb } from '../db/client.js';
 import { tenantFieldMappings, tenantConstants } from '../db/schema.js';
 import { upsertTenant } from '../modules/tenants/tenant.repository.js';
 import type { CanonicalField, TransformKind } from '../modules/tenants/tenant-config.types.js';
-import { env } from '../config/env.js';
 
 interface SeedMapping {
   sourceColumn: string;
@@ -25,52 +31,105 @@ interface SeedMapping {
 const NAQEL_SLUG = 'naqel';
 
 /**
- * Naqel column → canonical mapping. Sourced from
- *   naqel-shared-data/Naqel (Fields details + Mapping data).xlsx
- *   naqel-shared-data/sample_input_commercial_invoice/light-example/pre-processed (commercial invoice).xlsx
- * The headers below MUST match the source file exactly (case-sensitive).
+ * Naqel column → canonical mapping. Headers verified against the real
+ * pre-processed xlsx (light-example). When a new sample arrives with
+ * additional fields (e.g. `InvoiceDate`, `ConsigneeAddress`,
+ * `ChineseDescription`), they're either:
+ *   • added to CanonicalLineItem if the dispatch agent or renderer needs
+ *     them, OR
+ *   • ignored by the mapper (they remain in raw_row jsonb for audit).
  *
- * NOTE: when ops onboard a new tenant, they add another seed file here or
- * insert rows directly via psql; no TS edits to the mapper or registry are
- * required. This is the only Naqel-specific data in the codebase.
+ * Both lights / scenarios verified:
+ *   - sample 1 (Samsung phone, Roshan)             — every column present
+ *   - sample 2 (Dresses, رحمة العيسى)              — every column present
+ *   - second sample header set has   `Consignee` instead of `ConsigneeName`
+ *     and `MobileNo` instead of `Mobile`. Today the seed assumes the
+ *     light-example shape (`ConsigneeName`, `Mobile`); when Naqel ships a
+ *     unified header set we switch the seed in place. For the broader
+ *     header set documented in the task brief, follow up with PR-N to
+ *     extend tenant_field_mappings with fallback_columns (deferred).
  */
 const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
-  // Identity & description. Naqel ships English-or-Arabic in the same
-  // Description column; the classifier detects language. The Arabic
-  // description for the ZATCA envelope is produced by dispatch.
-  { sourceColumn: 'Description', canonicalField: 'description', required: true, transform: 'trim', defaultValue: null },
-  { sourceColumn: 'HS Code', canonicalField: 'merchantHsCode', required: false, transform: 'trim', defaultValue: null },
-  { sourceColumn: 'SKU', canonicalField: 'merchantSku', required: false, transform: 'trim', defaultValue: null },
+  // Identity & description.
+  { sourceColumn: 'Description',           canonicalField: 'description',          required: true,  transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'WaybillNo',             canonicalField: 'waybillNo',            required: true,  transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'CustomsCommodityCode',  canonicalField: 'merchantHsCode',       required: false, transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'SKU',                   canonicalField: 'merchantSku',          required: false, transform: 'trim',      defaultValue: null },
   // Commercial values.
-  { sourceColumn: 'Value', canonicalField: 'valueAmount', required: true, transform: null, defaultValue: null },
-  { sourceColumn: 'Currency', canonicalField: 'currencyCode', required: true, transform: 'uppercase', defaultValue: null },
-  { sourceColumn: 'Quantity', canonicalField: 'quantity', required: true, transform: null, defaultValue: null },
-  { sourceColumn: 'UOM', canonicalField: 'uom', required: true, transform: 'uppercase', defaultValue: null },
-  { sourceColumn: 'Net Weight', canonicalField: 'netWeightKg', required: true, transform: null, defaultValue: null },
-  { sourceColumn: 'Gross Weight', canonicalField: 'grossWeightKg', required: false, transform: null, defaultValue: null },
-  // Origin / routing.
-  { sourceColumn: 'Country of Origin', canonicalField: 'countryOfOrigin', required: true, transform: 'uppercase', defaultValue: null },
-  { sourceColumn: 'Source Country', canonicalField: 'sourceCountry', required: false, transform: 'uppercase', defaultValue: null },
-  { sourceColumn: 'Source Port', canonicalField: 'sourcePortCode', required: false, transform: 'uppercase', defaultValue: null },
-  { sourceColumn: 'Reg Port', canonicalField: 'regPortCode', required: false, transform: 'uppercase', defaultValue: null },
-  // Parties.
-  { sourceColumn: 'Shipper Name', canonicalField: 'shipperName', required: false, transform: 'trim', defaultValue: null },
-  { sourceColumn: 'Shipper Address', canonicalField: 'shipperAddress', required: false, transform: 'trim', defaultValue: null },
-  { sourceColumn: 'Consignee Name', canonicalField: 'consigneeName', required: false, transform: 'trim', defaultValue: null },
-  { sourceColumn: 'Consignee Address', canonicalField: 'consigneeAddress', required: false, transform: 'trim', defaultValue: null },
-  { sourceColumn: 'Consignee City', canonicalField: 'consigneeCity', required: false, transform: 'trim', defaultValue: null },
-  // Document refs.
-  { sourceColumn: 'Invoice No', canonicalField: 'invoiceNumber', required: false, transform: 'trim', defaultValue: null },
-  { sourceColumn: 'Invoice Date', canonicalField: 'invoiceDate', required: false, transform: 'trim', defaultValue: null },
+  { sourceColumn: 'Amount',                canonicalField: 'valueAmount',          required: true,  transform: null,        defaultValue: null },
+  { sourceColumn: 'Currency',              canonicalField: 'currencyCode',         required: true,  transform: 'uppercase', defaultValue: null },
+  { sourceColumn: 'Quantity',              canonicalField: 'quantity',             required: true,  transform: null,        defaultValue: null },
+  { sourceColumn: 'UnitType',              canonicalField: 'uom',                  required: true,  transform: 'uppercase', defaultValue: 'PIECE' },
+  { sourceColumn: 'weight',                canonicalField: 'netWeightKg',          required: true,  transform: null,        defaultValue: null },
+  // Client + origin + destination.
+  { sourceColumn: 'ClientID',              canonicalField: 'clientId',             required: true,  transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'CountryofManufacture',  canonicalField: 'countryOfOrigin',      required: true,  transform: 'uppercase', defaultValue: null },
+  { sourceColumn: 'DestinationStationID',  canonicalField: 'destinationStationId', required: true,  transform: 'trim',      defaultValue: null },
+  // Consignee.
+  { sourceColumn: 'ConsigneeName',         canonicalField: 'consigneeName',        required: true,  transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'ConsigneeNationalID',   canonicalField: 'consigneeNationalId',  required: true,  transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'Mobile',                canonicalField: 'consigneePhone',       required: true,  transform: 'trim',      defaultValue: null },
 ];
 
-const NAQEL_CONSTANTS_FROM_ENV: ReadonlyArray<{ key: string; envKey: keyof ReturnType<typeof env> }> = [
-  { key: 'submitter_carrier_id', envKey: 'ZATCA_SUBMITTER_CARRIER_ID' },
-  { key: 'submitter_name', envKey: 'ZATCA_SUBMITTER_NAME' },
+/**
+ * Per-tenant constants for the ZATCA Declaration envelope. Sourced from
+ * `Invoice - Fields` and `ExpressMailInfomation - Fields` sheets in
+ * `Naqel (Fields details + Mapping data).xlsx`.
+ *
+ * Naming convention: snake_case keys grouped by envelope section so the
+ * renderer can fetch them by predictable name.
+ *
+ * Values that vary per declaration (NQDxxx id, dates, etc.) are NOT here
+ * — those come from row data or runtime context.
+ */
+const NAQEL_CONSTANTS: ReadonlyArray<{ key: string; value: string; comment: string }> = [
+  // Reference block (decsub:reference).
+  // userid + acctId are Naqel-specific values seen in the post-processed
+  // sample XMLs (NQD26033110789, NQD26033110790).
+  { key: 'reference_userid', value: 'uwqfr002', comment: 'decsub:userid' },
+  { key: 'reference_acct_id', value: 'uwqf', comment: 'decsub:acctId' },
+
+  // Sender information block (decsub:senderInformation).
+  { key: 'sender_broker_license_type', value: '5', comment: 'deccm:brokerLicenseType' },
+  { key: 'sender_broker_license_no', value: '1', comment: 'deccm:brokerLicenseNo' },
+  { key: 'sender_broker_representative_no', value: '1732', comment: 'deccm:brokerRepresentativeNo' },
+
+  // Declaration header block (decsub:declarationHeader).
+  { key: 'declaration_type', value: '2', comment: 'decsub:declarationType' },
+  { key: 'final_country', value: 'SA', comment: 'decsub:finalCountry' },
+  { key: 'inspection_group_id', value: '10', comment: 'decsub:inspectionGroupID' },
+  { key: 'payment_method', value: '1', comment: 'decsub:paymentMethod' },
+
+  // Invoice block (decsub:invoices).
+  { key: 'invoice_seq_no', value: '1', comment: 'decsub:invoiceSeqNo' },
+  { key: 'invoice_type_id', value: '5', comment: 'deccm:invoiceType' },
+  { key: 'invoice_payment_method_id', value: '1', comment: 'deccm:invoicePayment' },
+  { key: 'payment_document_status_id', value: '0', comment: 'deccm:paymentDocumentsStatus' },
+  { key: 'deal_value', value: '1', comment: 'deccm:deal' },
+
+  // InvoiceItem block (decsub:items).
+  { key: 'item_invoice_measurement_unit', value: '7', comment: 'deccm:invoiceMeasurementUnit' },
+  { key: 'item_international_measurement_unit', value: '7', comment: 'deccm:internationalMeasurementUnit' },
+  { key: 'item_unit_per_packages', value: '1', comment: 'deccm:unitPerPackages' },
+  { key: 'item_duty_type_id', value: '1', comment: 'deccm:itemDutyType' },
+
+  // Express mail information block (decsub:expressMailInfomation).
+  // TransportIdType is conditional (5 if national_id starts with 1, 3 if
+  // starts with 2) — that's runtime logic in the renderer, not a constant.
+  { key: 'express_transport_type', value: '4', comment: 'deccm:transportType' },
+  { key: 'express_add_country_code', value: '100', comment: 'deccm:addCtryCd' },
+  { key: 'express_country', value: '100', comment: 'deccm:country' },
+  { key: 'express_default_city', value: '131', comment: 'deccm:city — default; resolved via tenant_lookups.destination_station otherwise' },
+  { key: 'express_zip_code', value: '1111', comment: 'deccm:zipCode' },
+  { key: 'express_po_box', value: '11', comment: 'deccm:poBox' },
+
+  // Default sender for cust_reg_port_code=23 (Naqel's own; per the
+  // SourceCompanies field-spec).
+  { key: 'default_source_company_name', value: 'ناقل', comment: 'deccm:sourceCompanyName when cust_reg_port_code=23' },
+  { key: 'default_source_company_no', value: '340476', comment: 'decsub:sourceCompanyNo when cust_reg_port_code=23' },
 ];
 
 async function main(): Promise<void> {
-  const e = env();
   const tenantRow = await upsertTenant({
     slug: NAQEL_SLUG,
     displayName: 'Naqel',
@@ -94,18 +153,19 @@ async function main(): Promise<void> {
   }
   console.log(`mappings inserted ${NAQEL_MAPPINGS.length} rows for ${NAQEL_SLUG}`);
 
-  // Replace this tenant's constants from env.
+  // Replace this tenant's constants wholesale.
   await db().delete(tenantConstants).where(eq(tenantConstants.tenant, NAQEL_SLUG));
-  for (const c of NAQEL_CONSTANTS_FROM_ENV) {
-    const value = String(e[c.envKey]);
-    await db().insert(tenantConstants).values({ tenant: NAQEL_SLUG, key: c.key, value });
+  for (const c of NAQEL_CONSTANTS) {
+    await db().insert(tenantConstants).values({ tenant: NAQEL_SLUG, key: c.key, value: c.value });
   }
-  console.log(`constants inserted ${NAQEL_CONSTANTS_FROM_ENV.length} rows for ${NAQEL_SLUG}`);
+  console.log(`constants inserted ${NAQEL_CONSTANTS.length} rows for ${NAQEL_SLUG}`);
 
   // Confirm the registry can hydrate it without errors.
   const { resolve } = await import('../modules/tenants/tenant-config.registry.js');
   const cfg = await resolve(NAQEL_SLUG);
-  console.log(`registry resolved ${cfg.slug}: ${cfg.mappings.length} mappings, ${Object.keys(cfg.constants).length} constants`);
+  console.log(
+    `registry resolved ${cfg.slug}: ${cfg.mappings.length} mappings, ${Object.keys(cfg.constants).length} constants`,
+  );
 }
 
 main()
@@ -115,4 +175,3 @@ main()
     await closeDb();
     process.exit(1);
   });
-

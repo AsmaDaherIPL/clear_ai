@@ -62,12 +62,18 @@ beforeEach(async () => {
   // itself doesn't apply mappings.
   const minMappings = [
     { sourceColumn: 'Description', canonicalField: 'description' },
-    { sourceColumn: 'Value', canonicalField: 'valueAmount' },
+    { sourceColumn: 'WaybillNo', canonicalField: 'waybillNo' },
+    { sourceColumn: 'Amount', canonicalField: 'valueAmount' },
     { sourceColumn: 'Currency', canonicalField: 'currencyCode' },
     { sourceColumn: 'Quantity', canonicalField: 'quantity' },
-    { sourceColumn: 'UOM', canonicalField: 'uom' },
-    { sourceColumn: 'Net Weight', canonicalField: 'netWeightKg' },
-    { sourceColumn: 'Country of Origin', canonicalField: 'countryOfOrigin' },
+    { sourceColumn: 'UnitType', canonicalField: 'uom' },
+    { sourceColumn: 'weight', canonicalField: 'netWeightKg' },
+    { sourceColumn: 'ClientID', canonicalField: 'clientId' },
+    { sourceColumn: 'CountryofManufacture', canonicalField: 'countryOfOrigin' },
+    { sourceColumn: 'DestinationStationID', canonicalField: 'destinationStationId' },
+    { sourceColumn: 'ConsigneeName', canonicalField: 'consigneeName' },
+    { sourceColumn: 'ConsigneeNationalID', canonicalField: 'consigneeNationalId' },
+    { sourceColumn: 'Mobile', canonicalField: 'consigneePhone' },
   ];
   for (const m of minMappings) {
     await db().insert(tenantFieldMappings).values({
@@ -102,40 +108,37 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
     const s = itemSpecs[i]!;
     const cls: Record<string, unknown> = { valueAmount: s.valueAmount };
     const finalCode = s.status === 'succeeded' || s.status === 'flagged' ? '010121000000' : null;
-    // The declaration phase only reads canonical.valueAmount; full
-    // CanonicalLineItem shape isn't enforced at the DB so we cast a partial.
+    // The declaration phase only reads canonical.valueAmount; the rest of
+    // the canonical shape is here just to satisfy the TS contract.
+    const goodsDescriptionAr = s.status === 'succeeded' || s.status === 'flagged' ? 'فستان' : null;
     await db().insert(declarationSetItems).values({
       declarationSetId,
       rowIndex: i + 1,
-      canonical: ({
+      canonical: {
         itemId: 'placeholder',
         rowIndex: i + 1,
         tenantId: 'placeholder',
         tenantSlug: TEST_TENANT_SLUG,
         description: `Item ${i + 1}`,
+        waybillNo: `WB-${i + 1}`,
         merchantHsCode: null,
         merchantSku: null,
         valueAmount: s.valueAmount,
-        currencyCode: 'USD',
+        currencyCode: 'SAR',
         quantity: 1,
-        uom: 'EA',
+        uom: 'PIECE',
         netWeightKg: 1,
-        grossWeightKg: null,
+        clientId: '9000000',
         countryOfOrigin: 'CN',
-        sourceCountry: null,
-        sourcePortCode: null,
-        regPortCode: null,
-        shipperName: null,
-        shipperAddress: null,
-        consigneeName: null,
-        consigneeAddress: null,
-        consigneeCity: null,
-        invoiceNumber: null,
-        invoiceDate: null,
-      }),
+        destinationStationId: '501',
+        consigneeName: 'Test Consignee',
+        consigneeNationalId: '1069595681',
+        consigneePhone: '966500000000',
+      },
       rawRow: {},
       status: s.status,
       finalCode,
+      goodsDescriptionAr,
       classificationResult: cls,
     });
   }

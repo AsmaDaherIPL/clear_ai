@@ -37,7 +37,11 @@ function xml(value: unknown): string {
 
 function renderItemBlock(item: DeclarationSetItemRow, idx: number): string {
   const c = item.canonical;
-  const description = xml(c.description);
+  // ZATCA's <deccm:goodsDescription> is Arabic; the dispatch agent returns
+  // it in `goods_description_ar`. Falls back to the input description if
+  // dispatch hasn't populated it (defensive — Phase 1 always writes it for
+  // succeeded/flagged rows per the consistency CHECK).
+  const description = xml(item.goodsDescriptionAr ?? c.description);
   const finalCode = xml(item.finalCode ?? '');
   const value = xml(c.valueAmount);
   const currency = xml(c.currencyCode);

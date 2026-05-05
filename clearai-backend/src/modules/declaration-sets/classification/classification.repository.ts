@@ -41,6 +41,7 @@ export interface ItemResultRecord {
   itemId: string;
   outcome: ClassificationOutcome;
   finalCode: string | null;
+  goodsDescriptionAr: string | null;
   classificationResult: Record<string, unknown> | null;
   trace: ItemTrace | null;
   error: string | null;
@@ -52,6 +53,7 @@ export async function recordItemResult(rec: ItemResultRecord): Promise<void> {
     .set({
       status: rec.outcome,
       finalCode: rec.finalCode,
+      goodsDescriptionAr: rec.goodsDescriptionAr,
       classificationResult: rec.classificationResult ?? null,
       trace: (rec.trace as unknown as Record<string, unknown>) ?? null,
       error: rec.error,
