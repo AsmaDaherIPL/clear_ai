@@ -1,17 +1,22 @@
 /**
  * HV / LV partitioner for ZATCA Declaration bundling.
  *
- *   HV (high-value): item.canonical.valueAmount >= tenant.hvThresholdSar
+ *   HV (high-value): valueAmount-converted-to-SAR >= tenant.hvThresholdSar
  *                    -> one declaration per item (BundleStrategy='HV_STANDALONE')
  *   LV (low-value):  everything else
  *                    -> grouped into chunks of tenant.bundleSize
  *                       (BundleStrategy='LV_BUNDLED')
+ *
+ * Currency conversion: rows can arrive in any currency (Naqel ships AED,
+ * SAR, USD, GBP, …). The threshold is SAR, so we convert via the FX helper
+ * before comparison. See `fx.ts` for the rate source.
  *
  * Pure function — no I/O, no DB. Input is the rows already classified
  * (status ∈ {succeeded, flagged}); the renderer turns each bundle into XML.
  */
 import type { DeclarationSetItemRow } from '../../../db/schema.js';
 import type { BundleInput } from './declaration.types.js';
+import { toSar } from './fx.js';
 
 export interface PartitionOpts {
   hvThresholdSar: number;
@@ -32,8 +37,8 @@ export function partitionHvLv(
   const hv: DeclarationSetItemRow[] = [];
   const lv: DeclarationSetItemRow[] = [];
   for (const item of items) {
-    const value = readValueAmount(item);
-    if (value >= opts.hvThresholdSar) hv.push(item);
+    const sarAmount = readSarAmount(item);
+    if (sarAmount >= opts.hvThresholdSar) hv.push(item);
     else lv.push(item);
   }
 
@@ -52,7 +57,11 @@ export function partitionHvLv(
   return bundles;
 }
 
-function readValueAmount(row: DeclarationSetItemRow): number {
-  const v = row.canonical.valueAmount;
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+function readSarAmount(row: DeclarationSetItemRow): number {
+  const c = row.canonical;
+  const amount = c.valueAmount;
+  const code = c.currencyCode;
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return 0;
+  if (typeof code !== 'string' || code === '') return amount;
+  return toSar(amount, code);
 }

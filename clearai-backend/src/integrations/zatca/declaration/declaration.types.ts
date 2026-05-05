@@ -4,6 +4,7 @@
  */
 import type { DeclarationSetItemRow } from '../../../db/schema.js';
 import type { BundleStrategy } from '../../../modules/declaration-sets/declaration/declaration.types.js';
+import type { LookupValue } from '../../../modules/tenants/tenant-lookups.repository.js';
 
 export interface BundleInput {
   strategy: BundleStrategy;
@@ -18,6 +19,8 @@ export interface RenderInput {
     constants: Readonly<Record<string, string>>;
   };
   bundleStrategy: BundleStrategy;
+  bundleIndex: number;
+  declarationSetId: string;
   items: ReadonlyArray<DeclarationSetItemRow>;
   submitter: {
     carrierId: string;
@@ -26,6 +29,14 @@ export interface RenderInput {
   namespaces: {
     decsub: string;
   };
+  /**
+   * lookup_type -> source_value -> { canonical, metadata }.
+   * Provided by the runner from getLookupsBySlugWithMetadata; renderer is
+   * pure.
+   */
+  lookups: ReadonlyMap<string, ReadonlyMap<string, LookupValue>>;
+  /** Submission date (UTC); feeds NQDxxxxxxxxx + airBLDate + documentDate. */
+  now: Date;
 }
 
 export type { BundleStrategy } from '../../../modules/declaration-sets/declaration/declaration.types.js';

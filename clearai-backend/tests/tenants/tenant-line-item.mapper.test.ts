@@ -85,7 +85,7 @@ describe('mapRowToCanonical — happy path', () => {
     expect(item.waybillNo).toBe('394613346');
     expect(item.merchantHsCode).toBe('62046200');
     expect(item.valueAmount).toBe(1080);
-    expect(item.currencyCode).toBe('100'); // uppercase 'sar' -> SAR -> lookup -> '100'
+    expect(item.currencyCode).toBe('SAR'); // uppercase 'sar' -> SAR; mapper does no lookup pre-translation
     expect(item.quantity).toBe(1);
     expect(item.uom).toBe('PIECE');
     expect(item.netWeightKg).toBe(1.2);

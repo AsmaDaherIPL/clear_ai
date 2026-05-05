@@ -102,6 +102,24 @@ const EnvSchema = z
     ZATCA_SUBMITTER_CARRIER_ID: z.string().min(1),
     /** Display name of the submitting carrier in the envelope. */
     ZATCA_SUBMITTER_NAME: z.string().min(1),
+
+    // ─── FX rates for HV/LV partition (G7) ─────────────────────────────────
+    //
+    // The HV/LV threshold is in SAR but rows can arrive in AED/USD/etc. We
+    // convert valueAmount to SAR before comparing. v0 takes a static daily
+    // snapshot from env; v1 will pull from a daily-refreshed table or an
+    // FX provider.
+    //
+    // Format: a JSON object of currency-code -> SAR rate
+    //   {"AED":0.98,"USD":3.75,"EUR":4.05}
+    // SAR is implicitly 1.0 and doesn't need to be listed.
+    /**
+     * JSON object: currency code (ISO-4217) -> SAR rate.
+     * Default ships sensible mid-2026 spot rates; override per environment
+     * for daily refresh. Missing currencies fall back to identity (rate = 1)
+     * with a warning logged at conversion time.
+     */
+    BATCH_FX_RATES_TO_SAR: z.string().default('{"AED":1.02,"USD":3.75,"EUR":4.05,"GBP":4.75}'),
   })
   /**
    * Phase 2.10: APIM_SHARED_SECRET is required in production. The previous
