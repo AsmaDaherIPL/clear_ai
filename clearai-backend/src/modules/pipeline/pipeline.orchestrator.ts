@@ -1,0 +1,187 @@
+/**
+ * Pipeline orchestrator — runs the full 5-stage classification pipeline
+ * for a single CanonicalLineItem.
+ *
+ * Stages:
+ *   0a  Parse (deterministic)
+ *   0b  Cleanup (lightweight LLM)
+ *   1A  Track A: Researcher? → Retrieval → Threshold → Picker
+ *   1B  Track B: Override → Codebook → Expand/LLM
+ *   2   Reconciliation (standard LLM when needed)
+ *   3   Sanity (standard LLM, always)
+ *
+ * Returns a PipelineResult that mirrors the DispatchResult contract so
+ * declaration-sets/classification.service.ts can consume it without change.
+ */
+import { parseItem } from './stage-0-parse/parse.js';
+import { runCleanup } from './stage-1-cleanup/cleanup.js';
+import { runTrackA } from './track-a-description/track-a.js';
+import { runTrackB } from './track-b-code/track-b.js';
+import { runReconciliation } from './stage-2-verdict/reconciliation.js';
+import { runSanity } from './stage-3-sanity/sanity.js';
+import { enqueueHitl, shouldEnqueue } from './hitl/hitl.js';
+import { buildTrace } from './trace/trace.js';
+import { getPool } from '../../db/client.js';
+import type { CanonicalLineItem } from '../tenants/tenant-config.types.js';
+import type { PipelineResult, StageTrace } from './shared/pipeline.types.js';
+
+async function lookupGoodsDescriptionAr(code: string): Promise<string | null> {
+  const pool = getPool();
+  const r = await pool.query<{ description_ar: string | null }>(
+    `SELECT description_ar FROM zatca_hs_codes WHERE code = $1`,
+    [code],
+  );
+  const raw = r.rows[0]?.description_ar ?? null;
+  if (!raw) return null;
+  // Strip non-Arabic characters per Naqel mapping spec.
+  return raw.replace(/[^؀-ۿ‌‍\s]/g, '').trim() || null;
+}
+
+export async function runPipeline(
+  item: CanonicalLineItem,
+  tenantSlug: string,
+  itemId: string,
+): Promise<PipelineResult> {
+  const allStages: StageTrace[] = [];
+
+  // ---- Stage 0a: Parse ----
+  const t0a = Date.now();
+  const parsed = parseItem(item);
+  allStages.push({
+    name: 'stage-0a/parse',
+    started_at: new Date(t0a).toISOString(),
+    duration_ms: Date.now() - t0a,
+    outcome: 'ok',
+    detail: { rejected: parsed.rejected },
+  });
+
+  if (parsed.rejected) {
+    const trace = buildTrace({ trackA: null, trackB: null, verdict: null, sanity: null, stages: allStages });
+    return {
+      final_code: null,
+      goods_description_ar: null,
+      sanity_verdict: 'BLOCK',
+      trace,
+    };
+  }
+
+  const parsedItem = parsed.item;
+
+  // ---- Stage 0b: Cleanup ----
+  const t0b = Date.now();
+  const cleanup = await runCleanup(parsedItem.raw_description!, parsedItem.identifiers);
+  allStages.push({
+    name: 'stage-0b/cleanup',
+    started_at: new Date(t0b).toISOString(),
+    duration_ms: cleanup.latency_ms,
+    outcome: 'ok',
+    detail: { clarity_verdict: cleanup.clarity_verdict, degraded: cleanup.degraded },
+  });
+
+  // Unusable description — reject before tracks.
+  if (cleanup.clarity_verdict === 'unusable') {
+    const trace = buildTrace({ trackA: null, trackB: null, verdict: null, sanity: null, stages: allStages });
+    return {
+      final_code: null,
+      goods_description_ar: null,
+      sanity_verdict: 'BLOCK',
+      trace,
+    };
+  }
+
+  // ---- Tracks A and B (concurrent) ----
+  const [trackAOut, trackBResult] = await Promise.all([
+    runTrackA(cleanup, parsedItem.raw_description!),
+    runTrackB(
+      parsedItem.raw_merchant_code,
+      parsedItem.merchant_code_state,
+      cleanup.cleaned_description,
+      tenantSlug,
+    ),
+  ]);
+
+  allStages.push(...trackAOut.stages);
+  const trackAResult = trackAOut.result;
+
+  // ---- Stage 2: Reconciliation ----
+  const t2 = Date.now();
+  const verdict = await runReconciliation(trackAResult, trackBResult, cleanup.cleaned_description);
+  allStages.push({
+    name: 'stage-2/reconciliation',
+    started_at: new Date(t2).toISOString(),
+    duration_ms: Date.now() - t2,
+    outcome: 'ok',
+    detail: { decision: verdict.decision, signal_count: verdict.signal_count },
+  });
+
+  // Escalate to HITL — item still progresses as 'flagged'.
+  if (verdict.decision === 'escalate') {
+    const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity: null, stages: allStages });
+    await enqueueHitl({
+      item_id: itemId,
+      tenant_slug: tenantSlug,
+      cleaned_description: cleanup.cleaned_description,
+      verdict_output: verdict,
+      sanity_result: null,
+      trace,
+      enqueued_at: new Date().toISOString(),
+    });
+    return {
+      final_code: null,
+      goods_description_ar: null,
+      sanity_verdict: 'FLAG',
+      trace,
+    };
+  }
+
+  // ---- Stage 3: Sanity ----
+  const t3 = Date.now();
+  const sanity = await runSanity({
+    final_code: verdict.final_code,
+    cleaned_description: cleanup.cleaned_description,
+    value_amount: parsedItem.value_amount,
+    currency_code: parsedItem.currency_code,
+  });
+  allStages.push({
+    name: 'stage-3/sanity',
+    started_at: new Date(t3).toISOString(),
+    duration_ms: sanity.latency_ms,
+    outcome: 'ok',
+    detail: { verdict: sanity.verdict },
+  });
+
+  const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity, stages: allStages });
+
+  // HITL for FLAG or BLOCK
+  if (shouldEnqueue(verdict, sanity)) {
+    await enqueueHitl({
+      item_id: itemId,
+      tenant_slug: tenantSlug,
+      cleaned_description: cleanup.cleaned_description,
+      verdict_output: verdict,
+      sanity_result: sanity,
+      trace,
+      enqueued_at: new Date().toISOString(),
+    });
+  }
+
+  // BLOCK — exclude from declaration phase
+  if (sanity.verdict === 'BLOCK') {
+    return {
+      final_code: null,
+      goods_description_ar: null,
+      sanity_verdict: 'BLOCK',
+      trace,
+    };
+  }
+
+  // PASS or FLAG — fetch Arabic description and return
+  const goods_description_ar = await lookupGoodsDescriptionAr(verdict.final_code);
+
+  return {
+    final_code: verdict.final_code,
+    goods_description_ar,
+    sanity_verdict: sanity.verdict,
+    trace,
+  };
+}
