@@ -54,6 +54,9 @@ importers:
       uuidv7:
         specifier: ^1.2.1
         version: 1.2.1
+      xlsx:
+        specifier: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
+        version: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -79,9 +82,6 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@22.19.17)
-      xlsx:
-        specifier: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
-        version: https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz
 
 packages:
 
