@@ -362,6 +362,7 @@ export function renderDeclarationXml(input: RenderInput): string {
 
   const docRefNo = buildDocRefNo({
     prefix: input.tenant.constants['doc_ref_prefix'],
+    suffixOverride: input.docRefSuffixOverride,
   });
 
   const parts: string[] = [

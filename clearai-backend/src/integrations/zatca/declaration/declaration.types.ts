@@ -33,8 +33,14 @@ export interface RenderInput {
    * pure.
    */
   lookups: ReadonlyMap<string, ReadonlyMap<string, LookupValue>>;
-  /** Submission date (UTC); feeds NQDxxxxxxxxx + airBLDate + documentDate. */
+  /** Submission date (UTC); feeds airBLDate + documentDate fallbacks. */
   now: Date;
+  /**
+   * Test seam: override the random docRefNo suffix with a known value so
+   * sample-equivalence tests can match the reference XMLs byte-for-byte.
+   * Production callers leave this undefined.
+   */
+  docRefSuffixOverride?: string;
 }
 
 export type { BundleStrategy } from '../../../modules/declaration-sets/declaration/declaration.types.js';
