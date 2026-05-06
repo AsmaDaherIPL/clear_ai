@@ -1,5 +1,11 @@
 # Handover for the infra agent — APIM provisioning for ClearAI Backend
 
+> **SUPERSEDED — 2026-05-06.** This handover was written against incorrect assumptions about your real APIM setup (wrong file paths, wrong SKU, wrong API id, wrong path, treated as greenfield). The infra agent caught all of it. See the corrected directive at [infra-agent-apim-directive-2026-05-06-corrected.md](infra-agent-apim-directive-2026-05-06-corrected.md).
+>
+> The corrected directive supersedes everything below. This file is preserved as historical context.
+
+---
+
 **Goal:** stand up the ClearAI backend's HTTP surface in Azure API Management so the SPA, partners, and internal tools can call it through a single audited gateway with Entra ID auth.
 
 **You will not write the OpenAPI spec.** That's done — it lives at [clearai-backend/openapi.yaml](clearai-backend/openapi.yaml) and is the source of truth. Re-import it on every backend release.

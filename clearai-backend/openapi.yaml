@@ -8,29 +8,44 @@ info:
     truth for the Fastify route handlers in `clearai-backend/src/`. Imported
     by Azure API Management to define the public API shape.
 
-    Authentication: every endpoint outside `/health` and `/ready` requires
-    BOTH:
-      1. APIM gateway shared-secret header (`x-apim-shared-secret`),
-         injected by APIM's inbound policy. Direct calls to the Container
-         App without this header are rejected with 401.
-      2. A valid Microsoft Entra ID access token, validated by APIM's
-         `validate-jwt` inbound policy before the request reaches the
-         backend. The backend trusts APIM's validation.
+    Authentication: every endpoint outside `/health` requires BOTH:
+      1. A valid Microsoft Entra ID access token, validated by APIM's
+         `validate-jwt` inbound policy. Audience must be the API app
+         registration's AppId URI (or the app's client_id GUID as
+         alternate audience). 401 if missing/invalid/expired.
+      2. APIM gateway shared-secret header (`x-apim-shared-secret`),
+         injected by APIM's inbound policy from the Key Vault-backed
+         named value `apim-shared-secret`. APIM strips any
+         client-supplied value first (anti-spoof) then re-injects from
+         the named value. The Container App rejects 401 if the header
+         is missing or doesn't match the env var `APIM_SHARED_SECRET`.
 
-    The backend never sees the raw bearer token; APIM strips it after
-    validation and forwards the request with the APIM shared secret only.
+    Identity forwarding: the user's `Authorization: Bearer …` header is
+    forwarded to the backend after validate-jwt. The backend may parse
+    the JWT for audit/correlation but does NOT re-validate it (APIM has
+    already done so). New endpoints that need user identity (e.g.
+    "who created this declaration_run?") read claims from the forwarded
+    Authorization header. Today's existing /classifications/* endpoints
+    don't read it.
+
+    Public exception: `/health` is anonymous. APIM short-circuits with
+    `{"status":"ok"}` directly — request never reaches the backend. The
+    backend's own `/ready` is reachable through the protected API only,
+    so it requires both auth layers like every other endpoint.
 
   contact:
     name: ClearAI backend team
 
 servers:
-  - url: https://{apim-host}/api
-    description: Production via Azure APIM
+  # APIM mounts the protected API at `path: ''` (root). Gateway URLs are
+  # therefore `https://{apim}.azure-api.net/<endpoint>` with NO `/api` prefix.
+  - url: https://{apim-host}
+    description: Production via Azure APIM (clearai-backend, root path).
     variables:
       apim-host:
-        default: api.clearai.example.com
+        default: apim-infp-clearai-be-dev-gwc-01.azure-api.net
   - url: http://localhost:3000
-    description: Local dev (no APIM, no Entra)
+    description: Local dev (no APIM, no Entra).
 
 tags:
   - name: probes
