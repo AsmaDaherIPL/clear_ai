@@ -61,6 +61,7 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
         displayName: operator.displayName,
         constants: operator.constants,
         identity: operator.identity,
+        defaultConsigneeAddress: operator.defaultConsigneeAddress,
       },
       zatcaDefaults,
       bundleStrategy: bundle.strategy,

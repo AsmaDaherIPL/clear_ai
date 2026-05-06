@@ -123,6 +123,9 @@ function buildConfig(
       defaultSourceCompanyName: operator.defaultSourceCompanyName!,
       defaultSourceCompanyNo: operator.defaultSourceCompanyNo!,
     }),
+    defaultConsigneeAddress: operator.defaultConsigneeAddress
+      ? Object.freeze({ ...operator.defaultConsigneeAddress })
+      : null,
   });
 }
 

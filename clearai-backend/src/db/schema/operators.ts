@@ -20,8 +20,24 @@
  * PK is uuid; `slug` is a UNIQUE human-readable label kept on the operators
  * table only — it is NOT a foreign-key target (children FK on id).
  */
-import { pgTable, uuid, varchar, text, boolean, timestamp, unique } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+
+/**
+ * Shape of operators.default_consignee_address jsonb. Used by the renderer
+ * as the operator-level fallback when a row's canonical.consigneeAddress
+ * is null or missing fields.
+ *
+ * All fields are individually optional (the per-row override might fill
+ * one of them while leaving others to fall back to the operator default).
+ */
+export interface OperatorDefaultConsigneeAddress {
+  cityCode?: string;
+  zipCode?: string;
+  poBox?: string;
+  /** Free-text Arabic street address. */
+  streetAr?: string;
+}
 
 export const operators = pgTable(
   'operators',
@@ -60,6 +76,16 @@ export const operators = pgTable(
 
     /** Fallback `<decsub:sourceCompanyNo>` for the same case. */
     defaultSourceCompanyNo: varchar('default_source_company_no', { length: 32 }),
+
+    /**
+     * Operator-level consignee-address default. The 4 fields (cityCode,
+     * zipCode, poBox, streetAr) feed the `<decsub:expressMailInfomation>`
+     * block. Used as the fallback when a row's canonical.consigneeAddress
+     * is null or missing a specific field. NULL when the operator hasn't
+     * configured any defaults — in that case the renderer requires every
+     * field to come from the canonical row.
+     */
+    defaultConsigneeAddress: jsonb('default_consignee_address').$type<OperatorDefaultConsigneeAddress>(),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     /** Auto-bumped by operators_touch_updated_at_trg. */

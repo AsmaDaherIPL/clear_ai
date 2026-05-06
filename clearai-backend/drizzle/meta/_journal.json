@@ -393,6 +393,13 @@
       "when": 1777215500000,
       "tag": "0055_uom_lookup",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1777215600000,
+      "tag": "0056_operators_consignee_address_jsonb",
+      "breakpoints": true
     }
   ]
 }
