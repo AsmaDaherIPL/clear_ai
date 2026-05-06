@@ -499,7 +499,7 @@ paths:
         immediately with poll URLs.
       security:
         - apimSharedSecret: []
-          entraJwt: [api://clearai-backend/.default]
+          entraJwt: ['api://clearai-backend/.default']
       requestBody:
         required: true
         content:
@@ -566,7 +566,7 @@ paths:
       summary: Run summary
       security:
         - apimSharedSecret: []
-          entraJwt: [api://clearai-backend/.default]
+          entraJwt: ['api://clearai-backend/.default']
       responses:
         '200':
           description: Run found.
@@ -591,7 +591,7 @@ paths:
       description: 'Body must be `{ "status": "cancelled" }`. Idempotent on already-cancelled.'
       security:
         - apimSharedSecret: []
-          entraJwt: [api://clearai-backend/.default]
+          entraJwt: ['api://clearai-backend/.default']
       requestBody:
         required: true
         content:
@@ -630,7 +630,7 @@ paths:
       summary: Per-item classification results
       security:
         - apimSharedSecret: []
-          entraJwt: [api://clearai-backend/.default]
+          entraJwt: ['api://clearai-backend/.default']
       responses:
         '200':
           description: All items in the run, with classification results + trace.
@@ -665,7 +665,7 @@ paths:
         zatca_hs_codes/zatca_hs_code_display.
       security:
         - apimSharedSecret: []
-          entraJwt: [api://clearai-backend/.default]
+          entraJwt: ['api://clearai-backend/.default']
       requestBody:
         required: true
         content:
@@ -707,7 +707,7 @@ paths:
         if it needs to revisit. Bulk classification uses /declaration-runs.
       security:
         - apimSharedSecret: []
-          entraJwt: [api://clearai-backend/.default]
+          entraJwt: ['api://clearai-backend/.default']
       requestBody:
         required: true
         content:
@@ -757,7 +757,7 @@ paths:
         was followed by a separate page-load that needs the trace again.
       security:
         - apimSharedSecret: []
-          entraJwt: [api://clearai-backend/.default]
+          entraJwt: ['api://clearai-backend/.default']
       responses:
         '200':
           description: Trace found.
@@ -785,4 +785,4 @@ paths:
 # probes wide-open via `security: []` overrides.
 security:
   - apimSharedSecret: []
-    entraJwt: [api://clearai-backend/.default]
+    entraJwt: ['api://clearai-backend/.default']

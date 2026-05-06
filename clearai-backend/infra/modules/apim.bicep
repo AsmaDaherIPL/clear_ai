@@ -3,27 +3,35 @@
 // =============================================================================
 // - SKU: Consumption (capacity 0). No VNet, no custom domain.
 // - System-assigned managed identity (used to read the shared secret from KV).
-// - Two APIs:
-//     1. `clearai-backend`         (path '', subscriptionRequired: true)
-//        operations on /classifications:
-//          POST  /classifications
-//          POST  /classifications/expand
-//          GET   /classifications/{id}
-//          POST  /classifications/{id}/submission-description
-//          POST  /classifications/{id}/feedback
-//     2. `clearai-backend-public`  (path 'health', subscriptionRequired: false)
-//        operation: GET / (which proxies to {backend}/health)
-//   They MUST live on different paths because APIM rejects two HTTPS APIs
-//   sharing the same path unless they're in a version set, and a version set
-//   adds gateway-URL noise we don't want for v1.
+// - One API: `clearai-backend` (path '', subscriptionRequired: false)
+//   Operations are imported from clearai-backend/openapi.yaml — that file is
+//   the single source of truth for the HTTP surface. Re-running this Bicep
+//   re-imports the spec; APIM matches operations by auto-generated
+//   operationId (`{method}-{normalized-path}`) and updates them in place.
+//   New paths added to the YAML appear automatically; deleted paths are
+//   removed automatically. Per-operation policies declared below survive
+//   re-import as long as the operationId stays stable.
 //
-//   So the gateway URLs are:
-//     POST https://{apim}.azure-api.net/classifications                              (sub key required)
-//     POST https://{apim}.azure-api.net/classifications/expand                       (sub key required)
-//     GET  https://{apim}.azure-api.net/classifications/{id}                         (sub key required)
-//     POST https://{apim}.azure-api.net/classifications/{id}/submission-description  (sub key required)
-//     POST https://{apim}.azure-api.net/classifications/{id}/feedback                (sub key required)
-//     GET  https://{apim}.azure-api.net/health                                       (anonymous)
+//   Imported operations (gateway URLs):
+//     GET   https://{apim}.azure-api.net/health                                    (anonymous, short-circuited)
+//     GET   https://{apim}.azure-api.net/ready                                     (validate-jwt)
+//     POST  https://{apim}.azure-api.net/declaration-runs                          (validate-jwt)
+//     GET   https://{apim}.azure-api.net/declaration-runs/{id}                     (validate-jwt)
+//     PATCH https://{apim}.azure-api.net/declaration-runs/{id}                     (validate-jwt)
+//     GET   https://{apim}.azure-api.net/declaration-runs/{id}/classifications     (validate-jwt)
+//     POST  https://{apim}.azure-api.net/pipeline/submission-description           (validate-jwt)
+//
+//   The previous /classifications/* endpoints were retired in backend commit
+//   107b87c (legacy single-path classifier deleted; replaced by the two-track
+//   pipeline under /declaration-runs/*). The OpenAPI re-import drops them
+//   from APIM automatically — no manual cleanup needed.
+//
+//   The previous separate `clearai-backend-public` API at path 'health'
+//   was collapsed into the imported `/health` operation. A per-operation
+//   policy override on `/health` reproduces the canned `{"status":"ok"}`
+//   short-circuit (no validate-jwt, no backend hop) so the anonymous probe
+//   keeps the same security posture as before (no DB-state leakage — see
+//   I1 from the frontend security review).
 //
 // - Inbound API policy (applied to BOTH APIs):
 //     a) CORS — allow the SWA frontend, the APIM gateway itself (server-to-
@@ -164,12 +172,29 @@ var altAudienceXml = empty(entraApiClientId) ? '' : '      <audience>${entraApiC
 var entraOidcUrl = 'https://login.microsoftonline.com/${entraTenantId}/v2.0/.well-known/openid-configuration'
 var entraIssuer  = 'https://login.microsoftonline.com/${entraTenantId}/v2.0'
 
-var apiInboundPolicyXml = '<policies>\n  <inbound>\n    <base />\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n        <method>POST</method>\n        <method>OPTIONS</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n        <header>authorization</header>\n        <header>accept-language</header>\n      </allowed-headers>\n    </cors>\n    <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized — bearer token missing or invalid" require-scheme="Bearer" require-signed-tokens="true" require-expiration-time="true">\n      <openid-config url="${entraOidcUrl}" />\n      <audiences>\n        <audience>${entraApiAppIdUri}</audience>\n${altAudienceXml}      </audiences>\n      <issuers>\n        <issuer>${entraIssuer}</issuer>\n      </issuers>\n    </validate-jwt>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <set-header name="x-apim-shared-secret" exists-action="override">\n      <value>{{apim-shared-secret}}</value>\n    </set-header>\n    <rate-limit calls="60" renewal-period="60" />\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
+// API-level inbound policy. Applies to every imported operation EXCEPT
+// /health, which has a per-operation policy override below.
+//
+// PATCH was added to allowed-methods on 2026-05-06 alongside the OpenAPI
+// import refactor — `PATCH /declaration-runs/{id}` (cancel run) is a new
+// method introduced by the two-track pipeline. Without it browser
+// preflights for the cancel button would fail.
+var apiInboundPolicyXml = '<policies>\n  <inbound>\n    <base />\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n        <method>POST</method>\n        <method>PATCH</method>\n        <method>OPTIONS</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n        <header>authorization</header>\n        <header>accept-language</header>\n      </allowed-headers>\n    </cors>\n    <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized — bearer token missing or invalid" require-scheme="Bearer" require-signed-tokens="true" require-expiration-time="true">\n      <openid-config url="${entraOidcUrl}" />\n      <audiences>\n        <audience>${entraApiAppIdUri}</audience>\n${altAudienceXml}      </audiences>\n      <issuers>\n        <issuer>${entraIssuer}</issuer>\n      </issuers>\n    </validate-jwt>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <set-header name="x-apim-shared-secret" exists-action="override">\n      <value>{{apim-shared-secret}}</value>\n    </set-header>\n    <rate-limit calls="60" renewal-period="60" />\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
 
-// Anonymous policy for the public /health probe — same CORS + shared-secret
-// injection as above, but NO validate-jwt, NO rate-limit. This is what
-// Container Apps probes hit and what the BFF probe hits without a token.
-var publicInboundPolicyXml = '<policies>\n  <inbound>\n    <base />\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n      </allowed-headers>\n    </cors>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <set-header name="x-apim-shared-secret" exists-action="override">\n      <value>{{apim-shared-secret}}</value>\n    </set-header>\n    <return-response>\n      <set-status code="200" reason="OK" />\n      <set-header name="Content-Type" exists-action="override">\n        <value>application/json</value>\n      </set-header>\n      <set-body>{"status":"ok"}</set-body>\n    </return-response>\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
+// Per-operation override for the imported `/health` operation (operationId
+// `get-health` after APIM auto-normalisation of GET /health). Reproduces
+// the previous separate-public-API behaviour: no validate-jwt, no rate-limit,
+// short-circuits with canned {"status":"ok"} so the request never reaches
+// the backend. Strips any client-supplied x-apim-shared-secret (anti-spoof)
+// before APIM would inject it — irrelevant for the canned response, but
+// kept uniform with the protected policy chain.
+//
+// Why the canned response and not a real backend probe: the OpenAPI
+// schema for /health includes a `db: boolean` field that the backend
+// returns based on Postgres connectivity. We deliberately do NOT forward
+// the call so that the anonymous probe cannot disclose DB-up state to
+// scanners (frontend security review I1).
+var healthOperationPolicyXml = '<policies>\n  <inbound>\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n      </allowed-headers>\n    </cors>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <return-response>\n      <set-status code="200" reason="OK" />\n      <set-header name="Content-Type" exists-action="override">\n        <value>application/json</value>\n      </set-header>\n      <set-body>{"status":"ok"}</set-body>\n    </return-response>\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
 
 // -----------------------------------------------------------------------------
 // APIM service (Consumption)
@@ -217,28 +242,53 @@ resource sharedSecretNamedValue 'Microsoft.ApiManagement/service/namedValues@202
 }
 
 // -----------------------------------------------------------------------------
-// API #1 — clearai-backend (protected, subscriptionRequired: true)
+// API — clearai-backend (protected, OpenAPI-imported)
 // -----------------------------------------------------------------------------
+// Operations are defined in clearai-backend/openapi.yaml. APIM imports the
+// spec at deploy time and creates one operation per path. Re-deployment
+// re-imports — operations matched by operationId update in place; new ones
+// are added; deleted ones are removed.
+//
+// Auto-generated operationIds (because the YAML doesn't specify them):
+//   GET   /health                                     -> get-health
+//   GET   /ready                                      -> get-ready
+//   POST  /declaration-runs                           -> post-declaration-runs
+//   GET   /declaration-runs/{id}                      -> get-declaration-runs-id
+//   PATCH /declaration-runs/{id}                      -> patch-declaration-runs-id
+//   GET   /declaration-runs/{id}/classifications      -> get-declaration-runs-id-classifications
+//   POST  /pipeline/submission-description            -> post-pipeline-submission-description
+//
+// Recommendation for the backend agent: explicitly set operationId on each
+// path in openapi.yaml to insulate against APIM auto-naming. Without
+// explicit IDs, any future rename of a path segment would generate a new
+// operationId and orphan per-operation policies (notably the /health
+// override below). With explicit IDs, the policy resource name stays stable.
 
 resource apiProtected 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   parent: apim
   name: 'clearai-backend'
   properties: {
     displayName: 'ClearAI Backend'
-    description: 'Protected ClearAI backend operations. Requires Entra-issued bearer token (validate-jwt policy). No subscription key — that mechanism was retired in the Option A cutover (frontend security review C1).'
+    description: 'ClearAI backend operations. Most require Entra-issued bearer token (validate-jwt policy at API level); /health is anonymously short-circuited by per-operation policy. Source of truth for the operation list is clearai-backend/openapi.yaml.'
     path: ''   // mounted at root
     protocols: [ 'https' ]
     serviceUrl: backendUrl
-    // No APIM subscription key — JWT is the sole auth gate. The
-    // `validate-jwt` policy in the inbound XML rejects unauthenticated
-    // requests with 401 before they reach the backend. Multiple frontends
-    // (the Astro SPA's BFF today, mobile/partner BFFs in future) each
-    // register as their own confidential client in the same Workforce
-    // tenant; APIM trusts JWTs whose audience matches the API app
-    // registration regardless of which client issued them.
+    // No APIM subscription key — JWT is the sole auth gate at API level.
+    // Per-operation overrides may relax this for specific routes (today:
+    // only /health). Multiple frontends (the SPA, mobile/partner clients
+    // in future) each register as their own client in the same tenant;
+    // APIM trusts JWTs whose audience matches the API app registration
+    // regardless of which client issued them.
     subscriptionRequired: false
     apiType: 'http'
     type: 'http'
+    // Import the OpenAPI spec inline. loadTextContent reads the YAML at
+    // Bicep compile time and embeds it as a string in the deployment.
+    // The 4 MB inline-import limit is comfortably above our ~20 KB spec.
+    // Path is relative to this Bicep file (clearai-backend/infra/modules/apim.bicep);
+    // openapi.yaml is at clearai-backend/openapi.yaml -> '../../openapi.yaml'.
+    format: 'openapi'
+    value: loadTextContent('../../openapi.yaml')
   }
 }
 
@@ -255,198 +305,40 @@ resource apiProtectedPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-
 }
 
 // -----------------------------------------------------------------------------
-// Operations on apiProtected
+// Per-operation policy override: GET /health (anonymous short-circuit)
 // -----------------------------------------------------------------------------
-// All 5 operations live under /classifications — the resource — with the
-// HTTP verb describing what's happening to it. Methods chosen by the
-// "would I be upset if a flaky proxy replayed this 10x?" rule:
-//   - POST whenever an LLM call burns tokens or a row is written
-//   - GET only for pure DB reads (currently just GET /classifications/{id})
+// The API-level inbound policy applies validate-jwt + shared-secret +
+// rate-limit to every operation by default. /health needs to be anonymous
+// (no bearer token, used by uptime monitors, BFF probes, k8s-style probes
+// in future), AND its response should NOT disclose internal DB-state
+// (frontend security review I1). This per-operation policy overrides the
+// API-level chain for /health alone:
+//   - Skips <base /> -> does NOT inherit validate-jwt or rate-limit
+//   - CORS still applied (browser anonymous probes from allowed origins)
+//   - Strips any client-supplied x-apim-shared-secret (anti-spoof)
+//   - <return-response> short-circuits with canned {"status":"ok"}
+//     before any backend hop happens
 //
-// Names use the URL pattern as the primary token so the operation list
-// reads naturally when sorted alphabetically:
-//   classifications-create / classifications-expand / classifications-feedback
-//   classifications-get / classifications-submission-description
+// IMPORTANT: the resource name `<api>/<operationId>/policy` references
+// the auto-generated operationId `get-health`. If the backend agent
+// later adds an explicit operationId on /health in openapi.yaml, update
+// this name to match. Without a match this resource fails to deploy
+// with `OperationNotFound`.
 
-// POST /classifications — primary classification endpoint.
-// Free-text product description in, full classification envelope out
-// (chosen code, alternatives, rationale, procedures, duty, …). Writes
-// one classification_events row and runs up to 3 LLM calls.
-resource opClassificationsCreate 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'classifications-create'
-  properties: {
-    displayName: 'POST /classifications'
-    method: 'POST'
-    urlTemplate: '/classifications'
-    templateParameters: []
-    responses: [
-      { statusCode: 200, description: 'Classification produced — returns the full envelope.' }
-      { statusCode: 400, description: 'invalid_body — malformed description payload.' }
-    ]
-  }
-}
-
-// POST /classifications/expand — narrow a parent prefix (4–10 digits) to
-// a 12-digit leaf. Used when the user has a heading-level code and wants
-// to refine to a leaf via a fuller description. Writes its own
-// classification_events row.
-resource opClassificationsExpand 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'classifications-expand'
-  properties: {
-    displayName: 'POST /classifications/expand'
-    method: 'POST'
-    urlTemplate: '/classifications/expand'
-    templateParameters: []
-    responses: [
-      { statusCode: 200, description: 'Expanded under the parent prefix.' }
-      { statusCode: 400, description: 'invalid_body — bad code or description.' }
-    ]
-  }
-}
-
-// GET /classifications/{id} — fetch a persisted classification + any
-// human feedback rows. Pure DB read, no LLM, idempotent → GET is correct.
-// Powers the trace UI where users can review WHY a code was chosen.
-resource opClassificationsGet 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'classifications-get'
-  properties: {
-    displayName: 'GET /classifications/{id}'
-    method: 'GET'
-    urlTemplate: '/classifications/{id}'
-    templateParameters: [
-      {
-        name: 'id'
-        description: 'UUID returned by POST /classifications.'
-        type: 'string'
-        required: true
-      }
-    ]
-    responses: [
-      { statusCode: 200, description: 'Classification + feedback array.' }
-      { statusCode: 404, description: 'Invalid UUID or no classification with that id.' }
-    ]
-  }
-}
-
-// POST /classifications/{id}/submission-description — generate a customs-
-// grade Arabic description (with EN companion) suitable for the ZATCA
-// item submission form. Lazy: the classify endpoint no longer produces
-// this inline (saves ~3-5s on every accepted classification). Frontend
-// calls this when the user is ready to copy text into the declaration.
-//
-// Why POST not GET: every call burns Haiku tokens. POST stops browsers /
-// proxies / CDNs from auto-replaying the request and keeps the URL out
-// of access logs.
-resource opClassificationsSubmissionDescription 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'classifications-submission-description'
-  properties: {
-    displayName: 'POST /classifications/{id}/submission-description'
-    method: 'POST'
-    urlTemplate: '/classifications/{id}/submission-description'
-    templateParameters: [
-      {
-        name: 'id'
-        description: 'UUID of a prior classification.'
-        type: 'string'
-        required: true
-      }
-    ]
-    responses: [
-      { statusCode: 200, description: 'Generated submission description (AR + EN).' }
-      { statusCode: 400, description: 'invalid_state — classification is not on a 12-digit accepted path.' }
-      { statusCode: 404, description: 'Invalid UUID or no classification with that id.' }
-      { statusCode: 500, description: 'generation_failed — generator returned no text.' }
-    ]
-  }
-}
-
-// POST /classifications/{id}/feedback — record human feedback on a
-// classification (confirm / reject / prefer_alternative). UPSERT-on-
-// (event_id, user_id) so a repeat POST from the same user updates their
-// existing feedback rather than spamming duplicates.
-resource opClassificationsFeedback 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiProtected
-  name: 'classifications-feedback'
-  properties: {
-    displayName: 'POST /classifications/{id}/feedback'
-    method: 'POST'
-    urlTemplate: '/classifications/{id}/feedback'
-    templateParameters: [
-      {
-        name: 'id'
-        description: 'UUID of the classification being annotated.'
-        type: 'string'
-        required: true
-      }
-    ]
-    responses: [
-      { statusCode: 200, description: 'Feedback recorded — returns feedback_id.' }
-      { statusCode: 400, description: 'invalid_body — malformed payload or wrong field combination.' }
-      { statusCode: 404, description: 'Invalid UUID or no classification with that id.' }
-    ]
-  }
-}
-
-// -----------------------------------------------------------------------------
-// API #2 — clearai-backend-public (anonymous /health probe)
-// -----------------------------------------------------------------------------
-// Path is `health` (NOT root) because APIM forbids two non-versioned HTTPS
-// APIs on the same path. The serviceUrl is the FULL backend /health URL, and
-// the operation's urlTemplate is `/`, so the gateway URL collapses cleanly:
-//
-//   GET https://{apim}.azure-api.net/health
-//     → backend GET https://{ca}/health
-//
-// This is what the spec asks for (anonymous /health on the gateway) without
-// touching the protected API's paths.
-
-resource apiPublic 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
-  parent: apim
-  name: 'clearai-backend-public'
-  properties: {
-    displayName: 'ClearAI Backend (public probe)'
-    description: 'Anonymous /health probe through the gateway.'
-    path: 'health'
-    protocols: [ 'https' ]
-    serviceUrl: '${backendUrl}/health'
-    subscriptionRequired: false
-    apiType: 'http'
-    type: 'http'
-  }
-}
-
-resource apiPublicPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = {
-  parent: apiPublic
-  name: 'policy'
-  // Short-circuits with `{"status":"ok"}` directly from APIM — no
-  // backend hop. This closes the I1 finding from the frontend security
-  // review (anonymous /health used to leak `db: true` confirming the
-  // database was reachable). For richer health (db connectivity etc.)
-  // hit the backend's /ready probe via the protected API with a JWT.
+resource opHealthPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-05-01' = {
+  name: '${apim.name}/${apiProtected.name}/get-health/policy'
   properties: {
     format: 'rawxml'
-    value: publicInboundPolicyXml
+    value: healthOperationPolicyXml
   }
   dependsOn: [
-    sharedSecretNamedValue
+    // apiProtected is referenced via the resource name string above,
+    // creating an implicit dependency — no need to list it explicitly.
+    // apiProtectedPolicy is sequenced first so the API-level inbound
+    // policy lands before this per-operation override (predictable apply
+    // order in case APIM evaluates policy chains during apply).
+    apiProtectedPolicy
   ]
-}
-
-resource opHealth 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: apiPublic
-  name: 'get'
-  properties: {
-    displayName: 'GET /health (proxied)'
-    method: 'GET'
-    urlTemplate: '/'
-    responses: [
-      { statusCode: 200, description: 'OK' }
-    ]
-  }
 }
 
 // -----------------------------------------------------------------------------
