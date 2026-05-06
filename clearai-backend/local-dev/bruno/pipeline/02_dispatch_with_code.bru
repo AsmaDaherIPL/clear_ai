@@ -7,11 +7,7 @@ meta {
 post {
   url: {{baseUrl}}/pipeline/dispatch
   body: json
-  auth: bearer
-}
-
-auth:bearer {
-  token: {{bearerToken}}
+  auth: inherit
 }
 
 body:json {

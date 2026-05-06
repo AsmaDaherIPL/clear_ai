@@ -7,11 +7,7 @@ meta {
 get {
   url: {{baseUrl}}/pipeline/trace/{{lastDispatchItemId}}
   body: none
-  auth: bearer
-}
-
-auth:bearer {
-  token: {{bearerToken}}
+  auth: inherit
 }
 
 docs {

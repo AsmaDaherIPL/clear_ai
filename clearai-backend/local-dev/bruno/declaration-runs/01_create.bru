@@ -7,11 +7,7 @@ meta {
 post {
   url: {{baseUrl}}/declaration-runs
   body: multipartForm
-  auth: bearer
-}
-
-auth:bearer {
-  token: {{bearerToken}}
+  auth: inherit
 }
 
 body:multipart-form {

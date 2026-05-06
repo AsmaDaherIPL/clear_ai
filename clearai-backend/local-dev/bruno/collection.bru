@@ -1,0 +1,54 @@
+auth {
+  mode: oauth2
+}
+
+auth:oauth2 {
+  grant_type: authorization_code
+  callback_url: http://localhost
+  authorization_url: https://login.microsoftonline.com/{{tenantId}}/oauth2/v2.0/authorize
+  access_token_url: https://login.microsoftonline.com/{{tenantId}}/oauth2/v2.0/token
+  client_id: {{cliClientId}}
+  client_secret:
+  scope: {{apiScope}} openid profile offline_access
+  state:
+  pkce: true
+  credentials_placement: body
+  token_placement: header
+  token_header_prefix: Bearer
+  auto_fetch_token: true
+  auto_refresh_token: true
+}
+
+docs {
+  Collection-level Auth — applied to every request that has `auth: inherit`.
+
+  This is OAuth 2.0 / Authorization Code + PKCE against Microsoft Entra ID
+  (Workforce tenant). It produces a v2.0 access token whose audience matches
+  the API app registration ClearAI API DEV — the same audience APIM's
+  validate-jwt policy accepts.
+
+  Required environment variables (set in environments/dev-apim.bru):
+
+    tenantId       Entra tenant id (Infinite Apps)
+    cliClientId    Public client app reg id (ClearAI CLI DEV) — uses PKCE,
+                   no client_secret
+    apiAudience    Protected API's App ID URI
+    apiScope       <apiAudience>/access_as_user — the delegated permission
+
+  CRITICAL: credentials_placement = body. The CLI client is public (no
+  client_secret), so Microsoft's token endpoint MUST receive the client_id
+  as a form field in the request body, NOT as HTTP Basic Auth. Setting
+  this to `basic` breaks with HTTP 400 invalid_request.
+
+  Scopes:
+    {{apiScope}}     — the API access scope; sets token aud + scp
+    openid           — gives ID-token claims (name, oid)
+    profile          — adds upn, preferred_username
+    offline_access   — gives a refresh token so Bruno renews silently
+
+  How to use:
+    1. Top-right dropdown → select dev-apim
+    2. Hit Send on any request — Bruno triggers the browser auth flow
+       on first send, then injects the bearer token automatically
+    3. Subsequent requests reuse / refresh the token
+}
