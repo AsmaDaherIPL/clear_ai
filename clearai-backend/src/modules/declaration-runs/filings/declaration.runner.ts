@@ -43,6 +43,19 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   const e = env();
   const now = new Date();
 
+  // ZATCA submitter id is operator-supplied (env-injected at deploy time);
+  // we cannot fabricate a carrier id, and submitting an empty one to ZATCA
+  // would produce a rejected declaration. Fail loudly here rather than emit
+  // bad XML.
+  if (!e.ZATCA_SUBMITTER_CARRIER_ID) {
+    throw new Error(
+      'ZATCA_SUBMITTER_CARRIER_ID is not set. The operator must configure ' +
+      'this env var with the carrier id assigned by ZATCA before declaration ' +
+      'rendering can run.',
+    );
+  }
+  const carrierId = e.ZATCA_SUBMITTER_CARRIER_ID;
+
   let bundleIndex = 0;
   for (const bundle of bundles) {
     const xml = renderDeclarationXml({
@@ -50,7 +63,7 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
       bundleStrategy: bundle.strategy,
       items: bundle.items,
       submitter: {
-        carrierId: e.ZATCA_SUBMITTER_CARRIER_ID,
+        carrierId,
         name: e.ZATCA_SUBMITTER_NAME,
       },
       namespaces: { decsub: e.ZATCA_DECLARATION_NS },

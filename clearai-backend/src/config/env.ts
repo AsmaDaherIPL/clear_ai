@@ -88,20 +88,33 @@ const EnvSchema = z
      * Azure Blob connection string OR a `file://` URI rooted at a local
      * directory (dev fallback). The blob.client picks the adapter based on
      * the prefix; see src/storage/blob.client.ts.
-     * Required at boot — never silently fall back to in-memory storage.
+     *
+     * Optional at boot so the backend can come up in environments where
+     * declaration-run uploads aren't yet provisioned (e.g. dev APIM with no
+     * storage account). blob.client.ts throws a clear error on first use
+     * if this is unset, so /declaration-runs returns a 5xx at upload time
+     * but probes / single-shot pipeline routes still work.
      */
-    BATCH_BLOB_CONNECTION: z.string().min(1),
+    BATCH_BLOB_CONNECTION: z.string().min(1).optional(),
     /** TTL for retained batch results before garbage collection. */
     BATCH_RESULT_TTL_DAYS: z.coerce.number().int().positive().default(30),
 
     // ─── ZATCA Declaration envelope (rendered by BatchPlumber Phase 5) ──────
 
-    /** XML namespace URI for the decsub:saudiEDI envelope. */
-    ZATCA_DECLARATION_NS: z.string().min(1),
-    /** Static carrier id assigned by ZATCA to the submitting carrier. */
-    ZATCA_SUBMITTER_CARRIER_ID: z.string().min(1),
-    /** Display name of the submitting carrier in the envelope. */
-    ZATCA_SUBMITTER_NAME: z.string().min(1),
+    /**
+     * The next 3 fields drive the ZATCA XML render. Optional at boot so the
+     * backend doesn't refuse to start when ops hasn't yet supplied real
+     * carrier credentials. declaration.runner.ts asserts non-empty values
+     * before rendering, so /declaration-runs uploads complete classification
+     * but Phase 2 (XML emission) fails with a clear error pointing at the
+     * unset env var.
+     */
+    /** XML namespace URI for the decsub:saudiEDI envelope. Default = SaudiEDI standard URI. */
+    ZATCA_DECLARATION_NS: z.string().min(1).default('http://www.saudiedi.com/schema/decsub'),
+    /** Static carrier id assigned by ZATCA. Operator must supply via env. */
+    ZATCA_SUBMITTER_CARRIER_ID: z.string().min(1).optional(),
+    /** Display name of the submitting carrier in the envelope. Default Naqel. */
+    ZATCA_SUBMITTER_NAME: z.string().min(1).default('Naqel'),
 
     // ─── FX rates for HV/LV partition (G7) ─────────────────────────────────
     //

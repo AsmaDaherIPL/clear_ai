@@ -180,6 +180,14 @@ function buildClient(): BlobClient {
   const e = env();
   const conn = e.BATCH_BLOB_CONNECTION;
 
+  if (!conn) {
+    throw new Error(
+      'BATCH_BLOB_CONNECTION is not set. Configure it on the Container App ' +
+      'env (Azure Blob connection string, or `file://<path>` for local dev) ' +
+      'before invoking storage operations.',
+    );
+  }
+
   if (conn.startsWith('file://')) {
     return new LocalBlobClient(fileUriToPath(conn));
   }
