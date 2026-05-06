@@ -15,14 +15,15 @@
  *       - "ExpressMailInfomation - Fields"
  *
  * Where each field comes from:
- *   identity      → operators row columns (tabadulUserid, brokerLicenseType, ...)
- *   zatcaDefault  → zatca_declaration_defaults table (declaration_type, payment_method, ...)
- *   constants     → operator_constants placeholders (express_default_city / zip / poBox pending Naqel)
- *   row           → canonical (mapper output)
- *   lookup        → tabadul_codes (universal) + operator_lookups (per-operator);
- *                   merged into a single map by the runner
- *   computed      → derived in this file (transportIDType, carrierPrefix, dates)
- *   dispatch      → final_code, goods_description_ar (Phase 1 outputs)
+ *   identity         → operators row columns (tabadulUserid, brokerLicenseType, ...)
+ *   zatcaDefault     → zatca_declaration_defaults table (declaration_type, payment_method, ...)
+ *   constants        → operator_constants (today: only default_reg_port_code)
+ *   row              → canonical (mapper output, including consigneeAddress)
+ *   operator default → operators.default_consignee_address jsonb (per-field fallback for consigneeAddress)
+ *   lookup           → tabadul_codes (universal) + operator_lookups (per-operator);
+ *                      merged into a single map by the runner
+ *   computed         → derived in this file (transportIDType, carrierPrefix, dates)
+ *   dispatch         → final_code, goods_description_ar (Phase 1 outputs)
  *
  * v0 deviations from spec (flagged for future PRs):
  *   • carrierPrefix: defaulted to last-3-of-WaybillNo. Sample 2 matches;
@@ -328,16 +329,63 @@ function renderDeclarationDocuments(input: RenderInput): string {
   ].join('\n');
 }
 
+/**
+ * Read a consignee-address field with the fallback chain:
+ *   1. canonical.consigneeAddress.<field>  (per-row from request)
+ *   2. operator.defaultConsigneeAddress.<field>  (operator-level default)
+ *   3. tabdulCityFallback (streetAr only — Arabic city name from tabdul_city lookup)
+ *   4. for streetAr: empty string (matches historical behaviour when city name is unknown)
+ *      for other fields: throw (we won't silently emit empty zip / poBox / cityCode)
+ */
+function consigneeField(
+  input: RenderInput,
+  field: 'cityCode' | 'zipCode' | 'poBox' | 'streetAr',
+  tabdulCityFallback?: string,
+): string {
+  const first = input.items[0]!;
+  const fromRow = first.canonical.consigneeAddress?.[field] ?? null;
+  if (fromRow !== null && fromRow !== '') return fromRow;
+  const fromOperator = input.operator.defaultConsigneeAddress?.[field];
+  if (fromOperator !== undefined && fromOperator !== '') return fromOperator;
+  if (field === 'streetAr') {
+    if (tabdulCityFallback !== undefined && tabdulCityFallback !== '') return tabdulCityFallback;
+    return ''; // matches historical render: empty <deccm:address> when nothing known
+  }
+  throw new ZatcaRenderError(
+    `consigneeAddress.${field} is null on canonical row and operator '${input.operator.slug}' has no defaultConsigneeAddress.${field} fallback`,
+  );
+}
+
 function renderExpressMail(input: RenderInput): string {
   const first = input.items[0]!;
   const c = first.canonical;
   const transportIdType = deriveTransportIdType(c.consigneeNationalId);
 
-  // Destination station -> Tabdul city -> Arabic name (composite lookup).
-  const destStation = lookup(input, 'destination_station', c.destinationStationId);
-  const cityCode = destStation?.canonical ?? constant(input, 'express_default_city');
+  // City: per-row consigneeAddress.cityCode wins. Otherwise fall back to
+  // destination_station lookup -> operator default. The destination_station
+  // path stays so the existing test xlsxs render unchanged until Naqel ships
+  // a sample with consigneeCityCode columns.
+  let cityCode: string;
+  const rowCity = c.consigneeAddress?.cityCode ?? null;
+  if (rowCity !== null && rowCity !== '') {
+    cityCode = rowCity;
+  } else {
+    const destStation = lookup(input, 'destination_station', c.destinationStationId);
+    if (destStation) {
+      cityCode = destStation.canonical;
+    } else {
+      cityCode = consigneeField(input, 'cityCode');
+    }
+  }
+
+  // Arabic address: per-row streetAr wins; otherwise operator default;
+  // otherwise fall back to the Arabic city name (today's behaviour).
   const tabdulCity = lookup(input, 'tabdul_city', cityCode);
   const cityArName = tabdulCity?.canonical ?? '';
+  const streetAr = consigneeField(input, 'streetAr', cityArName);
+
+  const zipCode = consigneeField(input, 'zipCode');
+  const poBox = consigneeField(input, 'poBox');
 
   return [
     '      <decsub:expressMailInfomation>',
@@ -348,9 +396,9 @@ function renderExpressMail(input: RenderInput): string {
     `        <deccm:addCtryCd>${xml(zatcaDefault(input, 'express_add_country_code'))}</deccm:addCtryCd>`,
     `        <deccm:country>${xml(zatcaDefault(input, 'express_country'))}</deccm:country>`,
     `        <deccm:city>${xml(cityCode)}</deccm:city>`,
-    `        <deccm:zipCode>${xml(constant(input, 'express_zip_code'))}</deccm:zipCode>`,
-    `        <deccm:poBox>${xml(constant(input, 'express_po_box'))}</deccm:poBox>`,
-    `        <deccm:address>${xml(cityArName)}</deccm:address>`,
+    `        <deccm:zipCode>${xml(zipCode)}</deccm:zipCode>`,
+    `        <deccm:poBox>${xml(poBox)}</deccm:poBox>`,
+    `        <deccm:address>${xml(streetAr)}</deccm:address>`,
     `        <deccm:telephone>${xml(c.consigneePhone)}</deccm:telephone>`,
     '      </decsub:expressMailInfomation>',
   ].join('\n');

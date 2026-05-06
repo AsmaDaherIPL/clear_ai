@@ -53,14 +53,9 @@ function normalize(xml: string): string {
 /* ──────────────────────────────────────────────────────────────────────── */
 
 function naqelConstants(overrides: Record<string, string> = {}): Record<string, string> {
-  // Only operator-specific placeholders. Identity values come from
-  // naqelIdentity(); ZATCA-spec defaults from naqelZatcaDefaults();
-  // measurement units from the uom lookup.
+  // After 0056 only `default_reg_port_code` lives in operator_constants.
   return {
     default_reg_port_code: '23',
-    express_default_city: '131',
-    express_zip_code: '1111',
-    express_po_box: '11',
     ...overrides,
   };
 }
@@ -74,6 +69,14 @@ function naqelIdentity() {
     brokerRepresentativeNo: '1732',
     defaultSourceCompanyName: 'ناقل',
     defaultSourceCompanyNo: '340476',
+  };
+}
+
+function naqelDefaultConsigneeAddress() {
+  return {
+    cityCode: '131',
+    zipCode: '1111',
+    poBox: '11',
   };
 }
 
@@ -174,6 +177,7 @@ function syntheticRow(c: {
       consigneeName: c.consigneeName,
       consigneeNationalId: c.consigneeNationalId,
       consigneePhone: c.consigneePhone,
+      consigneeAddress: null,
       invoiceDate: c.invoiceDate,
     },
     rawRow: {},
@@ -201,6 +205,7 @@ function baseInputFor(opts: {
       displayName: 'Naqel',
       constants: opts.constants,
       identity: naqelIdentity(),
+      defaultConsigneeAddress: naqelDefaultConsigneeAddress(),
     },
     zatcaDefaults: naqelZatcaDefaults(),
     bundleStrategy: opts.strategy,

@@ -66,6 +66,7 @@ function row(overrides: Partial<{
       consigneeName: 'رحمة العيسى',
       consigneeNationalId: '1069595681',
       consigneePhone: '966500026683',
+      consigneeAddress: null,
       invoiceDate: null,
       ...(overrides as Record<string, unknown>),
     },
@@ -110,15 +111,9 @@ function lookups(): Map<string, Map<string, LookupValue>> {
 }
 
 function constants(): Record<string, string> {
-  // Only operator-specific placeholders remain in operator_constants.
-  // Identity values (reference_userid, broker_*, default_source_company_*)
-  // moved to operators columns; ZATCA-spec defaults moved to
-  // zatca_declaration_defaults; uom moved to tabadul_codes.
+  // Only `default_reg_port_code` left in operator_constants after 0056.
   return {
     default_reg_port_code: '23',
-    express_default_city: '131',
-    express_zip_code: '1111',
-    express_po_box: '11',
   };
 }
 
@@ -131,6 +126,14 @@ function identity() {
     brokerRepresentativeNo: '1732',
     defaultSourceCompanyName: 'ناقل',
     defaultSourceCompanyNo: '340476',
+  };
+}
+
+function defaultConsigneeAddress() {
+  return {
+    cityCode: '131',
+    zipCode: '1111',
+    poBox: '11',
   };
 }
 
@@ -155,7 +158,13 @@ function zatcaDefaults(): Record<string, string> {
 
 function baseInput(items: DeclarationRunItemRow[], strategy: 'HV_STANDALONE' | 'LV_BUNDLED' = 'HV_STANDALONE') {
   return {
-    operator: { slug: 'naqel', displayName: 'Naqel', constants: constants(), identity: identity() },
+    operator: {
+      slug: 'naqel',
+      displayName: 'Naqel',
+      constants: constants(),
+      identity: identity(),
+      defaultConsigneeAddress: defaultConsigneeAddress(),
+    },
     zatcaDefaults: zatcaDefaults(),
     bundleStrategy: strategy,
     items,
@@ -307,10 +316,29 @@ describe('renderDeclarationXml — escaping + errors', () => {
     );
   });
 
-  it('throws when a required operator_constant is missing', () => {
+  it('throws when both canonical.consigneeAddress and operator.defaultConsigneeAddress are missing', () => {
+    // Strip the operator default; the row also has consigneeAddress=null.
+    // Renderer should fail loud rather than emit empty XML.
     const input = baseInput([row()]);
-    const broken = { ...input, operator: { ...input.operator, constants: {} } };
-    expect(() => renderDeclarationXml(broken)).toThrowError(/express_zip_code|express_po_box|express_default_city/);
+    const broken = { ...input, operator: { ...input.operator, defaultConsigneeAddress: null } };
+    expect(() => renderDeclarationXml(broken)).toThrowError(/zipCode|poBox/);
+  });
+
+  it('uses canonical.consigneeAddress when present, falling back per-field to operator default', () => {
+    // Provide zipCode + poBox per-row; cityCode and streetAr come from operator default.
+    const item = row({});
+    (item.canonical as { consigneeAddress: unknown }).consigneeAddress = {
+      cityCode: null,
+      zipCode: '32433',
+      poBox: '8472',
+      streetAr: null,
+    };
+    const out = renderDeclarationXml(baseInput([item]));
+    expect(out).toContain('<deccm:zipCode>32433</deccm:zipCode>');
+    expect(out).toContain('<deccm:poBox>8472</deccm:poBox>');
+    // city: destination_station=503 -> 111, address: tabdul_city Arabic name
+    expect(out).toContain('<deccm:city>111</deccm:city>');
+    expect(out).toContain('<deccm:address>الدمام</deccm:address>');
   });
 
   it('throws when a required zatca_declaration_default is missing', () => {

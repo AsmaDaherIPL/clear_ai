@@ -2,15 +2,15 @@
  * Seed the Naqel operator row + its column-mapping rules + remaining
  * placeholder constants. Idempotent: re-running re-asserts the rows.
  *
- * After migration 0054:
+ * After migrations 0054 + 0056:
  *   • 7 identity values (tabadul_userid, broker_license_*, default_source_*)
- *     are set as columns on operators directly — no longer per-key rows.
+ *     are columns on operators.
+ *   • The consignee address fallback (cityCode, zipCode, poBox, streetAr)
+ *     is one jsonb column `default_consignee_address` on operators.
  *   • 14 ZATCA-spec defaults (declaration_type, payment_method, etc.) live
- *     in zatca_declaration_defaults — universal, not seeded per operator.
- *   • The 2 measurement-unit constants are gone — driven by tabadul_codes.uom
- *     lookups now.
- *   • operator_constants is left with placeholders pending Naqel
- *     confirmation: express_default_city / express_zip_code / express_po_box.
+ *     in zatca_declaration_defaults.
+ *   • Measurement units come from tabadul_codes.uom lookups.
+ *   • operator_constants now holds only `default_reg_port_code`.
  *
  * Real source columns from
  *   naqel-shared-data/sample_input_commercial_invoice/light-example/pre-processed (commercial invoice).xlsx
@@ -65,13 +65,22 @@ const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
   { sourceColumn: 'ConsigneeName',         canonicalField: 'consigneeName',        required: true,  transform: 'trim',      defaultValue: null, fallbackColumns: ['Consignee'] },
   { sourceColumn: 'ConsigneeNationalID',   canonicalField: 'consigneeNationalId',  required: true,  transform: 'trim',      defaultValue: null },
   { sourceColumn: 'Mobile',                canonicalField: 'consigneePhone',       required: true,  transform: 'trim',      defaultValue: null, fallbackColumns: ['MobileNo', 'PhoneNumber', 'Phone'] },
+  // Consignee address — optional per-row override of operators.default_consignee_address.
+  // Naqel hasn't shipped a sample with these columns yet; placeholder column
+  // names ('ConsigneeCity', etc.) for when they do. Until then the renderer
+  // falls back to the operators row's default_consignee_address jsonb.
+  { sourceColumn: 'ConsigneeCity',         canonicalField: 'consigneeCityCode',    required: false, transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'ConsigneeZipCode',      canonicalField: 'consigneeZipCode',     required: false, transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'ConsigneePoBox',        canonicalField: 'consigneePoBox',       required: false, transform: 'trim',      defaultValue: null },
+  { sourceColumn: 'ConsigneeAddress',      canonicalField: 'consigneeStreetAr',    required: false, transform: 'trim',      defaultValue: null },
   // Document refs.
   { sourceColumn: 'InvoiceDate',           canonicalField: 'invoiceDate',          required: false, transform: 'trim',      defaultValue: null },
 ];
 
 /**
- * Naqel's Tabadul identity. Set as typed columns on the operators row.
- * Sourced from the post-processed sample XMLs (NQD26033110789, ...).
+ * Naqel's Tabadul identity + consignee-address default. Set as typed columns
+ * on the operators row. Sourced from the post-processed sample XMLs
+ * (NQD26033110789, ...).
  */
 const NAQEL_IDENTITY = {
   tabadulUserid: 'uwqfr002',
@@ -81,18 +90,29 @@ const NAQEL_IDENTITY = {
   brokerRepresentativeNo: '1732',
   defaultSourceCompanyName: 'ناقل',
   defaultSourceCompanyNo: '340476',
+  /**
+   * Operator-level fallback for consignee-address fields (cityCode/zipCode/
+   * poBox/streetAr). Used when canonical.consigneeAddress is null or
+   * partial. The placeholder values for zipCode/poBox match the historical
+   * test xlsx output — pending Naqel confirmation. cityCode '131' (Riyadh)
+   * is the fallback when destination_station lookup misses.
+   */
+  defaultConsigneeAddress: {
+    cityCode: '131',
+    zipCode: '1111',
+    poBox: '11',
+    // streetAr left undefined; renderer falls back to Arabic city name from
+    // the tabdul_city lookup when neither row nor operator default has it.
+  },
 };
 
 /**
- * Remaining placeholder constants pending Naqel confirmation. These three
- * keys have suspicious values ('1111', '11', '131') that may need to come
- * from per-row data instead. Once Naqel clarifies, they either move to the
- * canonical line item or to operators columns and operator_constants is dropped.
+ * Remaining placeholder constants pending Naqel confirmation. After 0056
+ * only `default_reg_port_code` is left — when Naqel clarifies whether
+ * different shipments use different reg ports, this either moves to a
+ * canonical field or becomes a column on operators and the table is dropped.
  */
 const NAQEL_PLACEHOLDER_CONSTANTS: ReadonlyArray<{ key: string; value: string; comment: string }> = [
-  { key: 'express_default_city', value: '131', comment: 'deccm:city fallback when destination_station lookup misses' },
-  { key: 'express_zip_code', value: '1111', comment: 'deccm:zipCode — placeholder pending Naqel spec' },
-  { key: 'express_po_box', value: '11', comment: 'deccm:poBox — placeholder pending Naqel spec' },
   { key: 'default_reg_port_code', value: '23', comment: 'decsub:regPort — Naqel default reg port' },
 ];
 

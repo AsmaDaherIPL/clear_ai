@@ -77,6 +77,8 @@ beforeEach(async () => {
     brokerRepresentativeNo: '1732',
     defaultSourceCompanyName: 'ناقل',
     defaultSourceCompanyNo: '340476',
+    // Consignee-address default (post-migration 0056).
+    defaultConsigneeAddress: { cityCode: '131', zipCode: '1111', poBox: '11' },
   }).returning();
   testOperatorId = inserted[0]!.id;
   // Override the bundle size to 3 so the test exercises LV chunking with
@@ -128,14 +130,9 @@ beforeEach(async () => {
     });
   }
 
-  // Only per-operator placeholder constants. Identity moved to operators
-  // columns (set above); ZATCA-spec defaults moved to zatca_declaration_defaults
-  // (seeded by migration 0053).
+  // After migration 0056 only `default_reg_port_code` lives in operator_constants.
   const minConstants: Array<[string, string]> = [
     ['default_reg_port_code', '23'],
-    ['express_default_city', '131'],
-    ['express_zip_code', '1111'],
-    ['express_po_box', '11'],
   ];
   for (const [k, v] of minConstants) {
     await db().insert(operatorConstants).values({ operatorId: testOperatorId, key: k, value: v });
@@ -209,6 +206,7 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
         consigneeName: 'Test Consignee',
         consigneeNationalId: '1069595681',
         consigneePhone: '966500000000',
+        consigneeAddress: null,
         invoiceDate: null,
       },
       rawRow: {},

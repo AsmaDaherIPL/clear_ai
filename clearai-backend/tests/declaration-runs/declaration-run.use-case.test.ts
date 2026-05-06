@@ -58,6 +58,8 @@ beforeAll(async () => {
     brokerRepresentativeNo: '1732',
     defaultSourceCompanyName: 'ناقل',
     defaultSourceCompanyNo: '340476',
+    // Consignee-address default (post-migration 0056).
+    defaultConsigneeAddress: { cityCode: '131', zipCode: '1111', poBox: '11' },
   }).returning();
   testOperatorId = inserted[0]!.id;
 
@@ -89,14 +91,10 @@ beforeAll(async () => {
     });
   }
 
-  // Only the per-operator placeholder constants remain in operator_constants.
-  // ZATCA-spec defaults are seeded into zatca_declaration_defaults by
-  // migration 0053; identity values are columns on operators above.
+  // After migration 0056 only `default_reg_port_code` lives in operator_constants.
+  // The 3 address keys moved to operators.default_consignee_address jsonb.
   const minConstants: Array<[string, string]> = [
     ['default_reg_port_code', '23'],
-    ['express_default_city', '131'],
-    ['express_zip_code', '1111'],
-    ['express_po_box', '11'],
   ];
   for (const [k, v] of minConstants) {
     await db().insert(operatorConstants).values({ operatorId: testOperatorId, key: k, value: v });
