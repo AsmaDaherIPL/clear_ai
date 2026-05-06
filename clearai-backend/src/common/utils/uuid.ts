@@ -22,7 +22,7 @@
  *   • hs_codes.id                      (catalog ingest, bulk)
  *   • classification_events.id         (runtime, per-request)
  *   • classification_feedback.id       (runtime, per-feedback)
- *   • Future GUID PKs on hs_code_display / hs_code_search / tenant_code_overrides
+ *   • Future GUID PKs on hs_code_display / hs_code_search / operator_code_overrides
  *
  * Tables that may stay on the PG default (`gen_random_uuid()`) for now
  * without harm — append-only, low-write, no sequential-scan concern:

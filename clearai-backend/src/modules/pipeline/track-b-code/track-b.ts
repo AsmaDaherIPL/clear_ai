@@ -6,7 +6,7 @@
  * or prefix children exist. Track B never emits a correctness judgment.
  *
  * Resolution priority:
- *   1. Tenant override (exact or prefix match in tenant_code_overrides)
+ *   1. Tenant override (exact or prefix match in operator_code_overrides)
  *   2. Codebook lookup (zatca_hs_codes)
  *      a. 12-digit active          → passthrough
  *      b. 12-digit deprecated, 1 replacement → deterministic swap
@@ -79,7 +79,7 @@ export async function runTrackB(
   raw_merchant_code: string | null,
   merchant_code_state: MerchantCodeState,
   cleaned_description: string,
-  tenantSlug: string,
+  operatorSlug: string,
 ): Promise<TrackBResult> {
   if (!raw_merchant_code || merchant_code_state === 'absent' || merchant_code_state === 'malformed') {
     return {
@@ -91,7 +91,7 @@ export async function runTrackB(
   }
 
   // 1. Tenant override
-  const override = await lookupTenantOverride(raw_merchant_code, tenantSlug);
+  const override = await lookupTenantOverride(raw_merchant_code, operatorSlug);
   if (override) {
     return {
       resolved_code: override.targetCode,

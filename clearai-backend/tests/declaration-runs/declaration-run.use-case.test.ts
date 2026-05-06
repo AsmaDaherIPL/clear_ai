@@ -13,15 +13,15 @@ import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db, closeDb } from '../../src/db/client.js';
 import {
-  tenants,
-  tenantFieldMappings,
-  tenantConstants,
-  tenantLookups,
+  operators,
+  operatorFieldMappings,
+  operatorConstants,
+  operatorLookups,
   declarationRuns,
-  declarations,
+  declarationRunFilings,
 } from '../../src/db/schema.js';
 import { runProcessing, createDeclarationRun } from '../../src/modules/declaration-runs/declaration-run.use-case.js';
-import { clearCache } from '../../src/modules/tenants/tenant-config.registry.js';
+import { clearCache } from '../../src/modules/operators/operator-config.registry.js';
 import type { DispatchFn } from '../../src/modules/dispatch/dispatch.contract.ts';
 
 const TEST_TENANT_SLUG = 'tcuc_test';
@@ -34,11 +34,11 @@ beforeAll(async () => {
   process.env.ZATCA_SUBMITTER_CARRIER_ID ??= 'TEST-CARRIER';
   process.env.ZATCA_SUBMITTER_NAME ??= 'Test Carrier';
 
-  // Seed a tenant + the minimum mappings required for canonical resolution.
-  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
-  await db().insert(tenants).values({
+  // Seed a operator + the minimum mappings required for canonical resolution.
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
+  await db().insert(operators).values({
     slug: TEST_TENANT_SLUG,
     displayName: 'Use-case test',
     active: true,
@@ -62,8 +62,8 @@ beforeAll(async () => {
   ] as const;
 
   for (const m of minMappings) {
-    await db().insert(tenantFieldMappings).values({
-      tenant: TEST_TENANT_SLUG,
+    await db().insert(operatorFieldMappings).values({
+      operatorSlug: TEST_TENANT_SLUG,
       sourceColumn: m.sourceColumn,
       canonicalField: m.canonicalField,
       required: m.required,
@@ -104,7 +104,7 @@ beforeAll(async () => {
     ['default_source_company_no', '340476'],
   ];
   for (const [k, v] of minConstants) {
-    await db().insert(tenantConstants).values({ tenant: TEST_TENANT_SLUG, key: k, value: v });
+    await db().insert(operatorConstants).values({ operatorSlug: TEST_TENANT_SLUG, key: k, value: v });
   }
 
   // Lookups for the renderer to resolve currency_code + country_of_origin.
@@ -114,8 +114,8 @@ beforeAll(async () => {
     ['country_of_origin', 'GB', '521'],
   ];
   for (const [t, src, can] of minLookups) {
-    await db().insert(tenantLookups).values({
-      tenant: TEST_TENANT_SLUG,
+    await db().insert(operatorLookups).values({
+      operatorSlug: TEST_TENANT_SLUG,
       lookupType: t,
       sourceValue: src,
       canonicalValue: can,
@@ -126,17 +126,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantConstants).where(eq(tenantConstants.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantLookups).where(eq(tenantLookups.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorLookups).where(eq(operatorLookups.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
   await closeDb();
   await rm(blobDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
 });
 
 const passDispatch: DispatchFn = async () => ({
@@ -157,7 +157,7 @@ const CSV = Buffer.from(
 describe('runProcessing', () => {
   it('classify_only: runs Phase 1, skips Phase 2 (no declarations rows; declaration_status stays NULL)', async () => {
     const { declarationRun } = await createDeclarationRun({
-      tenantSlug: TEST_TENANT_SLUG,
+      operatorSlug: TEST_TENANT_SLUG,
       mode: 'classify_only',
       uploadKind: 'csv',
       uploadBytes: CSV,
@@ -174,13 +174,13 @@ describe('runProcessing', () => {
     expect(after[0]!.declarationStatus).toBeNull();
     expect(after[0]!.status).toBe('completed');
 
-    const decl = await db().select().from(declarations).where(eq(declarations.declarationRunId, declarationRun.id));
+    const decl = await db().select().from(declarationRunFilings).where(eq(declarationRunFilings.declarationRunId, declarationRun.id));
     expect(decl).toHaveLength(0);
   });
 
   it('classify_and_declare: runs both phases; declaration rows are produced', async () => {
     const { declarationRun } = await createDeclarationRun({
-      tenantSlug: TEST_TENANT_SLUG,
+      operatorSlug: TEST_TENANT_SLUG,
       mode: 'classify_and_declare',
       uploadKind: 'csv',
       uploadBytes: CSV,
@@ -195,7 +195,7 @@ describe('runProcessing', () => {
     expect(after[0]!.declarationStatus).toBe('completed');
     expect(after[0]!.status).toBe('completed');
 
-    const decl = await db().select().from(declarations).where(eq(declarations.declarationRunId, declarationRun.id));
+    const decl = await db().select().from(declarationRunFilings).where(eq(declarationRunFilings.declarationRunId, declarationRun.id));
     expect(decl.length).toBeGreaterThanOrEqual(1);
   });
 });

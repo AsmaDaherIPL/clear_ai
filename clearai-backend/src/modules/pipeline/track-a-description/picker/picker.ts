@@ -29,7 +29,7 @@ export async function runPicker(
     kind: 'describe',
     query: effective_description,
     candidates,
-    pathMode: 1,  // heading-only path mode; configurable via tenant setup_meta later
+    pathMode: 1,  // heading-only path mode; configurable via operator setup_meta later
   });
 
   if (result.llmStatus !== 'ok' || result.guardTripped || result.chosenCode === null) {

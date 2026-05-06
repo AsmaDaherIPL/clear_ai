@@ -2,8 +2,8 @@
  * Top-level declaration-run orchestrator. Thin: delegates to phase services.
  *
  *   1. parse upload                        (parsers/csv|xlsx.parser)
- *   2. resolve tenant                      (tenants/tenant-config.registry.resolve)
- *   3. canonicalise rows                   (tenants/tenant-line-item.mapper)
+ *   2. resolve operator                      (tenants/operator-config.registry.resolve)
+ *   3. canonicalise rows                   (tenants/operator-line-item.mapper)
  *   4. persist source blob + insert        (storage/blob.client + repository)
  *   5. Phase 1 always                      (classification/classification.service)
  *   6. Phase 2 conditional                 (declaration/declaration.service)
@@ -12,9 +12,9 @@
  * The runProcessing() entrypoint is invoked AFTER the route returns 202
  * (background) so the HTTP request doesn't block on Phase 1.
  */
-import { resolve as resolveTenant } from '../tenants/tenant-config.registry.js';
-import { mapRowToCanonical, type MapperLookups } from '../tenants/tenant-line-item.mapper.js';
-import { getLookupsBySlug } from '../tenants/tenant-lookups.repository.js';
+import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
+import { mapRowToCanonical, type MapperLookups } from '../operators/operator-line-item.mapper.js';
+import { getLookupsBySlug } from '../operators/operator-lookups.repository.js';
 import { parseCsvBuffer } from './parsers/csv.parser.js';
 import { parseXlsxBuffer } from './parsers/xlsx.parser.js';
 import { runClassificationPhase } from './classification/classification.service.js';
@@ -28,7 +28,7 @@ import { DeclarationRunTooLargeError, DeclarationRunValidationError } from './de
 import { env } from '../../config/env.js';
 import { getBlobClient } from '../../storage/blob.client.js';
 import { inputKey } from '../../storage/blob.paths.js';
-import type { TenantConfig } from '../tenants/tenant-config.types.js';
+import type { OperatorConfig } from '../operators/operator-config.types.js';
 import type { DeclarationRunMode, DeclarationRunRow } from '../../db/schema.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
 import { newId } from '../../common/utils/uuid.js';
@@ -36,7 +36,7 @@ import { newId } from '../../common/utils/uuid.js';
 export type UploadKind = 'csv' | 'xlsx';
 
 export interface CreateDeclarationRunInput {
-  tenantSlug: string;
+  operatorSlug: string;
   mode: DeclarationRunMode;
   uploadKind: UploadKind;
   /** The raw bytes of the uploaded file. */
@@ -59,7 +59,7 @@ export interface CreateDeclarationRunResult {
  */
 export async function createDeclarationRun(input: CreateDeclarationRunInput): Promise<CreateDeclarationRunResult> {
   const e = env();
-  const tenant = await resolveTenant(input.tenantSlug);
+  const operator = await resolveOperator(input.operatorSlug);
 
   const parsed =
     input.uploadKind === 'csv' ? parseCsvBuffer(input.uploadBytes) : parseXlsxBuffer(input.uploadBytes);
@@ -71,8 +71,8 @@ export async function createDeclarationRun(input: CreateDeclarationRunInput): Pr
     throw new DeclarationRunTooLargeError(parsed.rows.length, e.BATCH_INPUT_MAX_ROWS);
   }
 
-  const lookups = await loadLookups(tenant);
-  const items = canonicaliseRows(parsed.rows, tenant, lookups);
+  const lookups = await loadLookups(operator);
+  const items = canonicaliseRows(parsed.rows, operator, lookups);
 
   const declarationRunId = newId();
   const sourceBlobKey = inputKey(declarationRunId, input.uploadKind);
@@ -81,7 +81,7 @@ export async function createDeclarationRun(input: CreateDeclarationRunInput): Pr
 
   const insertInput: InsertDeclarationRunInput = {
     declarationRunId,
-    tenantSlug: tenant.slug,
+    operatorSlug: operator.slug,
     mode: input.mode,
     sourceBlobKey,
     rowCount: items.length,
@@ -100,7 +100,7 @@ export async function runProcessing(declarationRunId: string, dispatch: Dispatch
     await runClassificationPhase(declarationRunId, { dispatch });
 
     // Phase 2 — declaration. The service no-ops when mode === 'classify_only'.
-    const { runDeclarationPhaseIfNeeded } = await import('./declaration/declaration.service.js');
+    const { runDeclarationPhaseIfNeeded } = await import('./filings/declaration.service.js');
     await runDeclarationPhaseIfNeeded(declarationRunId);
 
     await setDeclarationRunStatus(declarationRunId, { status: 'completed', completedAt: new Date() });
@@ -115,20 +115,20 @@ export async function runProcessing(declarationRunId: string, dispatch: Dispatch
   }
 }
 
-async function loadLookups(tenant: TenantConfig): Promise<MapperLookups> {
-  const byType = await getLookupsBySlug(tenant.slug);
+async function loadLookups(operator: OperatorConfig): Promise<MapperLookups> {
+  const byType = await getLookupsBySlug(operator.slug);
   return { byType };
 }
 
 function canonicaliseRows(
   rows: ReadonlyArray<Record<string, string>>,
-  tenant: TenantConfig,
+  operator: OperatorConfig,
   lookups: MapperLookups,
 ): DeclarationRunItemInput[] {
   const out: DeclarationRunItemInput[] = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
-    const canonical = mapRowToCanonical(row, tenant, i + 1, lookups);
+    const canonical = mapRowToCanonical(row, operator, i + 1, lookups);
     out.push({ canonical, rawRow: row });
   }
   return out;

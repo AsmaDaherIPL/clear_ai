@@ -4,12 +4,12 @@
  * `CanonicalLineItem` is the single contract between BatchPlumber (mapper
  * output) and dispatch (input). Add fields here only when both sides agree.
  *
- * `TransformKind` mirrors the closed enum in tenant_field_mappings.transform.
- * `ColumnMappingRule` mirrors a row of tenant_field_mappings.
+ * `TransformKind` mirrors the closed enum in operator_field_mappings.transform.
+ * `ColumnMappingRule` mirrors a row of operator_field_mappings.
  *
  * ZATCA tunables (HV threshold, bundle size) live in setup_meta — see
- * setup-meta.repository — and are NOT on TenantConfig (they're spec-wide,
- * not per-tenant).
+ * setup-meta.repository — and are NOT on OperatorConfig (they're spec-wide,
+ * not per-operator).
  */
 
 export type TransformKind = 'trim' | 'uppercase' | 'lowercase' | null;
@@ -32,7 +32,7 @@ export type CanonicalField =
   | 'quantity'
   | 'uom'
   | 'netWeightKg'
-  // Client / origin (drives tenant_lookups for sourceCompany, regPort, etc.)
+  // Client / origin (drives operator_lookups for sourceCompany, regPort, etc.)
   | 'clientId'
   | 'countryOfOrigin'
   // Destination
@@ -59,13 +59,13 @@ export interface ColumnMappingRule {
   fallbackColumns: ReadonlyArray<string>;
 }
 
-export interface TenantConfig {
+export interface OperatorConfig {
   id: string;
   slug: string;
   displayName: string;
   active: boolean;
   mappings: ReadonlyArray<ColumnMappingRule>;
-  /** Frozen view of tenant_constants for this tenant; key -> value. */
+  /** Frozen view of operator_constants for this operator; key -> value. */
   constants: Readonly<Record<string, string>>;
 }
 
@@ -87,7 +87,7 @@ export type RawRow = Record<string, unknown>;
  * (`naqel-shared-data/Naqel (Fields details + Mapping data).xlsx`):
  *   - `description` is the dispatch input (English or Arabic — language
  *     detected downstream).
- *   - `merchantHsCode` is the tenant-supplied HS guess that drives Stage 1
+ *   - `merchantHsCode` is the operator-supplied HS guess that drives Stage 1
  *     of the dispatch pipeline (merchant_code_status signal).
  *   - `clientId` and `destinationStationId` are lookup keys.
  *   - `consigneeNationalId` decides `transportIDType` (5 if it starts with
@@ -105,7 +105,7 @@ export interface CanonicalLineItem {
 
   /** Tenant context — uuid for the synthetic key, slug for the FK / log context. */
   tenantId: string;
-  tenantSlug: string;
+  operatorSlug: string;
 
   /* ---- Identity ---- */
   description: string;

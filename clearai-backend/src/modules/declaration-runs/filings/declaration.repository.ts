@@ -7,7 +7,7 @@ import { db } from '../../../db/client.js';
 import {
   declarationRunItems,
   declarationRuns,
-  declarations,
+  declarationRunFilings,
   type DeclarationStatus,
   type DeclarationRunItemRow,
 } from '../../../db/schema.js';
@@ -35,7 +35,7 @@ export interface RecordDeclarationInput {
 }
 
 export async function recordDeclaration(input: RecordDeclarationInput): Promise<void> {
-  await db().insert(declarations).values({
+  await db().insert(declarationRunFilings).values({
     declarationRunId: input.declarationRunId,
     bundleIndex: input.bundleIndex,
     bundleStrategy: input.strategy,

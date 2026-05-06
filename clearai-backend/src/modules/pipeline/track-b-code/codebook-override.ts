@@ -1,11 +1,11 @@
 /**
- * Tenant-override lookup. Resolves a merchant-supplied code to a tenant's
+ * Tenant-override lookup. Resolves a merchant-supplied code to a operator's
  * canonical ZATCA target via exact match, then prefix-walk down to minPrefix.
  *
  * Renamed from broker-mapping.ts in commit #2 of ADR-0025. The semantics
  * are unchanged from the caller's POV; the storage table moved from
- * broker_code_mapping to tenant_code_overrides and the lookup is now
- * tenant-scoped (today only 'naqel'; multi-tenant in the future).
+ * broker_code_mapping to operator_code_overrides and the lookup is now
+ * operator-scoped (today only 'naqel'; multi-operator in the future).
  */
 import { getPool } from '../../../db/client.js';
 
@@ -27,7 +27,7 @@ const DIGITS_ONLY = /[^\d]/g;
 /** Returns null when no match at any prefix length. */
 export async function lookupTenantOverride(
   rawCode: string,
-  tenant: string,
+  operator: string,
   opts: TenantOverrideOpts = {},
 ): Promise<TenantOverrideHit | null> {
   const minPrefix = opts.minPrefix ?? 6;
@@ -47,12 +47,12 @@ export async function lookupTenantOverride(
     target_code: string;
   }>(
     `SELECT source_code, target_code
-       FROM tenant_code_overrides
-      WHERE tenant = $1
+       FROM operator_code_overrides
+      WHERE operator_slug = $1
         AND source_code = ANY($2::varchar[])
       ORDER BY length(source_code) DESC
       LIMIT 1`,
-    [tenant, candidates],
+    [operator, candidates],
   );
 
   const row = r.rows[0];

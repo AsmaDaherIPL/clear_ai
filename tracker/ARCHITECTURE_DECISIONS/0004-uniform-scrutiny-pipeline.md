@@ -75,7 +75,7 @@ status — never `blocked` or `failed`. See ADR-0003.
 | Path | Path-specific work | Then |
 |---|---|---|
 | Verify | reconciliation against provided code | sanity check |
-| Expand | tenant code-override → leaf descent | sanity check |
+| Expand | operator code-override → leaf descent | sanity check |
 | Classify | retrieval + picker | sanity check |
 | Researcher | context-gathering → classify | sanity check |
 
@@ -122,7 +122,7 @@ The trace IS allowed to record path-specific stages (`trace.pathTaken`
 - Path-specific verdict types. The sanity verdict is one of three
   values, total. If we need richer detail, it goes in `trace`, not in
   the verdict.
-- Bypassing the sanity check via tenant config. A tenant cannot opt
+- Bypassing the sanity check via operator config. A operator cannot opt
   out of scrutiny. They can opt out of *Phase 2* (`mode=classify_only`),
   but not out of the gate.
 

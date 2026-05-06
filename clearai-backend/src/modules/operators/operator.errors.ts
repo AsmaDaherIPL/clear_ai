@@ -24,7 +24,7 @@ export class TenantError extends Error {
   }
 }
 
-export class TenantNotFoundError extends TenantError {
+export class OperatorNotFoundError extends TenantError {
   constructor(slugOrId: string) {
     super({
       code: 'tenant_not_found',
@@ -32,7 +32,7 @@ export class TenantNotFoundError extends TenantError {
       statusCode: 404,
       details: { slugOrId },
     });
-    this.name = 'TenantNotFoundError';
+    this.name = 'OperatorNotFoundError';
   }
 }
 
@@ -52,7 +52,7 @@ export class RequiredFieldMissingError extends TenantError {
   constructor(slug: string, rowIndex: number, field: string) {
     super({
       code: 'required_field_missing',
-      message: `Required field '${field}' missing on row ${rowIndex} for tenant '${slug}'`,
+      message: `Required field '${field}' missing on row ${rowIndex} for operator '${slug}'`,
       statusCode: 422,
       details: { slug, rowIndex, field },
     });

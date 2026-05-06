@@ -23,7 +23,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderDeclarationXml, ZatcaRenderError } from '../../../src/integrations/zatca/declaration/declaration.template.js';
 import type { DeclarationRunItemRow } from '../../../src/db/schema.js';
-import type { LookupValue } from '../../../src/modules/tenants/tenant-lookups.repository.js';
+import type { LookupValue } from '../../../src/modules/operators/operator-lookups.repository.js';
 
 function row(overrides: Partial<{
   description: string;
@@ -49,8 +49,8 @@ function row(overrides: Partial<{
     canonical: {
       itemId: 'item-1',
       rowIndex: 1,
-      tenantId: 'tenant',
-      tenantSlug: 'naqel',
+      tenantId: 'operator',
+      operatorSlug: 'naqel',
       description: 'Dresses',
       waybillNo: '394613346',
       merchantHsCode: '62046200',
@@ -139,7 +139,7 @@ function constants(): Record<string, string> {
 
 function baseInput(items: DeclarationRunItemRow[], strategy: 'HV_STANDALONE' | 'LV_BUNDLED' = 'HV_STANDALONE') {
   return {
-    tenant: { slug: 'naqel', displayName: 'Naqel', constants: constants() },
+    operator: { slug: 'naqel', displayName: 'Naqel', constants: constants() },
     bundleStrategy: strategy,
     items,
     submitter: { carrierId: 'NAQ-CARRIER-1', name: 'Naqel' },
@@ -161,14 +161,14 @@ describe('renderDeclarationXml — structural', () => {
     expect(out).toContain('decsub:msgType="H2HDECSUB"');
   });
 
-  it('reference block uses tenant constants + default reg port', () => {
+  it('reference block uses operator constants + default reg port', () => {
     const out = renderDeclarationXml(baseInput([row()]));
     expect(out).toContain('<decsub:userid>uwqfr002</decsub:userid>');
     expect(out).toContain('<decsub:acctId>uwqf</decsub:acctId>');
     expect(out).toContain('<decsub:regPort cm:type="4">23</decsub:regPort>');
   });
 
-  it('senderInformation block uses tenant constants', () => {
+  it('senderInformation block uses operator constants', () => {
     const out = renderDeclarationXml(baseInput([row()]));
     expect(out).toContain('<deccm:brokerLicenseType>5</deccm:brokerLicenseType>');
     expect(out).toContain('<deccm:brokerLicenseNo>1</deccm:brokerLicenseNo>');
@@ -234,13 +234,13 @@ describe('renderDeclarationXml — sample 2 (Vogacloset / Dresses) lookup-driven
     expect(out).toContain('<deccm:documentDate>2026-03-09</deccm:documentDate>');
   });
 
-  it('static default_carrier_prefix tenant-constant overrides the placeholder', () => {
+  it('static default_carrier_prefix operator-constant overrides the placeholder', () => {
     const base = baseInput([row()]);
     const overrideInput = {
       ...base,
-      tenant: {
-        ...base.tenant,
-        constants: { ...base.tenant.constants, default_carrier_prefix: '141' },
+      operator: {
+        ...base.operator,
+        constants: { ...base.operator.constants, default_carrier_prefix: '141' },
       },
     };
     const out = renderDeclarationXml(overrideInput);
@@ -292,7 +292,7 @@ describe('renderDeclarationXml — escaping + errors', () => {
 
   it('throws when a required tenant_constant is missing', () => {
     const input = baseInput([row()]);
-    const broken = { ...input, tenant: { ...input.tenant, constants: {} } };
+    const broken = { ...input, operator: { ...input.operatorSlug, constants: {} } };
     expect(() => renderDeclarationXml(broken)).toThrowError(/reference_userid/);
   });
 

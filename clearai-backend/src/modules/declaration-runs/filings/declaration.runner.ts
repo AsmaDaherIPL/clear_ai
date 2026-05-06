@@ -3,7 +3,7 @@
  * the entrypoint (runDeclarationPhaseIfNeeded) stays small and testable.
  *
  * Pulls every dependency the renderer needs once per declaration_run
- * (tenant config, lookups-with-metadata) and threads them into the pure
+ * (operator config, lookups-with-metadata) and threads them into the pure
  * renderer per bundle.
  */
 import {
@@ -12,8 +12,8 @@ import {
   recordDeclaration,
 } from './declaration.repository.js';
 import type { PhaseDeclarationSummary } from './declaration.types.js';
-import { resolve as resolveTenant } from '../../tenants/tenant-config.registry.js';
-import { getLookupsBySlugWithMetadata } from '../../tenants/tenant-lookups.repository.js';
+import { resolve as resolveOperator } from '../../operators/operator-config.registry.js';
+import { getLookupsBySlugWithMetadata } from '../../operators/operator-lookups.repository.js';
 import { partitionHvLv } from '../../../integrations/zatca/declaration/declaration.bundler.js';
 import { renderDeclarationXml } from '../../../integrations/zatca/declaration/declaration.template.js';
 import { getBlobClient } from '../../../storage/blob.client.js';
@@ -27,11 +27,11 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   await markDeclarationPhase(declarationRunId, 'running');
 
   const declarationRun = await getDeclarationRun(declarationRunId);
-  const tenant = await resolveTenant(declarationRun.tenant);
-  const lookups = await getLookupsBySlugWithMetadata(tenant.slug);
+  const operator = await resolveOperator(declarationRun.operatorSlug);
+  const lookups = await getLookupsBySlugWithMetadata(operator.slug);
   const items = await listClassifiedItems(declarationRunId);
 
-  // ZATCA tunables live in setup_meta — they're spec-wide, not per-tenant.
+  // ZATCA tunables live in setup_meta — they're spec-wide, not per-operator.
   const thresholds = await loadThresholds();
 
   const bundles = partitionHvLv(items, {
@@ -46,7 +46,7 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   let bundleIndex = 0;
   for (const bundle of bundles) {
     const xml = renderDeclarationXml({
-      tenant: { slug: tenant.slug, displayName: tenant.displayName, constants: tenant.constants },
+      operator: { slug: operator.slug, displayName: operator.displayName, constants: operator.constants },
       bundleStrategy: bundle.strategy,
       items: bundle.items,
       submitter: {

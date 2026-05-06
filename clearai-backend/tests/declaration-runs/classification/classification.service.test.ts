@@ -10,11 +10,11 @@
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db, closeDb } from '../../../src/db/client.js';
-import { tenants, tenantFieldMappings, declarationRuns, declarationRunItems } from '../../../src/db/schema.js';
+import { operators, operatorFieldMappings, declarationRuns, declarationRunItems } from '../../../src/db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { runClassificationPhase } from '../../../src/modules/declaration-runs/classification/classification.service.js';
 import type { DispatchFn } from '../../../src/modules/dispatch/dispatch.contract.ts';
-import type { CanonicalLineItem } from '../../../src/modules/tenants/tenant-config.types.js';
+import type { CanonicalLineItem } from '../../../src/modules/operators/operator-config.types.js';
 import { newId } from '../../../src/common/utils/uuid.js';
 
 const TEST_TENANT_SLUG = 'tcsvc_test';
@@ -27,16 +27,16 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
   await closeDb();
 });
 
 beforeEach(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
-  await db().insert(tenants).values({
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
+  await db().insert(operators).values({
     slug: TEST_TENANT_SLUG,
     displayName: 'Classification svc test',
     active: true,
@@ -48,7 +48,7 @@ function canonical(rowIndex: number): CanonicalLineItem {
     itemId: newId(),
     rowIndex,
     tenantId: '00000000-0000-0000-0000-000000000000',
-    tenantSlug: TEST_TENANT_SLUG,
+    operatorSlug: TEST_TENANT_SLUG,
     description: `Item ${rowIndex}`,
     waybillNo: `WB-${rowIndex}`,
     merchantHsCode: null,
@@ -72,7 +72,7 @@ async function seedDeclarationRun(itemCount: number): Promise<{ declarationRunId
   const declarationRunId = newId();
   await db().insert(declarationRuns).values({
     id: declarationRunId,
-    tenant: TEST_TENANT_SLUG,
+    operatorSlug: TEST_TENANT_SLUG,
     mode: 'classify_and_declare',
     declarationStatus: 'pending',
     sourceBlobKey: 'unused',
@@ -166,7 +166,7 @@ describe('runClassificationPhase', () => {
     const declarationRunId = newId();
     await db().insert(declarationRuns).values({
       id: declarationRunId,
-      tenant: TEST_TENANT_SLUG,
+      operatorSlug: TEST_TENANT_SLUG,
       mode: 'classify_only',
       declarationStatus: null,
       sourceBlobKey: 'unused',

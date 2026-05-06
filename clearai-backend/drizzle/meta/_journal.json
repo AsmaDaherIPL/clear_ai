@@ -344,6 +344,13 @@
       "when": 1777214800000,
       "tag": "0048_declaration_runs_rename",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1777214900000,
+      "tag": "0049_tenant_to_operator_filings_rename",
+      "breakpoints": true
     }
   ]
 }

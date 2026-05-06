@@ -10,7 +10,7 @@
  * import these types from here (or move them into dispatch.types.ts and
  * re-export from this file for backwards compatibility).
  */
-import type { CanonicalLineItem } from '../tenants/tenant-config.types.js';
+import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import type { DispatchResult } from '../declaration-runs/classification/classification.types.js';
 
 export type { DispatchResult } from '../declaration-runs/classification/classification.types.js';

@@ -21,7 +21,7 @@ import {
   type DeclarationRunStatus,
   type NewDeclarationRunItemRow,
 } from '../../db/schema.js';
-import type { CanonicalLineItem, RawRow } from '../tenants/tenant-config.types.js';
+import type { CanonicalLineItem, RawRow } from '../operators/operator-config.types.js';
 import { DeclarationRunNotFoundError } from './declaration-run.errors.js';
 
 /**
@@ -37,7 +37,7 @@ export interface DeclarationRunItemInput {
 export interface InsertDeclarationRunInput {
   /** Pre-allocated uuid so the caller can build deterministic blob paths. */
   declarationRunId: string;
-  tenantSlug: string;
+  operatorSlug: string;
   mode: DeclarationRunMode;
   sourceBlobKey: string;
   rowCount: number;
@@ -60,7 +60,7 @@ export async function insertDeclarationRun(input: InsertDeclarationRunInput): Pr
       .insert(declarationRuns)
       .values({
         id: input.declarationRunId,
-        tenant: input.tenantSlug,
+        operatorSlug: input.operatorSlug,
         mode: input.mode,
         status: 'pending',
         classificationStatus: 'pending',

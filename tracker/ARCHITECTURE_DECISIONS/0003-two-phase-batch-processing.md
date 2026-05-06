@@ -6,7 +6,7 @@ Owner: BatchPlumber
 
 ## Context
 
-ClearAI's batch endpoint accepts a commercial-invoice CSV/XLSX from a tenant
+ClearAI's batch endpoint accepts a commercial-invoice CSV/XLSX from a operator
 and produces classified items + (usually) a ZATCA Declaration XML. Two
 operating shapes emerged from the use-case discussion:
 
@@ -47,7 +47,7 @@ The processing pipeline is two phases:
 - Owner: `src/modules/batches/declaration/batch-declaration.service.ts`
 - Reads classified items with status ∈ {`succeeded`, `flagged`}
   (`blocked`/`failed` are excluded — they need human review before filing).
-- Resolves tenant config (`bundleSize`, `hvThresholdSar`, constants).
+- Resolves operator config (`bundleSize`, `hvThresholdSar`, constants).
 - Calls `integrations/zatca/declaration/` for HV/LV bundling + XML rendering.
 - Persists XML to blob, writes a row per bundle to `declarations`.
 - Knows nothing about LLM calls or `dispatch()`.

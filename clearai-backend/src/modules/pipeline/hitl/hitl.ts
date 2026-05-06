@@ -11,7 +11,7 @@ import type { StageVerdictOutput, SanityResult, PipelineTrace } from '../shared/
 
 export interface HitlPayload {
   item_id: string;
-  tenant_slug: string;
+  operator_slug: string;
   cleaned_description: string;
   verdict_output: StageVerdictOutput | null;
   sanity_result: SanityResult | null;
@@ -27,7 +27,7 @@ export interface HitlPayload {
 export async function enqueueHitl(payload: HitlPayload): Promise<void> {
   // TODO(hitl-worker): replace with a DB insert into hitl_queue table.
   console.warn(
-    `[HITL] item_id=${payload.item_id} tenant=${payload.tenant_slug} ` +
+    `[HITL] item_id=${payload.item_id} operator=${payload.operator_slug} ` +
     `reason=${payload.sanity_result?.verdict ?? 'verdict_escalate'}`,
   );
 }

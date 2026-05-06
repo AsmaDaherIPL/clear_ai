@@ -3,8 +3,8 @@
  * Mirrors decsub.xsd structurally; the renderer translates field by field.
  */
 import type { DeclarationRunItemRow } from '../../../db/schema.js';
-import type { BundleStrategy } from '../../../modules/declaration-runs/declaration/declaration.types.js';
-import type { LookupValue } from '../../../modules/tenants/tenant-lookups.repository.js';
+import type { BundleStrategy } from '../../../modules/declaration-runs/filings/declaration.types.js';
+import type { LookupValue } from '../../../modules/operators/operator-lookups.repository.js';
 
 export interface BundleInput {
   strategy: BundleStrategy;
@@ -13,7 +13,7 @@ export interface BundleInput {
 }
 
 export interface RenderInput {
-  tenant: {
+  operator: {
     slug: string;
     displayName: string;
     constants: Readonly<Record<string, string>>;
@@ -43,4 +43,4 @@ export interface RenderInput {
   docRefSuffixOverride?: string;
 }
 
-export type { BundleStrategy } from '../../../modules/declaration-runs/declaration/declaration.types.js';
+export type { BundleStrategy } from '../../../modules/declaration-runs/filings/declaration.types.js';

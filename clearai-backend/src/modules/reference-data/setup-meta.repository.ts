@@ -48,7 +48,7 @@ export interface Thresholds {
 
   /**
    * Renamed from BROKER_MAPPING_ENABLED in 0025_setup_meta_cleanup.sql when
-   * the broker_code_mapping table was renamed to tenant_code_overrides.
+   * the broker_code_mapping table was renamed to operator_code_overrides.
    * Same semantics, same 0/1 encoding.
    */
   TENANT_OVERRIDES_ENABLED: number;
@@ -70,7 +70,7 @@ export interface Thresholds {
   /**
    * ZATCA HV/LV cutoff in SAR. Items whose valueAmount-converted-to-SAR
    * is >= this go to standalone declarations; below get bundled. Spec-wide,
-   * not per-tenant — see migration 0046 for the move out of `tenants`.
+   * not per-operator — see migration 0046 for the move out of `tenants`.
    */
   ZATCA_HV_THRESHOLD_SAR: number;
 

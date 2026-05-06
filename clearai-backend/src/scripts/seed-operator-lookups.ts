@@ -1,10 +1,10 @@
 /**
- * Seed tenant_lookups from Naqel's mapping xlsx.
+ * Seed operator_lookups from Naqel's mapping xlsx.
  *
  * Source:
  *   naqel-shared-data/Naqel (Fields details + Mapping data).xlsx
  *
- * Six mapping sheets land as six lookup_types under tenant='naqel':
+ * Six mapping sheets land as six lookup_types under operator='naqel':
  *
  *   sheet                          lookup_type            source -> canonical (+ metadata)
  *   ─────────────────────────────  ─────────────────────  ──────────────────────────────────
@@ -38,22 +38,22 @@
  * hops on purpose — the source data ships them as two separate sheets,
  * and the rendering layer composes them at request time.
  *
- * Per-tenant DELETE+re-insert scoped to ('naqel', lookup_type) so re-running
+ * Per-operator DELETE+re-insert scoped to ('naqel', lookup_type) so re-running
  * is idempotent and other tenants are untouched.
  *
  * Sandbox note: this machine blocks plain readFile on cross-mount paths.
  * We use readFileSync + XLSX.read({type:'buffer'}) to dodge that.
  *
  * Usage:
- *   pnpm db:seed:tenant-lookups
- *   tsx src/scripts/seed-tenant-lookups.ts --file path/to/other.xlsx --tenant aramex
+ *   pnpm db:seed:operator-lookups
+ *   tsx src/scripts/seed-operator-lookups.ts --file path/to/other.xlsx --operator aramex
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import * as XLSX from 'xlsx';
 import { and, eq } from 'drizzle-orm';
 import { db, closeDb } from '../db/client.js';
-import { tenantLookups } from '../db/schema.js';
+import { operatorLookups } from '../db/schema.js';
 
 interface SheetRow {
   source: string;
@@ -143,7 +143,7 @@ const NAQEL_SHEETS: ReadonlyArray<SheetSpec> = [
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
       // Multiple rows can share the same ClientID (one per CustRegPortCode).
       // For v0 we keep ALL rows but de-duplicate by (ClientID, CustRegPortCode)
-      // — the natural-key UNIQUE on tenant_lookups is on (tenant,
+      // — the natural-key UNIQUE on operator_lookups is on (operator,
       // lookup_type, source_value). To honour it, we encode the composite
       // key into source_value: '{ClientID}:{CustRegPortCode}' so every
       // (client, port) combination has its own row. The renderer composes
@@ -210,26 +210,26 @@ const DEFAULT_TENANT = 'naqel';
 
 interface Args {
   filePath: string;
-  tenant: string;
+  operator: string;
 }
 
 function parseArgs(): Args {
   const args = process.argv.slice(2);
   let filePath = DEFAULT_NAQEL_PATH;
-  let tenant = DEFAULT_TENANT;
+  let operator = DEFAULT_TENANT;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--file' && args[i + 1]) {
       filePath = resolvePath(args[++i]!);
-    } else if (a === '--tenant' && args[i + 1]) {
-      tenant = args[++i]!;
+    } else if (a === '--operator' && args[i + 1]) {
+      operator = args[++i]!;
     }
   }
-  return { filePath, tenant };
+  return { filePath, operator };
 }
 
 async function main(): Promise<void> {
-  const { filePath, tenant } = parseArgs();
+  const { filePath, operator } = parseArgs();
 
   if (!existsSync(filePath)) {
     console.error(`File not found: ${filePath}`);
@@ -249,8 +249,8 @@ async function main(): Promise<void> {
     }
     const rawRows = spec.read(sheet);
 
-    // Defence-in-depth dedup: the natural-key UNIQUE on tenant_lookups is
-    // (tenant, lookup_type, source_value). Source xlsx sheets occasionally
+    // Defence-in-depth dedup: the natural-key UNIQUE on operator_lookups is
+    // (operator, lookup_type, source_value). Source xlsx sheets occasionally
     // ship duplicate rows; keep the first occurrence and warn.
     const seen = new Set<string>();
     const rows: SheetRow[] = [];
@@ -267,18 +267,18 @@ async function main(): Promise<void> {
       console.warn(`  ! ${spec.lookupType}: dropped ${dupCount} duplicate rows`);
     }
 
-    // Replace just (tenant, lookup_type) — leave other types untouched.
+    // Replace just (operator, lookup_type) — leave other types untouched.
     await db()
-      .delete(tenantLookups)
-      .where(and(eq(tenantLookups.tenant, tenant), eq(tenantLookups.lookupType, spec.lookupType)));
+      .delete(operatorLookups)
+      .where(and(eq(operatorLookups.operatorSlug, operator), eq(operatorLookups.lookupType, spec.lookupType)));
 
     // Bulk insert with chunking for large sheets (Tabdul City ~2168 rows).
     const CHUNK = 200;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const slice = rows.slice(i, i + CHUNK);
-      await db().insert(tenantLookups).values(
+      await db().insert(operatorLookups).values(
         slice.map((r) => ({
-          tenant,
+          operatorSlug: operator,
           lookupType: spec.lookupType,
           sourceValue: r.source,
           canonicalValue: r.canonical,
@@ -290,7 +290,7 @@ async function main(): Promise<void> {
     totalInserted += rows.length;
   }
 
-  console.log(`Total: ${totalInserted} rows inserted under tenant '${tenant}'`);
+  console.log(`Total: ${totalInserted} rows inserted under operator '${operator}'`);
 }
 
 main()

@@ -53,7 +53,7 @@ function ratesToSar(): ReadonlyMap<string, number> {
  *
  * Currencies not present in the rate table fall back to identity (rate = 1)
  * and emit a one-time warning per currency code. Use sparingly — if a
- * tenant ships a new currency, add it to BATCH_FX_RATES_TO_SAR rather than
+ * operator ships a new currency, add it to BATCH_FX_RATES_TO_SAR rather than
  * silently degrading.
  */
 export function toSar(amount: number, currencyCode: string): number {

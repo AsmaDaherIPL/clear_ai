@@ -28,7 +28,7 @@ export function runThreshold(
   return { passed: gate.passed, gate };
 }
 
-/** Default thresholds used when tenant overrides are not configured. */
+/** Default thresholds used when operator overrides are not configured. */
 export const DEFAULT_THRESHOLDS: GateThresholds = {
   minScore: 0.3,
   minGap: 0.05,

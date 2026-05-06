@@ -14,11 +14,11 @@ export type {
   NewHsCodeSearchRow,
 } from './schema/zatca-hs-code-search.js';
 
-export { tenantCodeOverrides } from './schema/tenant-code-overrides.js';
+export { operatorCodeOverrides } from './schema/operator-code-overrides.js';
 export type {
   TenantCodeOverride,
   NewTenantCodeOverride,
-} from './schema/tenant-code-overrides.js';
+} from './schema/operator-code-overrides.js';
 
 export { setupMeta } from './schema/setup-meta.js';
 export type { SetupMetaRow } from './schema/setup-meta.js';
@@ -37,23 +37,23 @@ export type {
 
 // ─── BatchPlumber: tenants registry + batch processing tables ────────────────
 
-export { tenants } from './schema/tenants.js';
-export type { TenantRow, NewTenantRow } from './schema/tenants.js';
+export { operators } from './schema/operators.js';
+export type { OperatorRow, NewOperatorRow } from './schema/operators.js';
 
-export { tenantFieldMappings } from './schema/tenant-field-mappings.js';
+export { operatorFieldMappings } from './schema/operator-field-mappings.js';
 export type {
-  TenantFieldMappingRow,
-  NewTenantFieldMappingRow,
-} from './schema/tenant-field-mappings.js';
+  OperatorFieldMappingRow,
+  NewOperatorFieldMappingRow,
+} from './schema/operator-field-mappings.js';
 
-export { tenantConstants } from './schema/tenant-constants.js';
+export { operatorConstants } from './schema/operator-constants.js';
 export type {
-  TenantConstantRow,
-  NewTenantConstantRow,
-} from './schema/tenant-constants.js';
+  OperatorConstantRow,
+  NewOperatorConstantRow,
+} from './schema/operator-constants.js';
 
-export { tenantLookups } from './schema/tenant-lookups.js';
-export type { TenantLookupRow, NewTenantLookupRow } from './schema/tenant-lookups.js';
+export { operatorLookups } from './schema/operator-lookups.js';
+export type { OperatorLookupRow, NewOperatorLookupRow } from './schema/operator-lookups.js';
 
 export { declarationRuns } from './schema/declaration-runs.js';
 export type {
@@ -72,5 +72,5 @@ export type {
   DeclarationRunItemStatus,
 } from './schema/declaration-run-items.js';
 
-export { declarations } from './schema/declarations.js';
-export type { DeclarationRow, NewDeclarationRow, BundleStrategy } from './schema/declarations.js';
+export { declarationRunFilings } from './schema/declaration-run-filings.js';
+export type { DeclarationRow, NewDeclarationRow, BundleStrategy } from './schema/declaration-run-filings.js';

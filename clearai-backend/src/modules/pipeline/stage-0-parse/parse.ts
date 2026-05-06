@@ -5,7 +5,7 @@
  * merchant code state. Hard-rejects when no description is present —
  * a code alone cannot be classified or sanity-checked.
  */
-import type { CanonicalLineItem } from '../../tenants/tenant-config.types.js';
+import type { CanonicalLineItem } from '../../operators/operator-config.types.js';
 import type { MerchantCodeState, ParsedItem } from '../shared/pipeline.types.js';
 
 // ASIN: B0 + 8 uppercase alphanumerics

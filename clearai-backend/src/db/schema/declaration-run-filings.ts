@@ -1,7 +1,7 @@
 /**
  * declarations — one row per rendered ZATCA Declaration bundle.
  *
- * Inserted by Phase 2 (modules/declaration-runs/declaration/). HV bundles
+ * Inserted by Phase 2 (modules/declaration-runs/filings/). HV bundles
  * hold exactly one item; LV bundles up to tenants.bundle_size.
  *
  * `bayan_no` is populated post-submission (out-of-band today; future API
@@ -16,8 +16,8 @@ import { declarationRuns } from './declaration-runs.js';
 
 export type BundleStrategy = 'HV_STANDALONE' | 'LV_BUNDLED';
 
-export const declarations = pgTable(
-  'declarations',
+export const declarationRunFilings = pgTable(
+  'declaration_run_filings',
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
     /** Parent declaration_run. FK -> declaration_runs(id) ON DELETE CASCADE. */
@@ -26,7 +26,7 @@ export const declarations = pgTable(
     bundleIndex: integer('bundle_index').notNull(),
     /** CHECK-locked closed enum; mirror in batch-declaration.types.ts. */
     bundleStrategy: text('bundle_strategy').notNull().$type<BundleStrategy>(),
-    /** HV_STANDALONE = 1; LV_BUNDLED in [1, tenant.bundle_size]. */
+    /** HV_STANDALONE = 1; LV_BUNDLED in [1, operator.bundle_size]. */
     itemCount: integer('item_count').notNull(),
     /** Blob key (under BATCH_BLOB_CONTAINER). */
     blobKey: text('blob_key').notNull(),
@@ -47,5 +47,5 @@ export const declarations = pgTable(
   }),
 );
 
-export type DeclarationRow = typeof declarations.$inferSelect;
-export type NewDeclarationRow = typeof declarations.$inferInsert;
+export type DeclarationRow = typeof declarationRunFilings.$inferSelect;
+export type NewDeclarationRow = typeof declarationRunFilings.$inferInsert;

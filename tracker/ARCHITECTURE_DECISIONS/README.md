@@ -33,7 +33,7 @@ proposing a change.
 | # | Title | Status | Scope |
 |---|---|---|---|
 | [0001](0001-foundry-only-anthropic-access.md) | Anthropic API access is via Azure AI Foundry only | accepted, 2026-05-04 | backend LLM calls |
-| [0002](0002-tenants-as-data-not-code.md) | Tenant configuration is data, not code | accepted, 2026-05-04 | backend tenants module |
+| [0002](0002-operators-as-data-not-code.md) | Operator configuration is data, not code | accepted, 2026-05-04 | backend operators module |
 | [0003](0003-two-phase-batch-processing.md) | Two-phase batch processing with mode default | accepted, 2026-05-04 | backend batches module |
 | [0004](0004-uniform-scrutiny-pipeline.md) | Every classification path goes through the same scrutiny pipeline | accepted, 2026-05-05 | dispatch + hs-classification + batches |
 | [0005](0005-embedder-is-swappable.md) | The embedder is a swappable component, not a baked-in dependency | accepted, 2026-05-05 | inference/embeddings + inference/retrieval |

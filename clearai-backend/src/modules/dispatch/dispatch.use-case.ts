@@ -4,25 +4,25 @@
  * Wraps the 5-stage pipeline orchestrator and adapts its output to the
  * DispatchResult contract expected by declaration-runs/classification.service.ts.
  *
- * Tenant slug is resolved from CanonicalLineItem.clientId for multi-tenant
- * routing. Falls back to 'naqel' (the only active tenant) until the
- * tenant-resolution service is built.
+ * Tenant slug is resolved from CanonicalLineItem.clientId for multi-operator
+ * routing. Falls back to 'naqel' (the only active operator) until the
+ * operator-resolution service is built.
  */
 import { randomUUID } from 'node:crypto';
 import { runPipeline } from '../pipeline/pipeline.orchestrator.js';
-import type { CanonicalLineItem } from '../tenants/tenant-config.types.js';
+import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import type { DispatchResult } from './dispatch.contract.js';
 
-function resolveTenantSlug(_item: CanonicalLineItem): string {
-  // TODO(multi-tenant): resolve from item.clientId via tenant registry.
+function resolveOperatorSlug(_item: CanonicalLineItem): string {
+  // TODO(multi-operator): resolve from item.clientId via operator registry.
   return 'naqel';
 }
 
 export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult> {
   const itemId = randomUUID();
-  const tenantSlug = resolveTenantSlug(item);
+  const operatorSlug = resolveOperatorSlug(item);
 
-  const result = await runPipeline(item, tenantSlug, itemId);
+  const result = await runPipeline(item, operatorSlug, itemId);
 
   // Adapt PipelineTrace → ItemTrace (the existing contract shape).
   const itemTrace = {

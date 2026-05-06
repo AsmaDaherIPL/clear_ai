@@ -1,10 +1,10 @@
 /**
  * HV / LV partitioner for ZATCA Declaration bundling.
  *
- *   HV (high-value): valueAmount-converted-to-SAR >= tenant.hvThresholdSar
+ *   HV (high-value): valueAmount-converted-to-SAR >= operator.hvThresholdSar
  *                    -> one declaration per item (BundleStrategy='HV_STANDALONE')
  *   LV (low-value):  everything else
- *                    -> grouped into chunks of tenant.bundleSize
+ *                    -> grouped into chunks of operator.bundleSize
  *                       (BundleStrategy='LV_BUNDLED')
  *
  * Currency conversion: rows can arrive in any currency (Naqel ships AED,

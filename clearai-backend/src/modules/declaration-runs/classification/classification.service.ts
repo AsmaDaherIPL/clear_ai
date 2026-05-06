@@ -20,7 +20,7 @@ import type {
   PhaseClassificationSummary,
   SanityVerdict,
 } from './classification.types.js';
-import type { CanonicalLineItem } from '../../tenants/tenant-config.types.js';
+import type { CanonicalLineItem } from '../../operators/operator-config.types.js';
 import type { DispatchFn } from '../../dispatch/dispatch.contract.ts';
 
 export interface RunOptions {

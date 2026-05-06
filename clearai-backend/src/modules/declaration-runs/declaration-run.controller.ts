@@ -18,7 +18,7 @@ import {
   DeclarationRunTooLargeError,
   DeclarationRunNotFoundError,
 } from './declaration-run.errors.js';
-import { TenantNotFoundError, RequiredFieldMissingError } from '../tenants/tenant.errors.js';
+import { OperatorNotFoundError, RequiredFieldMissingError } from '../operators/operator.errors.js';
 import type { DeclarationRunSummary } from './declaration-run.types.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
 import type {
@@ -99,7 +99,7 @@ export async function handleCreateDeclarationRun(
   }
 
   const parsed = CreateDeclarationRunFieldsSchema.safeParse({
-    tenant_slug: fields.tenant_slug,
+    operator_slug: fields.operator_slug,
     mode: fields.mode || undefined,
     callback_url: fields.callback_url || undefined,
     metadata: metadataObj,
@@ -112,7 +112,7 @@ export async function handleCreateDeclarationRun(
   const buf = (file as MultipartFile & { _buffer: Buffer })._buffer;
 
   const { declarationRun } = await createDeclarationRun({
-    tenantSlug: body.tenant_slug,
+    operatorSlug: body.operator_slug,
     mode: body.mode as DeclarationRunMode,
     uploadKind: kind,
     uploadBytes: buf,
@@ -141,7 +141,7 @@ export async function handleGetDeclarationRun(req: FastifyRequest<{ Params: { id
   const counts = await countItemsByStatus(declarationRun.id);
   const summary: DeclarationRunSummary = {
     id: declarationRun.id,
-    tenant_slug: declarationRun.tenant,
+    operator_slug: declarationRun.operatorSlug,
     mode: declarationRun.mode as DeclarationRunMode,
     status: declarationRun.status as DeclarationRunStatus,
     classification_status: declarationRun.classificationStatus as ClassificationStatus,
@@ -201,7 +201,7 @@ export function mapDeclarationRunError(err: unknown): { statusCode: number; body
   if (err instanceof DeclarationRunNotFoundError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message } } };
   }
-  if (err instanceof TenantNotFoundError) {
+  if (err instanceof OperatorNotFoundError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message } } };
   }
   if (err instanceof RequiredFieldMissingError) {
@@ -218,7 +218,7 @@ export async function attachDeclarationRunPlugins(app: FastifyInstance): Promise
   const multipart = (await import('@fastify/multipart')).default;
   await app.register(multipart, {
     limits: {
-      fileSize: 50 * 1024 * 1024, // 50 MB cap, matches Container Apps' default body limit.
+      fileSize: 25 * 1024 * 1024, // 25 MB cap.
       files: 1,
     },
   });

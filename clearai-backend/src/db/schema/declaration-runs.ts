@@ -12,13 +12,13 @@
  * value, ALTER the CHECK in a new migration.
  *
  * Related tables:
- *   • tenants                — FK target (tenant -> tenants.slug)
+ *   • tenants                — FK target (operator -> operators.slug)
  *   • declaration_run_items  — child rows (FK ON DELETE CASCADE)
  *   • declarations           — Phase 5; rendered XML bundles (FK ON DELETE CASCADE)
  */
 import { pgTable, uuid, varchar, text, integer, jsonb, timestamp, foreignKey, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { tenants } from './tenants.js';
+import { operators } from './operators.js';
 
 /** Mirror of declaration_runs_mode_chk. */
 export type DeclarationRunMode = 'classify_only' | 'classify_and_declare';
@@ -48,8 +48,8 @@ export const declarationRuns = pgTable(
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
 
-    /** Owning tenant slug. FK -> tenants(slug) ON DELETE RESTRICT. */
-    tenant: varchar('tenant', { length: 32 }).notNull(),
+    /** Owning operator_slug. FK -> operators(slug) ON DELETE RESTRICT. */
+    operatorSlug: varchar('operator_slug', { length: 32 }).notNull(),
 
     /** Two-phase mode; CHECK-locked. */
     mode: varchar('mode', { length: 32 }).notNull().default('classify_and_declare').$type<DeclarationRunMode>(),
@@ -91,13 +91,13 @@ export const declarationRuns = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    tenantFk: foreignKey({
-      name: 'declaration_runs_tenant_fk',
-      columns: [t.tenant],
-      foreignColumns: [tenants.slug],
+    operatorSlugFk: foreignKey({
+      name: 'declaration_runs_operator_slug_fk',
+      columns: [t.operatorSlug],
+      foreignColumns: [operators.slug],
     }).onDelete('restrict'),
 
-    tenantIdx: index('declaration_runs_tenant_idx').on(t.tenant),
+    operatorSlugIdx: index('declaration_runs_operator_slug_idx').on(t.operatorSlug),
     createdAtIdx: index('declaration_runs_created_at_idx').on(t.createdAt.desc()),
   }),
 );

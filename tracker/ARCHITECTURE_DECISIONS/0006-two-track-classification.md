@@ -39,7 +39,7 @@ Track A (description classifier)
 Track B (code resolver)
   Input: merchant_code only — description is used only as a tiebreaker, never as
          the primary signal
-  Branches: tenant override → codebook lookup → passthrough |
+  Branches: operator override → codebook lookup → passthrough |
             deterministic swap | lightweight LLM pick among replacements |
             expand prefix + lightweight LLM pick | null
   Output: { resolved_code, resolution, raw_merchant_code, codebook_state, llm_context? }
@@ -95,7 +95,7 @@ The branch taken is deterministic once the merchant code's state is known:
 
 | Merchant code state | Branch | LLM? |
 |---|---|---|
-| Tenant override match | Return override code | No |
+| Operator override match | Return override code | No |
 | 12-digit, active in codebook | Passthrough | No |
 | 12-digit, deprecated (replacement exists) | Deterministic swap to replacement | No |
 | 12-digit, deprecated (N replacements) | Lightweight LLM picks among N | Lightweight |
@@ -199,7 +199,7 @@ Seven prompts total. Typical per-item LLM call count: 4-5 (cleanup + 1-2 Track A
 ## Consequences
 
 **Locks in:**
-- Track A is always blind to the merchant code. No configuration flag or tenant
+- Track A is always blind to the merchant code. No configuration flag or operator
   override can expose the merchant code to the description classifier.
 - The reconciliation stage owns the "which code wins" decision. Downstream
   consumers (declaration builder, HITL queue, audit trail) read only `final_code`
@@ -231,7 +231,7 @@ Seven prompts total. Typical per-item LLM call count: 4-5 (cleanup + 1-2 Track A
   pattern (ADR-0004) because it cannot be anchored to the merchant's code.
 - Feeding Track A's candidates list to Track B. Track B resolves the merchant's
   code against the codebook only. Retrieval results are Track A's internal state.
-- A per-tenant trust score that weights one track over the other before
+- A per-operator trust score that weights one track over the other before
   reconciliation. Trust is not Track B's output; correctness is Stage 3's job.
 
 ## Revisit triggers

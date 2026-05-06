@@ -24,7 +24,7 @@ import { pgTable, uuid, integer, varchar, char, jsonb, text, timestamp, foreignK
 import { sql } from 'drizzle-orm';
 import { declarationRuns } from './declaration-runs.js';
 import { hsCodes } from './zatca-hs-codes.js';
-import type { CanonicalLineItem, RawRow } from '../../modules/tenants/tenant-config.types.js';
+import type { CanonicalLineItem, RawRow } from '../../modules/operators/operator-config.types.js';
 
 /** Mirror of declaration_run_items_status_chk. */
 export type DeclarationRunItemStatus =

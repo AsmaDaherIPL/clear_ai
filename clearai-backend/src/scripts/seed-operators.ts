@@ -1,8 +1,8 @@
 /**
- * Seed the Naqel tenant row + its column-mapping rules + ZATCA-envelope
+ * Seed the Naqel operator row + its column-mapping rules + ZATCA-envelope
  * constants. Idempotent: re-running re-asserts the rows. Mappings and
- * constants are cleared and re-inserted (per-tenant) so the seed file is
- * the authoritative source for the tenant's config.
+ * constants are cleared and re-inserted (per-operator) so the seed file is
+ * the authoritative source for the operator's config.
  *
  * Real source columns from
  *   naqel-shared-data/sample_input_commercial_invoice/light-example/pre-processed (commercial invoice).xlsx
@@ -16,9 +16,9 @@
  */
 import { eq } from 'drizzle-orm';
 import { db, closeDb } from '../db/client.js';
-import { tenantFieldMappings, tenantConstants } from '../db/schema.js';
-import { upsertTenant } from '../modules/tenants/tenant.repository.js';
-import type { CanonicalField, TransformKind } from '../modules/tenants/tenant-config.types.js';
+import { operatorFieldMappings, operatorConstants } from '../db/schema.js';
+import { upsertOperator } from '../modules/operators/operator.repository.js';
+import type { CanonicalField, TransformKind } from '../modules/operators/operator-config.types.js';
 
 interface SeedMapping {
   sourceColumn: string;
@@ -49,7 +49,7 @@ const NAQEL_SLUG = 'naqel';
  *     light-example shape (`ConsigneeName`, `Mobile`); when Naqel ships a
  *     unified header set we switch the seed in place. For the broader
  *     header set documented in the task brief, follow up with PR-N to
- *     extend tenant_field_mappings with fallback_columns (deferred).
+ *     extend operator_field_mappings with fallback_columns (deferred).
  */
 const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
   // Identity & description.
@@ -81,7 +81,7 @@ const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
 ];
 
 /**
- * Per-tenant constants for the ZATCA Declaration envelope. Sourced from
+ * Per-operator constants for the ZATCA Declaration envelope. Sourced from
  * `Invoice - Fields` and `ExpressMailInfomation - Fields` sheets in
  * `Naqel (Fields details + Mapping data).xlsx`.
  *
@@ -128,7 +128,7 @@ const NAQEL_CONSTANTS: ReadonlyArray<{ key: string; value: string; comment: stri
   { key: 'express_transport_type', value: '4', comment: 'deccm:transportType' },
   { key: 'express_add_country_code', value: '100', comment: 'deccm:addCtryCd' },
   { key: 'express_country', value: '100', comment: 'deccm:country' },
-  { key: 'express_default_city', value: '131', comment: 'deccm:city — default; resolved via tenant_lookups.destination_station otherwise' },
+  { key: 'express_default_city', value: '131', comment: 'deccm:city — default; resolved via operator_lookups.destination_station otherwise' },
   { key: 'express_zip_code', value: '1111', comment: 'deccm:zipCode' },
   { key: 'express_po_box', value: '11', comment: 'deccm:poBox' },
 
@@ -139,18 +139,18 @@ const NAQEL_CONSTANTS: ReadonlyArray<{ key: string; value: string; comment: stri
 ];
 
 async function main(): Promise<void> {
-  const tenantRow = await upsertTenant({
+  const tenantRow = await upsertOperator({
     slug: NAQEL_SLUG,
     displayName: 'Naqel',
     active: true,
   });
   console.log(`tenants  upsert ${tenantRow.slug} (${tenantRow.id}) active=${tenantRow.active}`);
 
-  // Replace this tenant's mappings wholesale.
-  await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, NAQEL_SLUG));
+  // Replace this operator's mappings wholesale.
+  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, NAQEL_SLUG));
   for (const m of NAQEL_MAPPINGS) {
-    await db().insert(tenantFieldMappings).values({
-      tenant: NAQEL_SLUG,
+    await db().insert(operatorFieldMappings).values({
+      operatorSlug: NAQEL_SLUG,
       sourceColumn: m.sourceColumn,
       canonicalField: m.canonicalField,
       required: m.required,
@@ -161,15 +161,15 @@ async function main(): Promise<void> {
   }
   console.log(`mappings inserted ${NAQEL_MAPPINGS.length} rows for ${NAQEL_SLUG}`);
 
-  // Replace this tenant's constants wholesale.
-  await db().delete(tenantConstants).where(eq(tenantConstants.tenant, NAQEL_SLUG));
+  // Replace this operator's constants wholesale.
+  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, NAQEL_SLUG));
   for (const c of NAQEL_CONSTANTS) {
-    await db().insert(tenantConstants).values({ tenant: NAQEL_SLUG, key: c.key, value: c.value });
+    await db().insert(operatorConstants).values({ operatorSlug: NAQEL_SLUG, key: c.key, value: c.value });
   }
   console.log(`constants inserted ${NAQEL_CONSTANTS.length} rows for ${NAQEL_SLUG}`);
 
   // Confirm the registry can hydrate it without errors.
-  const { resolve } = await import('../modules/tenants/tenant-config.registry.js');
+  const { resolve } = await import('../modules/operators/operator-config.registry.js');
   const cfg = await resolve(NAQEL_SLUG);
   console.log(
     `registry resolved ${cfg.slug}: ${cfg.mappings.length} mappings, ${Object.keys(cfg.constants).length} constants`,

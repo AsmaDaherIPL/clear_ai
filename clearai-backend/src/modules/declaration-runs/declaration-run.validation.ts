@@ -11,7 +11,7 @@ import { z } from 'zod';
 export const DeclarationRunModeSchema = z.enum(['classify_only', 'classify_and_declare']);
 
 export const CreateDeclarationRunFieldsSchema = z.object({
-  tenant_slug: z.string().min(1).regex(/^[a-z][a-z0-9_]{2,31}$/),
+  operator_slug: z.string().min(1).regex(/^[a-z][a-z0-9_]{2,31}$/),
   mode: DeclarationRunModeSchema.optional().default('classify_and_declare'),
   callback_url: z.string().url().optional(),
   metadata: z.record(z.unknown()).optional().default({}),

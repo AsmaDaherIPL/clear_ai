@@ -3,7 +3,7 @@
  * Runs ONLY when declaration_runs.mode === 'classify_and_declare'.
  *
  *   1. listClassifiedItems(declarationRunId)  — items in {succeeded, flagged}
- *   2. resolve tenant config (bundleSize, hvThresholdSar, constants)
+ *   2. resolve operator config (bundleSize, hvThresholdSar, constants)
  *   3. partition HV / LV via integrations/zatca/declaration/declaration.bundler
  *   4. per bundle: render via declaration.template, upload to blob, persist row
  *   5. set declaration_runs.declaration_status='completed'

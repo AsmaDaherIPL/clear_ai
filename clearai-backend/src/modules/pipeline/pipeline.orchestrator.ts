@@ -24,7 +24,7 @@ import { runSanity } from './stage-3-sanity/sanity.js';
 import { enqueueHitl, shouldEnqueue } from './hitl/hitl.js';
 import { buildTrace } from './trace/trace.js';
 import { getPool } from '../../db/client.js';
-import type { CanonicalLineItem } from '../tenants/tenant-config.types.js';
+import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import type { PipelineResult, StageTrace } from './shared/pipeline.types.js';
 
 interface CatalogContext {
@@ -63,7 +63,7 @@ async function lookupCatalogContext(code: string): Promise<CatalogContext> {
 
 export async function runPipeline(
   item: CanonicalLineItem,
-  tenantSlug: string,
+  operatorSlug: string,
   itemId: string,
 ): Promise<PipelineResult> {
   const allStages: StageTrace[] = [];
@@ -120,7 +120,7 @@ export async function runPipeline(
       parsedItem.raw_merchant_code,
       parsedItem.merchant_code_state,
       cleanup.cleaned_description,
-      tenantSlug,
+      operatorSlug,
     ),
   ]);
 
@@ -143,7 +143,7 @@ export async function runPipeline(
     const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity: null, stages: allStages });
     await enqueueHitl({
       item_id: itemId,
-      tenant_slug: tenantSlug,
+      operator_slug: operatorSlug,
       cleaned_description: cleanup.cleaned_description,
       verdict_output: verdict,
       sanity_result: null,
@@ -199,7 +199,7 @@ export async function runPipeline(
   if (shouldEnqueue(verdict, sanity)) {
     await enqueueHitl({
       item_id: itemId,
-      tenant_slug: tenantSlug,
+      operator_slug: operatorSlug,
       cleaned_description: cleanup.cleaned_description,
       verdict_output: verdict,
       sanity_result: sanity,

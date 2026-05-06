@@ -18,15 +18,15 @@ import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db, closeDb } from '../../../src/db/client.js';
 import {
-  tenants,
-  tenantFieldMappings,
-  tenantConstants,
-  tenantLookups,
+  operators,
+  operatorFieldMappings,
+  operatorConstants,
+  operatorLookups,
   declarationRuns,
   declarationRunItems,
-  declarations,
+  declarationRunFilings,
 } from '../../../src/db/schema.js';
-import { clearCache } from '../../../src/modules/tenants/tenant-config.registry.js';
+import { clearCache } from '../../../src/modules/operators/operator-config.registry.js';
 import { newId } from '../../../src/common/utils/uuid.js';
 
 const TEST_TENANT_SLUG = 'tcdec_test';
@@ -41,22 +41,22 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantConstants).where(eq(tenantConstants.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantLookups).where(eq(tenantLookups.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorLookups).where(eq(operatorLookups.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
   await closeDb();
   await rm(blobDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantConstants).where(eq(tenantConstants.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenantLookups).where(eq(tenantLookups.tenant, TEST_TENANT_SLUG));
-  await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
-  await db().insert(tenants).values({
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operatorLookups).where(eq(operatorLookups.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
+  await db().insert(operators).values({
     slug: TEST_TENANT_SLUG,
     displayName: 'Decl svc test',
     active: true,
@@ -100,8 +100,8 @@ beforeEach(async () => {
     { sourceColumn: 'Mobile', canonicalField: 'consigneePhone' },
   ];
   for (const m of minMappings) {
-    await db().insert(tenantFieldMappings).values({
-      tenant: TEST_TENANT_SLUG,
+    await db().insert(operatorFieldMappings).values({
+      operatorSlug: TEST_TENANT_SLUG,
       sourceColumn: m.sourceColumn,
       canonicalField: m.canonicalField,
       required: true,
@@ -141,7 +141,7 @@ beforeEach(async () => {
     ['default_source_company_no', '340476'],
   ];
   for (const [k, v] of minConstants) {
-    await db().insert(tenantConstants).values({ tenant: TEST_TENANT_SLUG, key: k, value: v });
+    await db().insert(operatorConstants).values({ operatorSlug: TEST_TENANT_SLUG, key: k, value: v });
   }
 
   // Minimum lookups for the renderer to resolve all required values.
@@ -151,8 +151,8 @@ beforeEach(async () => {
     ['country_of_origin', 'CN', '111', {}],
   ];
   for (const [t, src, can, meta] of minLookups) {
-    await db().insert(tenantLookups).values({
-      tenant: TEST_TENANT_SLUG,
+    await db().insert(operatorLookups).values({
+      operatorSlug: TEST_TENANT_SLUG,
       lookupType: t,
       sourceValue: src,
       canonicalValue: can,
@@ -172,7 +172,7 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
   const declarationRunId = newId();
   await db().insert(declarationRuns).values({
     id: declarationRunId,
-    tenant: TEST_TENANT_SLUG,
+    operatorSlug: TEST_TENANT_SLUG,
     mode: 'classify_and_declare',
     declarationStatus: 'pending',
     classificationStatus: 'completed',
@@ -193,7 +193,7 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
         itemId: 'placeholder',
         rowIndex: i + 1,
         tenantId: 'placeholder',
-        tenantSlug: TEST_TENANT_SLUG,
+        operatorSlug: TEST_TENANT_SLUG,
         description: `Item ${i + 1}`,
         waybillNo: `WB-${i + 1}`,
         merchantHsCode: null,
@@ -233,16 +233,16 @@ describe('runDeclarationPhase', () => {
       { status: 'succeeded', valueAmount: 2000 }, // HV
     ]);
 
-    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/declaration/declaration.runner.js');
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/filings/declaration.runner.js');
     const summary = await runDeclarationPhase(declarationRunId);
     // Expected: 2 HV + ceil(4/3)=2 LV = 4 bundles total.
     expect(summary.bundleCount).toBe(4);
 
     const rows = await db()
       .select()
-      .from(declarations)
-      .where(eq(declarations.declarationRunId, declarationRunId))
-      .orderBy(declarations.bundleIndex);
+      .from(declarationRunFilings)
+      .where(eq(declarationRunFilings.declarationRunId, declarationRunId))
+      .orderBy(declarationRunFilings.bundleIndex);
     expect(rows).toHaveLength(4);
     const strategies = rows.map((r) => r.bundleStrategy);
     expect(strategies.filter((s) => s === 'HV_STANDALONE')).toHaveLength(2);
@@ -260,19 +260,19 @@ describe('runDeclarationPhase', () => {
       { status: 'failed', valueAmount: 300 },
       { status: 'flagged', valueAmount: 400 },
     ]);
-    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/declaration/declaration.runner.js');
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/filings/declaration.runner.js');
     const summary = await runDeclarationPhase(declarationRunId);
     // Only 2 included items; bundleSize=3 so 1 LV bundle.
     expect(summary.bundleCount).toBe(1);
-    const rows = await db().select().from(declarations).where(eq(declarations.declarationRunId, declarationRunId));
+    const rows = await db().select().from(declarationRunFilings).where(eq(declarationRunFilings.declarationRunId, declarationRunId));
     expect(rows[0]!.itemCount).toBe(2);
   });
 
   it('writes XML to the configured blob backend', async () => {
     const declarationRunId = await seed([{ status: 'succeeded', valueAmount: 100 }]);
-    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/declaration/declaration.runner.js');
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/filings/declaration.runner.js');
     await runDeclarationPhase(declarationRunId);
-    const rows = await db().select().from(declarations).where(eq(declarations.declarationRunId, declarationRunId));
+    const rows = await db().select().from(declarationRunFilings).where(eq(declarationRunFilings.declarationRunId, declarationRunId));
     expect(rows[0]!.blobKey).toMatch(new RegExp(`declaration-runs/${declarationRunId}/declarations/0000\\.xml`));
 
     const { getBlobClient } = await import('../../../src/storage/blob.client.js');

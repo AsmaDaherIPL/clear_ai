@@ -25,14 +25,14 @@ src/
 │       ├── zatca-hs-code-display.ts
 │       ├── zatca-hs-code-search.ts
 │       ├── zatca-procedure-codes.ts
-│       ├── tenant-code-overrides.ts
+│       ├── operator-code-overrides.ts
 │       ├── setup-meta.ts
 │       ├── batches.ts               (stub; BatchPlumber)
 │       ├── batch-items.ts           (stub; BatchPlumber)
-│       ├── tenants.ts               (stub; BatchPlumber)
-│       ├── tenant-field-mappings.ts (stub; BatchPlumber)
-│       ├── tenant-constants.ts     (stub; BatchPlumber)
-│       └── tenant-lookups.ts       (stub; BatchPlumber)
+│       ├── operators.ts               (stub; BatchPlumber)
+│       ├── operator-field-mappings.ts (stub; BatchPlumber)
+│       ├── operator-constants.ts     (stub; BatchPlumber)
+│       └── operator-lookups.ts       (stub; BatchPlumber)
 │
 ├── common/                          cross-cutting helpers, no business logic
 │   ├── errors/
@@ -67,15 +67,15 @@ src/
     │   ├── duty-info.service.ts
     │   └── setup-meta.repository.ts
     │
-    ├── tenants/                     DB-backed tenant config — NO per-tenant subfolders
-    │   ├── tenants.routes.ts
-    │   ├── tenant-config.registry.ts
-    │   ├── tenant.repository.ts
-    │   ├── tenant-line-item.mapper.ts
-    │   ├── tenant-lookups.repository.ts
-    │   ├── tenant-constants.repository.ts
-    │   ├── tenant-config.types.ts
-    │   └── tenant.errors.ts
+    ├── operators/                     DB-backed operator config — NO per-operator subfolders
+    │   ├── operators.routes.ts
+    │   ├── operator-config.registry.ts
+    │   ├── operator.repository.ts
+    │   ├── operator-line-item.mapper.ts
+    │   ├── operator-lookups.repository.ts
+    │   ├── operator-constants.repository.ts
+    │   ├── operator-config.types.ts
+    │   └── operator.errors.ts
     │
     ├── dispatch/                    v2 5-stage pipeline orchestrator
     │   ├── dispatch.routes.ts
@@ -132,7 +132,7 @@ results without producing XML.
 
 **Phase 2 — `modules/batches/declaration/`**
 - Reads classified items (status ∈ {`succeeded`, `flagged`}; `blocked`/`failed` excluded).
-- Resolves tenant config (`bundleSize`, `hvThresholdSar`, `tenant_constants`).
+- Resolves operator config (`bundleSize`, `hvThresholdSar`, `tenant_constants`).
 - Calls `integrations/zatca/declaration/` for HV/LV bundling + XML rendering.
 - Persists XML to blob and rows to a `declarations` table.
 - Updates `batches.declaration_status`.
@@ -172,21 +172,21 @@ phase 1. State-machine complexity vs. UX win — revisit if real users ask for i
 | `client` | wrapper around an external SDK |
 | `stage` | one step in a multi-stage pipeline |
 
-## Why no per-tenant subfolders under `tenants/`
+## Why no per-operator subfolders under `operators/`
 
-Tenant configuration is **data**, not code. A new tenant is rows in:
-- `tenants` (one row)
+Operator configuration is **data**, not code. A new operator is rows in:
+- `operators` (one row)
 - `tenant_field_mappings` (N rows — column mapping rules)
 - `tenant_constants` (M rows — fixed XML envelope values)
 - `tenant_lookups` (cities, currencies, countries, ports, etc.)
 
-Adding a new tenant requires zero TypeScript edits and zero deploys.
-The single generic mapper in `modules/tenants/tenant-line-item.mapper.ts` consumes
+Adding a new operator requires zero TypeScript edits and zero deploys.
+The single generic mapper in `modules/operators/operator-line-item.mapper.ts` consumes
 those rows and produces a `CanonicalLineItem`.
 
 ## Module ownership
 
-- `modules/batches/` (incl. `classification/` and `declaration/` subfolders) + `modules/tenants/` + `integrations/zatca/` + `db/schema/{batches,batch-items,tenants,tenant-*}.ts` + `common/concurrency/` + `src/storage/` →
+- `modules/batches/` (incl. `classification/` and `declaration/` subfolders) + `modules/operators/` + `integrations/zatca/` + `db/schema/{batches,batch-items,operators,operator-*}.ts` + `common/concurrency/` + `src/storage/` →
   **BatchPlumber** agent. See `tracker/AGENT_BRIEFS/batch-plumber.md`.
 
 - `modules/dispatch/` →

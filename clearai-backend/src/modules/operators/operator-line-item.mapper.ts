@@ -1,10 +1,10 @@
 /**
- * Generic tenant-line-item mapper. THE single function that takes a raw row
- * (Record<string,string> from a CSV/XLSX parser) plus tenant metadata and
+ * Generic operator-line-item mapper. THE single function that takes a raw row
+ * (Record<string,string> from a CSV/XLSX parser) plus operator metadata and
  * produces a CanonicalLineItem.
  *
- * Zero per-tenant code — Naqel-specific behaviour is rows in
- * tenant_field_mappings + tenant_constants + tenant_lookups, not branches here.
+ * Zero per-operator code — Naqel-specific behaviour is rows in
+ * operator_field_mappings + operator_constants + operator_lookups, not branches here.
  */
 import { newId } from '../../common/utils/uuid.js';
 import {
@@ -13,9 +13,9 @@ import {
   type CanonicalField,
   type CanonicalLineItem,
   type ColumnMappingRule,
-  type TenantConfig,
-} from './tenant-config.types.js';
-import { RequiredFieldMissingError } from './tenant.errors.js';
+  type OperatorConfig,
+} from './operator-config.types.js';
+import { RequiredFieldMissingError } from './operator.errors.js';
 
 export interface MapperLookups {
   /** lookup_type -> source_value -> canonical_value. */
@@ -75,22 +75,22 @@ function toNumber(field: CanonicalField, raw: string): number {
 /**
  * Map a single row.
  *   row        — parsed CSV/XLSX row
- *   tenant     — already-resolved TenantConfig
+ *   operator     — already-resolved OperatorConfig
  *   rowIndex   — 1-based source-file row number for error context
  *   lookups    — preserved in the signature for backward-compat. The mapper
- *                does NOT pre-translate via tenant_lookups; translations
+ *                does NOT pre-translate via operator_lookups; translations
  *                are the renderer's concern (currency code → carrier code,
  *                country ISO → carrier code, etc.). Passing null is fine.
  */
 export function mapRowToCanonical(
   row: Record<string, string>,
-  tenant: TenantConfig,
+  operator: OperatorConfig,
   rowIndex: number,
   _lookups: MapperLookups | null,
 ): CanonicalLineItem {
   // Index mappings by canonicalField for fast lookup.
   const byField = new Map<CanonicalField, ColumnMappingRule>();
-  for (const m of tenant.mappings) byField.set(m.canonicalField, m);
+  for (const m of operator.mappings) byField.set(m.canonicalField, m);
 
   // Resolve every canonical field; whether it's required and what to do on miss
   // depends on CANONICAL_REQUIRED_FIELDS.
@@ -100,7 +100,7 @@ export function mapRowToCanonical(
     const cell = readCell(row, rule);
     if (cell === '') {
       if (rule.required || CANONICAL_REQUIRED_FIELDS.includes(field)) {
-        throw new RequiredFieldMissingError(tenant.slug, rowIndex, field);
+        throw new RequiredFieldMissingError(operator.slug, rowIndex, field);
       }
       return null;
     }
@@ -110,7 +110,7 @@ export function mapRowToCanonical(
   const num = (field: CanonicalField): number => {
     const s = get(field);
     if (s === null) {
-      throw new RequiredFieldMissingError(tenant.slug, rowIndex, field);
+      throw new RequiredFieldMissingError(operator.slug, rowIndex, field);
     }
     return toNumber(field, s);
   };
@@ -118,7 +118,7 @@ export function mapRowToCanonical(
   const requireString = (field: CanonicalField): string => {
     const s = get(field);
     if (s === null || s === '') {
-      throw new RequiredFieldMissingError(tenant.slug, rowIndex, field);
+      throw new RequiredFieldMissingError(operator.slug, rowIndex, field);
     }
     return s;
   };
@@ -126,8 +126,8 @@ export function mapRowToCanonical(
   const item: CanonicalLineItem = {
     itemId: newId(),
     rowIndex,
-    tenantId: tenant.id,
-    tenantSlug: tenant.slug,
+    tenantId: operator.id,
+    operatorSlug: operator.slug,
 
     description: requireString('description'),
     waybillNo: requireString('waybillNo'),
@@ -156,7 +156,7 @@ export function mapRowToCanonical(
   for (const f of CANONICAL_NUMERIC_FIELDS) {
     const v = (item as unknown as Record<string, unknown>)[f];
     if (typeof v !== 'number' || !Number.isFinite(v)) {
-      throw new RequiredFieldMissingError(tenant.slug, rowIndex, f);
+      throw new RequiredFieldMissingError(operator.slug, rowIndex, f);
     }
   }
 

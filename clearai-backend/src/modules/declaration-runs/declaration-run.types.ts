@@ -22,7 +22,7 @@ import type {
 
 export interface DeclarationRunSummary {
   id: string;
-  tenant_slug: string;
+  operator_slug: string;
   mode: DeclarationRunMode;
   status: DeclarationRunStatus;
   classification_status: ClassificationStatus;

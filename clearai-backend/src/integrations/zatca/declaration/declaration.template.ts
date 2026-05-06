@@ -15,9 +15,9 @@
  *       - "ExpressMailInfomation - Fields"
  *
  * Where each field comes from:
- *   constants  → tenant_constants (seed-tenants.ts)
+ *   constants  → operator_constants (seed-operators.ts)
  *   row        → canonical (mapper output)
- *   lookup     → tenant_lookups via the LookupContext passed in
+ *   lookup     → operator_lookups via the LookupContext passed in
  *   computed   → derived in this file (transportIDType, carrierPrefix, dates)
  *   dispatch   → final_code, goods_description_ar (Phase 1 outputs)
  *
@@ -25,7 +25,7 @@
  *   • carrierPrefix: defaulted to last-3-of-WaybillNo. Sample 2 matches;
  *     sample 1 (`141` from waybill `279274301`) does not — likely a
  *     Naqel-internal carrier table we don't have. Override via
- *     tenant_constants.default_carrier_prefix if all submissions use one.
+ *     operator_constants.default_carrier_prefix if all submissions use one.
  *   • airBLDate / documentDate: defaulted to render-time UTC date. Real
  *     value should come from the source row (a future xlsx will have an
  *     `InvoiceDate` column we'll map to canonical).
@@ -38,7 +38,7 @@
  */
 import type { RenderInput } from './declaration.types.js';
 import type { DeclarationRunItemRow } from '../../../db/schema.js';
-import type { LookupValue } from '../../../modules/tenants/tenant-lookups.repository.js';
+import type { LookupValue } from '../../../modules/operators/operator-lookups.repository.js';
 import { buildDocRefNo } from './doc-id.js';
 
 export class ZatcaRenderError extends Error {
@@ -61,10 +61,10 @@ function xml(value: unknown): string {
 }
 
 function constant(input: RenderInput, key: string, fallback?: string): string {
-  const v = input.tenant.constants[key];
+  const v = input.operator.constants[key];
   if (v !== undefined && v !== '') return v;
   if (fallback !== undefined) return fallback;
-  throw new ZatcaRenderError(`tenant_constants['${key}'] is required for tenant '${input.tenant.slug}'`);
+  throw new ZatcaRenderError(`operator_constants['${key}'] is required for operator '${input.operator.slug}'`);
 }
 
 function lookup(
@@ -79,7 +79,7 @@ function lookupOrThrow(input: RenderInput, type: string, sourceValue: string, ct
   const hit = lookup(input, type, sourceValue);
   if (!hit) {
     throw new ZatcaRenderError(
-      `${ctx}: no tenant_lookups row for tenant='${input.tenant.slug}' lookup_type='${type}' source='${sourceValue}'`,
+      `${ctx}: no operator_lookups row for operator='${input.operator.slug}' lookup_type='${type}' source='${sourceValue}'`,
     );
   }
   return hit;
@@ -112,8 +112,8 @@ function deriveTransportIdType(consigneeNationalId: string): string {
  * to find-and-replace. Tenant-level static override available via
  * `default_carrier_prefix` constant.
  */
-function deriveCarrierPrefix(_waybillNo: string, tenantConstants: Readonly<Record<string, string>>): string {
-  const override = tenantConstants['default_carrier_prefix'];
+function deriveCarrierPrefix(_waybillNo: string, operatorConstants: Readonly<Record<string, string>>): string {
+  const override = operatorConstants['default_carrier_prefix'];
   if (override) return override;
   return '{carrier_prefix}';
 }
@@ -242,7 +242,7 @@ function renderInvoice(input: RenderInput): string {
   );
 
   // Source company: client_source_company keyed on `${clientId}:${regPort}`.
-  // Falls back to tenant default (e.g. "ناقل" / 340476) when not found.
+  // Falls back to operator default (e.g. "ناقل" / 340476) when not found.
   const regPort = constant(input, 'default_reg_port_code', '23');
   const sourceCompanyKey = `${first.canonical.clientId}:${regPort}`;
   const sourceCompany = lookup(input, 'client_source_company', sourceCompanyKey);
@@ -289,7 +289,7 @@ function formatNumeric(n: number): string {
 
 function renderExportAirBL(input: RenderInput): string {
   const first = input.items[0]!;
-  const carrierPrefix = deriveCarrierPrefix(first.canonical.waybillNo, input.tenant.constants);
+  const carrierPrefix = deriveCarrierPrefix(first.canonical.waybillNo, input.operator.constants);
   // Prefer the source-row InvoiceDate when present (matches Naqel's
   // post-processed XMLs); fall back to render-time UTC for sources that
   // don't carry the column.
@@ -361,7 +361,7 @@ export function renderDeclarationXml(input: RenderInput): string {
   }
 
   const docRefNo = buildDocRefNo({
-    prefix: input.tenant.constants['doc_ref_prefix'],
+    prefix: input.operator.constants['doc_ref_prefix'],
     suffixOverride: input.docRefSuffixOverride,
   });
 

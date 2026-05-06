@@ -12,7 +12,7 @@ consumer reads. The verbatim parsed source row lives in a **sibling
 `raw_row jsonb NOT NULL`** column (not nested inside canonical) so
 column-level GRANTs can suppress PII access without breaking canonical reads.
 We deliberately chose `jsonb` over a wide flat-column table because the
-field set is **tenant-driven, not ours**, and we can't afford a migration
+field set is **operator-driven, not ours**, and we can't afford a migration
 every time a new carrier is onboarded. This ADR explains the tradeoffs we
 accepted and the constraints we imposed in return.
 
@@ -61,7 +61,7 @@ For one row of Naqel's commercial-invoice xlsx:
 ```
 
 The TypeScript shapes are defined in
-[`src/modules/tenants/tenant-config.types.ts`](../clearai-backend/src/modules/tenants/tenant-config.types.ts):
+[`src/modules/operators/operator-config.types.ts`](../clearai-backend/src/modules/operators/operator-config.types.ts):
 `CanonicalLineItem` for the mapper output, `RawRow = Record<string, unknown>`
 for the verbatim row. Every reader (the dispatch use-case, the ZATCA
 declaration renderer, the trace-debug routes) imports those types — there
@@ -83,9 +83,9 @@ A flat table with `description text`, `value_amount numeric`, `quantity int`,
 
 Rejected because:
 
-- **Tenant onboarding becomes a migration.** ClearAI's design treats
-  tenants as data, not code (see ADR `folder-structure.md` and the
-  `tenants/` ownership notes). Adding Aramex tomorrow shouldn't require
+- **Operator onboarding becomes a migration.** ClearAI's design treats
+  operators as data, not code (see ADR `folder-structure.md` and the
+  `operators/` ownership notes). Adding Aramex tomorrow shouldn't require
   `ALTER TABLE declaration_set_items ADD COLUMN ...`. Their xlsx might have a
   `consigneeNationalID` field Naqel doesn't have, or vice versa.
 - **The canonical shape is a moving target during the build-out.** Reading
@@ -98,14 +98,14 @@ Rejected because:
   preserving the verbatim source row for every line item; that's exactly
   what the `raw_row` sibling column does. A flat-column canonical table
   *plus* a `raw_row` jsonb gives no benefit over two jsonbs (`canonical`
-  + `raw_row`) and triggers a migration on every tenant onboarding.
+  + `raw_row`) and triggers a migration on every operator onboarding.
 
 ### Alternative 2: `tenant_field_mappings` table joined at read time
 
 Rejected because the mapper has already done the canonicalisation work
 (applied transforms, run tenant_lookups translations, type-coerced numerics)
 *before* the row is persisted. Re-deriving on every read would force every
-consumer to re-run the mapper, which fans out per-row tenant-config lookups
+consumer to re-run the mapper, which fans out per-row operator-config lookups
 on what is supposed to be a hot read path.
 
 ### Alternative 3: `canonical text` (JSON as TEXT)
@@ -203,7 +203,7 @@ its own column is what makes operational PII handling tractable:
   (see `0020_pii_redaction.sql` + `src/common/logging/redact.ts`) is
   separate.** That pipeline targets free-text classification descriptions
   flowing through the API; `declaration_set_items.raw_row` carries structured row
-  cells from a tenant's commercial-invoice file. Different shape, different
+  cells from a operator's commercial-invoice file. Different shape, different
   redaction strategy — currently a column-level access gate, not a
   pre-write redactor.
 
@@ -214,7 +214,7 @@ PII by design: every field is mapper-output, validated against the closed
 
 ## Summary for review
 
-- The choice is `jsonb` because tenant onboarding is data, not code.
+- The choice is `jsonb` because operator onboarding is data, not code.
 - The data we need referential integrity on (`final_code`, `status`) is
   promoted out of jsonb and constrained at the DB.
 - The data we need shape integrity on is constrained via
@@ -222,4 +222,4 @@ PII by design: every field is mapper-output, validated against the closed
 - Read patterns are served by top-level column indexes today; jsonb
   indexes are deferred until a real query justifies them.
 - The TypeScript `CanonicalLineItem` type is the schema for this column
-  and is owned by `src/modules/tenants/tenant-config.types.ts`.
+  and is owned by `src/modules/operators/operator-config.types.ts`.

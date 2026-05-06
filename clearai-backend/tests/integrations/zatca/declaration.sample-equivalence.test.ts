@@ -7,7 +7,7 @@
  *
  *   docRefNo  — `docRefSuffixOverride` on RenderInput pins the suffix
  *               (e.g. '26033110789') to the reference value.
- *   carrierPrefix — tenant_constants.default_carrier_prefix matches the
+ *   carrierPrefix — operator_constants.default_carrier_prefix matches the
  *               reference carrier code.
  *   airBLDate / documentDate — canonical.invoiceDate set to the reference
  *               value.
@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { renderDeclarationXml } from '../../../src/integrations/zatca/declaration/declaration.template.js';
 import type { RenderInput } from '../../../src/integrations/zatca/declaration/declaration.types.js';
 import type { DeclarationRunItemRow } from '../../../src/db/schema.js';
-import type { LookupValue } from '../../../src/modules/tenants/tenant-lookups.repository.js';
+import type { LookupValue } from '../../../src/modules/operators/operator-lookups.repository.js';
 
 const SAMPLES_DIR = join(
   process.cwd(),
@@ -49,7 +49,7 @@ function normalize(xml: string): string {
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
-/*  Naqel canonical tenant fixtures                                          */
+/*  Naqel canonical operator fixtures                                          */
 /* ──────────────────────────────────────────────────────────────────────── */
 
 function naqelConstants(overrides: Record<string, string> = {}): Record<string, string> {
@@ -144,7 +144,7 @@ function syntheticRow(c: {
       itemId: 'item',
       rowIndex: 1,
       tenantId: 't',
-      tenantSlug: 'naqel',
+      operatorSlug: 'naqel',
       description: c.description,
       waybillNo: c.waybillNo,
       merchantHsCode: null,
@@ -182,7 +182,7 @@ function baseInputFor(opts: {
   now?: Date;
 }): RenderInput {
   return {
-    tenant: {
+    operator: {
       slug: 'naqel',
       displayName: 'Naqel',
       constants: opts.constants,

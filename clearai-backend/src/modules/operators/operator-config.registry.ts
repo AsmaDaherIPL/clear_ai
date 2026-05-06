@@ -1,7 +1,7 @@
 /**
- * Tenant config registry — in-memory cache of TenantConfig keyed by slug.
+ * Tenant config registry — in-memory cache of OperatorConfig keyed by slug.
  *
- * Loaded at startup; refreshable via POST /tenants/:slug/refresh. The rest
+ * Loaded at startup; refreshable via programmatic refresh(). The rest
  * of the codebase resolves tenants via `resolve(slug)` only — no other
  * module reaches into the tenants table directly.
  *
@@ -17,39 +17,39 @@ import {
   KNOWN_CANONICAL_FIELDS,
   type CanonicalField,
   type ColumnMappingRule,
-  type TenantConfig,
+  type OperatorConfig,
   type TransformKind,
-} from './tenant-config.types.js';
+} from './operator-config.types.js';
 import {
-  getTenantBySlug,
+  getOperatorBySlug,
   getMappingsBySlug,
   getConstantsBySlug,
-  listTenants,
-} from './tenant.repository.js';
-import { MappingValidationError, TenantNotFoundError } from './tenant.errors.js';
-import type { TenantFieldMappingRow, TenantConstantRow, TenantRow } from '../../db/schema.js';
+  listOperators,
+} from './operator.repository.js';
+import { MappingValidationError, OperatorNotFoundError } from './operator.errors.js';
+import type { OperatorFieldMappingRow, OperatorConstantRow, OperatorRow } from '../../db/schema.js';
 
-const CACHE = new Map<string, TenantConfig>();
+const CACHE = new Map<string, OperatorConfig>();
 
 /**
- * Hydrate a single tenant from DB into a TenantConfig. Returns null when no
+ * Hydrate a single operator from DB into a OperatorConfig. Returns null when no
  * row exists; throws MappingValidationError on invalid mappings.
  */
-async function loadOne(slug: string): Promise<TenantConfig | null> {
-  const tenant = await getTenantBySlug(slug);
-  if (!tenant) return null;
+async function loadOne(slug: string): Promise<OperatorConfig | null> {
+  const operator = await getOperatorBySlug(slug);
+  if (!operator) return null;
   const [mappings, constants] = await Promise.all([
     getMappingsBySlug(slug),
     getConstantsBySlug(slug),
   ]);
-  return buildConfig(tenant, mappings, constants);
+  return buildConfig(operator, mappings, constants);
 }
 
 function buildConfig(
-  tenant: TenantRow,
-  mappingRows: ReadonlyArray<TenantFieldMappingRow>,
-  constantRows: ReadonlyArray<TenantConstantRow>,
-): TenantConfig {
+  operator: OperatorRow,
+  mappingRows: ReadonlyArray<OperatorFieldMappingRow>,
+  constantRows: ReadonlyArray<OperatorConstantRow>,
+): OperatorConfig {
   const mappings: ColumnMappingRule[] = [];
   const problems: string[] = [];
   const seenCanonical = new Set<CanonicalField>();
@@ -86,17 +86,17 @@ function buildConfig(
   }
 
   if (problems.length > 0) {
-    throw new MappingValidationError(tenant.slug, problems);
+    throw new MappingValidationError(operator.slug, problems);
   }
 
   const constants: Record<string, string> = {};
   for (const c of constantRows) constants[c.key] = c.value;
 
-  return Object.freeze<TenantConfig>({
-    id: tenant.id,
-    slug: tenant.slug,
-    displayName: tenant.displayName,
-    active: tenant.active,
+  return Object.freeze<OperatorConfig>({
+    id: operator.id,
+    slug: operator.slug,
+    displayName: operator.displayName,
+    active: operator.active,
     mappings: Object.freeze(mappings),
     constants: Object.freeze(constants),
   });
@@ -104,25 +104,25 @@ function buildConfig(
 
 /**
  * Public API — the rest of the codebase calls this and only this.
- * Throws TenantNotFoundError when the slug is unknown.
+ * Throws OperatorNotFoundError when the slug is unknown.
  */
-export async function resolve(slug: string): Promise<TenantConfig> {
+export async function resolve(slug: string): Promise<OperatorConfig> {
   const cached = CACHE.get(slug);
   if (cached) return cached;
   const fresh = await loadOne(slug);
-  if (!fresh) throw new TenantNotFoundError(slug);
+  if (!fresh) throw new OperatorNotFoundError(slug);
   CACHE.set(slug, fresh);
   return fresh;
 }
 
 /**
- * Force a re-read from DB for one tenant. Called by POST /tenants/:slug/refresh
+ * Force a re-read from DB for one operator. Called by programmatic refresh()
  * after a seed run, and by tests that mutate the DB directly.
  */
-export async function refresh(slug: string): Promise<TenantConfig> {
+export async function refresh(slug: string): Promise<OperatorConfig> {
   CACHE.delete(slug);
   const fresh = await loadOne(slug);
-  if (!fresh) throw new TenantNotFoundError(slug);
+  if (!fresh) throw new OperatorNotFoundError(slug);
   CACHE.set(slug, fresh);
   return fresh;
 }
@@ -133,13 +133,13 @@ export function clearCache(): void {
 }
 
 /**
- * Eagerly hydrate every tenant. Called from server/app.ts at boot so the
+ * Eagerly hydrate every operator. Called from server/app.ts at boot so the
  * first request doesn't pay a cold DB read. Mapping problems on any single
- * tenant fail boot — fail-closed per the no-silent-fallback rule.
+ * operator fail boot — fail-closed per the no-silent-fallback rule.
  */
-export async function warmAll(): Promise<ReadonlyArray<TenantConfig>> {
-  const rows = await listTenants();
-  const out: TenantConfig[] = [];
+export async function warmAll(): Promise<ReadonlyArray<OperatorConfig>> {
+  const rows = await listOperators();
+  const out: OperatorConfig[] = [];
   for (const t of rows) {
     const cfg = await loadOne(t.slug);
     if (!cfg) continue;
@@ -150,6 +150,6 @@ export async function warmAll(): Promise<ReadonlyArray<TenantConfig>> {
 }
 
 /** Read-only snapshot of currently cached configs. Used by GET /tenants. */
-export function snapshot(): ReadonlyArray<TenantConfig> {
+export function snapshot(): ReadonlyArray<OperatorConfig> {
   return [...CACHE.values()];
 }

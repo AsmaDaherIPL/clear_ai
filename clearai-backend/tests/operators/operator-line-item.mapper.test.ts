@@ -1,15 +1,15 @@
 /**
- * Tests for the generic tenant-line-item mapper.
+ * Tests for the generic operator-line-item mapper.
  *
- * Pure unit tests — no DB. Builds an in-memory TenantConfig keyed on the
+ * Pure unit tests — no DB. Builds an in-memory OperatorConfig keyed on the
  * REAL Naqel commercial-invoice columns (`WaybillNo`, `weight`, `Amount`,
  * etc.) and feeds raw rows; verifies transforms, defaults, lookup
  * translation, and required-field errors.
  */
 import { describe, expect, it } from 'vitest';
-import { mapRowToCanonical, type MapperLookups } from '../../src/modules/tenants/tenant-line-item.mapper.js';
-import { RequiredFieldMissingError } from '../../src/modules/tenants/tenant.errors.js';
-import type { TenantConfig } from '../../src/modules/tenants/tenant-config.types.js';
+import { mapRowToCanonical, type MapperLookups } from '../../src/modules/operators/operator-line-item.mapper.js';
+import { RequiredFieldMissingError } from '../../src/modules/operators/operator.errors.js';
+import type { OperatorConfig } from '../../src/modules/operators/operator-config.types.js';
 
 function rule(
   sourceColumn: string,
@@ -29,7 +29,7 @@ function rule(
   return { sourceColumn, canonicalField, required, transform, defaultValue, fallbackColumns: Object.freeze(fallbackColumns) };
 }
 
-function tenantConfig(): TenantConfig {
+function operatorConfig(): OperatorConfig {
   return Object.freeze({
     id: '00000000-0000-0000-0000-000000000001',
     slug: 'naqel',
@@ -53,7 +53,7 @@ function tenantConfig(): TenantConfig {
       rule('ConsigneeNationalID', 'consigneeNationalId', true, 'trim', null),
       rule('Mobile', 'consigneePhone', true, 'trim', null, ['MobileNo', 'PhoneNumber']),
       rule('InvoiceDate', 'invoiceDate', false, 'trim', null),
-    ]) as TenantConfig['mappings'],
+    ]) as OperatorConfig['mappings'],
     constants: Object.freeze({}),
   });
 }
@@ -95,10 +95,10 @@ const lookups: MapperLookups = {
 
 describe('mapRowToCanonical — happy path', () => {
   it('produces a fully populated CanonicalLineItem with transforms applied', () => {
-    const item = mapRowToCanonical(happyRow(), tenantConfig(), 1, lookups);
+    const item = mapRowToCanonical(happyRow(), operatorConfig(), 1, lookups);
 
     expect(item.rowIndex).toBe(1);
-    expect(item.tenantSlug).toBe('naqel');
+    expect(item.operatorSlug).toBe('naqel');
     expect(item.description).toBe('Dresses');
     expect(item.waybillNo).toBe('394613346');
     expect(item.merchantHsCode).toBe('62046200');
@@ -120,7 +120,7 @@ describe('mapRowToCanonical — happy path', () => {
   it('returns null for nullable absent cells', () => {
     const item = mapRowToCanonical(
       happyRow({ CustomsCommodityCode: '', SKU: '' }),
-      tenantConfig(),
+      operatorConfig(),
       2,
       lookups,
     );
@@ -129,13 +129,13 @@ describe('mapRowToCanonical — happy path', () => {
   });
 
   it('substitutes default_value when present and source cell is empty', () => {
-    const item = mapRowToCanonical(happyRow({ UnitType: '' }), tenantConfig(), 3, lookups);
+    const item = mapRowToCanonical(happyRow({ UnitType: '' }), operatorConfig(), 3, lookups);
     // default 'PIECE' is uppercased by the transform.
     expect(item.uom).toBe('PIECE');
   });
 
   it('passes value through when no lookup mapping exists for a currency', () => {
-    const item = mapRowToCanonical(happyRow({ Currency: 'gbp' }), tenantConfig(), 4, lookups);
+    const item = mapRowToCanonical(happyRow({ Currency: 'gbp' }), operatorConfig(), 4, lookups);
     // 'gbp' uppercases to 'GBP'; no lookup hit -> verbatim.
     expect(item.currencyCode).toBe('GBP');
   });
@@ -143,44 +143,44 @@ describe('mapRowToCanonical — happy path', () => {
 
 describe('mapRowToCanonical — required fields', () => {
   it('throws RequiredFieldMissingError when description is empty', () => {
-    expect(() => mapRowToCanonical(happyRow({ Description: '' }), tenantConfig(), 5, lookups))
+    expect(() => mapRowToCanonical(happyRow({ Description: '' }), operatorConfig(), 5, lookups))
       .toThrowError(RequiredFieldMissingError);
   });
 
   it('throws RequiredFieldMissingError when waybillNo is empty', () => {
-    expect(() => mapRowToCanonical(happyRow({ WaybillNo: '' }), tenantConfig(), 6, lookups))
+    expect(() => mapRowToCanonical(happyRow({ WaybillNo: '' }), operatorConfig(), 6, lookups))
       .toThrowError(RequiredFieldMissingError);
   });
 
   it('throws RequiredFieldMissingError when valueAmount is empty', () => {
-    expect(() => mapRowToCanonical(happyRow({ Amount: '' }), tenantConfig(), 7, lookups))
+    expect(() => mapRowToCanonical(happyRow({ Amount: '' }), operatorConfig(), 7, lookups))
       .toThrowError(RequiredFieldMissingError);
   });
 
   it('throws when valueAmount is non-numeric', () => {
-    expect(() => mapRowToCanonical(happyRow({ Amount: 'abc' }), tenantConfig(), 8, lookups))
+    expect(() => mapRowToCanonical(happyRow({ Amount: 'abc' }), operatorConfig(), 8, lookups))
       .toThrow();
   });
 
   it('throws RequiredFieldMissingError when clientId missing', () => {
-    expect(() => mapRowToCanonical(happyRow({ ClientID: '' }), tenantConfig(), 9, lookups))
+    expect(() => mapRowToCanonical(happyRow({ ClientID: '' }), operatorConfig(), 9, lookups))
       .toThrowError(RequiredFieldMissingError);
   });
 
   it('throws RequiredFieldMissingError when destinationStationId missing', () => {
-    expect(() => mapRowToCanonical(happyRow({ DestinationStationID: '' }), tenantConfig(), 10, lookups))
+    expect(() => mapRowToCanonical(happyRow({ DestinationStationID: '' }), operatorConfig(), 10, lookups))
       .toThrowError(RequiredFieldMissingError);
   });
 
   it('throws RequiredFieldMissingError when consigneeNationalId missing', () => {
-    expect(() => mapRowToCanonical(happyRow({ ConsigneeNationalID: '' }), tenantConfig(), 11, lookups))
+    expect(() => mapRowToCanonical(happyRow({ ConsigneeNationalID: '' }), operatorConfig(), 11, lookups))
       .toThrowError(RequiredFieldMissingError);
   });
 });
 
 describe('mapRowToCanonical — numeric coercion', () => {
   it('strips thousand separators', () => {
-    const item = mapRowToCanonical(happyRow({ Amount: '12,345.67' }), tenantConfig(), 12, lookups);
+    const item = mapRowToCanonical(happyRow({ Amount: '12,345.67' }), operatorConfig(), 12, lookups);
     expect(item.valueAmount).toBe(12345.67);
   });
 });

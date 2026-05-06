@@ -61,7 +61,7 @@ src/
 │
 └── modules/
     ├── reference-data/         unchanged
-    ├── tenants/                unchanged
+    ├── operators/                unchanged
     │
     ├── pipeline/               NEW — the classification pipeline
     │   ├── pipeline.routes.ts
@@ -92,7 +92,7 @@ src/
     │   │   ├── track-b-code/           Track B — was expand/ + override + lookup
     │   │   │   ├── track-b.service.ts
     │   │   │   ├── codebook-lookup.ts
-    │   │   │   ├── tenant-override.ts
+    │   │   │   ├── operator-override.ts
     │   │   │   ├── pick-among-replacements.ts   deleted, N replacements
     │   │   │   ├── pick-under-prefix.ts          partial, valid prefix
     │   │   │   └── track-b.types.ts
@@ -181,8 +181,8 @@ src/
 - `integrations/zatca/` — protocol code. Stage 4 consumes it but does
   not own it.
 - `db/`, `common/`, `config/`, `server/`, `storage/`, `scripts/` — unchanged.
-- `modules/tenants/` — unchanged. The pipeline reads tenant config; it
-  does not own tenant-config code.
+- `modules/operators/` — unchanged. The pipeline reads operator config; it
+  does not own operator-config code.
 - `modules/reference-data/` — unchanged.
 
 ## Why `pipeline/` and not something else

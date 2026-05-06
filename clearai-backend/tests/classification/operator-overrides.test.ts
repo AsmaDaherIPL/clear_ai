@@ -1,17 +1,17 @@
 /**
- * Tests for tenant-override lookup. The lookup queries the live DB, so these
+ * Tests for operator-override lookup. The lookup queries the live DB, so these
  * tests require docker-compose Postgres up and the Naqel xlsx ingested
  * (`pnpm db:seed:overrides:naqel`). Integration-flavoured but the pool is
  * reused across the suite so cost is minimal.
  *
  * What we pin:
- *   - exact-match lookup returns the tenant's target
+ *   - exact-match lookup returns the operator's target
  *   - dotted/spaced inputs are normalised before matching
  *   - prefix walk-up finds shorter keys when the full input isn't present
  *   - genuinely-unknown codes return null (no fall-through to a wrong row)
  *   - minPrefix guard refuses overly short inputs
- *   - tenant scoping: a code only stored under one tenant is invisible
- *     when looked up under another (regression guard for multi-tenant)
+ *   - operator scoping: a code only stored under one operator is invisible
+ *     when looked up under another (regression guard for multi-operator)
  */
 import { describe, expect, it, afterAll } from 'vitest';
 import { lookupTenantOverride } from '../../src/modules/pipeline/track-b-code/codebook-override.js';
@@ -57,10 +57,10 @@ describe('lookupTenantOverride (live DB)', () => {
     expect(r?.matchedSourceCode).toBe('61082100');
   });
 
-  it('does not return Naqel rows when looked up under another tenant', async () => {
+  it('does not return Naqel rows when looked up under another operator', async () => {
     // Same code that hits under 'naqel' — must be invisible under 'aramex'
-    // because no rows exist for that tenant. This is the regression guard
-    // for tenant-scoped lookup.
+    // because no rows exist for that operator. This is the regression guard
+    // for operator-scoped lookup.
     const r = await lookupTenantOverride('61082100', 'aramex');
     expect(r).toBeNull();
   });
