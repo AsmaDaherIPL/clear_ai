@@ -19,6 +19,7 @@ import {
   DeclarationRunNotFoundError,
 } from './declaration-run.errors.js';
 import { OperatorNotFoundError, RequiredFieldMissingError } from '../operators/operator.errors.js';
+import { getOperatorById } from '../operators/operator.repository.js';
 import type { DeclarationRunSummary } from './declaration-run.types.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
 import type {
@@ -139,9 +140,10 @@ export async function handleCreateDeclarationRun(
 export async function handleGetDeclarationRun(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
   const declarationRun = await getDeclarationRun(req.params.id);
   const counts = await countItemsByStatus(declarationRun.id);
+  const operator = await getOperatorById(declarationRun.operatorId);
   const summary: DeclarationRunSummary = {
     id: declarationRun.id,
-    operator_slug: declarationRun.operatorSlug,
+    operator_slug: operator?.slug ?? '',
     mode: declarationRun.mode as DeclarationRunMode,
     status: declarationRun.status as DeclarationRunStatus,
     classification_status: declarationRun.classificationStatus as ClassificationStatus,

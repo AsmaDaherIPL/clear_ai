@@ -1,48 +1,46 @@
 /**
- * Seed operator_lookups from Naqel's mapping xlsx.
+ * Seed reference lookup data from Naqel's mapping xlsx.
  *
  * Source:
  *   naqel-shared-data/Naqel (Fields details + Mapping data).xlsx
  *
- * Six mapping sheets land as six lookup_types under operator='naqel':
+ * The six mapping sheets land in two tables:
  *
- *   sheet                          lookup_type            source -> canonical (+ metadata)
+ *   ── Universal Tabadul reference data → tabadul_codes (operator-agnostic) ──
+ *   sheet                          code_type              source -> canonical (+ metadata)
  *   ─────────────────────────────  ─────────────────────  ──────────────────────────────────
  *   CurrencyMapping                currency_code          ISO-4217 (e.g. SAR)
  *                                                         -> TabdulCurrencyId (e.g. '100')
  *   Tabadul CountryCode            country_of_origin      INTLCODE (ISO alpha-2, e.g. 'SA')
  *                                                         -> CountryCode (e.g. '145');
  *                                                         metadata: { name, fname }
- *   CountryOfOriginClientMapping   client_country         ClientID -> Countryoforigin (numeric)
- *   SourceCompanyPortMaping        client_source_company  ClientID -> SourceCompanyNo;
- *                                                         metadata: { sourceCompanyName,
- *                                                         custRegPortCode }
- *   CityMaping                     destination_station    InfoCityId (== DestinationStationID)
- *                                                         -> TabdulCityId (the canonical city
- *                                                         code used in the ZATCA envelope)
  *   Tabdul City                    tabdul_city            CITY_CD (Tabdul city id)
  *                                                         -> CITY_ARB_NAME (Arabic city name);
  *                                                         metadata: { engName, intlCode,
  *                                                         countryCode }
  *
- * Hot-path renderer queries:
- *   • currency:        lookup('currency_code', row.currencyCode) -> '100'
- *   • country origin:  lookup('country_of_origin', row.countryOfOrigin) -> '145'
- *   • client default:  lookup('client_country', row.clientId) -> '145'
- *   • source company:  lookup('client_source_company', row.clientId)
- *                        -> { canonical: '383668', metadata: { sourceCompanyName: 'Vogacloset', custRegPortCode: '...' } }
- *   • destination:     city = lookup('destination_station', row.destinationStationId)
- *                      then nameAr = lookup('tabdul_city', city)
+ *   ── Operator-specific lookups → operator_lookups (FK on operators.id) ──
+ *   sheet                          lookup_type            source -> canonical (+ metadata)
+ *   ─────────────────────────────  ─────────────────────  ──────────────────────────────────
+ *   CountryOfOriginClientMapping   client_country         ClientID -> Countryoforigin (numeric)
+ *   SourceCompanyPortMaping        client_source_company  `${ClientID}:${CustRegPortCode}` -> SourceCompanyNo;
+ *                                                         metadata: { sourceCompanyName,
+ *                                                         custRegPortCode, clientId }
+ *   CityMaping                     destination_station    InfoCityId (== DestinationStationID)
+ *                                                         -> TabdulCityId
  *
- * The composite "destination city -> tabdul city -> Arabic name" is two
- * hops on purpose — the source data ships them as two separate sheets,
- * and the rendering layer composes them at request time.
+ * Hot-path renderer queries (the runner merges both tables into one Map):
+ *   • currency:        lookup('currency_code', row.currencyCode) -> '100'           (tabadul_codes)
+ *   • country origin:  lookup('country_of_origin', row.countryOfOrigin) -> '145'    (tabadul_codes)
+ *   • client default:  lookup('client_country', row.clientId) -> '145'              (operator_lookups)
+ *   • source company:  lookup('client_source_company', `${clientId}:${port}`)
+ *                        -> { canonical: '383668', metadata: { sourceCompanyName, ... } }   (operator_lookups)
+ *   • destination:     city = lookup('destination_station', row.destinationStationId)        (operator_lookups)
+ *                      then nameAr = lookup('tabdul_city', city)                              (tabadul_codes)
  *
- * Per-operator DELETE+re-insert scoped to ('naqel', lookup_type) so re-running
- * is idempotent and other tenants are untouched.
- *
- * Sandbox note: this machine blocks plain readFile on cross-mount paths.
- * We use readFileSync + XLSX.read({type:'buffer'}) to dodge that.
+ * Idempotent — re-running re-asserts rows. Universal tables are upserted on
+ * (code_type, source_value); operator-specific tables are DELETE+re-insert
+ * scoped to (operator_id, lookup_type) so other operators are untouched.
  *
  * Usage:
  *   pnpm db:seed:operator-lookups
@@ -53,7 +51,8 @@ import { resolve as resolvePath } from 'node:path';
 import * as XLSX from 'xlsx';
 import { and, eq } from 'drizzle-orm';
 import { db, closeDb } from '../db/client.js';
-import { operatorLookups } from '../db/schema.js';
+import { operatorLookups, tabadulCodes } from '../db/schema.js';
+import { getOperatorBySlug } from '../modules/operators/operator.repository.js';
 
 interface SheetRow {
   source: string;
@@ -61,19 +60,22 @@ interface SheetRow {
   metadata: Record<string, unknown>;
 }
 
-/** Build a list of (source, canonical, metadata) from one sheet. */
 type SheetReader = (sheet: XLSX.WorkSheet) => SheetRow[];
 
 interface SheetSpec {
   sheetName: string;
-  lookupType: string;
+  /** snake_case category — code_type for tabadul, lookup_type for operator_lookups. */
+  type: string;
+  /** 'universal' rows go in tabadul_codes; 'operator' rows in operator_lookups. */
+  scope: 'universal' | 'operator';
   read: SheetReader;
 }
 
 const NAQEL_SHEETS: ReadonlyArray<SheetSpec> = [
   {
     sheetName: 'CurrencyMapping',
-    lookupType: 'currency_code',
+    type: 'currency_code',
+    scope: 'universal',
     read: (sheet) => {
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
       return rows
@@ -87,19 +89,10 @@ const NAQEL_SHEETS: ReadonlyArray<SheetSpec> = [
   },
   {
     sheetName: 'Tabadul CountryCode',
-    lookupType: 'country_of_origin',
+    type: 'country_of_origin',
+    scope: 'universal',
     read: (sheet) => {
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
-      // The sheet contains:
-      //   • genuine countries (one row per ISO INTLCODE)
-      //   • Saudi customs-gate rows where INTLCODE is a 5-char station code
-      //     (e.g. 'SAJED', 'SADAM' — multiple gate facilities under one
-      //     prefix) — not country-of-origin data
-      //   • bookkeeping rows where INTLCODE is literally 'NULL'
-      //
-      // We want exactly one canonical mapping per ISO alpha-2 input. Filter
-      // to 2-char INTLCODE values, drop 'NULL', keep the first occurrence
-      // of each — Tabadul ships the canonical row first.
       const seen = new Set<string>();
       const out: SheetRow[] = [];
       for (const r of rows) {
@@ -124,7 +117,8 @@ const NAQEL_SHEETS: ReadonlyArray<SheetSpec> = [
   },
   {
     sheetName: 'CountryOfOriginClientMapping',
-    lookupType: 'client_country',
+    type: 'client_country',
+    scope: 'operator',
     read: (sheet) => {
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
       return rows
@@ -138,16 +132,10 @@ const NAQEL_SHEETS: ReadonlyArray<SheetSpec> = [
   },
   {
     sheetName: 'SourceCompanyPortMaping',
-    lookupType: 'client_source_company',
+    type: 'client_source_company',
+    scope: 'operator',
     read: (sheet) => {
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
-      // Multiple rows can share the same ClientID (one per CustRegPortCode).
-      // For v0 we keep ALL rows but de-duplicate by (ClientID, CustRegPortCode)
-      // — the natural-key UNIQUE on operator_lookups is on (operator,
-      // lookup_type, source_value). To honour it, we encode the composite
-      // key into source_value: '{ClientID}:{CustRegPortCode}' so every
-      // (client, port) combination has its own row. The renderer composes
-      // the lookup key the same way.
       const out: SheetRow[] = [];
       const seen = new Set<string>();
       for (const r of rows) {
@@ -170,7 +158,8 @@ const NAQEL_SHEETS: ReadonlyArray<SheetSpec> = [
   },
   {
     sheetName: 'CityMaping',
-    lookupType: 'destination_station',
+    type: 'destination_station',
+    scope: 'operator',
     read: (sheet) => {
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
       return rows
@@ -184,7 +173,8 @@ const NAQEL_SHEETS: ReadonlyArray<SheetSpec> = [
   },
   {
     sheetName: 'Tabdul City',
-    lookupType: 'tabdul_city',
+    type: 'tabdul_city',
+    scope: 'universal',
     read: (sheet) => {
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
       return rows
@@ -206,7 +196,7 @@ const DEFAULT_NAQEL_PATH = resolvePath(
   process.cwd(),
   '../naqel-shared-data/Naqel (Fields details + Mapping data).xlsx',
 );
-const DEFAULT_TENANT = 'naqel';
+const DEFAULT_OPERATOR = 'naqel';
 
 interface Args {
   filePath: string;
@@ -216,7 +206,7 @@ interface Args {
 function parseArgs(): Args {
   const args = process.argv.slice(2);
   let filePath = DEFAULT_NAQEL_PATH;
-  let operator = DEFAULT_TENANT;
+  let operator = DEFAULT_OPERATOR;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--file' && args[i + 1]) {
@@ -237,6 +227,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const operatorRow = await getOperatorBySlug(operator);
+  if (!operatorRow) {
+    console.error(`Operator '${operator}' not found in operators table — run seed-operators first.`);
+    process.exit(1);
+  }
+  const operatorId = operatorRow.id;
+
   const buf = readFileSync(filePath);
   const wb = XLSX.read(buf, { type: 'buffer' });
 
@@ -249,9 +246,6 @@ async function main(): Promise<void> {
     }
     const rawRows = spec.read(sheet);
 
-    // Defence-in-depth dedup: the natural-key UNIQUE on operator_lookups is
-    // (operator, lookup_type, source_value). Source xlsx sheets occasionally
-    // ship duplicate rows; keep the first occurrence and warn.
     const seen = new Set<string>();
     const rows: SheetRow[] = [];
     let dupCount = 0;
@@ -264,33 +258,51 @@ async function main(): Promise<void> {
       rows.push(r);
     }
     if (dupCount > 0) {
-      console.warn(`  ! ${spec.lookupType}: dropped ${dupCount} duplicate rows`);
+      console.warn(`  ! ${spec.type}: dropped ${dupCount} duplicate rows`);
     }
 
-    // Replace just (operator, lookup_type) — leave other types untouched.
-    await db()
-      .delete(operatorLookups)
-      .where(and(eq(operatorLookups.operatorSlug, operator), eq(operatorLookups.lookupType, spec.lookupType)));
-
-    // Bulk insert with chunking for large sheets (Tabdul City ~2168 rows).
-    const CHUNK = 200;
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      const slice = rows.slice(i, i + CHUNK);
-      await db().insert(operatorLookups).values(
-        slice.map((r) => ({
-          operatorSlug: operator,
-          lookupType: spec.lookupType,
-          sourceValue: r.source,
-          canonicalValue: r.canonical,
-          metadata: r.metadata,
-        })),
-      );
+    if (spec.scope === 'universal') {
+      // Upsert into tabadul_codes — universal data, no operator scope.
+      await db()
+        .delete(tabadulCodes)
+        .where(eq(tabadulCodes.codeType, spec.type));
+      const CHUNK = 200;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const slice = rows.slice(i, i + CHUNK);
+        await db().insert(tabadulCodes).values(
+          slice.map((r) => ({
+            codeType: spec.type,
+            sourceValue: r.source,
+            canonicalValue: r.canonical,
+            metadata: r.metadata,
+          })),
+        );
+      }
+      console.log(`  tabadul_codes    ${spec.type.padEnd(28)} ${rows.length} rows`);
+    } else {
+      // Operator-scoped — replace just (operator_id, lookup_type).
+      await db()
+        .delete(operatorLookups)
+        .where(and(eq(operatorLookups.operatorId, operatorId), eq(operatorLookups.lookupType, spec.type)));
+      const CHUNK = 200;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const slice = rows.slice(i, i + CHUNK);
+        await db().insert(operatorLookups).values(
+          slice.map((r) => ({
+            operatorId,
+            lookupType: spec.type,
+            sourceValue: r.source,
+            canonicalValue: r.canonical,
+            metadata: r.metadata,
+          })),
+        );
+      }
+      console.log(`  operator_lookups ${spec.type.padEnd(28)} ${rows.length} rows`);
     }
-    console.log(`  ${spec.lookupType.padEnd(28)} ${rows.length} rows`);
     totalInserted += rows.length;
   }
 
-  console.log(`Total: ${totalInserted} rows inserted under operator '${operator}'`);
+  console.log(`Total: ${totalInserted} rows seeded for operator '${operator}'`);
 }
 
 main()

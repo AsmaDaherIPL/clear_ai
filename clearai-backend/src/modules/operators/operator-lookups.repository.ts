@@ -1,37 +1,23 @@
 /**
- * Read-side repository for operator_lookups.
+ * Read-side repository for operator_lookups + tabadul_codes.
  *
- * Hot-path lookup: given (operatorSlug, lookupType, sourceValue), return
- * canonicalValue. Backed by the natural-key UNIQUE on the table.
+ * The two tables are merged at read time into a single Map shape so the
+ * renderer doesn't need to know which is which:
+ *   • tabadul_codes        — universal Tabadul reference data
+ *                            (currency_code, country_of_origin, tabdul_city,
+ *                            port, customs_gate, uom)
+ *   • operator_lookups     — per-operator overrides / extensions
+ *                            (client_country, client_source_company,
+ *                            destination_station)
+ *
+ * If the same (type, source) appears in both tables, operator_lookups wins
+ * (operator-specific override semantics).
  *
  * Caching is the registry's job; this module is plain Drizzle.
  */
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { operatorLookups, type OperatorLookupRow } from '../../db/schema.js';
-
-/**
- * Returns all lookups for a operator grouped by lookup_type.
- * Outer keys are lookup_types, inner Map maps source_value -> canonical_value.
- *
- * Use this when the renderer only needs the canonical value (currency code,
- * country code, etc.). For lookups that also carry metadata (e.g.
- * client_source_company → SourceCompanyNo + sourceCompanyName), use
- * `getLookupsBySlugWithMetadata`.
- */
-export async function getLookupsBySlug(slug: string): Promise<Map<string, Map<string, string>>> {
-  const rows = await db().select().from(operatorLookups).where(eq(operatorLookups.operatorSlug, slug));
-  const out = new Map<string, Map<string, string>>();
-  for (const r of rows) {
-    let bucket = out.get(r.lookupType);
-    if (!bucket) {
-      bucket = new Map<string, string>();
-      out.set(r.lookupType, bucket);
-    }
-    bucket.set(r.sourceValue, r.canonicalValue);
-  }
-  return out;
-}
+import { operatorLookups, tabadulCodes, type OperatorLookupRow } from '../../db/schema.js';
 
 export interface LookupValue {
   canonical: string;
@@ -39,16 +25,51 @@ export interface LookupValue {
 }
 
 /**
- * Same as getLookupsBySlug but preserves the per-row metadata jsonb. Used by
- * the ZATCA Declaration renderer when it needs the secondary fields
+ * Returns all lookups available to an operator, merging tabadul_codes
+ * (universal) with operator_lookups (per-operator). On collision,
+ * operator_lookups overrides tabadul_codes for that key.
+ */
+export async function getLookupsByOperatorId(operatorId: string): Promise<Map<string, Map<string, string>>> {
+  const merged = await getLookupsByOperatorIdWithMetadata(operatorId);
+  const out = new Map<string, Map<string, string>>();
+  for (const [type, bucket] of merged) {
+    const flat = new Map<string, string>();
+    for (const [src, val] of bucket) flat.set(src, val.canonical);
+    out.set(type, flat);
+  }
+  return out;
+}
+
+/**
+ * Same as getLookupsByOperatorId but preserves the per-row metadata jsonb.
+ * Used by the ZATCA Declaration renderer when it needs the secondary fields
  * (sourceCompanyName, city Arabic name, etc.) attached to a lookup.
  */
-export async function getLookupsBySlugWithMetadata(
-  slug: string,
+export async function getLookupsByOperatorIdWithMetadata(
+  operatorId: string,
 ): Promise<Map<string, Map<string, LookupValue>>> {
-  const rows = await db().select().from(operatorLookups).where(eq(operatorLookups.operatorSlug, slug));
   const out = new Map<string, Map<string, LookupValue>>();
-  for (const r of rows) {
+
+  // Universal Tabadul codes first.
+  const tabadulRows = await db().select().from(tabadulCodes);
+  for (const r of tabadulRows) {
+    let bucket = out.get(r.codeType);
+    if (!bucket) {
+      bucket = new Map<string, LookupValue>();
+      out.set(r.codeType, bucket);
+    }
+    bucket.set(r.sourceValue, {
+      canonical: r.canonicalValue,
+      metadata: (r.metadata ?? {}) as Record<string, unknown>,
+    });
+  }
+
+  // Per-operator overrides next; later writes win on collision.
+  const operatorRows = await db()
+    .select()
+    .from(operatorLookups)
+    .where(eq(operatorLookups.operatorId, operatorId));
+  for (const r of operatorRows) {
     let bucket = out.get(r.lookupType);
     if (!bucket) {
       bucket = new Map<string, LookupValue>();
@@ -59,12 +80,13 @@ export async function getLookupsBySlugWithMetadata(
       metadata: (r.metadata ?? {}) as Record<string, unknown>,
     });
   }
+
   return out;
 }
 
-/** Single-row read; returns the row or null. Used by admin / debug routes. */
-export async function findLookup(
-  slug: string,
+/** Single-row read against operator_lookups; returns the row or null. */
+export async function findOperatorLookup(
+  operatorId: string,
   lookupType: string,
   sourceValue: string,
 ): Promise<OperatorLookupRow | null> {
@@ -73,7 +95,7 @@ export async function findLookup(
     .from(operatorLookups)
     .where(
       and(
-        eq(operatorLookups.operatorSlug, slug),
+        eq(operatorLookups.operatorId, operatorId),
         eq(operatorLookups.lookupType, lookupType),
         eq(operatorLookups.sourceValue, sourceValue),
       ),

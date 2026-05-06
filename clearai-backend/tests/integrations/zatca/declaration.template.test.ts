@@ -49,7 +49,7 @@ function row(overrides: Partial<{
     canonical: {
       itemId: 'item-1',
       rowIndex: 1,
-      tenantId: 'operator',
+      operatorId: '00000000-0000-0000-0000-000000000000',
       operatorSlug: 'naqel',
       description: 'Dresses',
       waybillNo: '394613346',
@@ -290,9 +290,9 @@ describe('renderDeclarationXml — escaping + errors', () => {
     );
   });
 
-  it('throws when a required tenant_constant is missing', () => {
+  it('throws when a required operator_constant is missing', () => {
     const input = baseInput([row()]);
-    const broken = { ...input, operator: { ...input.operatorSlug, constants: {} } };
+    const broken = { ...input, operator: { ...input.operator, constants: {} } };
     expect(() => renderDeclarationXml(broken)).toThrowError(/reference_userid/);
   });
 

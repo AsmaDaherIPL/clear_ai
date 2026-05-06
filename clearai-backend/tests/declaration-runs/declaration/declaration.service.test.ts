@@ -22,6 +22,7 @@ import {
   operatorFieldMappings,
   operatorConstants,
   operatorLookups,
+  tabadulCodes,
   declarationRuns,
   declarationRunItems,
   declarationRunFilings,
@@ -29,8 +30,9 @@ import {
 import { clearCache } from '../../../src/modules/operators/operator-config.registry.js';
 import { newId } from '../../../src/common/utils/uuid.js';
 
-const TEST_TENANT_SLUG = 'tcdec_test';
+const TEST_OPERATOR_SLUG = 'tcdec_test';
 let blobDir: string;
+let testOperatorId: string;
 
 beforeAll(async () => {
   blobDir = await mkdtemp(join(tmpdir(), 'clearai-decl-'));
@@ -41,26 +43,33 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorLookups).where(eq(operatorLookups.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
+  if (testOperatorId) {
+    await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, testOperatorId));
+    await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, testOperatorId));
+    await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, testOperatorId));
+    await db().delete(operatorLookups).where(eq(operatorLookups.operatorId, testOperatorId));
+    await db().delete(operators).where(eq(operators.id, testOperatorId));
+  }
   await closeDb();
   await rm(blobDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorLookups).where(eq(operatorLookups.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
-  await db().insert(operators).values({
-    slug: TEST_TENANT_SLUG,
+  // Reset operator + dependent rows.
+  const existing = await db().select().from(operators).where(eq(operators.slug, TEST_OPERATOR_SLUG)).limit(1);
+  if (existing[0]) {
+    await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, existing[0].id));
+    await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, existing[0].id));
+    await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, existing[0].id));
+    await db().delete(operatorLookups).where(eq(operatorLookups.operatorId, existing[0].id));
+    await db().delete(operators).where(eq(operators.id, existing[0].id));
+  }
+  const inserted = await db().insert(operators).values({
+    slug: TEST_OPERATOR_SLUG,
     displayName: 'Decl svc test',
     active: true,
-  });
+  }).returning();
+  testOperatorId = inserted[0]!.id;
   // Override the bundle size to 3 so the test exercises LV chunking with
   // few items. ZATCA tunables live in setup_meta (see migration 0046); the
   // declaration runner reads them at phase start. We mutate the value
@@ -101,7 +110,7 @@ beforeEach(async () => {
   ];
   for (const m of minMappings) {
     await db().insert(operatorFieldMappings).values({
-      operatorSlug: TEST_TENANT_SLUG,
+      operatorId: testOperatorId,
       sourceColumn: m.sourceColumn,
       canonicalField: m.canonicalField,
       required: true,
@@ -141,23 +150,24 @@ beforeEach(async () => {
     ['default_source_company_no', '340476'],
   ];
   for (const [k, v] of minConstants) {
-    await db().insert(operatorConstants).values({ operatorSlug: TEST_TENANT_SLUG, key: k, value: v });
+    await db().insert(operatorConstants).values({ operatorId: testOperatorId, key: k, value: v });
   }
 
-  // Minimum lookups for the renderer to resolve all required values.
-  const minLookups: Array<[string, string, string, Record<string, unknown>]> = [
+  // Minimum lookups for the renderer to resolve all required values. These
+  // are universal Tabadul codes — they live in tabadul_codes, not
+  // operator_lookups, so we upsert (any prior test may have seeded them).
+  const universal: Array<[string, string, string, Record<string, unknown>]> = [
     ['currency_code', 'USD', '410', {}],
     ['currency_code', 'SAR', '100', {}],
     ['country_of_origin', 'CN', '111', {}],
   ];
-  for (const [t, src, can, meta] of minLookups) {
-    await db().insert(operatorLookups).values({
-      operatorSlug: TEST_TENANT_SLUG,
-      lookupType: t,
+  for (const [t, src, can, meta] of universal) {
+    await db().insert(tabadulCodes).values({
+      codeType: t,
       sourceValue: src,
       canonicalValue: can,
       metadata: meta,
-    });
+    }).onConflictDoNothing({ target: [tabadulCodes.codeType, tabadulCodes.sourceValue] });
   }
 
   clearCache();
@@ -172,7 +182,7 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
   const declarationRunId = newId();
   await db().insert(declarationRuns).values({
     id: declarationRunId,
-    operatorSlug: TEST_TENANT_SLUG,
+    operatorId: testOperatorId,
     mode: 'classify_and_declare',
     declarationStatus: 'pending',
     classificationStatus: 'completed',
@@ -192,8 +202,8 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
       canonical: {
         itemId: 'placeholder',
         rowIndex: i + 1,
-        tenantId: 'placeholder',
-        operatorSlug: TEST_TENANT_SLUG,
+        operatorId: testOperatorId,
+        operatorSlug: TEST_OPERATOR_SLUG,
         description: `Item ${i + 1}`,
         waybillNo: `WB-${i + 1}`,
         merchantHsCode: null,

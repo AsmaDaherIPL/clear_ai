@@ -29,8 +29,8 @@ export interface RenderInput {
   };
   /**
    * lookup_type -> source_value -> { canonical, metadata }.
-   * Provided by the runner from getLookupsBySlugWithMetadata; renderer is
-   * pure.
+   * Provided by the runner from getLookupsByOperatorIdWithMetadata
+   * (merged tabadul_codes + operator_lookups); renderer is pure.
    */
   lookups: ReadonlyMap<string, ReadonlyMap<string, LookupValue>>;
   /** Submission date (UTC); feeds airBLDate + documentDate fallbacks. */

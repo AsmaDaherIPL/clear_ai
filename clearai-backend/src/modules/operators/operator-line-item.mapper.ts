@@ -126,7 +126,7 @@ export function mapRowToCanonical(
   const item: CanonicalLineItem = {
     itemId: newId(),
     rowIndex,
-    tenantId: operator.id,
+    operatorId: operator.id,
     operatorSlug: operator.slug,
 
     description: requireString('description'),

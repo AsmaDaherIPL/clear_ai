@@ -14,7 +14,7 @@
  */
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { mapRowToCanonical, type MapperLookups } from '../operators/operator-line-item.mapper.js';
-import { getLookupsBySlug } from '../operators/operator-lookups.repository.js';
+import { getLookupsByOperatorId } from '../operators/operator-lookups.repository.js';
 import { parseCsvBuffer } from './parsers/csv.parser.js';
 import { parseXlsxBuffer } from './parsers/xlsx.parser.js';
 import { runClassificationPhase } from './classification/classification.service.js';
@@ -81,7 +81,7 @@ export async function createDeclarationRun(input: CreateDeclarationRunInput): Pr
 
   const insertInput: InsertDeclarationRunInput = {
     declarationRunId,
-    operatorSlug: operator.slug,
+    operatorId: operator.id,
     mode: input.mode,
     sourceBlobKey,
     rowCount: items.length,
@@ -116,7 +116,7 @@ export async function runProcessing(declarationRunId: string, dispatch: Dispatch
 }
 
 async function loadLookups(operator: OperatorConfig): Promise<MapperLookups> {
-  const byType = await getLookupsBySlug(operator.slug);
+  const byType = await getLookupsByOperatorId(operator.id);
   return { byType };
 }
 

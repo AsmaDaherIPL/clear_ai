@@ -46,11 +46,12 @@ export async function lookupTenantOverride(
     source_code: string;
     target_code: string;
   }>(
-    `SELECT source_code, target_code
-       FROM operator_code_overrides
-      WHERE operator_slug = $1
-        AND source_code = ANY($2::varchar[])
-      ORDER BY length(source_code) DESC
+    `SELECT oco.source_code, oco.target_code
+       FROM operator_code_overrides oco
+       JOIN operators op ON op.id = oco.operator_id
+      WHERE op.slug = $1
+        AND oco.source_code = ANY($2::varchar[])
+      ORDER BY length(oco.source_code) DESC
       LIMIT 1`,
     [operator, candidates],
   );

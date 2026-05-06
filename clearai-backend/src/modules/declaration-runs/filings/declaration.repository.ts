@@ -41,6 +41,10 @@ export async function recordDeclaration(input: RecordDeclarationInput): Promise<
     bundleStrategy: input.strategy,
     itemCount: input.itemCount,
     blobKey: input.blobKey,
+    // The render+upload completed successfully before this row is recorded,
+    // so the row is born in the 'generated' state. ZATCA verdict
+    // (zatcaStatus + bayanNo or rejectionReason) is filled in later.
+    status: 'generated',
   });
 }
 
