@@ -130,9 +130,15 @@ DATABASE_URL=postgres://clearai:clearai@localhost:5432/clearai pnpm db:migrate
 | GET | `/declaration-runs/:id` | Run summary |
 | GET | `/declaration-runs/:id/classifications` | 425 while phase 1 running, then 200 |
 | PATCH | `/declaration-runs/:id` | Body: `{ "status": "cancelled" }` |
+| POST | `/pipeline/dispatch` | Single-shot full pipeline; returns trace inline |
+| GET | `/pipeline/trace/:id` | Stored trace lookup (declaration_run_items.id) |
 | POST | `/pipeline/submission-description` | `{ description, code }` → Arabic |
 
 See [openapi.yaml](openapi.yaml) for the full spec.
+
+## Hand-testing with Bruno
+
+A pre-built request collection lives at [local-dev/bruno/](local-dev/bruno/). One-click switching between `localhost` and `dev-apim` environments, all 9 endpoints covered, sample CSV upload included. See [local-dev/bruno/README.md](local-dev/bruno/README.md) for setup.
 
 ---
 

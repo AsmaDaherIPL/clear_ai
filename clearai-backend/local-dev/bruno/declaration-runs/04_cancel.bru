@@ -1,0 +1,31 @@
+meta {
+  name: PATCH declaration-runs/:id (cancel)
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/declaration-runs/{{lastRunId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+body:json {
+  {
+    "status": "cancelled"
+  }
+}
+
+docs {
+  Cancel a running run. Body must be exactly `{ "status": "cancelled" }`.
+  Idempotent for already-cancelled runs (200). Returns 409 if the run is
+  in a terminal state (completed | failed).
+}
+
+assert {
+  res.status: eq 200
+}

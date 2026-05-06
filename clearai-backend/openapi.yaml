@@ -444,6 +444,7 @@ paths:
 
   /health:
     get:
+      operationId: get-health
       tags: [probes]
       summary: Liveness probe
       description: |
@@ -460,6 +461,7 @@ paths:
 
   /ready:
     get:
+      operationId: get-ready
       tags: [probes]
       summary: Readiness probe
       description: |
@@ -490,6 +492,7 @@ paths:
 
   /declaration-runs:
     post:
+      operationId: post-declaration-runs
       tags: [declaration-runs]
       summary: Upload an xlsx/csv and start a declaration run
       description: |
@@ -562,6 +565,7 @@ paths:
       - $ref: '#/components/parameters/DeclarationRunId'
 
     get:
+      operationId: get-declaration-runs-id
       tags: [declaration-runs]
       summary: Run summary
       security:
@@ -586,6 +590,7 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
 
     patch:
+      operationId: patch-declaration-runs-id
       tags: [declaration-runs]
       summary: Cancel a running declaration run
       description: 'Body must be `{ "status": "cancelled" }`. Idempotent on already-cancelled.'
@@ -626,6 +631,7 @@ paths:
       - $ref: '#/components/parameters/DeclarationRunId'
 
     get:
+      operationId: get-declaration-runs-id-classifications
       tags: [declaration-runs]
       summary: Per-item classification results
       security:
@@ -655,6 +661,7 @@ paths:
 
   /pipeline/submission-description:
     post:
+      operationId: post-pipeline-submission-description
       tags: [pipeline]
       summary: Generate ZATCA-safe Arabic submission description
       description: |
@@ -697,6 +704,7 @@ paths:
 
   /pipeline/dispatch:
     post:
+      operationId: post-pipeline-dispatch
       tags: [pipeline]
       summary: Run the full pipeline on a single item
       description: |
@@ -748,6 +756,7 @@ paths:
           format: uuid
 
     get:
+      operationId: get-pipeline-trace-id
       tags: [pipeline]
       summary: Fetch a stored pipeline trace
       description: |

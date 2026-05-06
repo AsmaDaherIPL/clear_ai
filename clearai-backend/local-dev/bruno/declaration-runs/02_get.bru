@@ -1,0 +1,32 @@
+meta {
+  name: GET declaration-runs/:id (summary)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/declaration-runs/{{lastRunId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+docs {
+  Fetch the run summary. Reads `lastRunId` set by the create request.
+  Poll this until `classification_status` is `completed` or `failed`.
+
+  Status enums:
+    status:                 pending | running | completed | failed | cancelled
+    classification_status:  pending | running | completed | failed
+    declaration_status:     pending | running | completed | failed | skipped | null
+}
+
+assert {
+  res.status: eq 200
+  res.body.id: isDefined
+  res.body.operator_slug: isDefined
+  res.body.classification_status: matches /^(pending|running|completed|failed)$/
+}

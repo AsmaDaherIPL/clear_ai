@@ -1,0 +1,51 @@
+meta {
+  name: POST pipeline/dispatch
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/pipeline/dispatch
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearerToken}}
+}
+
+body:json {
+  {
+    "description": "wireless headphones",
+    "operator_slug": "{{operatorSlug}}"
+  }
+}
+
+docs {
+  Single-shot full pipeline. Body shape:
+
+    description    string, 1-2000 chars (required)
+    merchant_code  optional; any shape (12-digit, prefix, malformed handled internally)
+    operator_slug  optional; defaults to "naqel"
+    value_amount   optional number; passed to Stage 3 sanity
+    currency_code  optional ISO 4217 (3 chars); required if value_amount is set
+
+  Returns the full PipelineResult inline including the trace. No server-side
+  persistence — stash the trace client-side if you need to revisit.
+
+  sanity_verdict enum: PASS | FLAG | BLOCK
+}
+
+assert {
+  res.status: eq 200
+  res.body.item_id: isDefined
+  res.body.sanity_verdict: matches /^(PASS|FLAG|BLOCK)$/
+  res.body.trace: isDefined
+}
+
+script:post-response {
+  // Stash the item_id so /pipeline/trace/:id can be hand-tested later.
+  if (res.status === 200 && res.body.item_id) {
+    bru.setVar('lastDispatchItemId', res.body.item_id);
+  }
+}
