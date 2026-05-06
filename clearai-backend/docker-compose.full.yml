@@ -1,0 +1,77 @@
+# Full-stack Docker compose — Postgres + the backend image, both wired up.
+#
+# Use this when you want to verify the production Docker image actually
+# boots end-to-end (closer to what runs on Azure Container Apps). For
+# day-to-day iteration with hot reload, use `docker-compose.yml` (Postgres
+# only) and run the backend on the host with `pnpm dev`.
+#
+# Run:
+#   cd clearai-backend
+#   cp .env.example .env.docker         # then fill ANTHROPIC_API_KEY etc.
+#   docker compose -f docker-compose.full.yml --env-file .env.docker up --build
+#
+# Stop:
+#   docker compose -f docker-compose.full.yml down
+#
+# Reset DB:
+#   docker compose -f docker-compose.full.yml down -v   # removes pgdata volume
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: clearai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clearai
+      POSTGRES_PASSWORD: clearai
+      POSTGRES_DB: clearai
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clearai -d clearai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: clearai-backend:local
+    container_name: clearai-backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Inside compose, postgres is reachable by service name on its default port.
+      DATABASE_URL: "postgres://clearai:clearai@postgres:5432/clearai"
+      # Pulled in from the env file.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      ANTHROPIC_BASE_URL: "${ANTHROPIC_BASE_URL}"
+      LLM_MODEL: "${LLM_MODEL}"
+      LLM_MODEL_STRONG: "${LLM_MODEL_STRONG:-${LLM_MODEL}}"
+      EMBEDDER_MODEL: "${EMBEDDER_MODEL:-Xenova/multilingual-e5-small}"
+      EMBEDDER_DIM: "${EMBEDDER_DIM:-384}"
+      PORT: "3000"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      NODE_ENV: "development"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173,http://localhost:4321}"
+      BATCH_LLM_CONCURRENCY: "${BATCH_LLM_CONCURRENCY:-8}"
+      BATCH_INPUT_MAX_ROWS: "${BATCH_INPUT_MAX_ROWS:-1000}"
+      BATCH_BLOB_CONTAINER: "${BATCH_BLOB_CONTAINER:-declaration-runs}"
+      BATCH_BLOB_CONNECTION: "file:///app/.local-blob"
+      BATCH_RESULT_TTL_DAYS: "${BATCH_RESULT_TTL_DAYS:-30}"
+      ZATCA_DECLARATION_NS: "${ZATCA_DECLARATION_NS}"
+      ZATCA_SUBMITTER_CARRIER_ID: "${ZATCA_SUBMITTER_CARRIER_ID}"
+      ZATCA_SUBMITTER_NAME: "${ZATCA_SUBMITTER_NAME:-Naqel}"
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount the host blob dir so generated XMLs are visible from the host.
+      - ./.local-blob:/app/.local-blob
+
+volumes:
+  pgdata:
