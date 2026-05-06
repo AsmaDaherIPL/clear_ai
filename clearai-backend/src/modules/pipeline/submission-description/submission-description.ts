@@ -1,26 +1,38 @@
 /**
  * Stage 2.5 — Submission description (lightweight LLM).
  *
- * After Reconciliation has chosen a final 12-digit HS code, ZATCA needs an
- * Arabic goods description for the declaration envelope. The catalog Arabic
- * cannot be copied verbatim — ZATCA rejects declarations whose Arabic text
- * matches the catalog word-for-word — so a lightweight LLM generates a
- * fresh Arabic description for the item.
+ * After Reconciliation accepts a final 12-digit HS code, ZATCA needs an
+ * Arabic goods description for the declaration envelope. The only hard
+ * ZATCA rule is "no exact word-for-word match with the catalog leaf
+ * Arabic" — reusing catalog vocabulary is fine, even encouraged for
+ * tariff fidelity. The goal is a meaningful Arabic description of THIS
+ * specific item, not a paraphrase contest with the catalog.
+ *
+ * Inputs to the LLM:
+ *   • cleaned_description (the item itself)
+ *   • chosenCode (12-digit)
+ *   • catalog leaf Arabic     — vocabulary the LLM can borrow from
+ *   • catalog leaf English    — cross-reference
+ *   • path Arabic breadcrumb  — chapter > heading > hs6 > leaf, gives category context
+ *   • path English breadcrumb — cross-reference
  *
  * Constraints:
  *   • Arabic only
- *   • ≤300 characters
- *   • Describes the *item* (using cleaned description), not just the code's catalog entry
+ *   • ≤300 chars
+ *   • Must NOT exactly equal the catalog leaf Arabic (post NFKC + whitespace
+ *     normalisation). Adding a single meaningful word from the item is
+ *     enough; fabricating attributes that aren't in the input is not.
  *
- * Never throws. Falls back to a deterministic minimal Arabic string on LLM failure.
+ * Never throws. On LLM failure, returns a deterministic fallback:
+ *   <first content word from cleaned_description> + ' ' + <leaf catalog Ar>
+ *   — distinct from the catalog AND carries the item-specific signal.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
 import { env } from '../../../config/env.js';
 
 export interface SubmissionDescriptionResult {
-  /** Source of the final descriptionAr — observability only. */
-  invoked: 'llm' | 'llm_failed' | 'fallback';
+  invoked: 'llm' | 'llm_failed' | 'fallback' | 'fallback_after_collision';
   /** ZATCA-safe Arabic description, ≤300 chars. Always non-empty. */
   descriptionAr: string;
   latencyMs: number;
@@ -35,17 +47,44 @@ const ParsedSchema = z
   })
   .passthrough();
 
-/** Trim, collapse whitespace, enforce length cap. */
-function clean(s: string): string {
-  return s.normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
+/** NFKC + collapse whitespace + cap. */
+function normalize(s: string): string {
+  return s.normalize('NFKC').replace(/\s+/g, ' ').trim();
 }
 
-/** Minimal Arabic fallback. Used only when the LLM fails outright. */
-function fallback(catalogDescriptionAr: string | null, cleanedDescription: string): string {
-  if (catalogDescriptionAr) {
-    return clean(catalogDescriptionAr);
-  }
-  return clean(`منتج: ${cleanedDescription}`);
+/** Equality check used to enforce the no-verbatim-leaf rule. */
+function equalsLeaf(generated: string, leafAr: string | null): boolean {
+  if (!leafAr) return false;
+  return normalize(generated) === normalize(leafAr);
+}
+
+/**
+ * Deterministic fallback. Picks the first non-trivial token from the
+ * cleaned description and prefixes it to the catalog leaf Arabic — this
+ * is guaranteed:
+ *   (a) non-empty
+ *   (b) different from the leaf verbatim (extra prefix word)
+ *   (c) tied to the actual item (not a synthetic placeholder)
+ *
+ * If catalog leaf Arabic is missing, falls back to the path-Ar leaf
+ * segment, then to a synthetic "<token> منتج" string.
+ */
+function buildFallback(cleanedDescription: string, leafAr: string | null, pathAr: string | null): string {
+  const STOP = new Set(['a', 'an', 'the', 'of', 'for', 'with', 'and', 'or', 'is', 'in', 'on']);
+  const token = cleanedDescription
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .find((t) => t.length >= 2 && !STOP.has(t.toLowerCase())) ?? cleanedDescription.trim();
+
+  const anchor = (leafAr && normalize(leafAr)) || (() => {
+    if (!pathAr) return '';
+    const parts = pathAr.split('>').map((p) => p.trim()).filter(Boolean);
+    return parts[parts.length - 1] ?? '';
+  })();
+
+  const prefix = token.slice(0, 60);
+  const tail = anchor || 'منتج';
+  return normalize(`${prefix} ${tail}`).slice(0, MAX_CHARS);
 }
 
 export interface GenerateSubmissionParams {
@@ -53,8 +92,14 @@ export interface GenerateSubmissionParams {
   cleanedDescription: string;
   /** The 12-digit HS code accepted by Stage 2 (Reconciliation). */
   chosenCode: string;
-  /** Catalog Arabic description from zatca_hs_codes — only used as a fallback. */
-  catalogDescriptionAr: string | null;
+  /** zatca_hs_codes.description_ar for the chosen code. */
+  catalogLeafAr: string | null;
+  /** zatca_hs_codes.description_en for the chosen code. */
+  catalogLeafEn: string | null;
+  /** zatca_hs_code_display.path_ar — chapter > heading > hs6 > leaf, Arabic. */
+  catalogPathAr: string | null;
+  /** zatca_hs_code_display.path_en — same path, English. */
+  catalogPathEn: string | null;
   /** Override model. Defaults to lightweight env LLM_MODEL. */
   model?: string;
 }
@@ -62,15 +107,26 @@ export interface GenerateSubmissionParams {
 export async function generateSubmissionDescription(
   params: GenerateSubmissionParams,
 ): Promise<SubmissionDescriptionResult> {
-  const { cleanedDescription, chosenCode, catalogDescriptionAr } = params;
+  const {
+    cleanedDescription,
+    chosenCode,
+    catalogLeafAr,
+    catalogLeafEn,
+    catalogPathAr,
+    catalogPathEn,
+  } = params;
 
   const model = params.model ?? env().LLM_MODEL;
 
-  const user = [
-    `Item description: ${cleanedDescription}`,
-    `HS code: ${chosenCode}`,
-    `Maximum length: ${MAX_CHARS} characters.`,
-  ].join('\n');
+  const user = JSON.stringify({
+    item_description: cleanedDescription,
+    hs_code: chosenCode,
+    catalog_leaf_ar: catalogLeafAr,
+    catalog_leaf_en: catalogLeafEn,
+    catalog_path_ar: catalogPathAr,
+    catalog_path_en: catalogPathEn,
+    max_chars: MAX_CHARS,
+  });
 
   const outcome = await structuredLlmCall({
     promptFile: 'submission-description.md',
@@ -78,7 +134,7 @@ export async function generateSubmissionDescription(
     schema: ParsedSchema,
     stage: 'submission_description',
     model,
-    maxTokens: 200,
+    maxTokens: 220,
     temperature: 0,
     timeoutMs: 8_000,
   });
@@ -86,19 +142,29 @@ export async function generateSubmissionDescription(
   if (outcome.kind !== 'ok') {
     return {
       invoked: 'llm_failed',
-      descriptionAr: fallback(catalogDescriptionAr, cleanedDescription),
+      descriptionAr: buildFallback(cleanedDescription, catalogLeafAr, catalogPathAr),
       latencyMs: outcome.trace.latency_ms,
       model: outcome.trace.model,
     };
   }
 
   const raw = typeof outcome.data.description_ar === 'string' ? outcome.data.description_ar : '';
-  const cleaned = clean(raw);
+  const cleaned = normalize(raw).slice(0, MAX_CHARS);
 
   if (!cleaned) {
     return {
       invoked: 'fallback',
-      descriptionAr: fallback(catalogDescriptionAr, cleanedDescription),
+      descriptionAr: buildFallback(cleanedDescription, catalogLeafAr, catalogPathAr),
+      latencyMs: outcome.trace.latency_ms,
+      model: outcome.trace.model,
+    };
+  }
+
+  // Hard ZATCA rule: must not be a verbatim copy of the catalog leaf Arabic.
+  if (equalsLeaf(cleaned, catalogLeafAr)) {
+    return {
+      invoked: 'fallback_after_collision',
+      descriptionAr: buildFallback(cleanedDescription, catalogLeafAr, catalogPathAr),
       latencyMs: outcome.trace.latency_ms,
       model: outcome.trace.model,
     };
@@ -111,3 +177,6 @@ export async function generateSubmissionDescription(
     model: outcome.trace.model,
   };
 }
+
+// Exported for unit testing.
+export const __test__ = { normalize, equalsLeaf, buildFallback };

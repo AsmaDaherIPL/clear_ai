@@ -27,13 +27,38 @@ import { getPool } from '../../db/client.js';
 import type { CanonicalLineItem } from '../tenants/tenant-config.types.js';
 import type { PipelineResult, StageTrace } from './shared/pipeline.types.js';
 
-async function lookupCatalogAr(code: string): Promise<string | null> {
+interface CatalogContext {
+  /** Leaf Arabic from zatca_hs_codes.description_ar. Same string the breadcrumb terminates with. */
+  leafAr: string | null;
+  /** Leaf English. */
+  leafEn: string | null;
+  /** Breadcrumb path through the tariff tree (chapter > heading > hs6 > leaf), Arabic. */
+  pathAr: string | null;
+  /** Breadcrumb path, English. */
+  pathEn: string | null;
+}
+
+async function lookupCatalogContext(code: string): Promise<CatalogContext> {
   const pool = getPool();
-  const r = await pool.query<{ description_ar: string | null }>(
-    `SELECT description_ar FROM zatca_hs_codes WHERE code = $1`,
+  const r = await pool.query<{
+    description_ar: string | null;
+    description_en: string | null;
+    path_ar: string | null;
+    path_en: string | null;
+  }>(
+    `SELECT c.description_ar, c.description_en, d.path_ar, d.path_en
+       FROM zatca_hs_codes c
+       LEFT JOIN zatca_hs_code_display d ON d.code = c.code
+      WHERE c.code = $1`,
     [code],
   );
-  return r.rows[0]?.description_ar ?? null;
+  const row = r.rows[0];
+  return {
+    leafAr: row?.description_ar ?? null,
+    leafEn: row?.description_en ?? null,
+    pathAr: row?.path_ar ?? null,
+    pathEn: row?.path_en ?? null,
+  };
 }
 
 export async function runPipeline(
@@ -135,11 +160,14 @@ export async function runPipeline(
 
   // ---- Stage 2.5: Submission description (lightweight LLM) ----
   const t25 = Date.now();
-  const catalogAr = await lookupCatalogAr(verdict.final_code);
+  const catalog = await lookupCatalogContext(verdict.final_code);
   const submission = await generateSubmissionDescription({
     cleanedDescription: cleanup.cleaned_description,
     chosenCode: verdict.final_code,
-    catalogDescriptionAr: catalogAr,
+    catalogLeafAr: catalog.leafAr,
+    catalogLeafEn: catalog.leafEn,
+    catalogPathAr: catalog.pathAr,
+    catalogPathEn: catalog.pathEn,
   });
   allStages.push({
     name: 'stage-2.5/submission-description',

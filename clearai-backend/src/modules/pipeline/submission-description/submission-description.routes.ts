@@ -3,10 +3,11 @@
  * (≤300 char Arabic) for an item, given its description + chosen HS code.
  *
  * Body: { description: string, code: string }
- * Returns: { description_ar: string, source: 'llm' | 'llm_failed' | 'fallback' }
+ * Returns: { description_ar, source, latency_ms }
  *
- * Useful for testing the submission-description LLM in isolation, and for
- * any UI that needs to (re-)generate the Arabic for a single item.
+ * Same logic as Stage 2.5 of the pipeline, callable in isolation. Useful for
+ * testing the LLM and for any UI that wants to (re-)generate the Arabic for
+ * a single item.
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -20,6 +21,9 @@ const Body = z.object({
 
 interface CatalogRow {
   description_ar: string | null;
+  description_en: string | null;
+  path_ar: string | null;
+  path_en: string | null;
 }
 
 export async function submissionDescriptionRoute(app: FastifyInstance): Promise<void> {
@@ -32,17 +36,24 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
 
     const pool = getPool();
     const catRes = await pool.query<CatalogRow>(
-      `SELECT description_ar FROM zatca_hs_codes WHERE code = $1`,
+      `SELECT c.description_ar, c.description_en, d.path_ar, d.path_en
+         FROM zatca_hs_codes c
+         LEFT JOIN zatca_hs_code_display d ON d.code = c.code
+        WHERE c.code = $1`,
       [code],
     );
     if (catRes.rowCount === 0) {
       return reply.code(404).send({ error: 'unknown_code', detail: `HS code ${code} not found` });
     }
+    const cat = catRes.rows[0]!;
 
     const result = await generateSubmissionDescription({
       cleanedDescription: description,
       chosenCode: code,
-      catalogDescriptionAr: catRes.rows[0]?.description_ar ?? null,
+      catalogLeafAr: cat.description_ar,
+      catalogLeafEn: cat.description_en,
+      catalogPathAr: cat.path_ar,
+      catalogPathEn: cat.path_en,
     });
 
     return {
