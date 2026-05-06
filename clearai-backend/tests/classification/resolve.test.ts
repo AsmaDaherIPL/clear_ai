@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { resolve } from '../../src/modules/hs-classification/classify/classify.use-case.js';
-import type { GateOutcome } from '../../src/modules/hs-classification/classify/evidence-gate.js';
-import type { LlmPickResult } from '../../src/modules/hs-classification/classify/llm-pick.js';
+import { resolve } from '../../src/modules/pipeline/legacy-routes/classify.use-case.js';
+import type { GateOutcome } from '../../src/modules/pipeline/track-a-description/threshold/evidence-gate.js';
+import type { LlmPickResult } from '../../src/modules/pipeline/track-a-description/picker/llm-pick.js';
 
 const gatePass: GateOutcome = { passed: true, topRetrievalScore: 0.7, top2Gap: 0.2 };
 const gateFailWeak: GateOutcome = {

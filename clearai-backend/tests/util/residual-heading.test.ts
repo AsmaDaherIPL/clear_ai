@@ -14,7 +14,7 @@ vi.mock('../../src/db/client.js', () => ({
   getPool: vi.fn(),
 }));
 
-import { applyResidualHeadingGuardrail } from '../../src/modules/hs-classification/shared/residual-heading.js';
+import { applyResidualHeadingGuardrail } from '../../src/modules/pipeline/shared/residual-heading.js';
 import { getPool } from '../../src/db/client.js';
 
 const mockedGetPool = vi.mocked(getPool);

@@ -7,7 +7,7 @@
  *
  * Only called when the threshold check passed.
  */
-import { llmPick } from '../../../hs-classification/classify/llm-pick.js';
+import { llmPick } from '../../../pipeline/track-a-description/picker/llm-pick.js';
 import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
 
 export interface PickerOutput {

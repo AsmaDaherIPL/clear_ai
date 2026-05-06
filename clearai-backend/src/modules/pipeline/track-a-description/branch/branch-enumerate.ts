@@ -2,7 +2,7 @@
  * Enumerates leaves under the chosen code's HS-prefix deterministically.
  * Widens HS-8 → HS-6 → HS-4 until minSiblings is met. Includes the chosen code.
  */
-import { getPool } from '../../../db/client.js';
+import { getPool } from '../../../../db/client.js';
 
 export type BranchSource = 'branch_8' | 'branch_6' | 'branch_4';
 

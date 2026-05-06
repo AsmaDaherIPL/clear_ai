@@ -4,7 +4,7 @@ import type {
   DecisionStatus,
   DecisionReason,
   ConfidenceBand,
-} from '../../modules/hs-classification/shared/hs-classification.types.js';
+} from '../../modules/pipeline/shared/domain.types.js';
 import { redactRequestBody } from './redact.js';
 import { newId } from '../utils/uuid.js';
 

@@ -15,8 +15,8 @@ vi.mock('../../src/inference/llm/client.js', () => ({
 }));
 
 import { callLlmWithRetry } from '../../src/inference/llm/client.js';
-import { rankBranch } from '../../src/modules/hs-classification/classify/branch-rank.js';
-import type { BranchLeaf } from '../../src/modules/hs-classification/classify/branch-enumerate.js';
+import { rankBranch } from '../../src/modules/pipeline/track-a-description/branch/branch-rank.js';
+import type { BranchLeaf } from '../../src/modules/pipeline/track-a-description/branch/branch-enumerate.js';
 
 const baseLeaves: BranchLeaf[] = [
   { code: '851762900009', description_en: 'wireless headphones', description_ar: null, source: 'branch_8' },

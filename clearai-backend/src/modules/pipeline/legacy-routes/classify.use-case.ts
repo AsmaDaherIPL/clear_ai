@@ -5,8 +5,8 @@ import type {
   ConfidenceBand,
   MissingAttribute,
 } from './classify.types.js';
-import type { GateOutcome } from './evidence-gate.js';
-import type { LlmPickResult } from './llm-pick.js';
+import type { GateOutcome } from '../track-a-description/threshold/evidence-gate.js';
+import type { LlmPickResult } from '../track-a-description/picker/llm-pick.js';
 
 export interface ResolveInput {
   gate: GateOutcome;

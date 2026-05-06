@@ -9,7 +9,7 @@ import {
   evaluateGate,
   type GateOutcome,
   type GateThresholds,
-} from '../../../hs-classification/classify/evidence-gate.js';
+} from '../../../pipeline/track-a-description/threshold/evidence-gate.js';
 import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
 
 export type { GateOutcome, GateThresholds };

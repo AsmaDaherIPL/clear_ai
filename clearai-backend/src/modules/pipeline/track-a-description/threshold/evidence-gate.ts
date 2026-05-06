@@ -4,7 +4,7 @@
  * different HS-4 headings). Also refuses single-token inputs whose top-K
  * spans 3+ chapters.
  */
-import type { Candidate } from '../../../inference/retrieval/retrieve.js';
+import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
 
 const THIN_INPUT_TOPK = 5;
 const THIN_INPUT_MIN_CHAPTER_SPREAD = 3;

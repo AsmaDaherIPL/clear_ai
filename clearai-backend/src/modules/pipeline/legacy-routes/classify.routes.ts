@@ -9,33 +9,33 @@ import { loadKnownPrefixes } from '../../../inference/retrieval/known-prefixes.j
 import { retrieveCandidates, type Candidate } from '../../../inference/retrieval/retrieve.js';
 import { getPool } from '../../../db/client.js';
 import { loadThresholds, isEnabled } from '../../reference-data/setup-meta.repository.js';
-import { evaluateGate } from './evidence-gate.js';
-import { llmPick } from './llm-pick.js';
+import { evaluateGate } from '../track-a-description/threshold/evidence-gate.js';
+import { llmPick } from '../track-a-description/picker/llm-pick.js';
 import { resolve } from './classify.use-case.js';
 import { logEvent } from '../../../common/logging/log-event.js';
 import { detectLang } from '../shared/language.js';
 import { EMBEDDER_VERSION } from '../../../inference/embeddings/embedder.js';
 import { env } from '../../../config/env.js';
-import { checkUnderstanding } from './preprocess/check-understanding.js';
-import { researchInput, type ResearchOutcome } from './preprocess/research.js';
+import { checkUnderstanding } from '../track-a-description/researcher/check-understanding.js';
+import { researchInput, type ResearchOutcome } from '../track-a-description/researcher/research.js';
 import {
   researchInputWithWeb,
   type ResearchWithWebOutcome,
-} from './preprocess/research-with-web.js';
-import { filterAlternatives } from './filter-alternatives.js';
-import { enumerateBranch, type BranchLeaf } from './branch-enumerate.js';
+} from '../track-a-description/researcher/research-with-web.js';
+import { filterAlternatives } from '../track-a-description/picker/filter-alternatives.js';
+import { enumerateBranch, type BranchLeaf } from '../track-a-description/branch/branch-enumerate.js';
 import { dutyInfoFromColumns } from '../../reference-data/duty-info.service.js';
 import { lookupProcedures, type ProcedureInfo } from '../../reference-data/procedure-codes.repository.js';
-import { rankBranch, type BranchRankResult } from './branch-rank.js';
-import type { DescriptionCleanupResult } from './preprocess/description-cleanup.js';
+import { rankBranch, type BranchRankResult } from '../track-a-description/branch/branch-rank.js';
+import type { DescriptionCleanupResult } from '../stage-1-cleanup/description-cleanup.js';
 import { round4 } from '../shared/score.js';
 import { withRequestId, trimAlternativeDashes, trimCatalogDashes, loadDisplayInfoOne } from '../../../common/http/route-helpers.js';
 import { sanitiseRationale } from '../../../common/utils/sanitize.js';
 import type { ModelCallTrace } from '../../../inference/llm/structured-call.js';
 import type { LlmStatus } from '../../../inference/llm/client.js';
-import { buildInterpretation, type InterpretationStage } from './interpretation.js';
-import { runCleanupStage } from './stages/cleanup.stage.js';
-import { runBestEffortStage } from './stages/best-effort.stage.js';
+import { buildInterpretation, type InterpretationStage } from '../track-a-description/picker/interpretation.js';
+import { runCleanupStage } from './cleanup.stage.js';
+import { runBestEffortStage } from '../track-a-description/best-effort/best-effort.stage.js';
 
 export async function classifyRoute(app: FastifyInstance): Promise<void> {
   app.post('/classifications', async (req, reply) => {

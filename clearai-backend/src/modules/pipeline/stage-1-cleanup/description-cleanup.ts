@@ -23,10 +23,10 @@
  * passed downstream — better a slightly noisier retrieval than a 5xx.
  */
 import { z } from 'zod';
-import { structuredLlmCall } from '../../../../inference/llm/structured-call.js';
-import { env } from '../../../../config/env.js';
-import type { DescriptionCleanupKind } from '../../shared/hs-classification.types.js';
-export type { DescriptionCleanupKind } from '../../shared/hs-classification.types.js';
+import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
+import { env } from '../../../config/env.js';
+import type { DescriptionCleanupKind } from '../shared/domain.types.js';
+export type { DescriptionCleanupKind } from '../shared/domain.types.js';
 
 /** A single typo correction emitted by the LLM (e.g. heals → heels). */
 export interface TypoCorrection {

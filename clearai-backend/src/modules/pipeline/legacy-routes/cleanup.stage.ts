@@ -3,10 +3,10 @@
  * hint) so retrieval sees both the original lexical signal and the extracted
  * noun + attributes.
  */
-import { cleanDescription, type DescriptionCleanupResult } from '../preprocess/description-cleanup.js';
-import { isEnabled, type Thresholds } from '../../../reference-data/setup-meta.repository.js';
-import type { ModelCallTrace } from '../../../../inference/llm/structured-call.js';
-import type { InterpretationStage } from '../interpretation.js';
+import { cleanDescription, type DescriptionCleanupResult } from '../stage-1-cleanup/description-cleanup.js';
+import { isEnabled, type Thresholds } from '../../reference-data/setup-meta.repository.js';
+import type { ModelCallTrace } from '../../../inference/llm/structured-call.js';
+import type { InterpretationStage } from '../track-a-description/picker/interpretation.js';
 
 export interface CleanupStageResult {
   cleanup: DescriptionCleanupResult | null;

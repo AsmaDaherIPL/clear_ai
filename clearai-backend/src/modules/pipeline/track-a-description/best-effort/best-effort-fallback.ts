@@ -11,8 +11,8 @@
  *   refuse" — even a chapter-level answer beats no answer at all.
  */
 import { z } from 'zod';
-import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
-import { applyResidualHeadingGuardrail } from '../shared/residual-heading.js';
+import { structuredLlmCall } from '../../../../inference/llm/structured-call.js';
+import { applyResidualHeadingGuardrail } from '../../shared/residual-heading.js';
 
 export type BestEffortOutcome =
   | {

@@ -3,8 +3,8 @@
  * URI per ADR-0006) using the Anthropic JSON wire format.
  */
 import { env } from '../../config/env.js';
-import type { LlmStatus } from '../../modules/hs-classification/shared/hs-classification.types.js';
-export type { LlmStatus } from '../../modules/hs-classification/shared/hs-classification.types.js';
+import type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
+export type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
 
 export interface LlmCallResult {
   status: LlmStatus;

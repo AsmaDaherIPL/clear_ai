@@ -12,9 +12,9 @@
 import {
   cleanDescription,
   looksClean,
-} from '../../hs-classification/classify/preprocess/description-cleanup.js';
+} from '../../pipeline/stage-1-cleanup/description-cleanup.js';
 import type { CleanupResult, ClarityVerdict } from '../shared/pipeline.types.js';
-import type { DescriptionCleanupKind } from '../../hs-classification/shared/hs-classification.types.js';
+import type { DescriptionCleanupKind } from '../../pipeline/shared/domain.types.js';
 
 function toClarityVerdict(kind: DescriptionCleanupKind, nounGrounded: boolean): ClarityVerdict {
   if (kind === 'multi_product') return 'unusable';

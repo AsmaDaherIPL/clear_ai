@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectLang } from '../../src/modules/hs-classification/shared/language.js';
+import { detectLang } from '../../src/modules/pipeline/shared/language.js';
 
 describe('detectLang', () => {
   it('detects English', () => {

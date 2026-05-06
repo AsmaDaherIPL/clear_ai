@@ -2,8 +2,8 @@
  * Cheap language detection by Arabic vs Latin character count. LangTag is
  * re-exported from types/domain for backwards compatibility.
  */
-import type { LangTag } from './hs-classification.types.js';
-export type { LangTag } from './hs-classification.types.js';
+import type { LangTag } from './domain.types.js';
+export type { LangTag } from './domain.types.js';
 
 const ARABIC_RANGE = /[؀-ۿݐ-ݿ]/;
 const LATIN_RANGE = /[A-Za-z]/;

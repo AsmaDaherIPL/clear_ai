@@ -3,8 +3,8 @@
  * guard requires output code set equal to input — guard trip falls back to picker.
  */
 import { z } from 'zod';
-import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
-import { env } from '../../../config/env.js';
+import { structuredLlmCall } from '../../../../inference/llm/structured-call.js';
+import { env } from '../../../../config/env.js';
 import type { BranchLeaf } from './branch-enumerate.js';
 
 export type BranchRankFit = 'fits' | 'partial' | 'excludes';

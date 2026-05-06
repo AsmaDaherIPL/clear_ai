@@ -2,12 +2,12 @@
  * Best-effort fallback stage. Promotes a 4-digit heading to `accepted` when
  * retrieval surfaced a candidate in the same heading family.
  */
-import { bestEffortHeading, type BestEffortOutcome } from '../best-effort-fallback.js';
+import { bestEffortHeading, type BestEffortOutcome } from './best-effort-fallback.js';
 import { isEnabled, type Thresholds } from '../../../reference-data/setup-meta.repository.js';
 import { env } from '../../../../config/env.js';
 import { getPool } from '../../../../db/client.js';
 import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
-import type { ResolveOutput } from '../classify.use-case.js';
+import type { ResolveOutput } from '../../legacy-routes/classify.use-case.js';
 import type { ModelCallTrace } from '../../../../inference/llm/structured-call.js';
 
 export interface HeadingLevelPromotion {

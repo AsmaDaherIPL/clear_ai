@@ -7,7 +7,7 @@
  * via route smoke tests with SUBMISSION_DESC_ENABLED=1.
  */
 import { describe, expect, it } from 'vitest';
-import { __test__ } from '../../src/modules/hs-classification/classify/submission-description.js';
+import { __test__ } from '../../src/modules/pipeline/submission-description/submission-description.js';
 
 const { normalizeAr, passesDistinctnessCheck, buildFallback } = __test__;
 

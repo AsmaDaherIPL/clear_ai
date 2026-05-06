@@ -15,8 +15,8 @@
  *   3. Absent / malformed / unknown → null_resolution
  */
 import { getPool } from '../../../db/client.js';
-import { lookupTenantOverride } from '../../hs-classification/shared/hs-classification-overrides.js';
-import { llmPick } from '../../hs-classification/classify/llm-pick.js';
+import { lookupTenantOverride } from '../../pipeline/track-b-code/codebook-override.js';
+import { llmPick } from '../../pipeline/track-a-description/picker/llm-pick.js';
 import type {
   TrackBResult,
   MerchantCodeState,

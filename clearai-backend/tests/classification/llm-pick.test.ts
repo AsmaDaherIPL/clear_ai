@@ -18,9 +18,9 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue('mock-prompt'),
 }));
 
-import { llmPick } from '../../src/modules/hs-classification/classify/llm-pick.js';
+import { llmPick } from '../../src/modules/pipeline/track-a-description/picker/llm-pick.js';
 import { callLlmWithRetry } from '../../src/inference/llm/client.js';
-import { resolve } from '../../src/modules/hs-classification/classify/classify.use-case.js';
+import { resolve } from '../../src/modules/pipeline/legacy-routes/classify.use-case.js';
 import type { Candidate } from '../../src/inference/retrieval/retrieve.js';
 
 // llmPick only reads `code` / `description_en` / `description_ar` from each

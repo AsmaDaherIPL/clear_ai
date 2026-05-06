@@ -4,4 +4,4 @@ export type {
   DecisionReason,
   ConfidenceBand,
   MissingAttribute,
-} from '../shared/hs-classification.types.js';
+} from '../shared/domain.types.js';

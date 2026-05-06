@@ -8,7 +8,7 @@
  * Standard LLM (Sonnet-tier). Returns enriched_description even on failure
  * (falls back to original cleaned description).
  */
-import { researchInput } from '../../../hs-classification/classify/preprocess/research.js';
+import { researchInput } from '../../../pipeline/track-a-description/researcher/research.js';
 
 export interface ResearcherOutput {
   enriched_description: string;
