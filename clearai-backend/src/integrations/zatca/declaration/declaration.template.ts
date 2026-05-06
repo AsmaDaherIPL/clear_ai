@@ -17,7 +17,8 @@
  * Where each field comes from:
  *   constants  → operator_constants (seed-operators.ts)
  *   row        → canonical (mapper output)
- *   lookup     → operator_lookups via the LookupContext passed in
+ *   lookup     → tabadul_codes (universal) + operator_lookups (per-operator);
+ *                merged into a single map by the runner
  *   computed   → derived in this file (transportIDType, carrierPrefix, dates)
  *   dispatch   → final_code, goods_description_ar (Phase 1 outputs)
  *
@@ -79,7 +80,7 @@ function lookupOrThrow(input: RenderInput, type: string, sourceValue: string, ct
   const hit = lookup(input, type, sourceValue);
   if (!hit) {
     throw new ZatcaRenderError(
-      `${ctx}: no operator_lookups row for operator='${input.operator.slug}' lookup_type='${type}' source='${sourceValue}'`,
+      `${ctx}: no tabadul_codes / operator_lookups row for operator='${input.operator.slug}' type='${type}' source='${sourceValue}'`,
     );
   }
   return hit;

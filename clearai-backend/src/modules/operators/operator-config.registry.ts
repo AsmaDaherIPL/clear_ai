@@ -1,9 +1,9 @@
 /**
- * Tenant config registry — in-memory cache of OperatorConfig keyed by slug.
+ * Operator config registry — in-memory cache of OperatorConfig keyed by slug.
  *
  * Loaded at startup; refreshable via programmatic refresh(). The rest
- * of the codebase resolves tenants via `resolve(slug)` only — no other
- * module reaches into the tenants table directly.
+ * of the codebase resolves operators via `resolve(slug)` only — no other
+ * module reaches into the operators table directly.
  *
  * Validation runs on every load:
  *   • every mapping's canonicalField is in KNOWN_CANONICAL_FIELDS
@@ -22,8 +22,8 @@ import {
 } from './operator-config.types.js';
 import {
   getOperatorBySlug,
-  getMappingsBySlug,
-  getConstantsBySlug,
+  getMappingsByOperatorId,
+  getConstantsByOperatorId,
   listOperators,
 } from './operator.repository.js';
 import { MappingValidationError, OperatorNotFoundError } from './operator.errors.js';
@@ -39,8 +39,8 @@ async function loadOne(slug: string): Promise<OperatorConfig | null> {
   const operator = await getOperatorBySlug(slug);
   if (!operator) return null;
   const [mappings, constants] = await Promise.all([
-    getMappingsBySlug(slug),
-    getConstantsBySlug(slug),
+    getMappingsByOperatorId(operator.id),
+    getConstantsByOperatorId(operator.id),
   ]);
   return buildConfig(operator, mappings, constants);
 }
@@ -76,9 +76,6 @@ function buildConfig(
     });
   }
 
-  // Every CANONICAL_REQUIRED_FIELDS field must be reachable: either a mapping
-  // exists with required=true OR (mapping with default_value) OR (mapping
-  // with required=false — nullable). At minimum, the field must be mappable.
   for (const required of CANONICAL_REQUIRED_FIELDS) {
     if (!seenCanonical.has(required)) {
       problems.push(`required canonical field '${required}' has no mapping rule`);
@@ -149,7 +146,7 @@ export async function warmAll(): Promise<ReadonlyArray<OperatorConfig>> {
   return out;
 }
 
-/** Read-only snapshot of currently cached configs. Used by GET /tenants. */
+/** Read-only snapshot of currently cached configs. */
 export function snapshot(): ReadonlyArray<OperatorConfig> {
   return [...CACHE.values()];
 }

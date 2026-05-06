@@ -103,8 +103,8 @@ export interface CanonicalLineItem {
   /** 1-based row position from the source file (post-header). */
   rowIndex: number;
 
-  /** Tenant context — uuid for the synthetic key, slug for the FK / log context. */
-  tenantId: string;
+  /** Operator context — uuid is the FK target on declaration_runs; slug is for log context. */
+  operatorId: string;
   operatorSlug: string;
 
   /* ---- Identity ---- */

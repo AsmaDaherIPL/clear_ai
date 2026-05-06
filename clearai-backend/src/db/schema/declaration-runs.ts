@@ -12,9 +12,9 @@
  * value, ALTER the CHECK in a new migration.
  *
  * Related tables:
- *   • tenants                — FK target (operator -> operators.slug)
- *   • declaration_run_items  — child rows (FK ON DELETE CASCADE)
- *   • declarations           — Phase 5; rendered XML bundles (FK ON DELETE CASCADE)
+ *   • operators                 — FK target (operator_id -> operators.id)
+ *   • declaration_run_items     — child rows (FK ON DELETE CASCADE)
+ *   • declaration_run_filings   — Phase 5; rendered XML bundles (FK ON DELETE CASCADE)
  */
 import { pgTable, uuid, varchar, text, integer, jsonb, timestamp, foreignKey, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -48,8 +48,8 @@ export const declarationRuns = pgTable(
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
 
-    /** Owning operator_slug. FK -> operators(slug) ON DELETE RESTRICT. */
-    operatorSlug: varchar('operator_slug', { length: 32 }).notNull(),
+    /** Owning operator id. FK -> operators(id) ON DELETE RESTRICT. */
+    operatorId: uuid('operator_id').notNull(),
 
     /** Two-phase mode; CHECK-locked. */
     mode: varchar('mode', { length: 32 }).notNull().default('classify_and_declare').$type<DeclarationRunMode>(),
@@ -91,13 +91,13 @@ export const declarationRuns = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    operatorSlugFk: foreignKey({
-      name: 'declaration_runs_operator_slug_fk',
-      columns: [t.operatorSlug],
-      foreignColumns: [operators.slug],
+    operatorIdFk: foreignKey({
+      name: 'declaration_runs_operator_id_fk',
+      columns: [t.operatorId],
+      foreignColumns: [operators.id],
     }).onDelete('restrict'),
 
-    operatorSlugIdx: index('declaration_runs_operator_slug_idx').on(t.operatorSlug),
+    operatorIdIdx: index('declaration_runs_operator_id_idx').on(t.operatorId),
     createdAtIdx: index('declaration_runs_created_at_idx').on(t.createdAt.desc()),
   }),
 );

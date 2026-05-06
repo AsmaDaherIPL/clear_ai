@@ -17,7 +17,8 @@ import type { DispatchFn } from '../../../src/modules/dispatch/dispatch.contract
 import type { CanonicalLineItem } from '../../../src/modules/operators/operator-config.types.js';
 import { newId } from '../../../src/common/utils/uuid.js';
 
-const TEST_TENANT_SLUG = 'tcsvc_test';
+const TEST_OPERATOR_SLUG = 'tcsvc_test';
+let testOperatorId: string;
 
 beforeAll(async () => {
   process.env.BATCH_BLOB_CONNECTION ??= 'file://./.local-blob';
@@ -27,28 +28,37 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
+  if (testOperatorId) {
+    await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, testOperatorId));
+    await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, testOperatorId));
+    await db().delete(operators).where(eq(operators.id, testOperatorId));
+  }
   await closeDb();
 });
 
 beforeEach(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
-  await db().insert(operators).values({
-    slug: TEST_TENANT_SLUG,
+  // Reset: delete any prior runs + the operator row, recreate operator,
+  // capture its uuid for the rest of the test to use as the FK target.
+  const existing = await db().select().from(operators).where(eq(operators.slug, TEST_OPERATOR_SLUG)).limit(1);
+  if (existing[0]) {
+    await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, existing[0].id));
+    await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, existing[0].id));
+    await db().delete(operators).where(eq(operators.id, existing[0].id));
+  }
+  const inserted = await db().insert(operators).values({
+    slug: TEST_OPERATOR_SLUG,
     displayName: 'Classification svc test',
     active: true,
-  });
+  }).returning();
+  testOperatorId = inserted[0]!.id;
 });
 
 function canonical(rowIndex: number): CanonicalLineItem {
   return {
     itemId: newId(),
     rowIndex,
-    tenantId: '00000000-0000-0000-0000-000000000000',
-    operatorSlug: TEST_TENANT_SLUG,
+    operatorId: testOperatorId,
+    operatorSlug: TEST_OPERATOR_SLUG,
     description: `Item ${rowIndex}`,
     waybillNo: `WB-${rowIndex}`,
     merchantHsCode: null,
@@ -72,7 +82,7 @@ async function seedDeclarationRun(itemCount: number): Promise<{ declarationRunId
   const declarationRunId = newId();
   await db().insert(declarationRuns).values({
     id: declarationRunId,
-    operatorSlug: TEST_TENANT_SLUG,
+    operatorId: testOperatorId,
     mode: 'classify_and_declare',
     declarationStatus: 'pending',
     sourceBlobKey: 'unused',
@@ -166,7 +176,7 @@ describe('runClassificationPhase', () => {
     const declarationRunId = newId();
     await db().insert(declarationRuns).values({
       id: declarationRunId,
-      operatorSlug: TEST_TENANT_SLUG,
+      operatorId: testOperatorId,
       mode: 'classify_only',
       declarationStatus: null,
       sourceBlobKey: 'unused',

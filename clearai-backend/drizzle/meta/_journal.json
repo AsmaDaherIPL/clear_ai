@@ -351,6 +351,27 @@
       "when": 1777214900000,
       "tag": "0049_tenant_to_operator_filings_rename",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1777215000000,
+      "tag": "0050_operator_id_fks",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1777215100000,
+      "tag": "0051_tabadul_codes_split",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1777215200000,
+      "tag": "0052_declaration_run_filings_status",
+      "breakpoints": true
     }
   ]
 }

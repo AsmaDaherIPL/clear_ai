@@ -146,11 +146,13 @@ async function main(): Promise<void> {
   });
   console.log(`tenants  upsert ${tenantRow.slug} (${tenantRow.id}) active=${tenantRow.active}`);
 
+  const operatorId = tenantRow.id;
+
   // Replace this operator's mappings wholesale.
-  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, NAQEL_SLUG));
+  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, operatorId));
   for (const m of NAQEL_MAPPINGS) {
     await db().insert(operatorFieldMappings).values({
-      operatorSlug: NAQEL_SLUG,
+      operatorId,
       sourceColumn: m.sourceColumn,
       canonicalField: m.canonicalField,
       required: m.required,
@@ -162,9 +164,9 @@ async function main(): Promise<void> {
   console.log(`mappings inserted ${NAQEL_MAPPINGS.length} rows for ${NAQEL_SLUG}`);
 
   // Replace this operator's constants wholesale.
-  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, NAQEL_SLUG));
+  await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, operatorId));
   for (const c of NAQEL_CONSTANTS) {
-    await db().insert(operatorConstants).values({ operatorSlug: NAQEL_SLUG, key: c.key, value: c.value });
+    await db().insert(operatorConstants).values({ operatorId, key: c.key, value: c.value });
   }
   console.log(`constants inserted ${NAQEL_CONSTANTS.length} rows for ${NAQEL_SLUG}`);
 

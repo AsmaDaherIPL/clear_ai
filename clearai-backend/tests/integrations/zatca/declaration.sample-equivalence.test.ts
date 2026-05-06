@@ -143,7 +143,7 @@ function syntheticRow(c: {
     canonical: {
       itemId: 'item',
       rowIndex: 1,
-      tenantId: 't',
+      operatorId: '00000000-0000-0000-0000-000000000000',
       operatorSlug: 'naqel',
       description: c.description,
       waybillNo: c.waybillNo,
