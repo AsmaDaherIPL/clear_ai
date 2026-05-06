@@ -23,6 +23,7 @@ import {
 } from '../../src/db/schema.js';
 import { runProcessing, createDeclarationRun } from '../../src/modules/declaration-runs/declaration-run.use-case.js';
 import { clearCache } from '../../src/modules/operators/operator-config.registry.js';
+import { clearZatcaDefaultsCache } from '../../src/modules/reference-data/zatca-defaults.repository.js';
 import type { DispatchFn } from '../../src/modules/dispatch/dispatch.contract.ts';
 
 const TEST_OPERATOR_SLUG = 'tcuc_test';
@@ -49,6 +50,14 @@ beforeAll(async () => {
     slug: TEST_OPERATOR_SLUG,
     displayName: 'Use-case test',
     active: true,
+    // Identity columns required by the renderer (post-migration 0054).
+    tabadulUserid: 'uwqfr002',
+    tabadulAcctId: 'uwqf',
+    brokerLicenseType: '5',
+    brokerLicenseNo: '1',
+    brokerRepresentativeNo: '1732',
+    defaultSourceCompanyName: 'ناقل',
+    defaultSourceCompanyNo: '340476',
   }).returning();
   testOperatorId = inserted[0]!.id;
 
@@ -80,47 +89,28 @@ beforeAll(async () => {
     });
   }
 
+  // Only the per-operator placeholder constants remain in operator_constants.
+  // ZATCA-spec defaults are seeded into zatca_declaration_defaults by
+  // migration 0053; identity values are columns on operators above.
   const minConstants: Array<[string, string]> = [
-    ['reference_userid', 'uwqfr002'],
-    ['reference_acct_id', 'uwqf'],
     ['default_reg_port_code', '23'],
-    ['sender_broker_license_type', '5'],
-    ['sender_broker_license_no', '1'],
-    ['sender_broker_representative_no', '1732'],
-    ['declaration_type', '2'],
-    ['final_country', 'SA'],
-    ['inspection_group_id', '10'],
-    ['payment_method', '1'],
-    ['invoice_seq_no', '1'],
-    ['invoice_type_id', '5'],
-    ['invoice_payment_method_id', '1'],
-    ['payment_document_status_id', '0'],
-    ['deal_value', '1'],
-    ['item_invoice_measurement_unit', '7'],
-    ['item_international_measurement_unit', '7'],
-    ['item_unit_per_packages', '1'],
-    ['item_duty_type_id', '1'],
-    ['express_transport_type', '4'],
-    ['express_add_country_code', '100'],
-    ['express_country', '100'],
     ['express_default_city', '131'],
     ['express_zip_code', '1111'],
     ['express_po_box', '11'],
-    ['default_source_company_name', 'ناقل'],
-    ['default_source_company_no', '340476'],
   ];
   for (const [k, v] of minConstants) {
     await db().insert(operatorConstants).values({ operatorId: testOperatorId, key: k, value: v });
   }
 
-  // Universal Tabadul codes the renderer reads (currency_code, country_of_origin).
-  // Seeded into tabadul_codes so the row is shared with any other concurrent
-  // test operator. Upsert-style: drop existing under these (code_type, source_value)
-  // pairs first.
+  // Universal Tabadul codes the renderer reads (currency_code, country_of_origin, uom).
+  // Seeded into tabadul_codes; rows are shared with any other concurrent
+  // test operator (upsert-style via onConflictDoNothing).
   const universal: Array<[string, string, string]> = [
     ['currency_code', 'SAR', '100'],
     ['country_of_origin', 'SA', '100'],
     ['country_of_origin', 'GB', '521'],
+    ['uom', 'PIECE', '7'],
+    ['uom', 'PCS', '7'],
   ];
   for (const [t, src, can] of universal) {
     await db().insert(tabadulCodes).values({
@@ -131,6 +121,7 @@ beforeAll(async () => {
     }).onConflictDoNothing({ target: [tabadulCodes.codeType, tabadulCodes.sourceValue] });
   }
   clearCache();
+  clearZatcaDefaultsCache();
 });
 
 afterAll(async () => {

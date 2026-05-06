@@ -1,23 +1,31 @@
 /**
- * Seed the Naqel operator row + its column-mapping rules + ZATCA-envelope
- * constants. Idempotent: re-running re-asserts the rows. Mappings and
- * constants are cleared and re-inserted (per-operator) so the seed file is
- * the authoritative source for the operator's config.
+ * Seed the Naqel operator row + its column-mapping rules + remaining
+ * placeholder constants. Idempotent: re-running re-asserts the rows.
+ *
+ * After migration 0054:
+ *   • 7 identity values (tabadul_userid, broker_license_*, default_source_*)
+ *     are set as columns on operators directly — no longer per-key rows.
+ *   • 14 ZATCA-spec defaults (declaration_type, payment_method, etc.) live
+ *     in zatca_declaration_defaults — universal, not seeded per operator.
+ *   • The 2 measurement-unit constants are gone — driven by tabadul_codes.uom
+ *     lookups now.
+ *   • operator_constants is left with placeholders pending Naqel
+ *     confirmation: express_default_city / express_zip_code / express_po_box.
  *
  * Real source columns from
  *   naqel-shared-data/sample_input_commercial_invoice/light-example/pre-processed (commercial invoice).xlsx
- * Real envelope constants from
+ * Real envelope identity from
  *   naqel-shared-data/Naqel (Fields details + Mapping data).xlsx
  *     - "Invoice - Fields"
  *     - "ExpressMailInfomation - Fields"
  *
  * Usage:
- *   pnpm db:seed:tenants
+ *   pnpm db:seed:operators
  */
 import { eq } from 'drizzle-orm';
 import { db, closeDb } from '../db/client.js';
-import { operatorFieldMappings, operatorConstants } from '../db/schema.js';
-import { upsertOperator } from '../modules/operators/operator.repository.js';
+import { operators, operatorFieldMappings, operatorConstants } from '../db/schema.js';
+import { getOperatorBySlug } from '../modules/operators/operator.repository.js';
 import type { CanonicalField, TransformKind } from '../modules/operators/operator-config.types.js';
 
 interface SeedMapping {
@@ -34,22 +42,8 @@ const NAQEL_SLUG = 'naqel';
 
 /**
  * Naqel column → canonical mapping. Headers verified against the real
- * pre-processed xlsx (light-example). When a new sample arrives with
- * additional fields (e.g. `InvoiceDate`, `ConsigneeAddress`,
- * `ChineseDescription`), they're either:
- *   • added to CanonicalLineItem if the dispatch agent or renderer needs
- *     them, OR
- *   • ignored by the mapper (they remain in raw_row jsonb for audit).
- *
- * Both lights / scenarios verified:
- *   - sample 1 (Samsung phone, Roshan)             — every column present
- *   - sample 2 (Dresses, رحمة العيسى)              — every column present
- *   - second sample header set has   `Consignee` instead of `ConsigneeName`
- *     and `MobileNo` instead of `Mobile`. Today the seed assumes the
- *     light-example shape (`ConsigneeName`, `Mobile`); when Naqel ships a
- *     unified header set we switch the seed in place. For the broader
- *     header set documented in the task brief, follow up with PR-N to
- *     extend operator_field_mappings with fallback_columns (deferred).
+ * pre-processed xlsx (light-example) + the alt sample's header set
+ * (Consignee / MobileNo) wired via fallbackColumns.
  */
 const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
   // Identity & description.
@@ -67,86 +61,71 @@ const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
   { sourceColumn: 'ClientID',              canonicalField: 'clientId',             required: true,  transform: 'trim',      defaultValue: null },
   { sourceColumn: 'CountryofManufacture',  canonicalField: 'countryOfOrigin',      required: true,  transform: 'uppercase', defaultValue: null },
   { sourceColumn: 'DestinationStationID',  canonicalField: 'destinationStationId', required: true,  transform: 'trim',      defaultValue: null },
-  // Consignee. Fallback chains support Naqel's two header variants:
-  //   light-example:  ConsigneeName, Mobile
-  //   alt sample:     Consignee,     MobileNo
-  // Both land on the same canonical field; mapper takes the first non-empty.
+  // Consignee — fallback chains support Naqel's two header variants.
   { sourceColumn: 'ConsigneeName',         canonicalField: 'consigneeName',        required: true,  transform: 'trim',      defaultValue: null, fallbackColumns: ['Consignee'] },
   { sourceColumn: 'ConsigneeNationalID',   canonicalField: 'consigneeNationalId',  required: true,  transform: 'trim',      defaultValue: null },
   { sourceColumn: 'Mobile',                canonicalField: 'consigneePhone',       required: true,  transform: 'trim',      defaultValue: null, fallbackColumns: ['MobileNo', 'PhoneNumber', 'Phone'] },
   // Document refs.
-  // InvoiceDate is in the alt sample header set; light-example doesn't carry
-  // it. Mapped optional — renderer falls back to render-time UTC when null.
   { sourceColumn: 'InvoiceDate',           canonicalField: 'invoiceDate',          required: false, transform: 'trim',      defaultValue: null },
 ];
 
 /**
- * Per-operator constants for the ZATCA Declaration envelope. Sourced from
- * `Invoice - Fields` and `ExpressMailInfomation - Fields` sheets in
- * `Naqel (Fields details + Mapping data).xlsx`.
- *
- * Naming convention: snake_case keys grouped by envelope section so the
- * renderer can fetch them by predictable name.
- *
- * Values that vary per declaration (NQDxxx id, dates, etc.) are NOT here
- * — those come from row data or runtime context.
+ * Naqel's Tabadul identity. Set as typed columns on the operators row.
+ * Sourced from the post-processed sample XMLs (NQD26033110789, ...).
  */
-const NAQEL_CONSTANTS: ReadonlyArray<{ key: string; value: string; comment: string }> = [
-  // Reference block (decsub:reference).
-  // userid + acctId are Naqel-specific values seen in the post-processed
-  // sample XMLs (NQD26033110789, NQD26033110790).
-  { key: 'reference_userid', value: 'uwqfr002', comment: 'decsub:userid' },
-  { key: 'reference_acct_id', value: 'uwqf', comment: 'decsub:acctId' },
+const NAQEL_IDENTITY = {
+  tabadulUserid: 'uwqfr002',
+  tabadulAcctId: 'uwqf',
+  brokerLicenseType: '5',
+  brokerLicenseNo: '1',
+  brokerRepresentativeNo: '1732',
+  defaultSourceCompanyName: 'ناقل',
+  defaultSourceCompanyNo: '340476',
+};
 
-  // Sender information block (decsub:senderInformation).
-  { key: 'sender_broker_license_type', value: '5', comment: 'deccm:brokerLicenseType' },
-  { key: 'sender_broker_license_no', value: '1', comment: 'deccm:brokerLicenseNo' },
-  { key: 'sender_broker_representative_no', value: '1732', comment: 'deccm:brokerRepresentativeNo' },
-
-  // Declaration header block (decsub:declarationHeader).
-  { key: 'declaration_type', value: '2', comment: 'decsub:declarationType' },
-  { key: 'final_country', value: 'SA', comment: 'decsub:finalCountry' },
-  { key: 'inspection_group_id', value: '10', comment: 'decsub:inspectionGroupID' },
-  { key: 'payment_method', value: '1', comment: 'decsub:paymentMethod' },
-
-  // Invoice block (decsub:invoices).
-  { key: 'invoice_seq_no', value: '1', comment: 'decsub:invoiceSeqNo' },
-  { key: 'invoice_type_id', value: '5', comment: 'deccm:invoiceType' },
-  { key: 'invoice_payment_method_id', value: '1', comment: 'deccm:invoicePayment' },
-  { key: 'payment_document_status_id', value: '0', comment: 'deccm:paymentDocumentsStatus' },
-  { key: 'deal_value', value: '1', comment: 'deccm:deal' },
-
-  // InvoiceItem block (decsub:items).
-  { key: 'item_invoice_measurement_unit', value: '7', comment: 'deccm:invoiceMeasurementUnit' },
-  { key: 'item_international_measurement_unit', value: '7', comment: 'deccm:internationalMeasurementUnit' },
-  { key: 'item_unit_per_packages', value: '1', comment: 'deccm:unitPerPackages' },
-  { key: 'item_duty_type_id', value: '1', comment: 'deccm:itemDutyType' },
-
-  // Express mail information block (decsub:expressMailInfomation).
-  // TransportIdType is conditional (5 if national_id starts with 1, 3 if
-  // starts with 2) — that's runtime logic in the renderer, not a constant.
-  { key: 'express_transport_type', value: '4', comment: 'deccm:transportType' },
-  { key: 'express_add_country_code', value: '100', comment: 'deccm:addCtryCd' },
-  { key: 'express_country', value: '100', comment: 'deccm:country' },
-  { key: 'express_default_city', value: '131', comment: 'deccm:city — default; resolved via operator_lookups.destination_station otherwise' },
-  { key: 'express_zip_code', value: '1111', comment: 'deccm:zipCode' },
-  { key: 'express_po_box', value: '11', comment: 'deccm:poBox' },
-
-  // Default sender for cust_reg_port_code=23 (Naqel's own; per the
-  // SourceCompanies field-spec).
-  { key: 'default_source_company_name', value: 'ناقل', comment: 'deccm:sourceCompanyName when cust_reg_port_code=23' },
-  { key: 'default_source_company_no', value: '340476', comment: 'decsub:sourceCompanyNo when cust_reg_port_code=23' },
+/**
+ * Remaining placeholder constants pending Naqel confirmation. These three
+ * keys have suspicious values ('1111', '11', '131') that may need to come
+ * from per-row data instead. Once Naqel clarifies, they either move to the
+ * canonical line item or to operators columns and operator_constants is dropped.
+ */
+const NAQEL_PLACEHOLDER_CONSTANTS: ReadonlyArray<{ key: string; value: string; comment: string }> = [
+  { key: 'express_default_city', value: '131', comment: 'deccm:city fallback when destination_station lookup misses' },
+  { key: 'express_zip_code', value: '1111', comment: 'deccm:zipCode — placeholder pending Naqel spec' },
+  { key: 'express_po_box', value: '11', comment: 'deccm:poBox — placeholder pending Naqel spec' },
+  { key: 'default_reg_port_code', value: '23', comment: 'decsub:regPort — Naqel default reg port' },
 ];
 
 async function main(): Promise<void> {
-  const tenantRow = await upsertOperator({
-    slug: NAQEL_SLUG,
-    displayName: 'Naqel',
-    active: true,
-  });
-  console.log(`tenants  upsert ${tenantRow.slug} (${tenantRow.id}) active=${tenantRow.active}`);
+  // Upsert operator row with identity columns. Update path needs explicit
+  // SET because upsertOperator only sets displayName + active today.
+  let row = await getOperatorBySlug(NAQEL_SLUG);
+  if (row) {
+    const updated = await db()
+      .update(operators)
+      .set({
+        displayName: 'Naqel',
+        active: true,
+        ...NAQEL_IDENTITY,
+      })
+      .where(eq(operators.slug, NAQEL_SLUG))
+      .returning();
+    row = updated[0]!;
+  } else {
+    const inserted = await db()
+      .insert(operators)
+      .values({
+        slug: NAQEL_SLUG,
+        displayName: 'Naqel',
+        active: true,
+        ...NAQEL_IDENTITY,
+      })
+      .returning();
+    row = inserted[0]!;
+  }
+  console.log(`operators upsert ${row.slug} (${row.id}) active=${row.active}`);
 
-  const operatorId = tenantRow.id;
+  const operatorId = row.id;
 
   // Replace this operator's mappings wholesale.
   await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, operatorId));
@@ -163,18 +142,18 @@ async function main(): Promise<void> {
   }
   console.log(`mappings inserted ${NAQEL_MAPPINGS.length} rows for ${NAQEL_SLUG}`);
 
-  // Replace this operator's constants wholesale.
+  // Replace this operator's placeholder constants wholesale.
   await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, operatorId));
-  for (const c of NAQEL_CONSTANTS) {
+  for (const c of NAQEL_PLACEHOLDER_CONSTANTS) {
     await db().insert(operatorConstants).values({ operatorId, key: c.key, value: c.value });
   }
-  console.log(`constants inserted ${NAQEL_CONSTANTS.length} rows for ${NAQEL_SLUG}`);
+  console.log(`constants inserted ${NAQEL_PLACEHOLDER_CONSTANTS.length} placeholder rows for ${NAQEL_SLUG}`);
 
   // Confirm the registry can hydrate it without errors.
   const { resolve } = await import('../modules/operators/operator-config.registry.js');
   const cfg = await resolve(NAQEL_SLUG);
   console.log(
-    `registry resolved ${cfg.slug}: ${cfg.mappings.length} mappings, ${Object.keys(cfg.constants).length} constants`,
+    `registry resolved ${cfg.slug}: ${cfg.mappings.length} mappings, ${Object.keys(cfg.constants).length} placeholder constants, identity=${cfg.identity.tabadulUserid}`,
   );
 }
 

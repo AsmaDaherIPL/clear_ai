@@ -2,19 +2,23 @@
  * operators — registry of carriers/brokers using ClearAI.
  *
  * Source of truth for operator identity. ZATCA tunables (HV threshold, bundle
- * size) live in setup_meta — they're spec-wide, not per-operator — see
- * migration 0046.
+ * size) live in setup_meta — they're spec-wide, not per-operator. ZATCA-spec
+ * envelope defaults live in zatca_declaration_defaults — also spec-wide.
+ *
+ * Operator-identity values that used to live as key-value rows in
+ * operator_constants are now first-class columns here (migration 0054):
+ *   tabadul_userid, tabadul_acct_id, broker_license_type, broker_license_no,
+ *   broker_representative_no, default_source_company_name, default_source_company_no
  *
  * Related tables (all FK on operators.id):
  *   • operator_field_mappings  — per-operator column mapping rules
- *   • operator_constants       — per-operator envelope-shaping values
+ *   • operator_constants       — per-operator placeholders (TODO: drop once empty)
  *   • operator_lookups         — per-operator value translations
  *   • operator_code_overrides  — per-operator HS-code overrides
  *   • declaration_runs         — every run is owned by one operator
  *
- * PK is uuid (rule 1: every entity table gets a uuid PK). `slug` is a UNIQUE
- * human-readable label kept on the operators table only — it is NOT a foreign-
- * key target. Children reference operators.id (added in migration 0050).
+ * PK is uuid; `slug` is a UNIQUE human-readable label kept on the operators
+ * table only — it is NOT a foreign-key target (children FK on id).
  */
 import { pgTable, uuid, varchar, text, boolean, timestamp, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -34,8 +38,31 @@ export const operators = pgTable(
     /** Defaults to false so a fresh operator row can't accept traffic without explicit activation. */
     active: boolean('active').notNull().default(false),
 
+    // ── Tabadul identity (renderer reads these directly) ──
+
+    /** Tabadul login userid (`<decsub:userid>`). */
+    tabadulUserid: varchar('tabadul_userid', { length: 64 }),
+
+    /** Tabadul account id (`<decsub:acctId>`). */
+    tabadulAcctId: varchar('tabadul_acct_id', { length: 64 }),
+
+    /** Broker license type (`<deccm:brokerLicenseType>`). */
+    brokerLicenseType: varchar('broker_license_type', { length: 8 }),
+
+    /** Broker license number (`<deccm:brokerLicenseNo>`). */
+    brokerLicenseNo: varchar('broker_license_no', { length: 32 }),
+
+    /** Broker representative number (`<deccm:brokerRepresentativeNo>`). */
+    brokerRepresentativeNo: varchar('broker_representative_no', { length: 32 }),
+
+    /** Fallback `<deccm:sourceCompanyName>` when the per-row client_source_company lookup misses. */
+    defaultSourceCompanyName: text('default_source_company_name'),
+
+    /** Fallback `<decsub:sourceCompanyNo>` for the same case. */
+    defaultSourceCompanyNo: varchar('default_source_company_no', { length: 32 }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    /** Auto-bumped by operators_touch_updated_at_trg (renamed from tenants_*). */
+    /** Auto-bumped by operators_touch_updated_at_trg. */
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

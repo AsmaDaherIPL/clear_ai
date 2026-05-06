@@ -58,6 +58,12 @@ export type { OperatorLookupRow, NewOperatorLookupRow } from './schema/operator-
 export { tabadulCodes } from './schema/tabadul-codes.js';
 export type { TabadulCodeRow, NewTabadulCodeRow } from './schema/tabadul-codes.js';
 
+export { zatcaDeclarationDefaults } from './schema/zatca-declaration-defaults.js';
+export type {
+  ZatcaDeclarationDefaultRow,
+  NewZatcaDeclarationDefaultRow,
+} from './schema/zatca-declaration-defaults.js';
+
 export { declarationRuns } from './schema/declaration-runs.js';
 export type {
   DeclarationRunRow,
