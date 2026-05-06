@@ -372,6 +372,27 @@
       "when": 1777215200000,
       "tag": "0052_declaration_run_filings_status",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1777215300000,
+      "tag": "0053_zatca_declaration_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1777215400000,
+      "tag": "0054_operators_identity_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1777215500000,
+      "tag": "0055_uom_lookup",
+      "breakpoints": true
     }
   ]
 }

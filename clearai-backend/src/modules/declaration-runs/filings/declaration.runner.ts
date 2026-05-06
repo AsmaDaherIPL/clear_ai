@@ -22,6 +22,7 @@ import { declarationKey } from '../../../storage/blob.paths.js';
 import { getDeclarationRun } from '../declaration-run.repository.js';
 import { env } from '../../../config/env.js';
 import { loadThresholds } from '../../reference-data/setup-meta.repository.js';
+import { loadZatcaDefaults } from '../../reference-data/zatca-defaults.repository.js';
 
 export async function runDeclarationPhase(declarationRunId: string): Promise<PhaseDeclarationSummary> {
   const startMs = Date.now();
@@ -36,8 +37,12 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   const lookups = await getLookupsByOperatorIdWithMetadata(operator.id);
   const items = await listClassifiedItems(declarationRunId);
 
-  // ZATCA tunables live in setup_meta — they're spec-wide, not per-operator.
-  const thresholds = await loadThresholds();
+  // ZATCA tunables (HV threshold, bundle size) live in setup_meta — spec-wide.
+  // ZATCA envelope defaults live in zatca_declaration_defaults — also spec-wide.
+  const [thresholds, zatcaDefaults] = await Promise.all([
+    loadThresholds(),
+    loadZatcaDefaults(),
+  ]);
 
   const bundles = partitionHvLv(items, {
     hvThresholdSar: thresholds.ZATCA_HV_THRESHOLD_SAR,
@@ -51,7 +56,13 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   let bundleIndex = 0;
   for (const bundle of bundles) {
     const xml = renderDeclarationXml({
-      operator: { slug: operator.slug, displayName: operator.displayName, constants: operator.constants },
+      operator: {
+        slug: operator.slug,
+        displayName: operator.displayName,
+        constants: operator.constants,
+        identity: operator.identity,
+      },
+      zatcaDefaults,
       bundleStrategy: bundle.strategy,
       items: bundle.items,
       submitter: {

@@ -59,14 +59,37 @@ export interface ColumnMappingRule {
   fallbackColumns: ReadonlyArray<string>;
 }
 
+/**
+ * Tabadul identity values for an operator. Loaded from typed columns on the
+ * operators row (post-migration 0054). Required at request time — every
+ * operator MUST have these populated to file a Declaration.
+ */
+export interface OperatorIdentity {
+  tabadulUserid: string;
+  tabadulAcctId: string;
+  brokerLicenseType: string;
+  brokerLicenseNo: string;
+  brokerRepresentativeNo: string;
+  defaultSourceCompanyName: string;
+  defaultSourceCompanyNo: string;
+}
+
 export interface OperatorConfig {
   id: string;
   slug: string;
   displayName: string;
   active: boolean;
   mappings: ReadonlyArray<ColumnMappingRule>;
-  /** Frozen view of operator_constants for this operator; key -> value. */
+  /**
+   * Frozen view of operator_constants for this operator; key -> value.
+   * Today this only carries the placeholder express_default_city /
+   * express_zip_code / express_po_box rows pending Naqel confirmation.
+   * The 7 identity values moved to OperatorConfig.identity in migration 0054;
+   * the 14 ZATCA-spec defaults moved to zatca_declaration_defaults in 0053.
+   */
   constants: Readonly<Record<string, string>>;
+  /** Operator's Tabadul identity — typed columns from the operators table. */
+  identity: Readonly<OperatorIdentity>;
 }
 
 /**

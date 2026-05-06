@@ -102,17 +102,40 @@ function lookups(): Map<string, Map<string, LookupValue>> {
   m.set('tabdul_city', new Map([
     ['111', { canonical: 'الدمام', metadata: { engName: 'Dammam', intlCode: 'SA', countryCode: '100' } }],
   ]));
+  m.set('uom', new Map([
+    ['PIECE', { canonical: '7', metadata: { label: 'piece' } }],
+    ['KG',    { canonical: '1', metadata: { label: 'kilogram' } }],
+  ]));
   return m;
 }
 
 function constants(): Record<string, string> {
+  // Only operator-specific placeholders remain in operator_constants.
+  // Identity values (reference_userid, broker_*, default_source_company_*)
+  // moved to operators columns; ZATCA-spec defaults moved to
+  // zatca_declaration_defaults; uom moved to tabadul_codes.
   return {
-    reference_userid: 'uwqfr002',
-    reference_acct_id: 'uwqf',
     default_reg_port_code: '23',
-    sender_broker_license_type: '5',
-    sender_broker_license_no: '1',
-    sender_broker_representative_no: '1732',
+    express_default_city: '131',
+    express_zip_code: '1111',
+    express_po_box: '11',
+  };
+}
+
+function identity() {
+  return {
+    tabadulUserid: 'uwqfr002',
+    tabadulAcctId: 'uwqf',
+    brokerLicenseType: '5',
+    brokerLicenseNo: '1',
+    brokerRepresentativeNo: '1732',
+    defaultSourceCompanyName: 'ناقل',
+    defaultSourceCompanyNo: '340476',
+  };
+}
+
+function zatcaDefaults(): Record<string, string> {
+  return {
     declaration_type: '2',
     final_country: 'SA',
     inspection_group_id: '10',
@@ -122,24 +145,18 @@ function constants(): Record<string, string> {
     invoice_payment_method_id: '1',
     payment_document_status_id: '0',
     deal_value: '1',
-    item_invoice_measurement_unit: '7',
-    item_international_measurement_unit: '7',
     item_unit_per_packages: '1',
     item_duty_type_id: '1',
     express_transport_type: '4',
     express_add_country_code: '100',
     express_country: '100',
-    express_default_city: '131',
-    express_zip_code: '1111',
-    express_po_box: '11',
-    default_source_company_name: 'ناقل',
-    default_source_company_no: '340476',
   };
 }
 
 function baseInput(items: DeclarationRunItemRow[], strategy: 'HV_STANDALONE' | 'LV_BUNDLED' = 'HV_STANDALONE') {
   return {
-    operator: { slug: 'naqel', displayName: 'Naqel', constants: constants() },
+    operator: { slug: 'naqel', displayName: 'Naqel', constants: constants(), identity: identity() },
+    zatcaDefaults: zatcaDefaults(),
     bundleStrategy: strategy,
     items,
     submitter: { carrierId: 'NAQ-CARRIER-1', name: 'Naqel' },
@@ -293,7 +310,20 @@ describe('renderDeclarationXml — escaping + errors', () => {
   it('throws when a required operator_constant is missing', () => {
     const input = baseInput([row()]);
     const broken = { ...input, operator: { ...input.operator, constants: {} } };
-    expect(() => renderDeclarationXml(broken)).toThrowError(/reference_userid/);
+    expect(() => renderDeclarationXml(broken)).toThrowError(/express_zip_code|express_po_box|express_default_city/);
+  });
+
+  it('throws when a required zatca_declaration_default is missing', () => {
+    const input = baseInput([row()]);
+    const broken = { ...input, zatcaDefaults: {} };
+    expect(() => renderDeclarationXml(broken)).toThrowError(/zatca_declaration_defaults/);
+  });
+
+  it('throws when uom lookup is missing', () => {
+    // Need a row whose canonical.uom is not in the lookup table.
+    const item = row();
+    (item.canonical as { uom: string }).uom = 'UNOBTAINIUM';
+    expect(() => renderDeclarationXml(baseInput([item]))).toThrowError(/uom/);
   });
 
   it('throws when country_of_origin lookup is missing', () => {

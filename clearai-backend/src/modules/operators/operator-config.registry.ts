@@ -86,6 +86,24 @@ function buildConfig(
     throw new MappingValidationError(operator.slug, problems);
   }
 
+  // Identity columns are required for ZATCA filing. Fail loud at registry
+  // load if any are NULL — the renderer would otherwise emit empty XML
+  // attributes and the filing would be rejected.
+  const missingIdentity: string[] = [];
+  if (!operator.tabadulUserid) missingIdentity.push('tabadul_userid');
+  if (!operator.tabadulAcctId) missingIdentity.push('tabadul_acct_id');
+  if (!operator.brokerLicenseType) missingIdentity.push('broker_license_type');
+  if (!operator.brokerLicenseNo) missingIdentity.push('broker_license_no');
+  if (!operator.brokerRepresentativeNo) missingIdentity.push('broker_representative_no');
+  if (!operator.defaultSourceCompanyName) missingIdentity.push('default_source_company_name');
+  if (!operator.defaultSourceCompanyNo) missingIdentity.push('default_source_company_no');
+  if (missingIdentity.length > 0) {
+    throw new MappingValidationError(
+      operator.slug,
+      missingIdentity.map((c) => `operators.${c} is NULL — required for ZATCA filing`),
+    );
+  }
+
   const constants: Record<string, string> = {};
   for (const c of constantRows) constants[c.key] = c.value;
 
@@ -96,6 +114,15 @@ function buildConfig(
     active: operator.active,
     mappings: Object.freeze(mappings),
     constants: Object.freeze(constants),
+    identity: Object.freeze({
+      tabadulUserid: operator.tabadulUserid!,
+      tabadulAcctId: operator.tabadulAcctId!,
+      brokerLicenseType: operator.brokerLicenseType!,
+      brokerLicenseNo: operator.brokerLicenseNo!,
+      brokerRepresentativeNo: operator.brokerRepresentativeNo!,
+      defaultSourceCompanyName: operator.defaultSourceCompanyName!,
+      defaultSourceCompanyNo: operator.defaultSourceCompanyNo!,
+    }),
   });
 }
 

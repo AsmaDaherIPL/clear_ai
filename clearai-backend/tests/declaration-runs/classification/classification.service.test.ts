@@ -49,6 +49,14 @@ beforeEach(async () => {
     slug: TEST_OPERATOR_SLUG,
     displayName: 'Classification svc test',
     active: true,
+    // Identity columns may be NOT NULL post-migration 0054.
+    tabadulUserid: 'test',
+    tabadulAcctId: 'test',
+    brokerLicenseType: '5',
+    brokerLicenseNo: '1',
+    brokerRepresentativeNo: '1',
+    defaultSourceCompanyName: 'Test',
+    defaultSourceCompanyNo: '0',
   }).returning();
   testOperatorId = inserted[0]!.id;
 });
