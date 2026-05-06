@@ -1,0 +1,595 @@
+openapi: 3.0.3
+
+info:
+  title: ClearAI Backend API
+  version: 0.1.0
+  description: |
+    HTTP surface of the ClearAI customs-classification backend. Source of
+    truth for the Fastify route handlers in `clearai-backend/src/`. Imported
+    by Azure API Management to define the public API shape.
+
+    Authentication: every endpoint outside `/health` and `/ready` requires
+    BOTH:
+      1. APIM gateway shared-secret header (`x-apim-shared-secret`),
+         injected by APIM's inbound policy. Direct calls to the Container
+         App without this header are rejected with 401.
+      2. A valid Microsoft Entra ID access token, validated by APIM's
+         `validate-jwt` inbound policy before the request reaches the
+         backend. The backend trusts APIM's validation.
+
+    The backend never sees the raw bearer token; APIM strips it after
+    validation and forwards the request with the APIM shared secret only.
+
+  contact:
+    name: ClearAI backend team
+
+servers:
+  - url: https://{apim-host}/api
+    description: Production via Azure APIM
+    variables:
+      apim-host:
+        default: api.clearai.example.com
+  - url: http://localhost:3000
+    description: Local dev (no APIM, no Entra)
+
+tags:
+  - name: probes
+    description: Liveness/readiness — used by Container Apps health checks.
+  - name: declaration-runs
+    description: Bulk pipeline runs from uploaded xlsx/csv.
+  - name: pipeline
+    description: Single-shot pipeline endpoints.
+
+# -----------------------------------------------------------------------------
+# Components
+# -----------------------------------------------------------------------------
+
+components:
+  securitySchemes:
+    apimSharedSecret:
+      type: apiKey
+      in: header
+      name: x-apim-shared-secret
+      description: |
+        Shared secret injected by APIM's inbound policy. Not a user-facing
+        credential; users authenticate via Entra (see `entraJwt`).
+    entraJwt:
+      type: oauth2
+      description: |
+        Microsoft Entra ID user token. Validated by APIM's `validate-jwt`
+        policy before the request reaches the backend.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize
+          tokenUrl: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
+          scopes:
+            api://clearai-backend/.default: Default access scope
+
+  parameters:
+    DeclarationRunId:
+      name: id
+      in: path
+      required: true
+      description: UUID of a declaration run.
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+
+    # ---------- shared error envelope ----------
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code (snake_case).
+              example: declaration_run_validation_failed
+            message:
+              type: string
+              description: Human-readable explanation.
+            details:
+              type: object
+              additionalProperties: true
+              description: Optional structured detail (Zod issues, field name, etc.).
+
+    # ---------- probes ----------
+
+    HealthOk:
+      type: object
+      required: [status, db]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        db:
+          type: boolean
+
+    Ready:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready]
+
+    NotReady:
+      type: object
+      required: [status, detail]
+      properties:
+        status:
+          type: string
+          enum: [warming]
+        detail:
+          type: string
+
+    # ---------- declaration-runs ----------
+
+    DeclarationRunMode:
+      type: string
+      enum: [classify_only, classify_and_declare]
+      description: |
+        `classify_only` runs Phase 1 and stops; the run produces no XML.
+        `classify_and_declare` runs Phase 1 then Phase 2 (rendered XML
+        per HV item / per LV bundle). Default `classify_and_declare`.
+
+    DeclarationRunStatus:
+      type: string
+      enum: [pending, running, completed, failed, cancelled]
+
+    ClassificationStatus:
+      type: string
+      enum: [pending, running, completed, failed]
+
+    DeclarationStatus:
+      type: string
+      nullable: true
+      enum: [pending, running, completed, failed, skipped, null]
+
+    DeclarationRunItemStatus:
+      type: string
+      enum: [pending, classifying, succeeded, flagged, blocked, failed]
+
+    DeclarationRunCreated:
+      type: object
+      required: [declaration_run_id, mode, poll_url, classifications_url]
+      properties:
+        declaration_run_id:
+          type: string
+          format: uuid
+        mode:
+          $ref: '#/components/schemas/DeclarationRunMode'
+        poll_url:
+          type: string
+          example: /declaration-runs/{id}
+        classifications_url:
+          type: string
+          example: /declaration-runs/{id}/classifications
+        declarations_url:
+          type: string
+          description: Present only when mode=classify_and_declare.
+          example: /declaration-runs/{id}/declarations
+
+    DeclarationRunSummary:
+      type: object
+      required:
+        [id, operator_slug, mode, status, classification_status, declaration_status,
+         row_count, succeeded, flagged, blocked, failed, pending,
+         started_at, completed_at, error]
+      properties:
+        id:
+          type: string
+          format: uuid
+        operator_slug:
+          type: string
+          description: |
+            The operator that owns this run (e.g. "naqel"). Read-only;
+            assigned at creation time from the `operator_slug` form field.
+        mode:
+          $ref: '#/components/schemas/DeclarationRunMode'
+        status:
+          $ref: '#/components/schemas/DeclarationRunStatus'
+        classification_status:
+          $ref: '#/components/schemas/ClassificationStatus'
+        declaration_status:
+          $ref: '#/components/schemas/DeclarationStatus'
+        row_count:
+          type: integer
+          description: Total parsed rows in this run.
+        succeeded: { type: integer }
+        flagged: { type: integer }
+        blocked: { type: integer }
+        failed: { type: integer }
+        pending: { type: integer }
+        started_at:
+          type: string
+          nullable: true
+          format: date-time
+        completed_at:
+          type: string
+          nullable: true
+          format: date-time
+        error:
+          type: string
+          nullable: true
+
+    DeclarationRunItem:
+      type: object
+      required: [id, row_index, status, final_code, classification_result, trace, error]
+      properties:
+        id:
+          type: string
+          format: uuid
+        row_index:
+          type: integer
+        status:
+          $ref: '#/components/schemas/DeclarationRunItemStatus'
+        final_code:
+          type: string
+          nullable: true
+          pattern: '^\d{12}$'
+          description: 12-digit ZATCA HS code, present when status=succeeded|flagged.
+        classification_result:
+          type: object
+          nullable: true
+          additionalProperties: true
+        trace:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Full PipelineTrace (all stage outputs).
+        error:
+          type: string
+          nullable: true
+
+    DeclarationRunClassifications:
+      type: object
+      required: [declaration_run_id, items]
+      properties:
+        declaration_run_id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeclarationRunItem'
+
+    PatchDeclarationRunBody:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [cancelled]
+          description: Only `cancelled` is permitted.
+
+    PatchDeclarationRunResult:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [cancelled]
+
+    # ---------- submission-description ----------
+
+    SubmissionDescriptionBody:
+      type: object
+      required: [description, code]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Cleaned item description (English).
+        code:
+          type: string
+          pattern: '^\d{12}$'
+          description: 12-digit HS code (must exist in zatca_hs_codes).
+
+    SubmissionDescriptionResult:
+      type: object
+      required: [description_ar, source, latency_ms]
+      properties:
+        description_ar:
+          type: string
+          maxLength: 300
+          description: ZATCA-safe Arabic description, ≤300 characters.
+        source:
+          type: string
+          enum: [llm, llm_failed, fallback, fallback_after_collision]
+        latency_ms:
+          type: integer
+
+    # ---------- alt error shape (legacy) ----------
+
+    SimpleError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid_body
+        detail:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+
+# -----------------------------------------------------------------------------
+# Paths
+# -----------------------------------------------------------------------------
+
+paths:
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Probes (no auth)
+  # ────────────────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [probes]
+      summary: Liveness probe
+      description: |
+        Used by Container Apps liveness checks. Always returns 200; the
+        body's `db` field flips to false if Postgres is unreachable.
+      security: []
+      responses:
+        '200':
+          description: Process is alive (db field reports DB connectivity).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthOk'
+
+  /ready:
+    get:
+      tags: [probes]
+      summary: Readiness probe
+      description: |
+        Returns 200 only after warmup completes (embedder loaded,
+        setup_meta cached, prompts loaded). 503 + `retry-after` while
+        warming. Used by Container Apps to gate traffic routing.
+      security: []
+      responses:
+        '200':
+          description: Ready for traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ready'
+        '503':
+          description: Still warming.
+          headers:
+            retry-after:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotReady'
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Declaration runs
+  # ────────────────────────────────────────────────────────────────────────
+
+  /declaration-runs:
+    post:
+      tags: [declaration-runs]
+      summary: Upload an xlsx/csv and start a declaration run
+      description: |
+        Multipart upload. The server validates the file extension, parses
+        rows synchronously into the canonical shape, persists the run, and
+        kicks off Phase 1 (classification) in the background. Returns 202
+        immediately with poll URLs.
+      security:
+        - apimSharedSecret: []
+          entraJwt: [api://clearai-backend/.default]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, operator_slug]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: '.csv or .xlsx commercial-invoice file. Max 25 MB.'
+                operator_slug:
+                  type: string
+                  pattern: '^[a-z][a-z0-9_]{2,31}$'
+                  description: Owning operator (e.g. "naqel").
+                mode:
+                  $ref: '#/components/schemas/DeclarationRunMode'
+                callback_url:
+                  type: string
+                  format: uri
+                  description: Optional webhook target stored in metadata.
+                metadata:
+                  type: string
+                  description: |
+                    Optional JSON-encoded object. Merged into the run's
+                    metadata field.
+      responses:
+        '202':
+          description: Run accepted; processing in background.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclarationRunCreated'
+        '400':
+          description: Invalid body (bad file type, bad operator_slug, bad metadata, etc.).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Operator slug not in registry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '413':
+          description: |
+            Upload exceeds row count limit (declaration_run_too_large)
+            or 25 MB file size limit.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Origin access denied (missing/invalid APIM secret in production).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /declaration-runs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/DeclarationRunId'
+
+    get:
+      tags: [declaration-runs]
+      summary: Run summary
+      security:
+        - apimSharedSecret: []
+          entraJwt: [api://clearai-backend/.default]
+      responses:
+        '200':
+          description: Run found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclarationRunSummary'
+        '404':
+          description: No run with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Origin access denied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+    patch:
+      tags: [declaration-runs]
+      summary: Cancel a running declaration run
+      description: 'Body must be `{ "status": "cancelled" }`. Idempotent on already-cancelled.'
+      security:
+        - apimSharedSecret: []
+          entraJwt: [api://clearai-backend/.default]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchDeclarationRunBody'
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchDeclarationRunResult'
+        '400':
+          description: Body shape invalid.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: No run with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Run already in a terminal state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /declaration-runs/{id}/classifications:
+    parameters:
+      - $ref: '#/components/parameters/DeclarationRunId'
+
+    get:
+      tags: [declaration-runs]
+      summary: Per-item classification results
+      security:
+        - apimSharedSecret: []
+          entraJwt: [api://clearai-backend/.default]
+      responses:
+        '200':
+          description: All items in the run, with classification results + trace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeclarationRunClassifications'
+        '425':
+          description: Phase 1 still pending or running.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: No run with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Pipeline single-shot
+  # ────────────────────────────────────────────────────────────────────────
+
+  /pipeline/submission-description:
+    post:
+      tags: [pipeline]
+      summary: Generate ZATCA-safe Arabic submission description
+      description: |
+        Stage 2.5 of the pipeline in isolation. Given a cleaned item
+        description and an HS code, returns a ≤300-character Arabic
+        description for the ZATCA declaration envelope. Catalog leaf
+        Arabic + path Arabic are looked up server-side from
+        zatca_hs_codes/zatca_hs_code_display.
+      security:
+        - apimSharedSecret: []
+          entraJwt: [api://clearai-backend/.default]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmissionDescriptionBody'
+      responses:
+        '200':
+          description: Generated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionDescriptionResult'
+        '400':
+          description: Body invalid.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleError' }
+        '404':
+          description: HS code not in catalog.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleError' }
+        '401':
+          description: Origin access denied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+# Default security applied at the operation level above; this default keeps
+# probes wide-open via `security: []` overrides.
+security:
+  - apimSharedSecret: []
+    entraJwt: [api://clearai-backend/.default]
