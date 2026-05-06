@@ -1,5 +1,5 @@
 /**
- * Top-level declaration-set orchestrator. Thin: delegates to phase services.
+ * Top-level declaration-run orchestrator. Thin: delegates to phase services.
  *
  *   1. parse upload                        (parsers/csv|xlsx.parser)
  *   2. resolve tenant                      (tenants/tenant-config.registry.resolve)
@@ -7,7 +7,7 @@
  *   4. persist source blob + insert        (storage/blob.client + repository)
  *   5. Phase 1 always                      (classification/classification.service)
  *   6. Phase 2 conditional                 (declaration/declaration.service)
- *   7. finalize                            (set declaration_sets.status='completed')
+ *   7. finalize                            (set declaration_runs.status='completed')
  *
  * The runProcessing() entrypoint is invoked AFTER the route returns 202
  * (background) so the HTTP request doesn't block on Phase 1.
@@ -19,25 +19,25 @@ import { parseCsvBuffer } from './parsers/csv.parser.js';
 import { parseXlsxBuffer } from './parsers/xlsx.parser.js';
 import { runClassificationPhase } from './classification/classification.service.js';
 import {
-  insertDeclarationSet,
-  setDeclarationSetStatus,
-  type DeclarationSetItemInput,
-  type InsertDeclarationSetInput,
-} from './declaration-set.repository.js';
-import { DeclarationSetTooLargeError, DeclarationSetValidationError } from './declaration-set.errors.js';
+  insertDeclarationRun,
+  setDeclarationRunStatus,
+  type DeclarationRunItemInput,
+  type InsertDeclarationRunInput,
+} from './declaration-run.repository.js';
+import { DeclarationRunTooLargeError, DeclarationRunValidationError } from './declaration-run.errors.js';
 import { env } from '../../config/env.js';
 import { getBlobClient } from '../../storage/blob.client.js';
 import { inputKey } from '../../storage/blob.paths.js';
 import type { TenantConfig } from '../tenants/tenant-config.types.js';
-import type { DeclarationSetMode, DeclarationSetRow } from '../../db/schema.js';
+import type { DeclarationRunMode, DeclarationRunRow } from '../../db/schema.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
 import { newId } from '../../common/utils/uuid.js';
 
 export type UploadKind = 'csv' | 'xlsx';
 
-export interface CreateDeclarationSetInput {
+export interface CreateDeclarationRunInput {
   tenantSlug: string;
-  mode: DeclarationSetMode;
+  mode: DeclarationRunMode;
   uploadKind: UploadKind;
   /** The raw bytes of the uploaded file. */
   uploadBytes: Buffer;
@@ -46,18 +46,18 @@ export interface CreateDeclarationSetInput {
   dispatch: DispatchFn;
 }
 
-export interface CreateDeclarationSetResult {
-  declarationSet: DeclarationSetRow;
+export interface CreateDeclarationRunResult {
+  declarationRun: DeclarationRunRow;
 }
 
 /**
- * Synchronous portion of declaration-set creation:
- *   - validate, parse, canonicalise, persist source, insertDeclarationSet
+ * Synchronous portion of declaration-run creation:
+ *   - validate, parse, canonicalise, persist source, insertDeclarationRun
  *
- * Returns once the declaration_set row + items are written. Caller is
+ * Returns once the declaration_run row + items are written. Caller is
  * responsible for scheduling runProcessing() in the background.
  */
-export async function createDeclarationSet(input: CreateDeclarationSetInput): Promise<CreateDeclarationSetResult> {
+export async function createDeclarationRun(input: CreateDeclarationRunInput): Promise<CreateDeclarationRunResult> {
   const e = env();
   const tenant = await resolveTenant(input.tenantSlug);
 
@@ -65,22 +65,22 @@ export async function createDeclarationSet(input: CreateDeclarationSetInput): Pr
     input.uploadKind === 'csv' ? parseCsvBuffer(input.uploadBytes) : parseXlsxBuffer(input.uploadBytes);
 
   if (parsed.rows.length === 0) {
-    throw new DeclarationSetValidationError('uploaded file has no data rows');
+    throw new DeclarationRunValidationError('uploaded file has no data rows');
   }
   if (parsed.rows.length > e.BATCH_INPUT_MAX_ROWS) {
-    throw new DeclarationSetTooLargeError(parsed.rows.length, e.BATCH_INPUT_MAX_ROWS);
+    throw new DeclarationRunTooLargeError(parsed.rows.length, e.BATCH_INPUT_MAX_ROWS);
   }
 
   const lookups = await loadLookups(tenant);
   const items = canonicaliseRows(parsed.rows, tenant, lookups);
 
-  const declarationSetId = newId();
-  const sourceBlobKey = inputKey(declarationSetId, input.uploadKind);
+  const declarationRunId = newId();
+  const sourceBlobKey = inputKey(declarationRunId, input.uploadKind);
   const contentType = input.uploadKind === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   await getBlobClient().put(sourceBlobKey, input.uploadBytes, contentType);
 
-  const insertInput: InsertDeclarationSetInput = {
-    declarationSetId,
+  const insertInput: InsertDeclarationRunInput = {
+    declarationRunId,
     tenantSlug: tenant.slug,
     mode: input.mode,
     sourceBlobKey,
@@ -88,25 +88,25 @@ export async function createDeclarationSet(input: CreateDeclarationSetInput): Pr
     metadata: input.metadata,
     items,
   };
-  const declarationSet = await insertDeclarationSet(insertInput);
+  const declarationRun = await insertDeclarationRun(insertInput);
 
-  return { declarationSet };
+  return { declarationRun };
 }
 
 /** Run Phase 1 (and Phase 2 if mode === 'classify_and_declare'). */
-export async function runProcessing(declarationSetId: string, dispatch: DispatchFn): Promise<void> {
-  await setDeclarationSetStatus(declarationSetId, { status: 'processing', startedAt: new Date() });
+export async function runProcessing(declarationRunId: string, dispatch: DispatchFn): Promise<void> {
+  await setDeclarationRunStatus(declarationRunId, { status: 'processing', startedAt: new Date() });
   try {
-    await runClassificationPhase(declarationSetId, { dispatch });
+    await runClassificationPhase(declarationRunId, { dispatch });
 
     // Phase 2 — declaration. The service no-ops when mode === 'classify_only'.
     const { runDeclarationPhaseIfNeeded } = await import('./declaration/declaration.service.js');
-    await runDeclarationPhaseIfNeeded(declarationSetId);
+    await runDeclarationPhaseIfNeeded(declarationRunId);
 
-    await setDeclarationSetStatus(declarationSetId, { status: 'completed', completedAt: new Date() });
+    await setDeclarationRunStatus(declarationRunId, { status: 'completed', completedAt: new Date() });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await setDeclarationSetStatus(declarationSetId, {
+    await setDeclarationRunStatus(declarationRunId, {
       status: 'failed',
       completedAt: new Date(),
       error: msg.length > 1000 ? msg.slice(0, 1000) + '…' : msg,
@@ -124,8 +124,8 @@ function canonicaliseRows(
   rows: ReadonlyArray<Record<string, string>>,
   tenant: TenantConfig,
   lookups: MapperLookups,
-): DeclarationSetItemInput[] {
-  const out: DeclarationSetItemInput[] = [];
+): DeclarationRunItemInput[] {
+  const out: DeclarationRunItemInput[] = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     const canonical = mapRowToCanonical(row, tenant, i + 1, lookups);

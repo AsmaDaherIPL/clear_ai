@@ -5,29 +5,29 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import {
-  declarationSetItems,
-  declarationSets,
+  declarationRunItems,
+  declarationRuns,
   declarations,
   type DeclarationStatus,
-  type DeclarationSetItemRow,
+  type DeclarationRunItemRow,
 } from '../../../db/schema.js';
 import type { BundleStrategy } from './declaration.types.js';
 
-export async function listClassifiedItems(declarationSetId: string): Promise<DeclarationSetItemRow[]> {
+export async function listClassifiedItems(declarationRunId: string): Promise<DeclarationRunItemRow[]> {
   return db()
     .select()
-    .from(declarationSetItems)
+    .from(declarationRunItems)
     .where(
       and(
-        eq(declarationSetItems.declarationSetId, declarationSetId),
-        inArray(declarationSetItems.status, ['succeeded', 'flagged']),
+        eq(declarationRunItems.declarationRunId, declarationRunId),
+        inArray(declarationRunItems.status, ['succeeded', 'flagged']),
       ),
     )
-    .orderBy(declarationSetItems.rowIndex);
+    .orderBy(declarationRunItems.rowIndex);
 }
 
 export interface RecordDeclarationInput {
-  declarationSetId: string;
+  declarationRunId: string;
   bundleIndex: number;
   strategy: BundleStrategy;
   itemCount: number;
@@ -36,7 +36,7 @@ export interface RecordDeclarationInput {
 
 export async function recordDeclaration(input: RecordDeclarationInput): Promise<void> {
   await db().insert(declarations).values({
-    declarationSetId: input.declarationSetId,
+    declarationRunId: input.declarationRunId,
     bundleIndex: input.bundleIndex,
     bundleStrategy: input.strategy,
     itemCount: input.itemCount,
@@ -45,15 +45,15 @@ export async function recordDeclaration(input: RecordDeclarationInput): Promise<
 }
 
 export async function markDeclarationPhase(
-  declarationSetId: string,
+  declarationRunId: string,
   status: DeclarationStatus,
   err?: string,
 ): Promise<void> {
   await db()
-    .update(declarationSets)
+    .update(declarationRuns)
     .set({
       declarationStatus: status,
       ...(err ? { error: err } : {}),
     })
-    .where(eq(declarationSets.id, declarationSetId));
+    .where(eq(declarationRuns.id, declarationRunId));
 }

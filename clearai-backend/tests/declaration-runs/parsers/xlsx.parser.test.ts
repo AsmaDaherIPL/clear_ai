@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseXlsxBuffer, XlsxParseError } from '../../../src/modules/declaration-sets/parsers/xlsx.parser.js';
+import { parseXlsxBuffer, XlsxParseError } from '../../../src/modules/declaration-runs/parsers/xlsx.parser.js';
 
 function makeXlsx(headers: string[], data: Array<Array<string | number>>): Buffer {
   const aoa = [headers, ...data];

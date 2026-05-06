@@ -2,14 +2,14 @@
  * In-memory shape of the decsub:saudiEDI envelope before serialisation.
  * Mirrors decsub.xsd structurally; the renderer translates field by field.
  */
-import type { DeclarationSetItemRow } from '../../../db/schema.js';
-import type { BundleStrategy } from '../../../modules/declaration-sets/declaration/declaration.types.js';
+import type { DeclarationRunItemRow } from '../../../db/schema.js';
+import type { BundleStrategy } from '../../../modules/declaration-runs/declaration/declaration.types.js';
 import type { LookupValue } from '../../../modules/tenants/tenant-lookups.repository.js';
 
 export interface BundleInput {
   strategy: BundleStrategy;
   /** Items belonging to this bundle. HV bundles have exactly 1; LV up to bundleSize. */
-  items: ReadonlyArray<DeclarationSetItemRow>;
+  items: ReadonlyArray<DeclarationRunItemRow>;
 }
 
 export interface RenderInput {
@@ -19,7 +19,7 @@ export interface RenderInput {
     constants: Readonly<Record<string, string>>;
   };
   bundleStrategy: BundleStrategy;
-  items: ReadonlyArray<DeclarationSetItemRow>;
+  items: ReadonlyArray<DeclarationRunItemRow>;
   submitter: {
     carrierId: string;
     name: string;
@@ -43,4 +43,4 @@ export interface RenderInput {
   docRefSuffixOverride?: string;
 }
 
-export type { BundleStrategy } from '../../../modules/declaration-sets/declaration/declaration.types.js';
+export type { BundleStrategy } from '../../../modules/declaration-runs/declaration/declaration.types.js';

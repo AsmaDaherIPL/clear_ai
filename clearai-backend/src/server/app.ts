@@ -4,8 +4,7 @@ import sensible from '@fastify/sensible';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { env } from '../config/env.js';
-import { tenantsRoutes } from '../modules/tenants/tenants.routes.js';
-import { declarationSetsRoutes } from '../modules/declaration-sets/declaration-sets.routes.js';
+import { declarationRunsRoutes } from '../modules/declaration-runs/declaration-runs.routes.js';
 import { submissionDescriptionRoute } from '../modules/pipeline/submission-description/submission-description.routes.js';
 import { getPool, closeDb } from '../db/client.js';
 import { registerErrorHandler } from './error-handler.js';
@@ -101,9 +100,7 @@ app.get('/ready', async (_req, reply) => {
   return { status: 'ready' };
 });
 
-// Tenants registry + declaration-set processing.
-await app.register(tenantsRoutes);
-await app.register(declarationSetsRoutes);
+await app.register(declarationRunsRoutes);
 await app.register(submissionDescriptionRoute);
 
 const start = async (): Promise<void> => {

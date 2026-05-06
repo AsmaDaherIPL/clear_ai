@@ -1,31 +1,31 @@
 /**
- * Thin HTTP layer for declaration-set endpoints. Multipart parse + zod
- * validation + delegation to declaration-set.use-case. Maps errors to the
+ * Thin HTTP layer for declaration-run endpoints. Multipart parse + zod
+ * validation + delegation to declaration-run.use-case. Maps errors to the
  * shared envelope.
  */
 import type { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import type { MultipartFile, MultipartValue } from '@fastify/multipart';
-import { CreateDeclarationSetFieldsSchema, PatchDeclarationSetSchema } from './declaration-set.validation.js';
-import { createDeclarationSet, runProcessing, type UploadKind } from './declaration-set.use-case.js';
+import { CreateDeclarationRunFieldsSchema, PatchDeclarationRunSchema } from './declaration-run.validation.js';
+import { createDeclarationRun, runProcessing, type UploadKind } from './declaration-run.use-case.js';
 import {
-  cancelDeclarationSetIfActive,
+  cancelDeclarationRunIfActive,
   countItemsByStatus,
-  getDeclarationSet,
+  getDeclarationRun,
   listItems,
-} from './declaration-set.repository.js';
+} from './declaration-run.repository.js';
 import {
-  DeclarationSetValidationError,
-  DeclarationSetTooLargeError,
-  DeclarationSetNotFoundError,
-} from './declaration-set.errors.js';
+  DeclarationRunValidationError,
+  DeclarationRunTooLargeError,
+  DeclarationRunNotFoundError,
+} from './declaration-run.errors.js';
 import { TenantNotFoundError, RequiredFieldMissingError } from '../tenants/tenant.errors.js';
-import type { DeclarationSetSummary } from './declaration-set.types.js';
+import type { DeclarationRunSummary } from './declaration-run.types.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
 import type {
   ClassificationStatus,
   DeclarationStatus,
-  DeclarationSetMode,
-  DeclarationSetStatus,
+  DeclarationRunMode,
+  DeclarationRunStatus,
 } from '../../db/schema.js';
 
 const ACCEPTED_EXTS: Record<string, UploadKind> = {
@@ -68,7 +68,7 @@ async function readMultipart(req: FastifyRequest): Promise<MultipartFields> {
   return { file, fields };
 }
 
-export async function handleCreateDeclarationSet(
+export async function handleCreateDeclarationRun(
   req: FastifyRequest,
   reply: FastifyReply,
   dispatch: DispatchFn,
@@ -76,11 +76,11 @@ export async function handleCreateDeclarationSet(
   const { file, fields } = await readMultipart(req);
 
   if (!file) {
-    throw new DeclarationSetValidationError('multipart upload missing the `file` part');
+    throw new DeclarationRunValidationError('multipart upload missing the `file` part');
   }
   const kind = sniffKindFromFilename(file.filename);
   if (!kind) {
-    throw new DeclarationSetValidationError(`unsupported file extension: ${file.filename}`);
+    throw new DeclarationRunValidationError(`unsupported file extension: ${file.filename}`);
   }
 
   // Decode the metadata field (if present, JSON-encoded).
@@ -91,29 +91,29 @@ export async function handleCreateDeclarationSet(
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         metadataObj = parsed as Record<string, unknown>;
       } else {
-        throw new DeclarationSetValidationError('metadata must be a JSON object');
+        throw new DeclarationRunValidationError('metadata must be a JSON object');
       }
     } catch {
-      throw new DeclarationSetValidationError('metadata must be valid JSON');
+      throw new DeclarationRunValidationError('metadata must be valid JSON');
     }
   }
 
-  const parsed = CreateDeclarationSetFieldsSchema.safeParse({
+  const parsed = CreateDeclarationRunFieldsSchema.safeParse({
     tenant_slug: fields.tenant_slug,
     mode: fields.mode || undefined,
     callback_url: fields.callback_url || undefined,
     metadata: metadataObj,
   });
   if (!parsed.success) {
-    throw new DeclarationSetValidationError('field validation failed', { issues: parsed.error.issues });
+    throw new DeclarationRunValidationError('field validation failed', { issues: parsed.error.issues });
   }
   const body = parsed.data;
 
   const buf = (file as MultipartFile & { _buffer: Buffer })._buffer;
 
-  const { declarationSet } = await createDeclarationSet({
+  const { declarationRun } = await createDeclarationRun({
     tenantSlug: body.tenant_slug,
-    mode: body.mode as DeclarationSetMode,
+    mode: body.mode as DeclarationRunMode,
     uploadKind: kind,
     uploadBytes: buf,
     metadata: { ...body.metadata, original_filename: file.filename, ...(body.callback_url ? { callback_url: body.callback_url } : {}) },
@@ -121,52 +121,52 @@ export async function handleCreateDeclarationSet(
   });
 
   // Kick off processing in background; surface the id immediately.
-  void runProcessing(declarationSet.id, dispatch).catch((err: unknown) => {
-    req.log.error({ err, declaration_set_id: declarationSet.id }, 'background processing failed');
+  void runProcessing(declarationRun.id, dispatch).catch((err: unknown) => {
+    req.log.error({ err, declaration_run_id: declarationRun.id }, 'background processing failed');
   });
 
   return reply.code(202).send({
-    declaration_set_id: declarationSet.id,
-    mode: declarationSet.mode,
-    poll_url: `/declaration-sets/${declarationSet.id}`,
-    classifications_url: `/declaration-sets/${declarationSet.id}/classifications`,
-    ...(declarationSet.mode === 'classify_and_declare'
-      ? { declarations_url: `/declaration-sets/${declarationSet.id}/declarations` }
+    declaration_run_id: declarationRun.id,
+    mode: declarationRun.mode,
+    poll_url: `/declaration-runs/${declarationRun.id}`,
+    classifications_url: `/declaration-runs/${declarationRun.id}/classifications`,
+    ...(declarationRun.mode === 'classify_and_declare'
+      ? { declarations_url: `/declaration-runs/${declarationRun.id}/declarations` }
       : {}),
   });
 }
 
-export async function handleGetDeclarationSet(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
-  const declarationSet = await getDeclarationSet(req.params.id);
-  const counts = await countItemsByStatus(declarationSet.id);
-  const summary: DeclarationSetSummary = {
-    id: declarationSet.id,
-    tenant_slug: declarationSet.tenant,
-    mode: declarationSet.mode as DeclarationSetMode,
-    status: declarationSet.status as DeclarationSetStatus,
-    classification_status: declarationSet.classificationStatus as ClassificationStatus,
-    declaration_status: (declarationSet.declarationStatus ?? null) as DeclarationStatus | null,
-    row_count: declarationSet.rowCount,
+export async function handleGetDeclarationRun(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
+  const declarationRun = await getDeclarationRun(req.params.id);
+  const counts = await countItemsByStatus(declarationRun.id);
+  const summary: DeclarationRunSummary = {
+    id: declarationRun.id,
+    tenant_slug: declarationRun.tenant,
+    mode: declarationRun.mode as DeclarationRunMode,
+    status: declarationRun.status as DeclarationRunStatus,
+    classification_status: declarationRun.classificationStatus as ClassificationStatus,
+    declaration_status: (declarationRun.declarationStatus ?? null) as DeclarationStatus | null,
+    row_count: declarationRun.rowCount,
     succeeded: counts.succeeded,
     flagged: counts.flagged,
     blocked: counts.blocked,
     failed: counts.failed,
     pending: counts.pending + counts.classifying,
-    started_at: declarationSet.startedAt?.toISOString() ?? null,
-    completed_at: declarationSet.completedAt?.toISOString() ?? null,
-    error: declarationSet.error,
+    started_at: declarationRun.startedAt?.toISOString() ?? null,
+    completed_at: declarationRun.completedAt?.toISOString() ?? null,
+    error: declarationRun.error,
   };
   return reply.send(summary);
 }
 
 export async function handleListClassifications(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
-  const declarationSet = await getDeclarationSet(req.params.id);
-  if (declarationSet.classificationStatus === 'pending' || declarationSet.classificationStatus === 'running') {
+  const declarationRun = await getDeclarationRun(req.params.id);
+  if (declarationRun.classificationStatus === 'pending' || declarationRun.classificationStatus === 'running') {
     return reply.code(425).send({ error: { code: 'phase_not_ready', message: 'classification phase still running' } });
   }
-  const items = await listItems(declarationSet.id);
+  const items = await listItems(declarationRun.id);
   return reply.send({
-    declaration_set_id: declarationSet.id,
+    declaration_run_id: declarationRun.id,
     items: items.map((i) => ({
       id: i.id,
       row_index: i.rowIndex,
@@ -179,26 +179,26 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
   });
 }
 
-export async function handlePatchDeclarationSet(
+export async function handlePatchDeclarationRun(
   req: FastifyRequest<{ Params: { id: string }; Body: unknown }>,
   reply: FastifyReply,
 ): Promise<unknown> {
-  const parsed = PatchDeclarationSetSchema.safeParse(req.body);
+  const parsed = PatchDeclarationRunSchema.safeParse(req.body);
   if (!parsed.success) {
-    throw new DeclarationSetValidationError('only { status: "cancelled" } is permitted', { issues: parsed.error.issues });
+    throw new DeclarationRunValidationError('only { status: "cancelled" } is permitted', { issues: parsed.error.issues });
   }
-  const updated = await cancelDeclarationSetIfActive(req.params.id);
+  const updated = await cancelDeclarationRunIfActive(req.params.id);
   return reply.send({ id: updated.id, status: updated.status });
 }
 
-export function mapDeclarationSetError(err: unknown): { statusCode: number; body: unknown } | null {
-  if (err instanceof DeclarationSetValidationError) {
+export function mapDeclarationRunError(err: unknown): { statusCode: number; body: unknown } | null {
+  if (err instanceof DeclarationRunValidationError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message, details: err.details } } };
   }
-  if (err instanceof DeclarationSetTooLargeError) {
+  if (err instanceof DeclarationRunTooLargeError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message, details: err.details } } };
   }
-  if (err instanceof DeclarationSetNotFoundError) {
+  if (err instanceof DeclarationRunNotFoundError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message } } };
   }
   if (err instanceof TenantNotFoundError) {
@@ -210,7 +210,7 @@ export function mapDeclarationSetError(err: unknown): { statusCode: number; body
   return null;
 }
 
-export async function attachDeclarationSetPlugins(app: FastifyInstance): Promise<void> {
+export async function attachDeclarationRunPlugins(app: FastifyInstance): Promise<void> {
   // Idempotent register guard via Symbol marker.
   const KEY = Symbol.for('clearai.multipart.registered');
   const flag = (app as unknown as Record<symbol, unknown>)[KEY];

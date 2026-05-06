@@ -1,9 +1,9 @@
 /**
- * Phase 1 (classification) Drizzle queries scoped to declaration_set_items
+ * Phase 1 (classification) Drizzle queries scoped to declaration_run_items
  * mutations.
  *
  * v0 is single-process. We do NOT use SELECT FOR UPDATE SKIP LOCKED because
- * the orchestrator drives one in-process worker per declaration_set with a
+ * the orchestrator drives one in-process worker per declaration_run with a
  * p-limit semaphore — there's no across-process contention. If we move to a
  * worker per Container Apps Job (v2), this is the file that grows the
  * row-level lock.
@@ -11,9 +11,9 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../../db/client.js';
 import {
-  declarationSetItems,
-  declarationSets,
-  type DeclarationSetItemRow,
+  declarationRunItems,
+  declarationRuns,
+  type DeclarationRunItemRow,
   type ClassificationStatus,
 } from '../../../db/schema.js';
 import type {
@@ -21,20 +21,20 @@ import type {
   ItemTrace,
 } from './classification.types.js';
 
-export async function listPendingItems(declarationSetId: string): Promise<DeclarationSetItemRow[]> {
+export async function listPendingItems(declarationRunId: string): Promise<DeclarationRunItemRow[]> {
   return db()
     .select()
-    .from(declarationSetItems)
-    .where(and(eq(declarationSetItems.declarationSetId, declarationSetId), eq(declarationSetItems.status, 'pending')))
-    .orderBy(declarationSetItems.rowIndex);
+    .from(declarationRunItems)
+    .where(and(eq(declarationRunItems.declarationRunId, declarationRunId), eq(declarationRunItems.status, 'pending')))
+    .orderBy(declarationRunItems.rowIndex);
 }
 
 /** Optimistic transition pending -> classifying for a single item. */
 export async function markItemClassifying(itemId: string): Promise<void> {
   await db()
-    .update(declarationSetItems)
+    .update(declarationRunItems)
     .set({ status: 'classifying' })
-    .where(and(eq(declarationSetItems.id, itemId), eq(declarationSetItems.status, 'pending')));
+    .where(and(eq(declarationRunItems.id, itemId), eq(declarationRunItems.status, 'pending')));
 }
 
 export interface ItemResultRecord {
@@ -49,7 +49,7 @@ export interface ItemResultRecord {
 
 export async function recordItemResult(rec: ItemResultRecord): Promise<void> {
   await db()
-    .update(declarationSetItems)
+    .update(declarationRunItems)
     .set({
       status: rec.outcome,
       finalCode: rec.finalCode,
@@ -58,19 +58,19 @@ export async function recordItemResult(rec: ItemResultRecord): Promise<void> {
       trace: (rec.trace as unknown as Record<string, unknown>) ?? null,
       error: rec.error,
     })
-    .where(eq(declarationSetItems.id, rec.itemId));
+    .where(eq(declarationRunItems.id, rec.itemId));
 }
 
 export async function markClassificationPhase(
-  declarationSetId: string,
+  declarationRunId: string,
   status: ClassificationStatus,
   err?: string,
 ): Promise<void> {
   await db()
-    .update(declarationSets)
+    .update(declarationRuns)
     .set({
       classificationStatus: status,
       ...(err ? { error: err } : {}),
     })
-    .where(eq(declarationSets.id, declarationSetId));
+    .where(eq(declarationRuns.id, declarationRunId));
 }

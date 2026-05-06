@@ -22,8 +22,8 @@ import {
   tenantFieldMappings,
   tenantConstants,
   tenantLookups,
-  declarationSets,
-  declarationSetItems,
+  declarationRuns,
+  declarationRunItems,
   declarations,
 } from '../../../src/db/schema.js';
 import { clearCache } from '../../../src/modules/tenants/tenant-config.registry.js';
@@ -41,7 +41,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantConstants).where(eq(tenantConstants.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantLookups).where(eq(tenantLookups.tenant, TEST_TENANT_SLUG));
@@ -51,7 +51,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantConstants).where(eq(tenantConstants.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantLookups).where(eq(tenantLookups.tenant, TEST_TENANT_SLUG));
@@ -169,9 +169,9 @@ interface SeedItem {
 }
 
 async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
-  const declarationSetId = newId();
-  await db().insert(declarationSets).values({
-    id: declarationSetId,
+  const declarationRunId = newId();
+  await db().insert(declarationRuns).values({
+    id: declarationRunId,
     tenant: TEST_TENANT_SLUG,
     mode: 'classify_and_declare',
     declarationStatus: 'pending',
@@ -186,8 +186,8 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
     // The declaration phase only reads canonical.valueAmount; the rest of
     // the canonical shape is here just to satisfy the TS contract.
     const goodsDescriptionAr = s.status === 'succeeded' || s.status === 'flagged' ? 'فستان' : null;
-    await db().insert(declarationSetItems).values({
-      declarationSetId,
+    await db().insert(declarationRunItems).values({
+      declarationRunId,
       rowIndex: i + 1,
       canonical: {
         itemId: 'placeholder',
@@ -218,13 +218,13 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
       classificationResult: cls,
     });
   }
-  return declarationSetId;
+  return declarationRunId;
 }
 
 describe('runDeclarationPhase', () => {
   it('produces HV bundles for items >= threshold and LV chunks for the rest', async () => {
     // bundleSize=3, threshold=1000.
-    const declarationSetId = await seed([
+    const declarationRunId = await seed([
       { status: 'succeeded', valueAmount: 1500 }, // HV
       { status: 'succeeded', valueAmount: 200 },
       { status: 'flagged', valueAmount: 300 },
@@ -233,15 +233,15 @@ describe('runDeclarationPhase', () => {
       { status: 'succeeded', valueAmount: 2000 }, // HV
     ]);
 
-    const { runDeclarationPhase } = await import('../../../src/modules/declaration-sets/declaration/declaration.runner.js');
-    const summary = await runDeclarationPhase(declarationSetId);
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/declaration/declaration.runner.js');
+    const summary = await runDeclarationPhase(declarationRunId);
     // Expected: 2 HV + ceil(4/3)=2 LV = 4 bundles total.
     expect(summary.bundleCount).toBe(4);
 
     const rows = await db()
       .select()
       .from(declarations)
-      .where(eq(declarations.declarationSetId, declarationSetId))
+      .where(eq(declarations.declarationRunId, declarationRunId))
       .orderBy(declarations.bundleIndex);
     expect(rows).toHaveLength(4);
     const strategies = rows.map((r) => r.bundleStrategy);
@@ -249,31 +249,31 @@ describe('runDeclarationPhase', () => {
     expect(strategies.filter((s) => s === 'LV_BUNDLED')).toHaveLength(2);
 
     // declaration_status flips to completed.
-    const after = await db().select().from(declarationSets).where(eq(declarationSets.id, declarationSetId)).limit(1);
+    const after = await db().select().from(declarationRuns).where(eq(declarationRuns.id, declarationRunId)).limit(1);
     expect(after[0]!.declarationStatus).toBe('completed');
   });
 
   it('excludes blocked and failed items', async () => {
-    const declarationSetId = await seed([
+    const declarationRunId = await seed([
       { status: 'succeeded', valueAmount: 100 },
       { status: 'blocked', valueAmount: 200 },
       { status: 'failed', valueAmount: 300 },
       { status: 'flagged', valueAmount: 400 },
     ]);
-    const { runDeclarationPhase } = await import('../../../src/modules/declaration-sets/declaration/declaration.runner.js');
-    const summary = await runDeclarationPhase(declarationSetId);
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/declaration/declaration.runner.js');
+    const summary = await runDeclarationPhase(declarationRunId);
     // Only 2 included items; bundleSize=3 so 1 LV bundle.
     expect(summary.bundleCount).toBe(1);
-    const rows = await db().select().from(declarations).where(eq(declarations.declarationSetId, declarationSetId));
+    const rows = await db().select().from(declarations).where(eq(declarations.declarationRunId, declarationRunId));
     expect(rows[0]!.itemCount).toBe(2);
   });
 
   it('writes XML to the configured blob backend', async () => {
-    const declarationSetId = await seed([{ status: 'succeeded', valueAmount: 100 }]);
-    const { runDeclarationPhase } = await import('../../../src/modules/declaration-sets/declaration/declaration.runner.js');
-    await runDeclarationPhase(declarationSetId);
-    const rows = await db().select().from(declarations).where(eq(declarations.declarationSetId, declarationSetId));
-    expect(rows[0]!.blobKey).toMatch(new RegExp(`declaration-sets/${declarationSetId}/declarations/0000\\.xml`));
+    const declarationRunId = await seed([{ status: 'succeeded', valueAmount: 100 }]);
+    const { runDeclarationPhase } = await import('../../../src/modules/declaration-runs/declaration/declaration.runner.js');
+    await runDeclarationPhase(declarationRunId);
+    const rows = await db().select().from(declarations).where(eq(declarations.declarationRunId, declarationRunId));
+    expect(rows[0]!.blobKey).toMatch(new RegExp(`declaration-runs/${declarationRunId}/declarations/0000\\.xml`));
 
     const { getBlobClient } = await import('../../../src/storage/blob.client.js');
     const buf = await getBlobClient().get(rows[0]!.blobKey);

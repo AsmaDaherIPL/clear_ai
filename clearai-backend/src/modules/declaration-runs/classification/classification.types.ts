@@ -3,7 +3,7 @@
  *
  * The dispatch contract — `dispatch(item) -> { finalCode, sanityVerdict, trace }`
  * — is owned by the dispatch-flow agent. Until they ship a concrete
- * implementation, the declaration-sets module depends on the interface shape
+ * implementation, the declaration-runs module depends on the interface shape
  * declared here (mirrored in dispatch.contract.ts).
  */
 

@@ -337,6 +337,13 @@
       "when": 1777214700000,
       "tag": "0047_tenant_field_mappings_fallback",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1777214800000,
+      "tag": "0048_declaration_runs_rename",
+      "breakpoints": true
     }
   ]
 }

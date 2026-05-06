@@ -1,65 +1,65 @@
 /**
- * Drizzle queries for declaration_sets + declaration_set_items.
+ * Drizzle queries for declaration_runs + declaration_run_items.
  *
  * The two-phase status fields (classification_status / declaration_status)
  * are written via dedicated phase repositories
  * (classification.repository / declaration.repository); this module owns
- * CRUD + cross-phase queries (insertDeclarationSet, getDeclarationSet,
+ * CRUD + cross-phase queries (insertDeclarationRun, getDeclarationRun,
  * listItems, countItemsByStatus).
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  declarationSets,
-  declarationSetItems,
+  declarationRuns,
+  declarationRunItems,
   type ClassificationStatus,
   type DeclarationStatus,
-  type DeclarationSetItemRow,
-  type DeclarationSetItemStatus,
-  type DeclarationSetMode,
-  type DeclarationSetRow,
-  type DeclarationSetStatus,
-  type NewDeclarationSetItemRow,
+  type DeclarationRunItemRow,
+  type DeclarationRunItemStatus,
+  type DeclarationRunMode,
+  type DeclarationRunRow,
+  type DeclarationRunStatus,
+  type NewDeclarationRunItemRow,
 } from '../../db/schema.js';
 import type { CanonicalLineItem, RawRow } from '../tenants/tenant-config.types.js';
-import { DeclarationSetNotFoundError } from './declaration-set.errors.js';
+import { DeclarationRunNotFoundError } from './declaration-run.errors.js';
 
 /**
  * One paired (canonical, rawRow) record. The repository writes them into
  * sibling jsonb columns; rawRow stays out of canonical so column-level PII
  * grants work (see migration 0043 + ADR `batch-items-canonical-jsonb.md`).
  */
-export interface DeclarationSetItemInput {
+export interface DeclarationRunItemInput {
   canonical: CanonicalLineItem;
   rawRow: RawRow;
 }
 
-export interface InsertDeclarationSetInput {
+export interface InsertDeclarationRunInput {
   /** Pre-allocated uuid so the caller can build deterministic blob paths. */
-  declarationSetId: string;
+  declarationRunId: string;
   tenantSlug: string;
-  mode: DeclarationSetMode;
+  mode: DeclarationRunMode;
   sourceBlobKey: string;
   rowCount: number;
   metadata: Record<string, unknown>;
-  items: ReadonlyArray<DeclarationSetItemInput>;
+  items: ReadonlyArray<DeclarationRunItemInput>;
 }
 
 /**
- * Insert a declaration_set row + every declaration_set_items row in a
+ * Insert a declaration_run row + every declaration_run_items row in a
  * single transaction. Sets initial classification_status='pending';
  * declaration_status='pending' iff mode='classify_and_declare', NULL
  * otherwise (per the DB consistency CHECK).
  */
-export async function insertDeclarationSet(input: InsertDeclarationSetInput): Promise<DeclarationSetRow> {
+export async function insertDeclarationRun(input: InsertDeclarationRunInput): Promise<DeclarationRunRow> {
   return db().transaction(async (tx) => {
     const declStatus: DeclarationStatus | null =
       input.mode === 'classify_and_declare' ? 'pending' : null;
 
     const inserted = await tx
-      .insert(declarationSets)
+      .insert(declarationRuns)
       .values({
-        id: input.declarationSetId,
+        id: input.declarationRunId,
         tenant: input.tenantSlug,
         mode: input.mode,
         status: 'pending',
@@ -70,11 +70,11 @@ export async function insertDeclarationSet(input: InsertDeclarationSetInput): Pr
         metadata: input.metadata,
       })
       .returning();
-    const declarationSet = inserted[0]!;
+    const declarationRun = inserted[0]!;
 
-    const rows: NewDeclarationSetItemRow[] = input.items.map(({ canonical, rawRow }) => ({
+    const rows: NewDeclarationRunItemRow[] = input.items.map(({ canonical, rawRow }) => ({
       id: canonical.itemId,
-      declarationSetId: declarationSet.id,
+      declarationRunId: declarationRun.id,
       rowIndex: canonical.rowIndex,
       canonical,
       rawRow,
@@ -85,37 +85,37 @@ export async function insertDeclarationSet(input: InsertDeclarationSetInput): Pr
       // Chunked insert to avoid hitting Postgres parameter limits.
       const CHUNK = 200;
       for (let i = 0; i < rows.length; i += CHUNK) {
-        await tx.insert(declarationSetItems).values(rows.slice(i, i + CHUNK));
+        await tx.insert(declarationRunItems).values(rows.slice(i, i + CHUNK));
       }
     }
 
-    return declarationSet;
+    return declarationRun;
   });
 }
 
-export async function getDeclarationSet(id: string): Promise<DeclarationSetRow> {
-  const rows = await db().select().from(declarationSets).where(eq(declarationSets.id, id)).limit(1);
-  if (!rows[0]) throw new DeclarationSetNotFoundError(id);
+export async function getDeclarationRun(id: string): Promise<DeclarationRunRow> {
+  const rows = await db().select().from(declarationRuns).where(eq(declarationRuns.id, id)).limit(1);
+  if (!rows[0]) throw new DeclarationRunNotFoundError(id);
   return rows[0];
 }
 
-export async function listItems(declarationSetId: string): Promise<DeclarationSetItemRow[]> {
+export async function listItems(declarationRunId: string): Promise<DeclarationRunItemRow[]> {
   return db()
     .select()
-    .from(declarationSetItems)
-    .where(eq(declarationSetItems.declarationSetId, declarationSetId))
-    .orderBy(declarationSetItems.rowIndex);
+    .from(declarationRunItems)
+    .where(eq(declarationRunItems.declarationRunId, declarationRunId))
+    .orderBy(declarationRunItems.rowIndex);
 }
 
 export async function countItemsByStatus(
-  declarationSetId: string,
-): Promise<Record<DeclarationSetItemStatus, number>> {
+  declarationRunId: string,
+): Promise<Record<DeclarationRunItemStatus, number>> {
   const rows = await db()
-    .select({ status: declarationSetItems.status, n: sql<number>`count(*)::int` })
-    .from(declarationSetItems)
-    .where(eq(declarationSetItems.declarationSetId, declarationSetId))
-    .groupBy(declarationSetItems.status);
-  const out: Record<DeclarationSetItemStatus, number> = {
+    .select({ status: declarationRunItems.status, n: sql<number>`count(*)::int` })
+    .from(declarationRunItems)
+    .where(eq(declarationRunItems.declarationRunId, declarationRunId))
+    .groupBy(declarationRunItems.status);
+  const out: Record<DeclarationRunItemStatus, number> = {
     pending: 0,
     classifying: 0,
     succeeded: 0,
@@ -123,14 +123,14 @@ export async function countItemsByStatus(
     blocked: 0,
     failed: 0,
   };
-  for (const r of rows) out[r.status as DeclarationSetItemStatus] = Number(r.n);
+  for (const r of rows) out[r.status as DeclarationRunItemStatus] = Number(r.n);
   return out;
 }
 
-export async function setDeclarationSetStatus(
+export async function setDeclarationRunStatus(
   id: string,
   patch: Partial<{
-    status: DeclarationSetStatus;
+    status: DeclarationRunStatus;
     classificationStatus: ClassificationStatus;
     declarationStatus: DeclarationStatus | null;
     startedAt: Date | null;
@@ -148,18 +148,18 @@ export async function setDeclarationSetStatus(
   if (patch.error !== undefined) set.error = patch.error;
   if (patch.resultBlobKey !== undefined) set.resultBlobKey = patch.resultBlobKey;
   if (Object.keys(set).length === 0) return;
-  await db().update(declarationSets).set(set).where(eq(declarationSets.id, id));
+  await db().update(declarationRuns).set(set).where(eq(declarationRuns.id, id));
 }
 
-export async function cancelDeclarationSetIfActive(id: string): Promise<DeclarationSetRow> {
-  const declarationSet = await getDeclarationSet(id);
-  const TERMINAL: DeclarationSetStatus[] = ['completed', 'failed', 'cancelled'];
-  if (TERMINAL.includes(declarationSet.status as DeclarationSetStatus)) {
-    return declarationSet;
+export async function cancelDeclarationRunIfActive(id: string): Promise<DeclarationRunRow> {
+  const declarationRun = await getDeclarationRun(id);
+  const TERMINAL: DeclarationRunStatus[] = ['completed', 'failed', 'cancelled'];
+  if (TERMINAL.includes(declarationRun.status as DeclarationRunStatus)) {
+    return declarationRun;
   }
   await db()
-    .update(declarationSets)
+    .update(declarationRuns)
     .set({ status: 'cancelled', completedAt: new Date() })
-    .where(and(eq(declarationSets.id, id)));
-  return getDeclarationSet(id);
+    .where(and(eq(declarationRuns.id, id)));
+  return getDeclarationRun(id);
 }

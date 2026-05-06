@@ -157,7 +157,7 @@ export interface PipelineTrace {
 }
 
 // ---------------------------------------------------------------------------
-// Final pipeline output (consumed by declaration-sets/classification)
+// Final pipeline output (consumed by declaration-runs/classification)
 // ---------------------------------------------------------------------------
 
 export interface PipelineResult {

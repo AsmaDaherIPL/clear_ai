@@ -1,5 +1,5 @@
 /**
- * declaration_set_items — one row per parsed line item under a declaration_set.
+ * declaration_run_items — one row per parsed line item under a declaration_run.
  *
  * Phase 1 (classification) flow:
  *   pending -> claimNextItem() -> classifying
@@ -17,17 +17,17 @@
  * classification fails loudly rather than silently orphaning the result.
  *
  * Related tables:
- *   • declaration_sets — FK target (declaration_set_id -> declaration_sets.id) ON DELETE CASCADE
+ *   • declaration_runs — FK target (declaration_run_id -> declaration_runs.id) ON DELETE CASCADE
  *   • zatca_hs_codes   — FK target (final_code -> zatca_hs_codes.code) ON DELETE RESTRICT
  */
 import { pgTable, uuid, integer, varchar, char, jsonb, text, timestamp, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { declarationSets } from './declaration-sets.js';
+import { declarationRuns } from './declaration-runs.js';
 import { hsCodes } from './zatca-hs-codes.js';
 import type { CanonicalLineItem, RawRow } from '../../modules/tenants/tenant-config.types.js';
 
-/** Mirror of declaration_set_items_status_chk. */
-export type DeclarationSetItemStatus =
+/** Mirror of declaration_run_items_status_chk. */
+export type DeclarationRunItemStatus =
   | 'pending'
   | 'classifying'
   | 'succeeded'
@@ -35,13 +35,13 @@ export type DeclarationSetItemStatus =
   | 'blocked'
   | 'failed';
 
-export const declarationSetItems = pgTable(
-  'declaration_set_items',
+export const declarationRunItems = pgTable(
+  'declaration_run_items',
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
 
-    /** Parent declaration_set. FK -> declaration_sets(id) ON DELETE CASCADE. */
-    declarationSetId: uuid('declaration_set_id').notNull(),
+    /** Parent declaration_run. FK -> declaration_runs(id) ON DELETE CASCADE. */
+    declarationRunId: uuid('declaration_run_id').notNull(),
 
     /** 1-based row position from the source file (post-header). */
     rowIndex: integer('row_index').notNull(),
@@ -56,12 +56,12 @@ export const declarationSetItems = pgTable(
     rawRow: jsonb('raw_row').notNull().$type<RawRow>(),
 
     /** Phase 1 lifecycle; CHECK-locked. */
-    status: varchar('status', { length: 32 }).notNull().default('pending').$type<DeclarationSetItemStatus>(),
+    status: varchar('status', { length: 32 }).notNull().default('pending').$type<DeclarationRunItemStatus>(),
 
     /**
      * Final 12-digit ZATCA HS code from dispatch().finalCode. NULL until the
      * item reaches 'succeeded' or 'flagged' — enforced by
-     * declaration_set_items_final_code_status_consistency_chk.
+     * declaration_run_items_final_code_status_consistency_chk.
      * FK -> zatca_hs_codes(code) ON DELETE RESTRICT.
      */
     finalCode: char('final_code', { length: 12 }),
@@ -70,7 +70,7 @@ export const declarationSetItems = pgTable(
      * Arabic goods description from dispatch().goodsDescriptionAr — feeds
      * `<deccm:goodsDescription>` in the rendered ZATCA Declaration envelope.
      * NULL until the item reaches 'succeeded' or 'flagged' — enforced by
-     * declaration_set_items_goods_description_ar_status_consistency_chk.
+     * declaration_run_items_goods_description_ar_status_consistency_chk.
      */
     goodsDescriptionAr: text('goods_description_ar'),
 
@@ -84,32 +84,32 @@ export const declarationSetItems = pgTable(
     error: text('error'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    /** Auto-bumped by declaration_set_items_touch_updated_at_trg. */
+    /** Auto-bumped by declaration_run_items_touch_updated_at_trg. */
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     setFk: foreignKey({
-      name: 'declaration_set_items_set_fk',
-      columns: [t.declarationSetId],
-      foreignColumns: [declarationSets.id],
+      name: 'declaration_run_items_set_fk',
+      columns: [t.declarationRunId],
+      foreignColumns: [declarationRuns.id],
     }).onDelete('cascade'),
 
     finalCodeFk: foreignKey({
-      name: 'declaration_set_items_final_code_fk',
+      name: 'declaration_run_items_final_code_fk',
       columns: [t.finalCode],
       foreignColumns: [hsCodes.code],
     }).onDelete('restrict'),
 
-    setRowUniq: unique('declaration_set_items_set_row_uniq').on(t.declarationSetId, t.rowIndex),
+    setRowUniq: unique('declaration_run_items_set_row_uniq').on(t.declarationRunId, t.rowIndex),
 
     /**
-     * Composite (declaration_set_id, row_index) index. Covers
-     * WHERE declaration_set_id = $1 lookups via leftmost-prefix AND
+     * Composite (declaration_run_id, row_index) index. Covers
+     * WHERE declaration_run_id = $1 lookups via leftmost-prefix AND
      * satisfies ORDER BY row_index without an in-memory sort.
      */
-    setRowIdx: index('declaration_set_items_set_row_idx').on(t.declarationSetId, t.rowIndex),
+    setRowIdx: index('declaration_run_items_set_row_idx').on(t.declarationRunId, t.rowIndex),
   }),
 );
 
-export type DeclarationSetItemRow = typeof declarationSetItems.$inferSelect;
-export type NewDeclarationSetItemRow = typeof declarationSetItems.$inferInsert;
+export type DeclarationRunItemRow = typeof declarationRunItems.$inferSelect;
+export type NewDeclarationRunItemRow = typeof declarationRunItems.$inferInsert;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCsvBuffer, CsvParseError } from '../../../src/modules/declaration-sets/parsers/csv.parser.js';
+import { parseCsvBuffer, CsvParseError } from '../../../src/modules/declaration-runs/parsers/csv.parser.js';
 
 const buf = (s: string): Buffer => Buffer.from(s, 'utf8');
 

@@ -5,26 +5,26 @@
  * stay in lock-step with the DB CHECK constraints (rule 6).
  */
 export type {
-  DeclarationSetMode,
-  DeclarationSetStatus,
+  DeclarationRunMode,
+  DeclarationRunStatus,
   ClassificationStatus,
   DeclarationStatus,
-  DeclarationSetItemStatus,
+  DeclarationRunItemStatus,
 } from '../../db/schema.js';
 
 import type {
   ClassificationStatus,
   DeclarationStatus,
-  DeclarationSetItemStatus,
-  DeclarationSetMode,
-  DeclarationSetStatus,
+  DeclarationRunItemStatus,
+  DeclarationRunMode,
+  DeclarationRunStatus,
 } from '../../db/schema.js';
 
-export interface DeclarationSetSummary {
+export interface DeclarationRunSummary {
   id: string;
   tenant_slug: string;
-  mode: DeclarationSetMode;
-  status: DeclarationSetStatus;
+  mode: DeclarationRunMode;
+  status: DeclarationRunStatus;
   classification_status: ClassificationStatus;
   declaration_status: DeclarationStatus | null;
   row_count: number;
@@ -38,11 +38,11 @@ export interface DeclarationSetSummary {
   error: string | null;
 }
 
-export interface DeclarationSetItemRecord {
+export interface DeclarationRunItemRecord {
   id: string;
-  declaration_set_id: string;
+  declaration_run_id: string;
   row_index: number;
-  status: DeclarationSetItemStatus;
+  status: DeclarationRunItemStatus;
   final_code: string | null;
   classification_result: Record<string, unknown> | null;
   trace: Record<string, unknown> | null;

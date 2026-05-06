@@ -10,9 +10,9 @@
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db, closeDb } from '../../../src/db/client.js';
-import { tenants, tenantFieldMappings, declarationSets, declarationSetItems } from '../../../src/db/schema.js';
+import { tenants, tenantFieldMappings, declarationRuns, declarationRunItems } from '../../../src/db/schema.js';
 import { eq, and } from 'drizzle-orm';
-import { runClassificationPhase } from '../../../src/modules/declaration-sets/classification/classification.service.js';
+import { runClassificationPhase } from '../../../src/modules/declaration-runs/classification/classification.service.js';
 import type { DispatchFn } from '../../../src/modules/dispatch/dispatch.contract.ts';
 import type { CanonicalLineItem } from '../../../src/modules/tenants/tenant-config.types.js';
 import { newId } from '../../../src/common/utils/uuid.js';
@@ -27,14 +27,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
   await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
   await closeDb();
 });
 
 beforeEach(async () => {
-  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
   await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
   await db().insert(tenants).values({
     slug: TEST_TENANT_SLUG,
@@ -68,10 +68,10 @@ function canonical(rowIndex: number): CanonicalLineItem {
   };
 }
 
-async function seedDeclarationSet(itemCount: number): Promise<{ declarationSetId: string; itemIds: string[] }> {
-  const declarationSetId = newId();
-  await db().insert(declarationSets).values({
-    id: declarationSetId,
+async function seedDeclarationRun(itemCount: number): Promise<{ declarationRunId: string; itemIds: string[] }> {
+  const declarationRunId = newId();
+  await db().insert(declarationRuns).values({
+    id: declarationRunId,
     tenant: TEST_TENANT_SLUG,
     mode: 'classify_and_declare',
     declarationStatus: 'pending',
@@ -82,45 +82,45 @@ async function seedDeclarationSet(itemCount: number): Promise<{ declarationSetId
   for (let i = 1; i <= itemCount; i++) {
     const c = canonical(i);
     itemIds.push(c.itemId);
-    await db().insert(declarationSetItems).values({
+    await db().insert(declarationRunItems).values({
       id: c.itemId,
-      declarationSetId,
+      declarationRunId,
       rowIndex: i,
       canonical: c,
       rawRow: {},
       status: 'pending',
     });
   }
-  return { declarationSetId, itemIds };
+  return { declarationRunId, itemIds };
 }
 
 describe('runClassificationPhase', () => {
   it('marks PASS items succeeded and persists final_code + trace', async () => {
-    const { declarationSetId } = await seedDeclarationSet(3);
+    const { declarationRunId } = await seedDeclarationRun(3);
     const dispatch: DispatchFn = async (item) => ({
       finalCode: '010121000000',
       goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS',
       trace: { pathTaken: 'agree', stages: [], meta: { rowIndex: item.rowIndex } },
     });
 
-    const summary = await runClassificationPhase(declarationSetId, { dispatch, concurrency: 2 });
+    const summary = await runClassificationPhase(declarationRunId, { dispatch, concurrency: 2 });
 
     expect(summary.total).toBe(3);
     expect(summary.succeeded).toBe(3);
     expect(summary.failed).toBe(0);
 
-    const items = await db().select().from(declarationSetItems).where(eq(declarationSetItems.declarationSetId, declarationSetId));
+    const items = await db().select().from(declarationRunItems).where(eq(declarationRunItems.declarationRunId, declarationRunId));
     for (const it of items) {
       expect(it.status).toBe('succeeded');
       expect(it.finalCode).toBe('010121000000');
       expect(it.trace).toBeTruthy();
     }
-    const set = await db().select().from(declarationSets).where(eq(declarationSets.id, declarationSetId)).limit(1);
+    const set = await db().select().from(declarationRuns).where(eq(declarationRuns.id, declarationRunId)).limit(1);
     expect(set[0]!.classificationStatus).toBe('completed');
   });
 
   it('maps FLAG -> flagged, BLOCK -> blocked, throws -> failed', async () => {
-    const { declarationSetId } = await seedDeclarationSet(3);
+    const { declarationRunId } = await seedDeclarationRun(3);
     let n = 0;
     const dispatch: DispatchFn = async () => {
       n++;
@@ -129,16 +129,16 @@ describe('runClassificationPhase', () => {
       throw new Error('boom');
     };
 
-    const summary = await runClassificationPhase(declarationSetId, { dispatch, concurrency: 1 });
+    const summary = await runClassificationPhase(declarationRunId, { dispatch, concurrency: 1 });
     expect(summary.flagged).toBe(1);
     expect(summary.blocked).toBe(1);
     expect(summary.failed).toBe(1);
 
     const items = await db()
       .select()
-      .from(declarationSetItems)
-      .where(eq(declarationSetItems.declarationSetId, declarationSetId))
-      .orderBy(declarationSetItems.rowIndex);
+      .from(declarationRunItems)
+      .where(eq(declarationRunItems.declarationRunId, declarationRunId))
+      .orderBy(declarationRunItems.rowIndex);
     expect(items[0]!.status).toBe('flagged');
     expect(items[0]!.finalCode).toBe('010121000000'); // flagged still keeps code
     expect(items[1]!.status).toBe('blocked');
@@ -148,7 +148,7 @@ describe('runClassificationPhase', () => {
   });
 
   it('respects concurrency cap (does not exceed configured limit)', async () => {
-    const { declarationSetId } = await seedDeclarationSet(8);
+    const { declarationRunId } = await seedDeclarationRun(8);
     let inFlight = 0;
     let max = 0;
     const dispatch: DispatchFn = async () => {
@@ -158,14 +158,14 @@ describe('runClassificationPhase', () => {
       inFlight--;
       return { finalCode: '010121000000', goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS', trace: { pathTaken: 'agree', stages: [] } };
     };
-    await runClassificationPhase(declarationSetId, { dispatch, concurrency: 2 });
+    await runClassificationPhase(declarationRunId, { dispatch, concurrency: 2 });
     expect(max).toBeLessThanOrEqual(2);
   });
 
   it('runs identically for classify_only mode (Phase 1 is mode-agnostic)', async () => {
-    const declarationSetId = newId();
-    await db().insert(declarationSets).values({
-      id: declarationSetId,
+    const declarationRunId = newId();
+    await db().insert(declarationRuns).values({
+      id: declarationRunId,
       tenant: TEST_TENANT_SLUG,
       mode: 'classify_only',
       declarationStatus: null,
@@ -173,9 +173,9 @@ describe('runClassificationPhase', () => {
       rowCount: 1,
     });
     const c = canonical(1);
-    await db().insert(declarationSetItems).values({
+    await db().insert(declarationRunItems).values({
       id: c.itemId,
-      declarationSetId,
+      declarationRunId,
       rowIndex: 1,
       canonical: c,
       rawRow: {},
@@ -186,17 +186,17 @@ describe('runClassificationPhase', () => {
       goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS',
       trace: { pathTaken: 'agree', stages: [] },
     });
-    const summary = await runClassificationPhase(declarationSetId, { dispatch });
+    const summary = await runClassificationPhase(declarationRunId, { dispatch });
     expect(summary.succeeded).toBe(1);
-    const after = await db().select().from(declarationSets).where(eq(declarationSets.id, declarationSetId)).limit(1);
+    const after = await db().select().from(declarationRuns).where(eq(declarationRuns.id, declarationRunId)).limit(1);
     expect(after[0]!.classificationStatus).toBe('completed');
     expect(after[0]!.declarationStatus).toBeNull(); // unchanged
   });
 
-  it('handles empty declaration_sets without errors', async () => {
-    const { declarationSetId } = await seedDeclarationSet(0);
+  it('handles empty declaration_runs without errors', async () => {
+    const { declarationRunId } = await seedDeclarationRun(0);
     const dispatch: DispatchFn = async () => ({ finalCode: 'x', goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS', trace: { pathTaken: '', stages: [] } });
-    const summary = await runClassificationPhase(declarationSetId, { dispatch });
+    const summary = await runClassificationPhase(declarationRunId, { dispatch });
     expect(summary.total).toBe(0);
     expect(and).toBeTruthy(); // keep the import used
   });

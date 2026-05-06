@@ -29,7 +29,7 @@
  *   • airBLDate / documentDate: defaulted to render-time UTC date. Real
  *     value should come from the source row (a future xlsx will have an
  *     `InvoiceDate` column we'll map to canonical).
- *   • docRefNo: deterministic from declaration_set_id + bundle_index, NOT
+ *   • docRefNo: deterministic from declaration_run_id + bundle_index, NOT
  *     Naqel's per-day counter. See doc-id.ts.
  *   • UnitInvoiceCost: always emitted = ItemCost. Sample 2 omits it, sample
  *     1 includes it. Spec says "If HSCode.UnitPerPrice =true => Amount" —
@@ -37,7 +37,7 @@
  *     shape and is invariant to the unknown.
  */
 import type { RenderInput } from './declaration.types.js';
-import type { DeclarationSetItemRow } from '../../../db/schema.js';
+import type { DeclarationRunItemRow } from '../../../db/schema.js';
 import type { LookupValue } from '../../../modules/tenants/tenant-lookups.repository.js';
 import { buildDocRefNo } from './doc-id.js';
 
@@ -166,13 +166,13 @@ function renderDeclarationHeader(input: RenderInput): string {
   ].join('\n');
 }
 
-function renderInvoiceItems(items: ReadonlyArray<DeclarationSetItemRow>, input: RenderInput): string {
+function renderInvoiceItems(items: ReadonlyArray<DeclarationRunItemRow>, input: RenderInput): string {
   return items
     .map((item, idx) => renderInvoiceItem(item, idx, input))
     .join('\n');
 }
 
-function renderInvoiceItem(item: DeclarationSetItemRow, idx: number, input: RenderInput): string {
+function renderInvoiceItem(item: DeclarationRunItemRow, idx: number, input: RenderInput): string {
   const c = item.canonical;
   const seq = idx + 1;
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { partitionHvLv } from '../../../src/integrations/zatca/declaration/declaration.bundler.js';
 import { _resetFxCacheForTests } from '../../../src/integrations/zatca/declaration/fx.js';
-import type { DeclarationSetItemRow } from '../../../src/db/schema.js';
+import type { DeclarationRunItemRow } from '../../../src/db/schema.js';
 
 beforeEach(() => {
   // FX rates default to {"AED":1.02,"USD":3.75,"EUR":4.05,"GBP":4.75}
@@ -14,10 +14,10 @@ beforeEach(() => {
   _resetFxCacheForTests();
 });
 
-function row(rowIndex: number, valueAmount: number, currencyCode = 'SAR'): DeclarationSetItemRow {
+function row(rowIndex: number, valueAmount: number, currencyCode = 'SAR'): DeclarationRunItemRow {
   return {
     id: `item-${rowIndex}`,
-    declarationSetId: 'set-1',
+    declarationRunId: 'set-1',
     rowIndex,
     canonical: { valueAmount, currencyCode } as Record<string, unknown>,
     status: 'succeeded',
@@ -27,7 +27,7 @@ function row(rowIndex: number, valueAmount: number, currencyCode = 'SAR'): Decla
     error: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-  } as unknown as DeclarationSetItemRow;
+  } as unknown as DeclarationRunItemRow;
 }
 
 describe('partitionHvLv — SAR amounts', () => {

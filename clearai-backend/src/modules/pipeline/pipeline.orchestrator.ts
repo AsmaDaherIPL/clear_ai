@@ -12,7 +12,7 @@
  *   3     Sanity (standard LLM, always)
  *
  * Returns a PipelineResult that mirrors the DispatchResult contract so
- * declaration-sets/classification.service.ts can consume it without change.
+ * declaration-runs/classification.service.ts can consume it without change.
  */
 import { parseItem } from './stage-0-parse/parse.js';
 import { runCleanup } from './stage-1-cleanup/cleanup.js';

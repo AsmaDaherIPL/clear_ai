@@ -1,6 +1,6 @@
 /**
  * Phase 1 — classification service.
- * Runs for every declaration_set regardless of mode.
+ * Runs for every declaration_run regardless of mode.
  *
  * Drives `dispatch(item)` per pending row under a p-limit semaphore
  * (BATCH_LLM_CONCURRENCY). NEVER touches XML, ZATCA, or blob storage.
@@ -45,22 +45,22 @@ function classifyOutcome(verdict: SanityVerdict): ClassificationOutcome {
 }
 
 /**
- * Run Phase 1 for one declaration_set. Phase 1 NEVER throws on per-item
+ * Run Phase 1 for one declaration_run. Phase 1 NEVER throws on per-item
  * failures; those land as status='failed'. It only throws on infrastructure
  * errors (DB unreachable, etc.) — the use-case turns that into a top-level
- * declaration_set failure.
+ * declaration_run failure.
  */
 export async function runClassificationPhase(
-  declarationSetId: string,
+  declarationRunId: string,
   opts: RunOptions,
 ): Promise<PhaseClassificationSummary> {
   const startMs = Date.now();
-  await markClassificationPhase(declarationSetId, 'running');
+  await markClassificationPhase(declarationRunId, 'running');
 
   const concurrency = opts.concurrency ?? env().BATCH_LLM_CONCURRENCY;
   const run = withSemaphore(concurrency);
 
-  const pending = await listPendingItems(declarationSetId);
+  const pending = await listPendingItems(declarationRunId);
   const counts = { succeeded: 0, flagged: 0, blocked: 0, failed: 0 };
 
   await Promise.all(
@@ -98,7 +98,7 @@ export async function runClassificationPhase(
     ),
   );
 
-  await markClassificationPhase(declarationSetId, 'completed');
+  await markClassificationPhase(declarationRunId, 'completed');
 
   return {
     total: pending.length,

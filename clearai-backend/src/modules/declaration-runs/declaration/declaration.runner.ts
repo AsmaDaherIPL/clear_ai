@@ -2,7 +2,7 @@
  * Phase 2 implementation. Lives in a separate file from the service so
  * the entrypoint (runDeclarationPhaseIfNeeded) stays small and testable.
  *
- * Pulls every dependency the renderer needs once per declaration_set
+ * Pulls every dependency the renderer needs once per declaration_run
  * (tenant config, lookups-with-metadata) and threads them into the pure
  * renderer per bundle.
  */
@@ -18,18 +18,18 @@ import { partitionHvLv } from '../../../integrations/zatca/declaration/declarati
 import { renderDeclarationXml } from '../../../integrations/zatca/declaration/declaration.template.js';
 import { getBlobClient } from '../../../storage/blob.client.js';
 import { declarationKey } from '../../../storage/blob.paths.js';
-import { getDeclarationSet } from '../declaration-set.repository.js';
+import { getDeclarationRun } from '../declaration-run.repository.js';
 import { env } from '../../../config/env.js';
 import { loadThresholds } from '../../reference-data/setup-meta.repository.js';
 
-export async function runDeclarationPhase(declarationSetId: string): Promise<PhaseDeclarationSummary> {
+export async function runDeclarationPhase(declarationRunId: string): Promise<PhaseDeclarationSummary> {
   const startMs = Date.now();
-  await markDeclarationPhase(declarationSetId, 'running');
+  await markDeclarationPhase(declarationRunId, 'running');
 
-  const declarationSet = await getDeclarationSet(declarationSetId);
-  const tenant = await resolveTenant(declarationSet.tenant);
+  const declarationRun = await getDeclarationRun(declarationRunId);
+  const tenant = await resolveTenant(declarationRun.tenant);
   const lookups = await getLookupsBySlugWithMetadata(tenant.slug);
-  const items = await listClassifiedItems(declarationSetId);
+  const items = await listClassifiedItems(declarationRunId);
 
   // ZATCA tunables live in setup_meta — they're spec-wide, not per-tenant.
   const thresholds = await loadThresholds();
@@ -57,10 +57,10 @@ export async function runDeclarationPhase(declarationSetId: string): Promise<Pha
       lookups,
       now,
     });
-    const key = declarationKey(declarationSetId, bundleIndex);
+    const key = declarationKey(declarationRunId, bundleIndex);
     await blob.put(key, Buffer.from(xml, 'utf8'), 'application/xml');
     await recordDeclaration({
-      declarationSetId,
+      declarationRunId,
       bundleIndex,
       strategy: bundle.strategy,
       itemCount: bundle.items.length,
@@ -69,7 +69,7 @@ export async function runDeclarationPhase(declarationSetId: string): Promise<Pha
     bundleIndex++;
   }
 
-  await markDeclarationPhase(declarationSetId, 'completed');
+  await markDeclarationPhase(declarationRunId, 'completed');
 
   return {
     bundleCount: bundles.length,

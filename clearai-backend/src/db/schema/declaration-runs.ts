@@ -1,5 +1,5 @@
 /**
- * declaration_sets — one row per uploaded commercial-invoice file (or one
+ * declaration_runs — one row per uploaded commercial-invoice file (or one
  * API submission). Each set produces N rendered ZATCA declarations.
  *
  * Two-phase model:
@@ -13,18 +13,18 @@
  *
  * Related tables:
  *   • tenants                — FK target (tenant -> tenants.slug)
- *   • declaration_set_items  — child rows (FK ON DELETE CASCADE)
+ *   • declaration_run_items  — child rows (FK ON DELETE CASCADE)
  *   • declarations           — Phase 5; rendered XML bundles (FK ON DELETE CASCADE)
  */
 import { pgTable, uuid, varchar, text, integer, jsonb, timestamp, foreignKey, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { tenants } from './tenants.js';
 
-/** Mirror of declaration_sets_mode_chk. */
-export type DeclarationSetMode = 'classify_only' | 'classify_and_declare';
+/** Mirror of declaration_runs_mode_chk. */
+export type DeclarationRunMode = 'classify_only' | 'classify_and_declare';
 
-/** Mirror of declaration_sets_status_chk. */
-export type DeclarationSetStatus =
+/** Mirror of declaration_runs_status_chk. */
+export type DeclarationRunStatus =
   | 'pending'
   | 'ingesting'
   | 'processing'
@@ -32,10 +32,10 @@ export type DeclarationSetStatus =
   | 'failed'
   | 'cancelled';
 
-/** Mirror of declaration_sets_classification_status_chk. */
+/** Mirror of declaration_runs_classification_status_chk. */
 export type ClassificationStatus = 'pending' | 'running' | 'completed' | 'failed';
 
-/** Mirror of declaration_sets_declaration_status_chk. NULL when mode='classify_only'. */
+/** Mirror of declaration_runs_declaration_status_chk. NULL when mode='classify_only'. */
 export type DeclarationStatus =
   | 'pending'
   | 'running'
@@ -43,8 +43,8 @@ export type DeclarationStatus =
   | 'failed'
   | 'skipped';
 
-export const declarationSets = pgTable(
-  'declaration_sets',
+export const declarationRuns = pgTable(
+  'declaration_runs',
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
 
@@ -52,10 +52,10 @@ export const declarationSets = pgTable(
     tenant: varchar('tenant', { length: 32 }).notNull(),
 
     /** Two-phase mode; CHECK-locked. */
-    mode: varchar('mode', { length: 32 }).notNull().default('classify_and_declare').$type<DeclarationSetMode>(),
+    mode: varchar('mode', { length: 32 }).notNull().default('classify_and_declare').$type<DeclarationRunMode>(),
 
     /** Derived overall lifecycle; CHECK-locked. Materialised for cheap polling. */
-    status: varchar('status', { length: 32 }).notNull().default('pending').$type<DeclarationSetStatus>(),
+    status: varchar('status', { length: 32 }).notNull().default('pending').$type<DeclarationRunStatus>(),
 
     /** Phase 1 lifecycle; CHECK-locked. Always non-null. */
     classificationStatus: varchar('classification_status', { length: 32 })
@@ -65,7 +65,7 @@ export const declarationSets = pgTable(
 
     /**
      * Phase 2 lifecycle; CHECK-locked. Nullable because mode='classify_only'
-     * sets have no Phase 2 (enforced by declaration_sets_mode_declaration_consistency_chk).
+     * sets have no Phase 2 (enforced by declaration_runs_mode_declaration_consistency_chk).
      */
     declarationStatus: varchar('declaration_status', { length: 32 }).$type<DeclarationStatus>(),
 
@@ -87,20 +87,20 @@ export const declarationSets = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
-    /** Auto-bumped by declaration_sets_touch_updated_at_trg. */
+    /** Auto-bumped by declaration_runs_touch_updated_at_trg. */
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     tenantFk: foreignKey({
-      name: 'declaration_sets_tenant_fk',
+      name: 'declaration_runs_tenant_fk',
       columns: [t.tenant],
       foreignColumns: [tenants.slug],
     }).onDelete('restrict'),
 
-    tenantIdx: index('declaration_sets_tenant_idx').on(t.tenant),
-    createdAtIdx: index('declaration_sets_created_at_idx').on(t.createdAt.desc()),
+    tenantIdx: index('declaration_runs_tenant_idx').on(t.tenant),
+    createdAtIdx: index('declaration_runs_created_at_idx').on(t.createdAt.desc()),
   }),
 );
 
-export type DeclarationSetRow = typeof declarationSets.$inferSelect;
-export type NewDeclarationSetRow = typeof declarationSets.$inferInsert;
+export type DeclarationRunRow = typeof declarationRuns.$inferSelect;
+export type NewDeclarationRunRow = typeof declarationRuns.$inferInsert;

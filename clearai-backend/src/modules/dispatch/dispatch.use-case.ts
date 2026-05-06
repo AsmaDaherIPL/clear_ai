@@ -2,7 +2,7 @@
  * Dispatch — pipeline entry point.
  *
  * Wraps the 5-stage pipeline orchestrator and adapts its output to the
- * DispatchResult contract expected by declaration-sets/classification.service.ts.
+ * DispatchResult contract expected by declaration-runs/classification.service.ts.
  *
  * Tenant slug is resolved from CanonicalLineItem.clientId for multi-tenant
  * routing. Falls back to 'naqel' (the only active tenant) until the

@@ -22,7 +22,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderDeclarationXml, ZatcaRenderError } from '../../../src/integrations/zatca/declaration/declaration.template.js';
-import type { DeclarationSetItemRow } from '../../../src/db/schema.js';
+import type { DeclarationRunItemRow } from '../../../src/db/schema.js';
 import type { LookupValue } from '../../../src/modules/tenants/tenant-lookups.repository.js';
 
 function row(overrides: Partial<{
@@ -41,10 +41,10 @@ function row(overrides: Partial<{
   consigneeNationalId: string;
   consigneePhone: string;
   invoiceDate: string | null;
-}> = {}): DeclarationSetItemRow {
+}> = {}): DeclarationRunItemRow {
   return {
     id: 'item-1',
-    declarationSetId: 'set-1',
+    declarationRunId: 'set-1',
     rowIndex: 1,
     canonical: {
       itemId: 'item-1',
@@ -78,7 +78,7 @@ function row(overrides: Partial<{
     goodsDescriptionAr: 'بنطلونات',
     createdAt: new Date(),
     updatedAt: new Date(),
-  } as unknown as DeclarationSetItemRow;
+  } as unknown as DeclarationRunItemRow;
 }
 
 function lookups(): Map<string, Map<string, LookupValue>> {
@@ -137,7 +137,7 @@ function constants(): Record<string, string> {
   };
 }
 
-function baseInput(items: DeclarationSetItemRow[], strategy: 'HV_STANDALONE' | 'LV_BUNDLED' = 'HV_STANDALONE') {
+function baseInput(items: DeclarationRunItemRow[], strategy: 'HV_STANDALONE' | 'LV_BUNDLED' = 'HV_STANDALONE') {
   return {
     tenant: { slug: 'naqel', displayName: 'Naqel', constants: constants() },
     bundleStrategy: strategy,

@@ -70,7 +70,7 @@ export interface TenantConfig {
 }
 
 /**
- * Verbatim parsed source row. Persisted in `declaration_set_items.raw_row`
+ * Verbatim parsed source row. Persisted in `declaration_run_items.raw_row`
  * (a sibling column of canonical, NOT inside the canonical jsonb) so
  * column-level GRANT/REVOKE can gate PII access.
  *
@@ -98,7 +98,7 @@ export type RawRow = Record<string, unknown>;
  *     today's UTC date).
  */
 export interface CanonicalLineItem {
-  /** Stable per-batch identifier; matches declaration_set_items.id once persisted. */
+  /** Stable per-batch identifier; matches declaration_run_items.id once persisted. */
   itemId: string;
   /** 1-based row position from the source file (post-header). */
   rowIndex: number;

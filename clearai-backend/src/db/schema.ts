@@ -55,22 +55,22 @@ export type {
 export { tenantLookups } from './schema/tenant-lookups.js';
 export type { TenantLookupRow, NewTenantLookupRow } from './schema/tenant-lookups.js';
 
-export { declarationSets } from './schema/declaration-sets.js';
+export { declarationRuns } from './schema/declaration-runs.js';
 export type {
-  DeclarationSetRow,
-  NewDeclarationSetRow,
-  DeclarationSetMode,
-  DeclarationSetStatus,
+  DeclarationRunRow,
+  NewDeclarationRunRow,
+  DeclarationRunMode,
+  DeclarationRunStatus,
   ClassificationStatus,
   DeclarationStatus,
-} from './schema/declaration-sets.js';
+} from './schema/declaration-runs.js';
 
-export { declarationSetItems } from './schema/declaration-set-items.js';
+export { declarationRunItems } from './schema/declaration-run-items.js';
 export type {
-  DeclarationSetItemRow,
-  NewDeclarationSetItemRow,
-  DeclarationSetItemStatus,
-} from './schema/declaration-set-items.js';
+  DeclarationRunItemRow,
+  NewDeclarationRunItemRow,
+  DeclarationRunItemStatus,
+} from './schema/declaration-run-items.js';
 
 export { declarations } from './schema/declarations.js';
 export type { DeclarationRow, NewDeclarationRow, BundleStrategy } from './schema/declarations.js';

@@ -31,7 +31,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderDeclarationXml } from '../../../src/integrations/zatca/declaration/declaration.template.js';
 import type { RenderInput } from '../../../src/integrations/zatca/declaration/declaration.types.js';
-import type { DeclarationSetItemRow } from '../../../src/db/schema.js';
+import type { DeclarationRunItemRow } from '../../../src/db/schema.js';
 import type { LookupValue } from '../../../src/modules/tenants/tenant-lookups.repository.js';
 
 const SAMPLES_DIR = join(
@@ -118,7 +118,7 @@ function naqelLookups(): Map<string, Map<string, LookupValue>> {
   return m;
 }
 
-/** Build a synthetic DeclarationSetItemRow from raw inputs. */
+/** Build a synthetic DeclarationRunItemRow from raw inputs. */
 function syntheticRow(c: {
   description: string;
   goodsDescriptionAr: string;
@@ -135,10 +135,10 @@ function syntheticRow(c: {
   consigneeNationalId: string;
   consigneePhone: string;
   invoiceDate: string;
-}): DeclarationSetItemRow {
+}): DeclarationRunItemRow {
   return {
     id: 'item',
-    declarationSetId: 'set',
+    declarationRunId: 'set',
     rowIndex: 1,
     canonical: {
       itemId: 'item',
@@ -171,11 +171,11 @@ function syntheticRow(c: {
     goodsDescriptionAr: c.goodsDescriptionAr,
     createdAt: new Date(),
     updatedAt: new Date(),
-  } as unknown as DeclarationSetItemRow;
+  } as unknown as DeclarationRunItemRow;
 }
 
 function baseInputFor(opts: {
-  items: DeclarationSetItemRow[];
+  items: DeclarationRunItemRow[];
   strategy: 'HV_STANDALONE' | 'LV_BUNDLED';
   docRefSuffix: string;
   constants: Record<string, string>;

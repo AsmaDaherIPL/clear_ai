@@ -17,10 +17,10 @@ import {
   tenantFieldMappings,
   tenantConstants,
   tenantLookups,
-  declarationSets,
+  declarationRuns,
   declarations,
 } from '../../src/db/schema.js';
-import { runProcessing, createDeclarationSet } from '../../src/modules/declaration-sets/declaration-set.use-case.js';
+import { runProcessing, createDeclarationRun } from '../../src/modules/declaration-runs/declaration-run.use-case.js';
 import { clearCache } from '../../src/modules/tenants/tenant-config.registry.js';
 import type { DispatchFn } from '../../src/modules/dispatch/dispatch.contract.ts';
 
@@ -35,7 +35,7 @@ beforeAll(async () => {
   process.env.ZATCA_SUBMITTER_NAME ??= 'Test Carrier';
 
   // Seed a tenant + the minimum mappings required for canonical resolution.
-  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
   await db().delete(tenants).where(eq(tenants.slug, TEST_TENANT_SLUG));
   await db().insert(tenants).values({
@@ -126,7 +126,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantFieldMappings).where(eq(tenantFieldMappings.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantConstants).where(eq(tenantConstants.tenant, TEST_TENANT_SLUG));
   await db().delete(tenantLookups).where(eq(tenantLookups.tenant, TEST_TENANT_SLUG));
@@ -136,7 +136,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await db().delete(declarationSets).where(eq(declarationSets.tenant, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.tenant, TEST_TENANT_SLUG));
 });
 
 const passDispatch: DispatchFn = async () => ({
@@ -156,7 +156,7 @@ const CSV = Buffer.from(
 
 describe('runProcessing', () => {
   it('classify_only: runs Phase 1, skips Phase 2 (no declarations rows; declaration_status stays NULL)', async () => {
-    const { declarationSet } = await createDeclarationSet({
+    const { declarationRun } = await createDeclarationRun({
       tenantSlug: TEST_TENANT_SLUG,
       mode: 'classify_only',
       uploadKind: 'csv',
@@ -164,22 +164,22 @@ describe('runProcessing', () => {
       metadata: {},
       dispatch: passDispatch,
     });
-    expect(declarationSet.mode).toBe('classify_only');
-    expect(declarationSet.declarationStatus).toBeNull();
+    expect(declarationRun.mode).toBe('classify_only');
+    expect(declarationRun.declarationStatus).toBeNull();
 
-    await runProcessing(declarationSet.id, passDispatch);
+    await runProcessing(declarationRun.id, passDispatch);
 
-    const after = await db().select().from(declarationSets).where(eq(declarationSets.id, declarationSet.id)).limit(1);
+    const after = await db().select().from(declarationRuns).where(eq(declarationRuns.id, declarationRun.id)).limit(1);
     expect(after[0]!.classificationStatus).toBe('completed');
     expect(after[0]!.declarationStatus).toBeNull();
     expect(after[0]!.status).toBe('completed');
 
-    const decl = await db().select().from(declarations).where(eq(declarations.declarationSetId, declarationSet.id));
+    const decl = await db().select().from(declarations).where(eq(declarations.declarationRunId, declarationRun.id));
     expect(decl).toHaveLength(0);
   });
 
   it('classify_and_declare: runs both phases; declaration rows are produced', async () => {
-    const { declarationSet } = await createDeclarationSet({
+    const { declarationRun } = await createDeclarationRun({
       tenantSlug: TEST_TENANT_SLUG,
       mode: 'classify_and_declare',
       uploadKind: 'csv',
@@ -188,14 +188,14 @@ describe('runProcessing', () => {
       dispatch: passDispatch,
     });
 
-    await runProcessing(declarationSet.id, passDispatch);
+    await runProcessing(declarationRun.id, passDispatch);
 
-    const after = await db().select().from(declarationSets).where(eq(declarationSets.id, declarationSet.id)).limit(1);
+    const after = await db().select().from(declarationRuns).where(eq(declarationRuns.id, declarationRun.id)).limit(1);
     expect(after[0]!.classificationStatus).toBe('completed');
     expect(after[0]!.declarationStatus).toBe('completed');
     expect(after[0]!.status).toBe('completed');
 
-    const decl = await db().select().from(declarations).where(eq(declarations.declarationSetId, declarationSet.id));
+    const decl = await db().select().from(declarations).where(eq(declarations.declarationRunId, declarationRun.id));
     expect(decl.length).toBeGreaterThanOrEqual(1);
   });
 });

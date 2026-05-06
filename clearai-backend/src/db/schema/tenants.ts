@@ -9,7 +9,7 @@
  *   • tenant_field_mappings  — per-tenant column mapping rules (FK to slug)
  *   • tenant_constants       — per-tenant envelope-shaping values
  *   • tenant_lookups         — per-tenant value translations
- *   • declaration_sets       — every set is owned by one tenant slug
+ *   • declaration_runs       — every set is owned by one tenant slug
  *   • tenant_code_overrides  — pre-dates this registry; not FK'd yet (see 0038 header)
  *
  * PK is uuid (rule 1: every entity table gets a uuid PK). The natural key is

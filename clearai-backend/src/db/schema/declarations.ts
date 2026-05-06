@@ -1,18 +1,18 @@
 /**
  * declarations — one row per rendered ZATCA Declaration bundle.
  *
- * Inserted by Phase 2 (modules/declaration-sets/declaration/). HV bundles
+ * Inserted by Phase 2 (modules/declaration-runs/declaration/). HV bundles
  * hold exactly one item; LV bundles up to tenants.bundle_size.
  *
  * `bayan_no` is populated post-submission (out-of-band today; future API
  * integration in v1).
  *
  * Related tables:
- *   • declaration_sets — FK target (declaration_set_id -> declaration_sets.id) ON DELETE CASCADE
+ *   • declaration_runs — FK target (declaration_run_id -> declaration_runs.id) ON DELETE CASCADE
  */
 import { pgTable, uuid, integer, text, timestamp, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { declarationSets } from './declaration-sets.js';
+import { declarationRuns } from './declaration-runs.js';
 
 export type BundleStrategy = 'HV_STANDALONE' | 'LV_BUNDLED';
 
@@ -20,8 +20,8 @@ export const declarations = pgTable(
   'declarations',
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-    /** Parent declaration_set. FK -> declaration_sets(id) ON DELETE CASCADE. */
-    declarationSetId: uuid('declaration_set_id').notNull(),
+    /** Parent declaration_run. FK -> declaration_runs(id) ON DELETE CASCADE. */
+    declarationRunId: uuid('declaration_run_id').notNull(),
     /** 0-based ordinal within the set's render order. */
     bundleIndex: integer('bundle_index').notNull(),
     /** CHECK-locked closed enum; mirror in batch-declaration.types.ts. */
@@ -37,13 +37,13 @@ export const declarations = pgTable(
   (t) => ({
     setFk: foreignKey({
       name: 'declarations_set_fk',
-      columns: [t.declarationSetId],
-      foreignColumns: [declarationSets.id],
+      columns: [t.declarationRunId],
+      foreignColumns: [declarationRuns.id],
     }).onDelete('cascade'),
 
-    setBundleUniq: unique('declarations_set_bundle_uniq').on(t.declarationSetId, t.bundleIndex),
+    setBundleUniq: unique('declarations_set_bundle_uniq').on(t.declarationRunId, t.bundleIndex),
 
-    setIdx: index('declarations_set_idx').on(t.declarationSetId),
+    setIdx: index('declarations_set_idx').on(t.declarationRunId),
   }),
 );
 
