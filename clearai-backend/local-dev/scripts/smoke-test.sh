@@ -118,6 +118,38 @@ status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/declaration-runs/$fak
 check_status "GET /declaration-runs/$fake_id/classifications → 404" "404" "$status"
 
 # ----------------------------------------------------------------------------
+# 4. Pipeline single-shot (POST /pipeline/dispatch + GET /pipeline/trace/:id)
+# ----------------------------------------------------------------------------
+echo
+bold "Pipeline single-shot"
+
+# 4a. POST /pipeline/dispatch with empty body → 400
+status=$(curl -s -o /dev/null -w "%{http_code}" \
+  -X POST "$BASE_URL/pipeline/dispatch" \
+  -H "content-type: application/json" \
+  -d '{}')
+check_status "POST /pipeline/dispatch (empty body) → 400" "400" "$status"
+
+# 4b. POST /pipeline/dispatch with valid body → 200 (real LLM call; ~5-15s)
+status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+  -X POST "$BASE_URL/pipeline/dispatch" \
+  -H "content-type: application/json" \
+  -d '{"description":"wireless headphones","operator_slug":"naqel"}')
+case "$status" in
+  200) ok "POST /pipeline/dispatch (valid body) → 200 (real pipeline ran)";;
+  404) ok "POST /pipeline/dispatch → 404 (operator 'naqel' not seeded? run pnpm db:seed:tenants)";;
+  *)   nope "POST /pipeline/dispatch (valid body) → expected 200 or 404, got $status";;
+esac
+
+# 4c. GET /pipeline/trace/<bad-uuid> → 400
+status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/pipeline/trace/not-a-uuid")
+check_status "GET /pipeline/trace/<bad-uuid> → 400" "400" "$status"
+
+# 4d. GET /pipeline/trace/<unknown-uuid> → 404
+status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/pipeline/trace/$fake_id")
+check_status "GET /pipeline/trace/$fake_id → 404" "404" "$status"
+
+# ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
 echo

@@ -325,6 +325,98 @@ components:
         latency_ms:
           type: integer
 
+    # ---------- pipeline single-shot dispatch ----------
+
+    DispatchBody:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Free-text item description (English).
+        merchant_code:
+          type: string
+          description: |
+            Optional merchant-supplied HS code. The pipeline auto-detects
+            shape (12-digit, short prefix, malformed, absent). Accepts any
+            string; non-digits are stripped.
+        operator_slug:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{2,31}$'
+          default: naqel
+          description: Owning operator. Defaults to 'naqel'.
+        value_amount:
+          type: number
+          minimum: 0.01
+          description: Optional declared value (for Stage 3 sanity).
+        currency_code:
+          type: string
+          minLength: 3
+          maxLength: 3
+          description: ISO 4217 currency. Required if value_amount is set.
+
+    PipelineDispatchResult:
+      type: object
+      required: [item_id, operator_slug, sanity_verdict, trace]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+          description: Synthesised id for this single-shot dispatch (not persisted).
+        operator_slug:
+          type: string
+        final_code:
+          type: string
+          nullable: true
+          pattern: '^\d{12}$'
+          description: Null when the pipeline rejected the item (sanity_verdict=BLOCK).
+        goods_description_ar:
+          type: string
+          nullable: true
+          maxLength: 300
+          description: ZATCA-safe Arabic from Stage 2.5. Null when rejected.
+        sanity_verdict:
+          type: string
+          enum: [PASS, FLAG, BLOCK]
+        trace:
+          type: object
+          additionalProperties: true
+          description: Full PipelineTrace (signal_count, track_a, track_b, verdict, sanity, stages[]).
+
+    # ---------- pipeline trace lookup ----------
+
+    PipelineTraceResult:
+      type: object
+      required: [item_id, declaration_run_id, status, final_code, trace]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        declaration_run_id:
+          type: string
+          format: uuid
+          description: Parent run that produced this trace.
+        status:
+          type: string
+          enum: [pending, classifying, succeeded, flagged, blocked, failed]
+        final_code:
+          type: string
+          nullable: true
+          pattern: '^\d{12}$'
+        classification_result:
+          type: object
+          nullable: true
+          additionalProperties: true
+        trace:
+          type: object
+          nullable: true
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+
     # ---------- alt error shape (legacy) ----------
 
     SimpleError:
@@ -597,6 +689,92 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SimpleError' }
+        '401':
+          description: Origin access denied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /pipeline/dispatch:
+    post:
+      tags: [pipeline]
+      summary: Run the full pipeline on a single item
+      description: |
+        Single-shot entry to the 5-stage classification pipeline. Wraps a
+        slim request body into the canonical line-item shape, runs the
+        orchestrator, and returns the full result + trace inline. No
+        server-side persistence — the SPA can stash the trace client-side
+        if it needs to revisit. Bulk classification uses /declaration-runs.
+      security:
+        - apimSharedSecret: []
+          entraJwt: [api://clearai-backend/.default]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchBody'
+      responses:
+        '200':
+          description: Pipeline ran. Inspect sanity_verdict for outcome.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineDispatchResult'
+        '400':
+          description: Body invalid.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Operator slug unknown.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Origin access denied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /pipeline/trace/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: declaration_run_items.id (UUID).
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      tags: [pipeline]
+      summary: Fetch a stored pipeline trace
+      description: |
+        Reads a previously-classified item from declaration_run_items.
+        Returns its trace + classification result. Use this when the SPA
+        wants to revisit a result from a bulk run, or when /pipeline/dispatch
+        was followed by a separate page-load that needs the trace again.
+      security:
+        - apimSharedSecret: []
+          entraJwt: [api://clearai-backend/.default]
+      responses:
+        '200':
+          description: Trace found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineTraceResult'
+        '400':
+          description: id is not a valid UUID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: No item with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '401':
           description: Origin access denied.
           content:
