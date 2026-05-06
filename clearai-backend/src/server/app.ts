@@ -4,12 +4,9 @@ import sensible from '@fastify/sensible';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { env } from '../config/env.js';
-import { classifyRoute } from '../modules/pipeline/legacy-routes/classify.routes.js';
-import { expandRoute } from '../modules/pipeline/legacy-routes/expand.routes.js';
-import { classificationTraceRoute } from '../modules/pipeline/legacy-routes/classification-trace.routes.js';
-import { submissionDescriptionRoute } from '../modules/pipeline/submission-description/submission-description.routes.js';
 import { tenantsRoutes } from '../modules/tenants/tenants.routes.js';
 import { declarationSetsRoutes } from '../modules/declaration-sets/declaration-sets.routes.js';
+import { submissionDescriptionRoute } from '../modules/pipeline/submission-description/submission-description.routes.js';
 import { getPool, closeDb } from '../db/client.js';
 import { registerErrorHandler } from './error-handler.js';
 import { warmEmbedder } from '../inference/embeddings/embedder.js';
@@ -104,14 +101,10 @@ app.get('/ready', async (_req, reply) => {
   return { status: 'ready' };
 });
 
-await app.register(classifyRoute);
-await app.register(expandRoute);
-await app.register(classificationTraceRoute);
-await app.register(submissionDescriptionRoute);
-
 // Tenants registry + declaration-set processing.
 await app.register(tenantsRoutes);
 await app.register(declarationSetsRoutes);
+await app.register(submissionDescriptionRoute);
 
 const start = async (): Promise<void> => {
   try {
@@ -132,9 +125,9 @@ const start = async (): Promise<void> => {
         loadPrompt('picker-describe.md'),
         loadPrompt('picker-expand.md'),
         loadPrompt('gir-system.md'),
-        loadPrompt('branch-rank.md'),
+        loadPrompt('reconciliation.md'),
+        loadPrompt('sanity.md'),
         loadPrompt('submission-description.md'),
-        loadPrompt('best-effort-heading.md'),
       ]).then(
         () => app.log.info('prompt cache primed'),
         (err: unknown) => app.log.warn({ err }, 'prompt warmup failed (non-fatal)'),

@@ -1,90 +1,98 @@
 /**
- * Unit tests for submission-description.
+ * Unit tests for the simplified submission-description (Stage 2.5).
  *
- * Pins down the deterministic helpers (Arabic normalisation, distinctness
- * check, prefix-mutation fallback) so prompt edits or LLM behaviour drift
- * don't silently change the contract. The end-to-end LLM path is exercised
- * via route smoke tests with SUBMISSION_DESC_ENABLED=1.
+ * Pins down: LLM-success path returns the cleaned LLM Arabic, ≤300 char cap,
+ * fallback path on LLM failure uses the catalog when present, and the
+ * synthetic 'منتج: ...' fallback when catalog is null.
  */
-import { describe, expect, it } from 'vitest';
-import { __test__ } from '../../src/modules/pipeline/submission-description/submission-description.js';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { normalizeAr, passesDistinctnessCheck, buildFallback } = __test__;
+vi.mock('../../src/inference/llm/structured-call.js', () => ({
+  structuredLlmCall: vi.fn(),
+  loadPrompt: vi.fn().mockResolvedValue('mock-prompt'),
+}));
 
-describe('normalizeAr', () => {
-  it('strips whitespace and trims', () => {
-    expect(normalizeAr('  سماعات لاسلكية  ')).toBe('سماعات لاسلكية');
+import { generateSubmissionDescription } from '../../src/modules/pipeline/submission-description/submission-description.js';
+import { structuredLlmCall } from '../../src/inference/llm/structured-call.js';
+
+const mockedCall = vi.mocked(structuredLlmCall);
+
+describe('generateSubmissionDescription', () => {
+  beforeEach(() => {
+    mockedCall.mockReset();
   });
 
-  it('strips Arabic diacritics (تشكيل)', () => {
-    // كَلِمَةٌ with diacritics → كلمة without
-    expect(normalizeAr('كَلِمَةٌ')).toBe('كلمة');
+  it('returns the cleaned LLM Arabic on success', async () => {
+    mockedCall.mockResolvedValueOnce({
+      kind: 'ok',
+      data: { description_ar: 'سماعات بلوتوث لاسلكية' },
+      trace: { latency_ms: 50, model: 'mock-haiku', stage: 'submission_description', status: 'ok' },
+    });
+    const r = await generateSubmissionDescription({
+      cleanedDescription: 'wireless headphones',
+      chosenCode: '851830000000',
+      catalogDescriptionAr: 'سماعات',
+    });
+    expect(r.invoked).toBe('llm');
+    expect(r.descriptionAr).toBe('سماعات بلوتوث لاسلكية');
   });
 
-  it('strips catalog tree-formatting prefixes/suffixes', () => {
-    expect(normalizeAr(' - - من قطن')).toBe('من قطن');
-    expect(normalizeAr('- - - أحذية رياضية - -')).toBe('أحذية رياضية');
+  it('caps output at 300 characters', async () => {
+    const longAr = 'هاتف ذكي '.repeat(200);
+    mockedCall.mockResolvedValueOnce({
+      kind: 'ok',
+      data: { description_ar: longAr },
+      trace: { latency_ms: 50, model: 'mock-haiku', stage: 'submission_description', status: 'ok' },
+    });
+    const r = await generateSubmissionDescription({
+      cleanedDescription: 'phone',
+      chosenCode: '851712000000',
+      catalogDescriptionAr: null,
+    });
+    expect(r.descriptionAr.length).toBeLessThanOrEqual(300);
   });
 
-  it('returns empty string for empty/whitespace input', () => {
-    expect(normalizeAr('')).toBe('');
-    expect(normalizeAr('   ')).toBe('');
+  it('falls back to the catalog Arabic on LLM failure', async () => {
+    mockedCall.mockResolvedValueOnce({
+      kind: 'llm_failed',
+      trace: { latency_ms: 10, model: 'mock-haiku', stage: 'submission_description', status: 'error' },
+    });
+    const r = await generateSubmissionDescription({
+      cleanedDescription: 'cotton shirt',
+      chosenCode: '610910000000',
+      catalogDescriptionAr: 'قميص قطني',
+    });
+    expect(r.invoked).toBe('llm_failed');
+    expect(r.descriptionAr).toBe('قميص قطني');
   });
 
-  it('collapses internal whitespace runs', () => {
-    expect(normalizeAr('سماعات   لاسلكية')).toBe('سماعات لاسلكية');
-  });
-});
-
-describe('passesDistinctnessCheck', () => {
-  it('returns true when there is no catalog AR to compare against', () => {
-    expect(passesDistinctnessCheck('any', null)).toBe(true);
-  });
-
-  it('returns false on exact match (post-normalisation)', () => {
-    expect(passesDistinctnessCheck('سماعات لاسلكية', 'سماعات لاسلكية')).toBe(false);
-    expect(passesDistinctnessCheck('  سماعات لاسلكية  ', 'سماعات لاسلكية')).toBe(false);
-    // Diacritics + tree-formatting prefix should still normalise to a match
-    expect(passesDistinctnessCheck('- - سماعات لاسلكية', 'سماعات لاسلكية')).toBe(false);
+  it('uses the synthetic منتج: ... fallback when catalog AR is null and LLM fails', async () => {
+    mockedCall.mockResolvedValueOnce({
+      kind: 'llm_failed',
+      trace: { latency_ms: 10, model: 'mock-haiku', stage: 'submission_description', status: 'error' },
+    });
+    const r = await generateSubmissionDescription({
+      cleanedDescription: 'unique gizmo',
+      chosenCode: '999999999999',
+      catalogDescriptionAr: null,
+    });
+    expect(r.invoked).toBe('llm_failed');
+    expect(r.descriptionAr).toContain('منتج');
+    expect(r.descriptionAr).toContain('unique gizmo');
   });
 
-  it('returns true when a single word is added', () => {
-    expect(passesDistinctnessCheck('سماعات بلوتوث لاسلكية', 'سماعات لاسلكية')).toBe(true);
-  });
-
-  it('returns true when word order changes', () => {
-    expect(passesDistinctnessCheck('لاسلكية سماعات', 'سماعات لاسلكية')).toBe(true);
-  });
-
-  it('returns false on empty generation', () => {
-    expect(passesDistinctnessCheck('', 'سماعات لاسلكية')).toBe(false);
-  });
-});
-
-describe('buildFallback', () => {
-  it('builds a prefix-mutated AR string from a known-attribute word', () => {
-    const fb = buildFallback('bluetooth wireless headphones', 'سماعات لاسلكية');
-    // 'bluetooth' is in the TRANSLIT map → بلوتوث
-    expect(fb.descriptionAr).toContain('بلوتوث');
-    expect(fb.descriptionAr).not.toBe('سماعات لاسلكية'); // distinct from catalog
-  });
-
-  it('falls back to the latin word when no transliteration is known', () => {
-    const fb = buildFallback('zorblax gizmo', 'منتج');
-    // No mapping for zorblax → ship the latin token. Distinctness is what
-    // matters; broker will edit. Better than blank.
-    expect(fb.descriptionAr.length).toBeGreaterThan(0);
-    expect(fb.descriptionEn.length).toBeGreaterThan(0);
-  });
-
-  it('handles null catalog AR by using a generic Arabic placeholder', () => {
-    const fb = buildFallback('cotton shirt', null);
-    expect(fb.descriptionAr.length).toBeGreaterThan(0);
-  });
-
-  it('produces a distinct result vs the catalog (post-normalisation)', () => {
-    const cat = 'سماعات لاسلكية';
-    const fb = buildFallback('bluetooth headphones', cat);
-    expect(passesDistinctnessCheck(fb.descriptionAr, cat)).toBe(true);
+  it('falls back when LLM returns ok but description_ar is empty', async () => {
+    mockedCall.mockResolvedValueOnce({
+      kind: 'ok',
+      data: { description_ar: '' },
+      trace: { latency_ms: 50, model: 'mock-haiku', stage: 'submission_description', status: 'ok' },
+    });
+    const r = await generateSubmissionDescription({
+      cleanedDescription: 'item',
+      chosenCode: '851712000000',
+      catalogDescriptionAr: 'هاتف',
+    });
+    expect(r.invoked).toBe('fallback');
+    expect(r.descriptionAr).toBe('هاتف');
   });
 });

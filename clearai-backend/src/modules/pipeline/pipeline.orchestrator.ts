@@ -1,14 +1,15 @@
 /**
- * Pipeline orchestrator — runs the full 5-stage classification pipeline
- * for a single CanonicalLineItem.
+ * Pipeline orchestrator — runs the full classification pipeline for a single
+ * CanonicalLineItem.
  *
  * Stages:
- *   0a  Parse (deterministic)
- *   0b  Cleanup (lightweight LLM)
- *   1A  Track A: Researcher? → Retrieval → Threshold → Picker
- *   1B  Track B: Override → Codebook → Expand/LLM
- *   2   Reconciliation (standard LLM when needed)
- *   3   Sanity (standard LLM, always)
+ *   0a    Parse (deterministic)
+ *   0b    Cleanup (lightweight LLM)
+ *   1A    Track A: Researcher? → Retrieval → Threshold → Picker
+ *   1B    Track B: Override → Codebook → Expand/LLM
+ *   2     Reconciliation (standard LLM when needed)
+ *   2.5   Submission description (lightweight LLM, ≤300 char Arabic)
+ *   3     Sanity (standard LLM, always)
  *
  * Returns a PipelineResult that mirrors the DispatchResult contract so
  * declaration-sets/classification.service.ts can consume it without change.
@@ -18,6 +19,7 @@ import { runCleanup } from './stage-1-cleanup/cleanup.js';
 import { runTrackA } from './track-a-description/track-a.js';
 import { runTrackB } from './track-b-code/track-b.js';
 import { runReconciliation } from './stage-2-verdict/reconciliation.js';
+import { generateSubmissionDescription } from './submission-description/submission-description.js';
 import { runSanity } from './stage-3-sanity/sanity.js';
 import { enqueueHitl, shouldEnqueue } from './hitl/hitl.js';
 import { buildTrace } from './trace/trace.js';
@@ -25,16 +27,13 @@ import { getPool } from '../../db/client.js';
 import type { CanonicalLineItem } from '../tenants/tenant-config.types.js';
 import type { PipelineResult, StageTrace } from './shared/pipeline.types.js';
 
-async function lookupGoodsDescriptionAr(code: string): Promise<string | null> {
+async function lookupCatalogAr(code: string): Promise<string | null> {
   const pool = getPool();
   const r = await pool.query<{ description_ar: string | null }>(
     `SELECT description_ar FROM zatca_hs_codes WHERE code = $1`,
     [code],
   );
-  const raw = r.rows[0]?.description_ar ?? null;
-  if (!raw) return null;
-  // Strip non-Arabic characters per Naqel mapping spec.
-  return raw.replace(/[^؀-ۿ‌‍\s]/g, '').trim() || null;
+  return r.rows[0]?.description_ar ?? null;
 }
 
 export async function runPipeline(
@@ -134,6 +133,22 @@ export async function runPipeline(
     };
   }
 
+  // ---- Stage 2.5: Submission description (lightweight LLM) ----
+  const t25 = Date.now();
+  const catalogAr = await lookupCatalogAr(verdict.final_code);
+  const submission = await generateSubmissionDescription({
+    cleanedDescription: cleanup.cleaned_description,
+    chosenCode: verdict.final_code,
+    catalogDescriptionAr: catalogAr,
+  });
+  allStages.push({
+    name: 'stage-2.5/submission-description',
+    started_at: new Date(t25).toISOString(),
+    duration_ms: submission.latencyMs,
+    outcome: 'ok',
+    detail: { source: submission.invoked, length: submission.descriptionAr.length },
+  });
+
   // ---- Stage 3: Sanity ----
   const t3 = Date.now();
   const sanity = await runSanity({
@@ -175,12 +190,10 @@ export async function runPipeline(
     };
   }
 
-  // PASS or FLAG — fetch Arabic description and return
-  const goods_description_ar = await lookupGoodsDescriptionAr(verdict.final_code);
-
+  // PASS or FLAG — return with the LLM-generated submission description
   return {
     final_code: verdict.final_code,
-    goods_description_ar,
+    goods_description_ar: submission.descriptionAr,
     sanity_verdict: sanity.verdict,
     trace,
   };

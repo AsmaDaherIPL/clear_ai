@@ -7,7 +7,7 @@ import { callLlmWithRetry, type LlmCallResult, type LlmStatus } from '../../../.
 import { extractJson } from '../../../../inference/llm/parse-json.js';
 import { loadPrompt } from '../../../../inference/llm/structured-call.js';
 import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
-import type { MissingAttribute } from '../../legacy-routes/classify.types.js';
+import type { MissingAttribute } from '../../shared/domain.types.js';
 
 export interface LlmPickResult {
   llmStatus: LlmStatus;

@@ -1,8 +1,8 @@
 /**
  * Verifies the operational-failure escalation in llmPick: the provider
  * returning status='ok' with no text MUST surface as llmStatus='error' so
- * `resolve()` produces decision_status='degraded' / reason='llm_unavailable'
- * rather than the misleading 'ambiguous_top_candidates'.
+ * the picker reports an operational failure rather than the misleading
+ * 'no fit'/'ambiguous' verdict.
  *
  * We don't test against real Foundry — we mock the LLM client.
  */
@@ -20,7 +20,6 @@ vi.mock('node:fs/promises', () => ({
 
 import { llmPick } from '../../src/modules/pipeline/track-a-description/picker/llm-pick.js';
 import { callLlmWithRetry } from '../../src/inference/llm/client.js';
-import { resolve } from '../../src/modules/pipeline/legacy-routes/classify.use-case.js';
 import type { Candidate } from '../../src/inference/retrieval/retrieve.js';
 
 // llmPick only reads `code` / `description_en` / `description_ar` from each
@@ -60,23 +59,6 @@ describe('llmPick — empty provider response is operational failure', () => {
     });
     const r = await llmPick({ kind: 'describe', query: 'horse', candidates, pathMode: 0 });
     expect(r.llmStatus).toBe('error');
-  });
-
-  it('resolve() maps the escalated empty response to degraded/llm_unavailable (NOT ambiguous_top_candidates)', async () => {
-    vi.mocked(callLlmWithRetry).mockResolvedValueOnce({
-      status: 'ok',
-      text: null,
-      raw: { content: [] },
-      latencyMs: 10,
-      model: 'mock-haiku',
-    });
-    const llm = await llmPick({ kind: 'describe', query: 'horse', candidates, pathMode: 0 });
-    const decision = resolve({
-      gate: { passed: true, topRetrievalScore: 0.95, top2Gap: 0.05 },
-      llm,
-    });
-    expect(decision.decisionStatus).toBe('degraded');
-    expect(decision.decisionReason).toBe('llm_unavailable');
   });
 
   it('preserves the existing happy path: ok+text+valid_json → accepted', async () => {

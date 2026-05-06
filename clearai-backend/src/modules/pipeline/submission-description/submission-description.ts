@@ -1,182 +1,113 @@
 /**
- * ZATCA-safe submission description. ZATCA rejects declarations whose Arabic
- * matches the catalog word-for-word; this generates a variant differing by
- * ≥1 token. Two-attempt LLM loop, then deterministic prefix-mutator fallback.
+ * Stage 2.5 — Submission description (lightweight LLM).
+ *
+ * After Reconciliation has chosen a final 12-digit HS code, ZATCA needs an
+ * Arabic goods description for the declaration envelope. The catalog Arabic
+ * cannot be copied verbatim — ZATCA rejects declarations whose Arabic text
+ * matches the catalog word-for-word — so a lightweight LLM generates a
+ * fresh Arabic description for the item.
+ *
+ * Constraints:
+ *   • Arabic only
+ *   • ≤300 characters
+ *   • Describes the *item* (using cleaned description), not just the code's catalog entry
+ *
+ * Never throws. Falls back to a deterministic minimal Arabic string on LLM failure.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
 import { env } from '../../../config/env.js';
 
 export interface SubmissionDescriptionResult {
-  invoked: 'disabled' | 'llm' | 'llm_failed' | 'guard_fallback';
-  /** Non-empty when invoked != 'disabled'. */
+  /** Source of the final descriptionAr — observability only. */
+  invoked: 'llm' | 'llm_failed' | 'fallback';
+  /** ZATCA-safe Arabic description, ≤300 chars. Always non-empty. */
   descriptionAr: string;
-  descriptionEn: string;
-  /** Total across retries. */
   latencyMs: number;
   model?: string | undefined;
 }
 
-const ParsedSubmissionSchema = z
+const MAX_CHARS = 300;
+
+const ParsedSchema = z
   .object({
     description_ar: z.unknown().optional(),
-    description_en: z.unknown().optional(),
   })
   .passthrough();
 
-/** NFKC + strip diacritics + bidi marks + tree punctuation + collapse whitespace. */
-function normalizeAr(s: string): string {
-  if (!s) return '';
-  let out = s.normalize('NFKC');
-  out = out.replace(/[ً-ْٰ]/g, '');
-  out = out.replace(/[​-‏‪-‮⁦-⁩﻿]/g, '');
-  out = out.replace(/^[\s\-·.•]+|[\s\-·.•]+$/g, '');
-  out = out.replace(/\s+/g, ' ').trim();
-  return out;
+/** Trim, collapse whitespace, enforce length cap. */
+function clean(s: string): string {
+  return s.normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
 }
 
-/** Returns true if the LLM's AR output is acceptably distinct from the catalog AR. */
-function passesDistinctnessCheck(generatedAr: string, catalogAr: string | null): boolean {
-  if (!catalogAr) return true;
-  const a = normalizeAr(generatedAr);
-  const b = normalizeAr(catalogAr);
-  if (!a) return false;
-  return a !== b;
-}
-
-/** Last-resort: prepend a customs-relevant word from the description. */
-function buildFallback(effectiveDescription: string, catalogAr: string | null): {
-  descriptionAr: string;
-  descriptionEn: string;
-} {
-  const STOP = new Set(['a', 'an', 'the', 'of', 'for', 'with', 'and', 'or']);
-  const tokens = effectiveDescription
-    .split(/[\s,;]+/)
-    .map((t) => t.trim().toLowerCase())
-    .filter((t) => t.length >= 3 && !STOP.has(t));
-  const prefix = tokens[0] ?? 'general';
-
-  /** Common product-class prefixes; unmapped tokens ship as latin. */
-  const TRANSLIT: Record<string, string> = {
-    bluetooth: 'بلوتوث',
-    wireless: 'لاسلكية',
-    wired: 'سلكية',
-    cotton: 'قطنية',
-    leather: 'جلدية',
-    plastic: 'بلاستيكية',
-    metal: 'معدنية',
-    smart: 'ذكية',
-    digital: 'رقمية',
-    electric: 'كهربائية',
-    automatic: 'أوتوماتيكية',
-  };
-  const arPrefix = TRANSLIT[prefix] ?? prefix;
-  const cleanCatalogAr = catalogAr ? normalizeAr(catalogAr) : 'منتج';
-
-  return {
-    descriptionAr: `${arPrefix} ${cleanCatalogAr}`,
-    descriptionEn: `${prefix} ${effectiveDescription}`.slice(0, 80),
-  };
-}
-
-export interface SubmissionDescriptionOpts {
-  enabled?: boolean;
-  /** Default 300. */
-  maxTokens?: number;
-  /** Defaults to env LLM_MODEL_STRONG. */
-  model?: string;
+/** Minimal Arabic fallback. Used only when the LLM fails outright. */
+function fallback(catalogDescriptionAr: string | null, cleanedDescription: string): string {
+  if (catalogDescriptionAr) {
+    return clean(catalogDescriptionAr);
+  }
+  return clean(`منتج: ${cleanedDescription}`);
 }
 
 export interface GenerateSubmissionParams {
-  effectiveDescription: string;
+  /** The cleaned item description from Stage 1. */
+  cleanedDescription: string;
+  /** The 12-digit HS code accepted by Stage 2 (Reconciliation). */
   chosenCode: string;
+  /** Catalog Arabic description from zatca_hs_codes — only used as a fallback. */
   catalogDescriptionAr: string | null;
-  catalogDescriptionEn: string | null;
-  opts?: SubmissionDescriptionOpts;
+  /** Override model. Defaults to lightweight env LLM_MODEL. */
+  model?: string;
 }
 
-function disabled(): SubmissionDescriptionResult {
-  return {
-    invoked: 'disabled',
-    descriptionAr: '',
-    descriptionEn: '',
-    latencyMs: 0,
-  };
-}
-
-/** Never throws — falls back to prefix mutator on LLM failure. */
 export async function generateSubmissionDescription(
   params: GenerateSubmissionParams,
 ): Promise<SubmissionDescriptionResult> {
-  const { effectiveDescription, chosenCode, catalogDescriptionAr, catalogDescriptionEn, opts = {} } = params;
-  const { enabled = true, maxTokens = 120 } = opts;
+  const { cleanedDescription, chosenCode, catalogDescriptionAr } = params;
 
-  if (!enabled) return disabled();
+  const model = params.model ?? env().LLM_MODEL;
 
-  const e = env();
-  const model = opts.model ?? e.LLM_MODEL;
+  const user = [
+    `Item description: ${cleanedDescription}`,
+    `HS code: ${chosenCode}`,
+    `Maximum length: ${MAX_CHARS} characters.`,
+  ].join('\n');
 
-  const userPrompt = (extraHint?: string): string => {
-    const lines = [
-      `Effective product description: ${effectiveDescription}`,
-      `Chosen HS code: ${chosenCode}`,
-      `Catalog Arabic description (DO NOT replicate exactly): ${catalogDescriptionAr ?? '(none)'}`,
-      `Catalog English description (for reference): ${catalogDescriptionEn ?? '(none)'}`,
-    ];
-    if (extraHint) lines.push('', extraHint);
-    lines.push('', 'Return JSON only.');
-    return lines.join('\n');
-  };
+  const outcome = await structuredLlmCall({
+    promptFile: 'submission-description.md',
+    user,
+    schema: ParsedSchema,
+    stage: 'submission_description',
+    model,
+    maxTokens: 200,
+    temperature: 0,
+    timeoutMs: 8_000,
+  });
 
-  let totalLatency = 0;
-  let lastModel = model;
-
-  for (const attempt of [1, 2] as const) {
-    const hint =
-      attempt === 1
-        ? undefined
-        : 'Your previous output was a word-for-word match with the catalog Arabic description. Generate a different phrasing — add at least one customs-relevant word, change word order, or use a synonymous noun-form.';
-
-    const outcome = await structuredLlmCall({
-      promptFile: 'submission-description.md',
-      user: userPrompt(hint),
-      schema: ParsedSubmissionSchema,
-      stage: 'submission_description',
-      model,
-      maxTokens,
-      temperature: attempt === 1 ? 0 : 0.2,
-    });
-    totalLatency += outcome.trace.latency_ms;
-    lastModel = outcome.trace.model;
-
-    if (outcome.kind !== 'ok') continue;
-    const parsed = outcome.data;
-
-    const descAr = typeof parsed.description_ar === 'string' ? parsed.description_ar.trim() : '';
-    const descEn = typeof parsed.description_en === 'string' ? parsed.description_en.trim() : '';
-
-    if (!descAr || !descEn) continue;
-
-    if (passesDistinctnessCheck(descAr, catalogDescriptionAr)) {
-      return {
-        invoked: 'llm',
-        descriptionAr: descAr,
-        descriptionEn: descEn,
-        latencyMs: totalLatency,
-        model: lastModel,
-      };
-    }
+  if (outcome.kind !== 'ok') {
+    return {
+      invoked: 'llm_failed',
+      descriptionAr: fallback(catalogDescriptionAr, cleanedDescription),
+      latencyMs: outcome.trace.latency_ms,
+      model: outcome.trace.model,
+    };
   }
 
-  const fb = buildFallback(effectiveDescription, catalogDescriptionAr);
+  const raw = typeof outcome.data.description_ar === 'string' ? outcome.data.description_ar : '';
+  const cleaned = clean(raw);
+
+  if (!cleaned) {
+    return {
+      invoked: 'fallback',
+      descriptionAr: fallback(catalogDescriptionAr, cleanedDescription),
+      latencyMs: outcome.trace.latency_ms,
+      model: outcome.trace.model,
+    };
+  }
+
   return {
-    invoked: 'guard_fallback',
-    descriptionAr: fb.descriptionAr,
-    descriptionEn: fb.descriptionEn,
-    latencyMs: totalLatency,
-    model: lastModel,
+    invoked: 'llm',
+    descriptionAr: cleaned,
+    latencyMs: outcome.trace.latency_ms,
+    model: outcome.trace.model,
   };
 }
-
-// Exported for unit testing.
-export const __test__ = { normalizeAr, passesDistinctnessCheck, buildFallback };
