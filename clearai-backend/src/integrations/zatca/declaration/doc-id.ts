@@ -24,10 +24,18 @@ const DEFAULT_PREFIX = 'NQD';
 export interface DocIdInput {
   /** Tenant prefix from tenant_constants.doc_ref_prefix; falls back to 'NQD'. */
   prefix?: string;
+  /**
+   * Override the suffix entirely. Test seam — production calls leave it
+   * undefined and the helper generates 11 random digits. Sample-equivalence
+   * tests pass the reference XMLs' suffixes (e.g. '26033110789') so the
+   * rendered XML matches byte-for-byte.
+   */
+  suffixOverride?: string;
 }
 
 export function buildDocRefNo(input: DocIdInput = {}): string {
   const prefix = (input.prefix && input.prefix.trim()) || DEFAULT_PREFIX;
+  if (input.suffixOverride !== undefined) return `${prefix}${input.suffixOverride}`;
   // 11 random digits. Two randomInt calls because randomInt's range is
   // bounded; concat covers the full 11-digit space. Leading zeros allowed.
   const left = String(randomInt(0, 100000)).padStart(5, '0');
