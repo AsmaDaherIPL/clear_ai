@@ -70,7 +70,12 @@ export interface Candidate {
   vec_score: number | null;
   bm25_score: number | null;
   trgm_score: number | null;
-  /** Fused RRF score, normalised to [0,1] across the candidate set. */
+  /**
+   * Fused weighted-RRF score. Raw, not normalised — top1 for a clean two-arm
+   * hit at default weights (vec=1.0, bm25=1.5) is roughly:
+   *   1.0/(60+1) + 1.5/(60+1) ≈ 0.041
+   * Vector-only top1 ≈ 0.016. Threshold gates compare against these raw values.
+   */
   rrf_score: number;
 }
 
@@ -100,9 +105,26 @@ interface RetrieveOpts {
   trgmRrfK?: number;
   /** Stage-1 recall pool size. Default 40 — the vector arm pulls this many. */
   recallK?: number;
+  /**
+   * Per-arm weights applied to the rank-based RRF contribution. Per Elastic 8.16
+   * weighted-RRF semantics: each arm's term becomes weight * 1/(K + rank).
+   * Defaults reflect domain priors for HS-code retrieval — BM25 over the
+   * bilingual catalog is the most reliable signal for technical product
+   * terminology, vector recall is solid but the e5-small model under-clusters
+   * jargon, and trigram is a weak tertiary tie-break.
+   */
+  vecWeight?: number;
+  bm25Weight?: number;
+  trgmWeight?: number;
 }
 
-const PREFIX_BIAS_BOOST = 0.05;
+// Soft tie-break for prefix matches. Sized for raw RRF (~0.04 at top1):
+// large enough to flip near-ties, small enough not to outweigh a clean
+// two-arm rank-1 hit on a different prefix.
+const PREFIX_BIAS_BOOST = 0.001;
+const DEFAULT_VEC_WEIGHT = 1.0;
+const DEFAULT_BM25_WEIGHT = 1.5;
+const DEFAULT_TRGM_WEIGHT = 0.5;
 
 interface RawHit {
   code: string;
@@ -132,6 +154,9 @@ export async function retrieveCandidates(
     rrfK = 60,
     trgmRrfK = 200,
     recallK = 40,
+    vecWeight = DEFAULT_VEC_WEIGHT,
+    bm25Weight = DEFAULT_BM25_WEIGHT,
+    trgmWeight = DEFAULT_TRGM_WEIGHT,
   } = opts;
 
   const pool = getPool();
@@ -273,9 +298,9 @@ export async function retrieveCandidates(
     const bm25Rank = bm25RankByCode.get(row.code) ?? null;
     const trgmRank = trgmRankByCode.get(row.code) ?? null;
 
-    let rrf = 1 / (rrfK + vecRank);
-    if (bm25Rank !== null) rrf += 1 / (rrfK + bm25Rank);
-    if (trgmRank !== null) rrf += 1 / (trgmRrfK + trgmRank);
+    let rrf = vecWeight * (1 / (rrfK + vecRank));
+    if (bm25Rank !== null) rrf += bm25Weight * (1 / (rrfK + bm25Rank));
+    if (trgmRank !== null) rrf += trgmWeight * (1 / (trgmRrfK + trgmRank));
 
     return {
       code: row.code,
@@ -304,11 +329,10 @@ export async function retrieveCandidates(
     }
   }
 
-  // Normalise so top1 is in (0, 1] for callers that compare against
-  // MIN_SCORE thresholds.
+  // Return raw RRF scores (no max-normalisation). Aligns with Elastic / Azure
+  // AI Search / OpenSearch reference implementations: dividing by max launders
+  // weak retrieval into score=1.0 at top1 and breaks the threshold gate.
   candidates.sort((a, b) => b.rrf_score - a.rrf_score);
-  const maxScore = candidates[0]?.rrf_score || 1;
-  for (const c of candidates) c.rrf_score = c.rrf_score / maxScore;
 
   return candidates.slice(0, topK);
 }
