@@ -3,23 +3,22 @@
 # ClearAI backend — multi-stage build for Azure Container Apps.
 #
 # Stage layout:
-#   1. base    — Node 22 alpine + pnpm (shared by deps/build/runtime)
+#   1. base    — Node 22 slim + pnpm (shared by deps/build/runtime)
 #   2. deps    — pnpm install (with dev deps, needed for tsc + tsx + drizzle-kit)
-#   3. build   — tsc compile to dist/, prefetch embedder ONNX model into models/
-#   4. runtime — minimal layer with prod deps only + dist/ + models/ + prompts/
+#   3. build   — tsc compile to dist/
+#   4. runtime — minimal layer with prod deps only + dist/ + prompts/ + drizzle/
 #
-# The embedder is BAKED INTO the image (~85 MB) so the first request after a
-# cold container takes ~2s instead of ~30–60s waiting on Hugging Face CDN.
-# The prefetch runs against ./models, which the runtime stage copies verbatim
-# — embedder.ts reads cacheDir = './models' so this matches at runtime.
+# Plan B step 1 swap (2026-05-07): the embedder is now Foundry-hosted
+# text-embedding-3-large. The image no longer bakes any ONNX model
+# weights, no longer pulls @xenova/transformers, and no longer pre-fetches
+# anything at build time. Cold-start is now a clean ~2s Node boot.
 #
-# Listens on 0.0.0.0:${PORT} (default 3000) which matches the Container App's
-# `targetPort: 3000`. Health probe path: /health.
+# Listens on 0.0.0.0:${PORT} (default 3000) which matches the Container
+# App's `targetPort: 3000`. Health probe path: /health.
 
-# Debian slim (glibc) — NOT alpine. `onnxruntime-node` (transitive dep of
-# @xenova/transformers) ships a prebuilt linked against glibc, and crashes
-# at module load on musl with `ERR_DLOPEN_FAILED: ld-linux-x86-64.so.2`.
-# We pay ~80 MB of base size to avoid fighting the runtime.
+# Debian slim. Pre-Plan-B we needed glibc for onnxruntime-node's prebuilt;
+# now that ONNX is gone we could move to alpine, but slim still gives us
+# `apt-get install tini` cheaply and no app surface depends on glibc.
 ARG NODE_VERSION=22-bookworm-slim
 
 # ---------- 1. base -------------------------------------------------------
@@ -35,18 +34,17 @@ RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 WORKDIR /app
 
 # ---------- 2. deps -------------------------------------------------------
-# Full install (incl. dev deps) so the build stage can run tsc + the embedder
-# prefetch script. No source code yet — this layer is cached on lockfile only.
+# Full install (incl. dev deps) so the build stage can run tsc. No source
+# code yet — this layer is cached on lockfile only.
 FROM base AS deps
 COPY package.json pnpm-lock.yaml* ./
-# `--prod=false` to ensure devDeps land. NODE_ENV=production from base would
-# otherwise tell pnpm to skip them.
+# `--prod=false` to ensure devDeps land. NODE_ENV=production from base
+# would otherwise tell pnpm to skip them.
 #
 # `pnpm rebuild` after install forces the postinstall scripts of the
-# allow-listed native deps (sharp, esbuild, protobufjs — see package.json
+# allow-listed native deps (sharp, esbuild — see package.json
 # `pnpm.onlyBuiltDependencies`) to actually run. Without this, sharp's
-# linux-x64 prebuilt isn't downloaded, and onnxruntime-node + transformers
-# fall over at module load.
+# linux-x64 prebuilt isn't downloaded.
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --prod=false \
     && pnpm rebuild
@@ -56,35 +54,15 @@ FROM deps AS build
 COPY tsconfig.json ./
 COPY src ./src
 COPY prompts ./prompts
-# Drizzle SQL + meta — needed at runtime by the migrator wrapper, but
-# included here because we may run `pnpm db:migrate` from this image too.
+# Drizzle SQL + meta — needed at runtime by the migrator wrapper.
 COPY drizzle ./drizzle
 
 # Compile TS → dist/.
 RUN pnpm build
 
-# Prefetch the ONNX embedder model into ./models so the runtime image
-# ships with weights present. We do this with a tiny inline script that
-# imports the same pipeline() the app uses, with the same cacheDir, so
-# what we bake in is exactly what runtime expects to find.
-#
-# The model is Xenova/multilingual-e5-small by default (see env.ts).
-# Override with EMBEDDER_MODEL build-arg if you need a different one.
-ARG EMBEDDER_MODEL=Xenova/multilingual-e5-small
-ENV EMBEDDER_MODEL=${EMBEDDER_MODEL}
-RUN node --input-type=module -e " \
-  import('@xenova/transformers').then(async ({ pipeline, env }) => { \
-    env.allowLocalModels = true; \
-    env.cacheDir = './models'; \
-    console.log('[prefetch] downloading', process.env.EMBEDDER_MODEL); \
-    await pipeline('feature-extraction', process.env.EMBEDDER_MODEL, { quantized: true }); \
-    console.log('[prefetch] done'); \
-  }).catch((e) => { console.error(e); process.exit(1); }); \
-"
-
 # ---------- 4. runtime ----------------------------------------------------
 # Fresh prod-only install so node_modules has zero dev deps. Then copy in
-# dist/, models/, prompts/, drizzle/ from the build stage.
+# dist/, prompts/, drizzle/ from the build stage.
 FROM base AS runtime
 ENV NODE_ENV=production \
     PORT=3000
@@ -95,11 +73,10 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     && pnpm rebuild
 
 COPY --from=build /app/dist     ./dist
-COPY --from=build /app/models   ./models
 COPY --from=build /app/prompts  ./prompts
 COPY --from=build /app/drizzle  ./drizzle
 
-# Drop privileges. node:alpine ships a `node` user (uid 1000); use it.
+# Drop privileges. The `node` user (uid 1000) ships in the slim image.
 RUN chown -R node:node /app
 USER node
 
@@ -110,7 +87,7 @@ EXPOSE 3000
 # Container App scales the replica out.
 ENTRYPOINT ["/usr/bin/tini", "--"]
 # Production entry runs Drizzle migrations first, then boots Fastify. The
-# migrator is idempotent (drizzle ledger, ADR-0010), so cold starts after the
-# first deploy of a release are no-ops. If migrations fail, the process exits
-# non-zero and Container Apps keeps the previous revision serving traffic.
+# migrator is idempotent (drizzle ledger, ADR-0010), so cold starts after
+# the first deploy of a release are no-ops. If migrations fail, the process
+# exits non-zero and Container Apps keeps the previous revision serving.
 CMD ["node", "dist/scripts/migrate-and-start.js"]

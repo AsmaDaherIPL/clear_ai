@@ -49,8 +49,39 @@ const EnvSchema = z
     LLM_MODEL_STRONG: z.string().min(1).default('claude-sonnet-4-6-clearai-dev'),
     LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
 
+    /**
+     * Legacy ONNX embedder name — kept for log/version-tag continuity.
+     * Pre-Plan-B this drove the in-process Xenova/multilingual-e5-small model.
+     * Post-Plan-B retrieval uses Foundry-hosted text-embedding-3-large; this
+     * value is no longer wired to model loading.
+     * @deprecated read FOUNDRY_EMBED_MODEL instead.
+     */
     EMBEDDER_MODEL: z.string().min(1).default('Xenova/multilingual-e5-small'),
-    EMBEDDER_DIM: z.coerce.number().int().positive().default(384),
+    /**
+     * Catalog embedding dim. Bumped 384 → 1024 in Plan B to match
+     * text-embedding-3-large's Matryoshka 1024 truncation.
+     */
+    EMBEDDER_DIM: z.coerce.number().int().positive().default(1024),
+
+    // ── Foundry-hosted embedder (Plan B) ─────────────────────────────────
+    /**
+     * Foundry resource base or the full embeddings URL. The client appends
+     * /openai/deployments/<FOUNDRY_EMBED_MODEL>/embeddings?api-version=…
+     * when a plain base URI is supplied.
+     */
+    FOUNDRY_EMBED_ENDPOINT: z
+      .string()
+      .url()
+      .default('https://aif-infp-dev-swc-01.services.ai.azure.com'),
+    FOUNDRY_EMBED_API_KEY: z.string().min(1),
+    /** Deployment name on the Foundry resource (NOT the underlying model id). */
+    FOUNDRY_EMBED_MODEL: z.string().min(1).default('text-embedding-3-large-clearai-dev'),
+    /**
+     * Matryoshka truncation. Native is 3072; 1024 keeps storage tractable
+     * (~100 MB for the 25k-row catalog) and matches the catalog vector(1024).
+     * Must equal EMBEDDER_DIM.
+     */
+    FOUNDRY_EMBED_DIM: z.coerce.number().int().positive().default(1024),
 
     /** Comma-separated CORS origin allowlist. */
     CORS_ORIGINS: z

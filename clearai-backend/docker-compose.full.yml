@@ -53,8 +53,15 @@ services:
       ANTHROPIC_BASE_URL: "${ANTHROPIC_BASE_URL}"
       LLM_MODEL: "${LLM_MODEL}"
       LLM_MODEL_STRONG: "${LLM_MODEL_STRONG:-${LLM_MODEL}}"
+      # Plan B: Foundry-hosted text-embedding-3-large. EMBEDDER_MODEL kept
+      # for log/version-tag continuity only; FOUNDRY_EMBED_* drives the
+      # actual embedder client.
       EMBEDDER_MODEL: "${EMBEDDER_MODEL:-Xenova/multilingual-e5-small}"
-      EMBEDDER_DIM: "${EMBEDDER_DIM:-384}"
+      EMBEDDER_DIM: "${EMBEDDER_DIM:-1024}"
+      FOUNDRY_EMBED_ENDPOINT: "${FOUNDRY_EMBED_ENDPOINT:-https://aif-infp-dev-swc-01.services.ai.azure.com}"
+      FOUNDRY_EMBED_API_KEY: "${FOUNDRY_EMBED_API_KEY}"
+      FOUNDRY_EMBED_MODEL: "${FOUNDRY_EMBED_MODEL:-text-embedding-3-large-clearai-dev}"
+      FOUNDRY_EMBED_DIM: "${FOUNDRY_EMBED_DIM:-1024}"
       PORT: "3000"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
       NODE_ENV: "development"

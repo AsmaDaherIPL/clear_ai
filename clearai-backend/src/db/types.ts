@@ -3,7 +3,7 @@ import { customType } from 'drizzle-orm/pg-core';
 
 export const vector = customType<{ data: number[]; driverData: string }>({
   dataType(config) {
-    const dim = (config as { dim?: number } | undefined)?.dim ?? 384;
+    const dim = (config as { dim?: number } | undefined)?.dim ?? 1024;
     return `vector(${dim})`;
   },
   toDriver(value: number[]) {

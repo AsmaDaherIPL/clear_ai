@@ -28,13 +28,25 @@
  * h.is_deleted directly (single source of truth).
  */
 import { getPool, closeDb } from '../../src/db/client.js';
-import { embedPassageBatch } from '../../src/embeddings/embedder.js';
-import { newId } from '../../src/util/uuid.js';
+import { embedPassageBatch, EMBEDDER_VERSION } from '../../src/inference/embeddings/embedder.js';
+import { newId } from '../../src/common/utils/uuid.js';
 
-const BATCH_EMBED = 32;
+// Foundry's text-embedding-3-large accepts up to ~16 inputs per request.
+// Pre-Plan-B this was 32 against the in-process ONNX model.
+const BATCH_EMBED = 16;
 const BATCH_INSERT = 200;
-const EMBEDDING_MODEL = 'Xenova/multilingual-e5-small@1.0.0';
+const EMBEDDING_MODEL = `${EMBEDDER_VERSION()}@1024`; // model name @ Matryoshka dim
 const BUILD_VERSION = process.env['BUILD_VERSION'] ?? 'dev';
+
+/**
+ * Throttle between Foundry requests. The S0 deployment caps RPM at 1500
+ * and TPM at 250k; at ~30 tokens/row × 16 rows/batch = 480 tokens/req
+ * we'd burst to ~30k tokens/sec without a sleep. 80ms/request keeps us
+ * comfortably under both ceilings (~12 req/sec, ~5760 tokens/sec) and
+ * still finishes the 19k-row reseed in ~2-3 minutes.
+ */
+const PER_REQUEST_DELAY_MS = 80;
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 interface SourceRow {
   code: string;
@@ -119,6 +131,7 @@ async function main(): Promise<void> {
       const pct = ((i + slice.length) / prepared.length) * 100;
       console.log(`  ${i + slice.length}/${prepared.length}  (${pct.toFixed(1)}%)  embed_ms=${embedT}`);
     }
+    if (i + BATCH_EMBED < prepared.length) await sleep(PER_REQUEST_DELAY_MS);
   }
 
   // TRUNCATE + bulk insert.

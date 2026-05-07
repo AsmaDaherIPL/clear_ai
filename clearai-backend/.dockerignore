@@ -45,7 +45,11 @@ local-dev
 drizzle/**/*.sql.bak
 drizzle-studio
 
-# Local embedder cache — the build stage prefetches a fresh copy.
+# Plan B step 1 dropped the in-process ONNX embedder for Foundry-hosted
+# text-embedding-3-large. The local `models/` cache is no longer used by
+# the runtime (or the build stage), but kept in .dockerignore to belt-
+# and-brace against any leftover local cache being copied into a stale
+# context. Safe to delete the directory locally — `rm -rf models/`.
 models
 
 # Awesome-claude-code vendored fork — not part of the app.

@@ -400,6 +400,13 @@
       "when": 1777215600000,
       "tag": "0056_operators_consignee_address_jsonb",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1777215700000,
+      "tag": "0057_embedder_dim_1024",
+      "breakpoints": true
     }
   ]
 }

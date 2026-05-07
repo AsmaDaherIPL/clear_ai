@@ -47,8 +47,8 @@ export const hsCodeSearch = pgTable(
     tsvInputEn: text('tsv_input_en').notNull(),
     tsvInputAr: text('tsv_input_ar'),
 
-    /** 384-dim e5-small vector. */
-    embedding: vector('embedding', { dim: 384 }),
+    /** 1024-dim text-embedding-3-large (Matryoshka truncation). */
+    embedding: vector('embedding', { dim: 1024 }),
     embeddingModel: text('embedding_model').notNull(),
 
     /** Maintained by trigger from tsv_input_*. */
