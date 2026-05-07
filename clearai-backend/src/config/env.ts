@@ -49,8 +49,25 @@ const EnvSchema = z
     LLM_MODEL_STRONG: z.string().min(1).default('claude-sonnet-4-6-clearai-dev'),
     LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
 
-    EMBEDDER_MODEL: z.string().min(1).default('Xenova/multilingual-e5-small'),
-    EMBEDDER_DIM: z.coerce.number().int().positive().default(384),
+    // ── Foundry-hosted embedder (Plan B) ─────────────────────────────────
+    /**
+     * Foundry resource base or the full embeddings URL. The client appends
+     * /openai/deployments/<FOUNDRY_EMBED_MODEL>/embeddings?api-version=…
+     * when a plain base URI is supplied.
+     */
+    FOUNDRY_EMBED_ENDPOINT: z
+      .string()
+      .url()
+      .default('https://aif-infp-dev-swc-01.services.ai.azure.com'),
+    FOUNDRY_EMBED_API_KEY: z.string().min(1),
+    /** Deployment name on the Foundry resource (NOT the underlying model id). */
+    FOUNDRY_EMBED_MODEL: z.string().min(1).default('text-embedding-3-large-clearai-dev'),
+    /**
+     * Matryoshka truncation. text-embedding-3-large is 3072-dim natively;
+     * 1024 keeps the catalog vector(1024) column tractable (~100 MB for
+     * 25k rows) and matches MTEB best-practice for multilingual retrieval.
+     */
+    FOUNDRY_EMBED_DIM: z.coerce.number().int().positive().default(1024),
 
     /** Comma-separated CORS origin allowlist. */
     CORS_ORIGINS: z
@@ -96,8 +113,6 @@ const EnvSchema = z
      * but probes / single-shot pipeline routes still work.
      */
     BATCH_BLOB_CONNECTION: z.string().min(1).optional(),
-    /** TTL for retained batch results before garbage collection. */
-    BATCH_RESULT_TTL_DAYS: z.coerce.number().int().positive().default(30),
 
     // ─── ZATCA Declaration envelope (rendered by BatchPlumber Phase 5) ──────
 

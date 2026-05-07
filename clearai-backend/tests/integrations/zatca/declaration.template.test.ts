@@ -49,7 +49,7 @@ function row(overrides: Partial<{
     canonical: {
       itemId: 'item-1',
       rowIndex: 1,
-      tenantId: 'operator',
+      operatorId: '00000000-0000-0000-0000-000000000000',
       operatorSlug: 'naqel',
       description: 'Dresses',
       waybillNo: '394613346',
@@ -66,6 +66,7 @@ function row(overrides: Partial<{
       consigneeName: 'رحمة العيسى',
       consigneeNationalId: '1069595681',
       consigneePhone: '966500026683',
+      consigneeAddress: null,
       invoiceDate: null,
       ...(overrides as Record<string, unknown>),
     },
@@ -102,17 +103,42 @@ function lookups(): Map<string, Map<string, LookupValue>> {
   m.set('tabdul_city', new Map([
     ['111', { canonical: 'الدمام', metadata: { engName: 'Dammam', intlCode: 'SA', countryCode: '100' } }],
   ]));
+  m.set('uom', new Map([
+    ['PIECE', { canonical: '7', metadata: { label: 'piece' } }],
+    ['KG',    { canonical: '1', metadata: { label: 'kilogram' } }],
+  ]));
   return m;
 }
 
 function constants(): Record<string, string> {
+  // Only `default_reg_port_code` left in operator_constants after 0056.
   return {
-    reference_userid: 'uwqfr002',
-    reference_acct_id: 'uwqf',
     default_reg_port_code: '23',
-    sender_broker_license_type: '5',
-    sender_broker_license_no: '1',
-    sender_broker_representative_no: '1732',
+  };
+}
+
+function identity() {
+  return {
+    tabadulUserid: 'uwqfr002',
+    tabadulAcctId: 'uwqf',
+    brokerLicenseType: '5',
+    brokerLicenseNo: '1',
+    brokerRepresentativeNo: '1732',
+    defaultSourceCompanyName: 'ناقل',
+    defaultSourceCompanyNo: '340476',
+  };
+}
+
+function defaultConsigneeAddress() {
+  return {
+    cityCode: '131',
+    zipCode: '1111',
+    poBox: '11',
+  };
+}
+
+function zatcaDefaults(): Record<string, string> {
+  return {
     declaration_type: '2',
     final_country: 'SA',
     inspection_group_id: '10',
@@ -122,24 +148,24 @@ function constants(): Record<string, string> {
     invoice_payment_method_id: '1',
     payment_document_status_id: '0',
     deal_value: '1',
-    item_invoice_measurement_unit: '7',
-    item_international_measurement_unit: '7',
     item_unit_per_packages: '1',
     item_duty_type_id: '1',
     express_transport_type: '4',
     express_add_country_code: '100',
     express_country: '100',
-    express_default_city: '131',
-    express_zip_code: '1111',
-    express_po_box: '11',
-    default_source_company_name: 'ناقل',
-    default_source_company_no: '340476',
   };
 }
 
 function baseInput(items: DeclarationRunItemRow[], strategy: 'HV_STANDALONE' | 'LV_BUNDLED' = 'HV_STANDALONE') {
   return {
-    operator: { slug: 'naqel', displayName: 'Naqel', constants: constants() },
+    operator: {
+      slug: 'naqel',
+      displayName: 'Naqel',
+      constants: constants(),
+      identity: identity(),
+      defaultConsigneeAddress: defaultConsigneeAddress(),
+    },
+    zatcaDefaults: zatcaDefaults(),
     bundleStrategy: strategy,
     items,
     submitter: { carrierId: 'NAQ-CARRIER-1', name: 'Naqel' },
@@ -290,10 +316,42 @@ describe('renderDeclarationXml — escaping + errors', () => {
     );
   });
 
-  it('throws when a required tenant_constant is missing', () => {
+  it('throws when both canonical.consigneeAddress and operator.defaultConsigneeAddress are missing', () => {
+    // Strip the operator default; the row also has consigneeAddress=null.
+    // Renderer should fail loud rather than emit empty XML.
     const input = baseInput([row()]);
-    const broken = { ...input, operator: { ...input.operatorSlug, constants: {} } };
-    expect(() => renderDeclarationXml(broken)).toThrowError(/reference_userid/);
+    const broken = { ...input, operator: { ...input.operator, defaultConsigneeAddress: null } };
+    expect(() => renderDeclarationXml(broken)).toThrowError(/zipCode|poBox/);
+  });
+
+  it('uses canonical.consigneeAddress when present, falling back per-field to operator default', () => {
+    // Provide zipCode + poBox per-row; cityCode and streetAr come from operator default.
+    const item = row({});
+    (item.canonical as { consigneeAddress: unknown }).consigneeAddress = {
+      cityCode: null,
+      zipCode: '32433',
+      poBox: '8472',
+      streetAr: null,
+    };
+    const out = renderDeclarationXml(baseInput([item]));
+    expect(out).toContain('<deccm:zipCode>32433</deccm:zipCode>');
+    expect(out).toContain('<deccm:poBox>8472</deccm:poBox>');
+    // city: destination_station=503 -> 111, address: tabdul_city Arabic name
+    expect(out).toContain('<deccm:city>111</deccm:city>');
+    expect(out).toContain('<deccm:address>الدمام</deccm:address>');
+  });
+
+  it('throws when a required zatca_declaration_default is missing', () => {
+    const input = baseInput([row()]);
+    const broken = { ...input, zatcaDefaults: {} };
+    expect(() => renderDeclarationXml(broken)).toThrowError(/zatca_declaration_defaults/);
+  });
+
+  it('throws when uom lookup is missing', () => {
+    // Need a row whose canonical.uom is not in the lookup table.
+    const item = row();
+    (item.canonical as { uom: string }).uom = 'UNOBTAINIUM';
+    expect(() => renderDeclarationXml(baseInput([item]))).toThrowError(/uom/);
   });
 
   it('throws when country_of_origin lookup is missing', () => {

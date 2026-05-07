@@ -6,9 +6,9 @@
  * Values are free-form text; the renderer is responsible for any parsing.
  *
  * Related tables:
- *   • tenants               — FK target (operator -> operators.slug)
+ *   • operators              — FK target (operator_id -> operators.id)
  *   • operator_field_mappings — column rules (this table is for fixed values
- *                             that don't come from the source file at all)
+ *                              that don't come from the source file at all)
  */
 import { pgTable, uuid, varchar, text, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
@@ -19,8 +19,8 @@ export const operatorConstants = pgTable(
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
 
-    /** Owning operator_slug. FK -> operators(slug) ON DELETE RESTRICT. */
-    operatorSlug: varchar('operator_slug', { length: 32 }).notNull(),
+    /** Owning operator id. FK -> operators(id) ON DELETE RESTRICT. */
+    operatorId: uuid('operator_id').notNull(),
 
     /** snake_case key, format-CHECKed at the DB. */
     key: varchar('key', { length: 64 }).notNull(),
@@ -29,15 +29,15 @@ export const operatorConstants = pgTable(
     value: text('value').notNull(),
   },
   (t) => ({
-    operatorSlugFk: foreignKey({
-      name: 'operator_constants_operator_slug_fk',
-      columns: [t.operatorSlug],
-      foreignColumns: [operators.slug],
+    operatorIdFk: foreignKey({
+      name: 'operator_constants_operator_id_fk',
+      columns: [t.operatorId],
+      foreignColumns: [operators.id],
     }).onDelete('restrict'),
 
-    tenantKeyUniq: unique('operator_constants_tenant_key_uniq').on(t.operatorSlug, t.key),
+    operatorKeyUniq: unique('operator_constants_operator_id_key_uniq').on(t.operatorId, t.key),
 
-    operatorSlugIdx: index('operator_constants_operator_slug_idx').on(t.operatorSlug),
+    operatorIdIdx: index('operator_constants_operator_id_idx').on(t.operatorId),
   }),
 );
 

@@ -1,7 +1,10 @@
 /**
- * Drizzle queries against tenants, operator_field_mappings, operator_constants.
+ * Drizzle queries against operators, operator_field_mappings, operator_constants.
  * Pure data access — no caching, no validation. The registry layer wraps
  * these for in-memory caching.
+ *
+ * Children FK on operators.id (post-migration 0050). slug is kept on the
+ * operators row only as a UNIQUE human-readable label.
  */
 import { eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -29,20 +32,20 @@ export async function listOperators(): Promise<OperatorRow[]> {
   return db().select().from(operators).orderBy(operators.slug);
 }
 
-export async function getMappingsBySlug(slug: string): Promise<OperatorFieldMappingRow[]> {
+export async function getMappingsByOperatorId(operatorId: string): Promise<OperatorFieldMappingRow[]> {
   return db()
     .select()
     .from(operatorFieldMappings)
-    .where(eq(operatorFieldMappings.operatorSlug, slug))
+    .where(eq(operatorFieldMappings.operatorId, operatorId))
     .orderBy(operatorFieldMappings.canonicalField);
 }
 
-export async function getConstantsBySlug(slug: string): Promise<OperatorConstantRow[]> {
-  return db().select().from(operatorConstants).where(eq(operatorConstants.operatorSlug, slug));
+export async function getConstantsByOperatorId(operatorId: string): Promise<OperatorConstantRow[]> {
+  return db().select().from(operatorConstants).where(eq(operatorConstants.operatorId, operatorId));
 }
 
 /**
- * Insert or update a operator by slug. Returns the row in either case.
+ * Insert or update an operator by slug. Returns the row in either case.
  * Used by the seed script in src/scripts/seed-operators.ts; not used at request time.
  */
 export async function upsertOperator(input: NewOperatorRow): Promise<OperatorRow> {

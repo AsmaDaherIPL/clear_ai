@@ -41,6 +41,11 @@ export type CanonicalField =
   | 'consigneeName'
   | 'consigneeNationalId'
   | 'consigneePhone'
+  // Consignee address — per-row, fall back to operator default per field
+  | 'consigneeCityCode'
+  | 'consigneeZipCode'
+  | 'consigneePoBox'
+  | 'consigneeStreetAr'
   // Document refs
   | 'invoiceDate';
 
@@ -59,14 +64,55 @@ export interface ColumnMappingRule {
   fallbackColumns: ReadonlyArray<string>;
 }
 
+/**
+ * Tabadul identity values for an operator. Loaded from typed columns on the
+ * operators row (post-migration 0054). Required at request time — every
+ * operator MUST have these populated to file a Declaration.
+ */
+export interface OperatorIdentity {
+  tabadulUserid: string;
+  tabadulAcctId: string;
+  brokerLicenseType: string;
+  brokerLicenseNo: string;
+  brokerRepresentativeNo: string;
+  defaultSourceCompanyName: string;
+  defaultSourceCompanyNo: string;
+}
+
+/**
+ * Operator-level consignee-address default (post-migration 0056). The
+ * renderer falls back to these when a row's canonical.consigneeAddress is
+ * null or missing a specific field. Each field is individually optional
+ * — partial defaults are allowed (e.g. provide a default cityCode but
+ * always require zipCode per row).
+ */
+export interface OperatorDefaultConsigneeAddress {
+  cityCode?: string;
+  zipCode?: string;
+  poBox?: string;
+  streetAr?: string;
+}
+
 export interface OperatorConfig {
   id: string;
   slug: string;
   displayName: string;
   active: boolean;
   mappings: ReadonlyArray<ColumnMappingRule>;
-  /** Frozen view of operator_constants for this operator; key -> value. */
+  /**
+   * Frozen view of operator_constants for this operator; key -> value.
+   * After migration 0056 this carries only `default_reg_port_code`. Once
+   * Naqel ships per-row reg port data the table can be dropped entirely.
+   */
   constants: Readonly<Record<string, string>>;
+  /** Operator's Tabadul identity — typed columns from the operators table. */
+  identity: Readonly<OperatorIdentity>;
+  /**
+   * Operator's default consignee address. NULL when the operator hasn't
+   * configured any defaults — in that case the renderer requires every
+   * field to come from canonical.consigneeAddress.
+   */
+  defaultConsigneeAddress: Readonly<OperatorDefaultConsigneeAddress> | null;
 }
 
 /**
@@ -78,6 +124,22 @@ export interface OperatorConfig {
  * supply non-string scalars, so the alias is widened to `unknown`.
  */
 export type RawRow = Record<string, unknown>;
+
+/**
+ * Per-row consignee address. Mirrors operators.default_consignee_address
+ * (jsonb on the operators table) — same field names, all optional.
+ *
+ * The mapper builds this object from up to 4 source columns; the
+ * canonical jsonb stores it nested. Fields default to null individually,
+ * letting the renderer fall back per-field to the operator default.
+ */
+export interface ConsigneeAddress {
+  cityCode: string | null;
+  zipCode: string | null;
+  poBox: string | null;
+  /** Free-text Arabic street address. */
+  streetAr: string | null;
+}
 
 /**
  * The normalised line-item shape that flows from the parser into dispatch().
@@ -103,8 +165,8 @@ export interface CanonicalLineItem {
   /** 1-based row position from the source file (post-header). */
   rowIndex: number;
 
-  /** Tenant context — uuid for the synthetic key, slug for the FK / log context. */
-  tenantId: string;
+  /** Operator context — uuid is the FK target on declaration_runs; slug is for log context. */
+  operatorId: string;
   operatorSlug: string;
 
   /* ---- Identity ---- */
@@ -131,6 +193,14 @@ export interface CanonicalLineItem {
   consigneeName: string;
   consigneeNationalId: string;
   consigneePhone: string;
+  /**
+   * Consignee delivery address — feeds the `<decsub:expressMailInfomation>`
+   * block. When NULL, the renderer falls back entirely to the operator's
+   * default_consignee_address. When set with partial fields, missing
+   * fields fall back individually. The renderer throws on any field that
+   * is null on both sides.
+   */
+  consigneeAddress: ConsigneeAddress | null;
 
   /* ---- Document refs ---- */
   /** YYYY-MM-DD if present in the source row; null otherwise. */
@@ -178,5 +248,9 @@ export const KNOWN_CANONICAL_FIELDS: ReadonlySet<CanonicalField> = new Set<Canon
   'consigneeName',
   'consigneeNationalId',
   'consigneePhone',
+  'consigneeCityCode',
+  'consigneeZipCode',
+  'consigneePoBox',
+  'consigneeStreetAr',
   'invoiceDate',
 ]);

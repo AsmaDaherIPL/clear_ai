@@ -53,13 +53,35 @@ function normalize(xml: string): string {
 /* ──────────────────────────────────────────────────────────────────────── */
 
 function naqelConstants(overrides: Record<string, string> = {}): Record<string, string> {
+  // After 0056 only `default_reg_port_code` lives in operator_constants.
   return {
-    reference_userid: 'uwqfr002',
-    reference_acct_id: 'uwqf',
     default_reg_port_code: '23',
-    sender_broker_license_type: '5',
-    sender_broker_license_no: '1',
-    sender_broker_representative_no: '1732',
+    ...overrides,
+  };
+}
+
+function naqelIdentity() {
+  return {
+    tabadulUserid: 'uwqfr002',
+    tabadulAcctId: 'uwqf',
+    brokerLicenseType: '5',
+    brokerLicenseNo: '1',
+    brokerRepresentativeNo: '1732',
+    defaultSourceCompanyName: 'ناقل',
+    defaultSourceCompanyNo: '340476',
+  };
+}
+
+function naqelDefaultConsigneeAddress() {
+  return {
+    cityCode: '131',
+    zipCode: '1111',
+    poBox: '11',
+  };
+}
+
+function naqelZatcaDefaults(): Record<string, string> {
+  return {
     declaration_type: '2',
     final_country: 'SA',
     inspection_group_id: '10',
@@ -69,19 +91,11 @@ function naqelConstants(overrides: Record<string, string> = {}): Record<string, 
     invoice_payment_method_id: '1',
     payment_document_status_id: '0',
     deal_value: '1',
-    item_invoice_measurement_unit: '7',
-    item_international_measurement_unit: '7',
     item_unit_per_packages: '1',
     item_duty_type_id: '1',
     express_transport_type: '4',
     express_add_country_code: '100',
     express_country: '100',
-    express_default_city: '131',
-    express_zip_code: '1111',
-    express_po_box: '11',
-    default_source_company_name: 'ناقل',
-    default_source_company_no: '340476',
-    ...overrides,
   };
 }
 
@@ -115,6 +129,9 @@ function naqelLookups(): Map<string, Map<string, LookupValue>> {
     ['111', { canonical: 'الدمام', metadata: {} }],
     ['1', { canonical: 'أبها', metadata: {} }],
   ]));
+  m.set('uom', new Map<string, LookupValue>([
+    ['PIECE', { canonical: '7', metadata: { label: 'piece' } }],
+  ]));
   return m;
 }
 
@@ -143,7 +160,7 @@ function syntheticRow(c: {
     canonical: {
       itemId: 'item',
       rowIndex: 1,
-      tenantId: 't',
+      operatorId: '00000000-0000-0000-0000-000000000000',
       operatorSlug: 'naqel',
       description: c.description,
       waybillNo: c.waybillNo,
@@ -160,6 +177,7 @@ function syntheticRow(c: {
       consigneeName: c.consigneeName,
       consigneeNationalId: c.consigneeNationalId,
       consigneePhone: c.consigneePhone,
+      consigneeAddress: null,
       invoiceDate: c.invoiceDate,
     },
     rawRow: {},
@@ -186,7 +204,10 @@ function baseInputFor(opts: {
       slug: 'naqel',
       displayName: 'Naqel',
       constants: opts.constants,
+      identity: naqelIdentity(),
+      defaultConsigneeAddress: naqelDefaultConsigneeAddress(),
     },
+    zatcaDefaults: naqelZatcaDefaults(),
     bundleStrategy: opts.strategy,
     items: opts.items,
     submitter: { carrierId: 'NAQ', name: 'Naqel' },

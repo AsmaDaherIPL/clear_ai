@@ -1,9 +1,9 @@
 /**
- * Tenant config registry — in-memory cache of OperatorConfig keyed by slug.
+ * Operator config registry — in-memory cache of OperatorConfig keyed by slug.
  *
  * Loaded at startup; refreshable via programmatic refresh(). The rest
- * of the codebase resolves tenants via `resolve(slug)` only — no other
- * module reaches into the tenants table directly.
+ * of the codebase resolves operators via `resolve(slug)` only — no other
+ * module reaches into the operators table directly.
  *
  * Validation runs on every load:
  *   • every mapping's canonicalField is in KNOWN_CANONICAL_FIELDS
@@ -22,8 +22,8 @@ import {
 } from './operator-config.types.js';
 import {
   getOperatorBySlug,
-  getMappingsBySlug,
-  getConstantsBySlug,
+  getMappingsByOperatorId,
+  getConstantsByOperatorId,
   listOperators,
 } from './operator.repository.js';
 import { MappingValidationError, OperatorNotFoundError } from './operator.errors.js';
@@ -39,8 +39,8 @@ async function loadOne(slug: string): Promise<OperatorConfig | null> {
   const operator = await getOperatorBySlug(slug);
   if (!operator) return null;
   const [mappings, constants] = await Promise.all([
-    getMappingsBySlug(slug),
-    getConstantsBySlug(slug),
+    getMappingsByOperatorId(operator.id),
+    getConstantsByOperatorId(operator.id),
   ]);
   return buildConfig(operator, mappings, constants);
 }
@@ -76,9 +76,6 @@ function buildConfig(
     });
   }
 
-  // Every CANONICAL_REQUIRED_FIELDS field must be reachable: either a mapping
-  // exists with required=true OR (mapping with default_value) OR (mapping
-  // with required=false — nullable). At minimum, the field must be mappable.
   for (const required of CANONICAL_REQUIRED_FIELDS) {
     if (!seenCanonical.has(required)) {
       problems.push(`required canonical field '${required}' has no mapping rule`);
@@ -87,6 +84,24 @@ function buildConfig(
 
   if (problems.length > 0) {
     throw new MappingValidationError(operator.slug, problems);
+  }
+
+  // Identity columns are required for ZATCA filing. Fail loud at registry
+  // load if any are NULL — the renderer would otherwise emit empty XML
+  // attributes and the filing would be rejected.
+  const missingIdentity: string[] = [];
+  if (!operator.tabadulUserid) missingIdentity.push('tabadul_userid');
+  if (!operator.tabadulAcctId) missingIdentity.push('tabadul_acct_id');
+  if (!operator.brokerLicenseType) missingIdentity.push('broker_license_type');
+  if (!operator.brokerLicenseNo) missingIdentity.push('broker_license_no');
+  if (!operator.brokerRepresentativeNo) missingIdentity.push('broker_representative_no');
+  if (!operator.defaultSourceCompanyName) missingIdentity.push('default_source_company_name');
+  if (!operator.defaultSourceCompanyNo) missingIdentity.push('default_source_company_no');
+  if (missingIdentity.length > 0) {
+    throw new MappingValidationError(
+      operator.slug,
+      missingIdentity.map((c) => `operators.${c} is NULL — required for ZATCA filing`),
+    );
   }
 
   const constants: Record<string, string> = {};
@@ -99,6 +114,18 @@ function buildConfig(
     active: operator.active,
     mappings: Object.freeze(mappings),
     constants: Object.freeze(constants),
+    identity: Object.freeze({
+      tabadulUserid: operator.tabadulUserid!,
+      tabadulAcctId: operator.tabadulAcctId!,
+      brokerLicenseType: operator.brokerLicenseType!,
+      brokerLicenseNo: operator.brokerLicenseNo!,
+      brokerRepresentativeNo: operator.brokerRepresentativeNo!,
+      defaultSourceCompanyName: operator.defaultSourceCompanyName!,
+      defaultSourceCompanyNo: operator.defaultSourceCompanyNo!,
+    }),
+    defaultConsigneeAddress: operator.defaultConsigneeAddress
+      ? Object.freeze({ ...operator.defaultConsigneeAddress })
+      : null,
   });
 }
 
@@ -149,7 +176,7 @@ export async function warmAll(): Promise<ReadonlyArray<OperatorConfig>> {
   return out;
 }
 
-/** Read-only snapshot of currently cached configs. Used by GET /tenants. */
+/** Read-only snapshot of currently cached configs. */
 export function snapshot(): ReadonlyArray<OperatorConfig> {
   return [...CACHE.values()];
 }

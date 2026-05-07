@@ -13,6 +13,7 @@ import {
   type CanonicalField,
   type CanonicalLineItem,
   type ColumnMappingRule,
+  type ConsigneeAddress,
   type OperatorConfig,
 } from './operator-config.types.js';
 import { RequiredFieldMissingError } from './operator.errors.js';
@@ -126,7 +127,7 @@ export function mapRowToCanonical(
   const item: CanonicalLineItem = {
     itemId: newId(),
     rowIndex,
-    tenantId: operator.id,
+    operatorId: operator.id,
     operatorSlug: operator.slug,
 
     description: requireString('description'),
@@ -148,6 +149,7 @@ export function mapRowToCanonical(
     consigneeName: requireString('consigneeName'),
     consigneeNationalId: requireString('consigneeNationalId'),
     consigneePhone: requireString('consigneePhone'),
+    consigneeAddress: buildConsigneeAddress(get),
 
     invoiceDate: get('invoiceDate'),
   };
@@ -161,4 +163,22 @@ export function mapRowToCanonical(
   }
 
   return item;
+}
+
+/**
+ * Build the optional ConsigneeAddress object from up to 4 canonical fields.
+ * Returns null when none of the 4 fields produced a value — that signals to
+ * the renderer "no per-row override; use operator default for everything."
+ * Returns a partially-populated object when only some fields are present;
+ * the renderer falls back to the operator default per-field for the nulls.
+ */
+function buildConsigneeAddress(get: (field: CanonicalField) => string | null): ConsigneeAddress | null {
+  const cityCode = get('consigneeCityCode');
+  const zipCode = get('consigneeZipCode');
+  const poBox = get('consigneePoBox');
+  const streetAr = get('consigneeStreetAr');
+  if (cityCode === null && zipCode === null && poBox === null && streetAr === null) {
+    return null;
+  }
+  return { cityCode, zipCode, poBox, streetAr };
 }

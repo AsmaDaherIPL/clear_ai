@@ -17,15 +17,18 @@ import {
   operatorFieldMappings,
   operatorConstants,
   operatorLookups,
+  tabadulCodes,
   declarationRuns,
   declarationRunFilings,
 } from '../../src/db/schema.js';
 import { runProcessing, createDeclarationRun } from '../../src/modules/declaration-runs/declaration-run.use-case.js';
 import { clearCache } from '../../src/modules/operators/operator-config.registry.js';
+import { clearZatcaDefaultsCache } from '../../src/modules/reference-data/zatca-defaults.repository.js';
 import type { DispatchFn } from '../../src/modules/dispatch/dispatch.contract.ts';
 
-const TEST_TENANT_SLUG = 'tcuc_test';
+const TEST_OPERATOR_SLUG = 'tcuc_test';
 let blobDir: string;
+let testOperatorId: string;
 
 beforeAll(async () => {
   blobDir = await mkdtemp(join(tmpdir(), 'clearai-uc-'));
@@ -34,15 +37,31 @@ beforeAll(async () => {
   process.env.ZATCA_SUBMITTER_CARRIER_ID ??= 'TEST-CARRIER';
   process.env.ZATCA_SUBMITTER_NAME ??= 'Test Carrier';
 
-  // Seed a operator + the minimum mappings required for canonical resolution.
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
-  await db().insert(operators).values({
-    slug: TEST_TENANT_SLUG,
+  // Clean previous run state then seed an operator + minimum config.
+  const existing = await db().select().from(operators).where(eq(operators.slug, TEST_OPERATOR_SLUG)).limit(1);
+  if (existing[0]) {
+    await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, existing[0].id));
+    await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, existing[0].id));
+    await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, existing[0].id));
+    await db().delete(operatorLookups).where(eq(operatorLookups.operatorId, existing[0].id));
+    await db().delete(operators).where(eq(operators.id, existing[0].id));
+  }
+  const inserted = await db().insert(operators).values({
+    slug: TEST_OPERATOR_SLUG,
     displayName: 'Use-case test',
     active: true,
-  });
+    // Identity columns required by the renderer (post-migration 0054).
+    tabadulUserid: 'uwqfr002',
+    tabadulAcctId: 'uwqf',
+    brokerLicenseType: '5',
+    brokerLicenseNo: '1',
+    brokerRepresentativeNo: '1732',
+    defaultSourceCompanyName: 'ناقل',
+    defaultSourceCompanyNo: '340476',
+    // Consignee-address default (post-migration 0056).
+    defaultConsigneeAddress: { cityCode: '131', zipCode: '1111', poBox: '11' },
+  }).returning();
+  testOperatorId = inserted[0]!.id;
 
   // Mapping set covering CANONICAL_REQUIRED_FIELDS. Uses Naqel-style headers.
   const minMappings = [
@@ -63,7 +82,7 @@ beforeAll(async () => {
 
   for (const m of minMappings) {
     await db().insert(operatorFieldMappings).values({
-      operatorSlug: TEST_TENANT_SLUG,
+      operatorId: testOperatorId,
       sourceColumn: m.sourceColumn,
       canonicalField: m.canonicalField,
       required: m.required,
@@ -72,71 +91,49 @@ beforeAll(async () => {
     });
   }
 
-  // Tenant constants required by the renderer (subset matching what the
-  // declaration phase actually emits in this test).
+  // After migration 0056 only `default_reg_port_code` lives in operator_constants.
+  // The 3 address keys moved to operators.default_consignee_address jsonb.
   const minConstants: Array<[string, string]> = [
-    ['reference_userid', 'uwqfr002'],
-    ['reference_acct_id', 'uwqf'],
     ['default_reg_port_code', '23'],
-    ['sender_broker_license_type', '5'],
-    ['sender_broker_license_no', '1'],
-    ['sender_broker_representative_no', '1732'],
-    ['declaration_type', '2'],
-    ['final_country', 'SA'],
-    ['inspection_group_id', '10'],
-    ['payment_method', '1'],
-    ['invoice_seq_no', '1'],
-    ['invoice_type_id', '5'],
-    ['invoice_payment_method_id', '1'],
-    ['payment_document_status_id', '0'],
-    ['deal_value', '1'],
-    ['item_invoice_measurement_unit', '7'],
-    ['item_international_measurement_unit', '7'],
-    ['item_unit_per_packages', '1'],
-    ['item_duty_type_id', '1'],
-    ['express_transport_type', '4'],
-    ['express_add_country_code', '100'],
-    ['express_country', '100'],
-    ['express_default_city', '131'],
-    ['express_zip_code', '1111'],
-    ['express_po_box', '11'],
-    ['default_source_company_name', 'ناقل'],
-    ['default_source_company_no', '340476'],
   ];
   for (const [k, v] of minConstants) {
-    await db().insert(operatorConstants).values({ operatorSlug: TEST_TENANT_SLUG, key: k, value: v });
+    await db().insert(operatorConstants).values({ operatorId: testOperatorId, key: k, value: v });
   }
 
-  // Lookups for the renderer to resolve currency_code + country_of_origin.
-  const minLookups: Array<[string, string, string]> = [
+  // Universal Tabadul codes the renderer reads (currency_code, country_of_origin, uom).
+  // Seeded into tabadul_codes; rows are shared with any other concurrent
+  // test operator (upsert-style via onConflictDoNothing).
+  const universal: Array<[string, string, string]> = [
     ['currency_code', 'SAR', '100'],
     ['country_of_origin', 'SA', '100'],
     ['country_of_origin', 'GB', '521'],
+    ['uom', 'PIECE', '7'],
+    ['uom', 'PCS', '7'],
   ];
-  for (const [t, src, can] of minLookups) {
-    await db().insert(operatorLookups).values({
-      operatorSlug: TEST_TENANT_SLUG,
-      lookupType: t,
+  for (const [t, src, can] of universal) {
+    await db().insert(tabadulCodes).values({
+      codeType: t,
       sourceValue: src,
       canonicalValue: can,
       metadata: {},
-    });
+    }).onConflictDoNothing({ target: [tabadulCodes.codeType, tabadulCodes.sourceValue] });
   }
   clearCache();
+  clearZatcaDefaultsCache();
 });
 
 afterAll(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorLookups).where(eq(operatorLookups.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, testOperatorId));
+  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, testOperatorId));
+  await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, testOperatorId));
+  await db().delete(operatorLookups).where(eq(operatorLookups.operatorId, testOperatorId));
+  await db().delete(operators).where(eq(operators.id, testOperatorId));
   await closeDb();
   await rm(blobDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
+  await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, testOperatorId));
 });
 
 const passDispatch: DispatchFn = async () => ({
@@ -157,7 +154,7 @@ const CSV = Buffer.from(
 describe('runProcessing', () => {
   it('classify_only: runs Phase 1, skips Phase 2 (no declarations rows; declaration_status stays NULL)', async () => {
     const { declarationRun } = await createDeclarationRun({
-      operatorSlug: TEST_TENANT_SLUG,
+      operatorSlug: TEST_OPERATOR_SLUG,
       mode: 'classify_only',
       uploadKind: 'csv',
       uploadBytes: CSV,
@@ -180,7 +177,7 @@ describe('runProcessing', () => {
 
   it('classify_and_declare: runs both phases; declaration rows are produced', async () => {
     const { declarationRun } = await createDeclarationRun({
-      operatorSlug: TEST_TENANT_SLUG,
+      operatorSlug: TEST_OPERATOR_SLUG,
       mode: 'classify_and_declare',
       uploadKind: 'csv',
       uploadBytes: CSV,
@@ -197,5 +194,13 @@ describe('runProcessing', () => {
 
     const decl = await db().select().from(declarationRunFilings).where(eq(declarationRunFilings.declarationRunId, declarationRun.id));
     expect(decl.length).toBeGreaterThanOrEqual(1);
+    // Every recorded filing should be in the 'generated' state on creation;
+    // ZATCA verdict (zatca_status) stays NULL until submission.
+    for (const d of decl) {
+      expect(d.status).toBe('generated');
+      expect(d.zatcaStatus).toBeNull();
+      expect(d.bayanNo).toBeNull();
+      expect(d.rejectionReason).toBeNull();
+    }
   });
 });

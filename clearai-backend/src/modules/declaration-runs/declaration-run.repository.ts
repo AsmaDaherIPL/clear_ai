@@ -37,7 +37,7 @@ export interface DeclarationRunItemInput {
 export interface InsertDeclarationRunInput {
   /** Pre-allocated uuid so the caller can build deterministic blob paths. */
   declarationRunId: string;
-  operatorSlug: string;
+  operatorId: string;
   mode: DeclarationRunMode;
   sourceBlobKey: string;
   rowCount: number;
@@ -60,7 +60,7 @@ export async function insertDeclarationRun(input: InsertDeclarationRunInput): Pr
       .insert(declarationRuns)
       .values({
         id: input.declarationRunId,
-        operatorSlug: input.operatorSlug,
+        operatorId: input.operatorId,
         mode: input.mode,
         status: 'pending',
         classificationStatus: 'pending',

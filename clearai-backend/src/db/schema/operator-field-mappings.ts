@@ -6,14 +6,15 @@
  * TypeScript files; onboarding a new carrier is rows in this table.
  *
  * Related tables:
- *   • tenants               — FK target (operator -> operators.slug)
- *   • operator_constants      — fixed values that don't come from the source file
- *   • operator_lookups        — value-translation tables (city, currency, ...)
+ *   • operators              — FK target (operator_id -> operators.id)
+ *   • operator_constants     — fixed values that don't come from the source file
+ *   • operator_lookups       — per-operator value-translation tables
+ *   • tabadul_codes          — universal Tabadul reference codes
  *
  * The closed enum for `transform` mirrors TransformKind in
  * src/modules/operators/operator-config.types.ts.
  */
-import { pgTable, uuid, varchar, text, boolean, foreignKey, index, unique } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, varchar, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { operators } from './operators.js';
 
@@ -22,8 +23,8 @@ export const operatorFieldMappings = pgTable(
   {
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
 
-    /** Owning operator_slug. FK -> operators(slug) ON DELETE RESTRICT. */
-    operatorSlug: varchar('operator_slug', { length: 32 }).notNull(),
+    /** Owning operator id. FK -> operators(id) ON DELETE RESTRICT. */
+    operatorId: uuid('operator_id').notNull(),
 
     /** Verbatim header from the operator's source file (case-sensitive). */
     sourceColumn: text('source_column').notNull(),
@@ -54,18 +55,18 @@ export const operatorFieldMappings = pgTable(
       .$type<string[]>(),
   },
   (t) => ({
-    operatorSlugFk: foreignKey({
-      name: 'operator_field_mappings_operator_slug_fk',
-      columns: [t.operatorSlug],
-      foreignColumns: [operators.slug],
+    operatorIdFk: foreignKey({
+      name: 'operator_field_mappings_operator_id_fk',
+      columns: [t.operatorId],
+      foreignColumns: [operators.id],
     }).onDelete('restrict'),
 
-    tenantCanonicalUniq: unique('operator_field_mappings_tenant_canonical_uniq').on(
-      t.operatorSlug,
+    operatorCanonicalUniq: unique('operator_field_mappings_operator_id_canonical_uniq').on(
+      t.operatorId,
       t.canonicalField,
     ),
 
-    operatorSlugIdx: index('operator_field_mappings_operator_slug_idx').on(t.operatorSlug),
+    operatorIdIdx: index('operator_field_mappings_operator_id_idx').on(t.operatorId),
   }),
 );
 

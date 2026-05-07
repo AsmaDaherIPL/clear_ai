@@ -22,15 +22,18 @@ import {
   operatorFieldMappings,
   operatorConstants,
   operatorLookups,
+  tabadulCodes,
   declarationRuns,
   declarationRunItems,
   declarationRunFilings,
 } from '../../../src/db/schema.js';
 import { clearCache } from '../../../src/modules/operators/operator-config.registry.js';
+import { clearZatcaDefaultsCache } from '../../../src/modules/reference-data/zatca-defaults.repository.js';
 import { newId } from '../../../src/common/utils/uuid.js';
 
-const TEST_TENANT_SLUG = 'tcdec_test';
+const TEST_OPERATOR_SLUG = 'tcdec_test';
 let blobDir: string;
+let testOperatorId: string;
 
 beforeAll(async () => {
   blobDir = await mkdtemp(join(tmpdir(), 'clearai-decl-'));
@@ -41,26 +44,43 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorLookups).where(eq(operatorLookups.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
+  if (testOperatorId) {
+    await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, testOperatorId));
+    await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, testOperatorId));
+    await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, testOperatorId));
+    await db().delete(operatorLookups).where(eq(operatorLookups.operatorId, testOperatorId));
+    await db().delete(operators).where(eq(operators.id, testOperatorId));
+  }
   await closeDb();
   await rm(blobDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
-  await db().delete(declarationRuns).where(eq(declarationRuns.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorConstants).where(eq(operatorConstants.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operatorLookups).where(eq(operatorLookups.operatorSlug, TEST_TENANT_SLUG));
-  await db().delete(operators).where(eq(operators.slug, TEST_TENANT_SLUG));
-  await db().insert(operators).values({
-    slug: TEST_TENANT_SLUG,
+  // Reset operator + dependent rows.
+  const existing = await db().select().from(operators).where(eq(operators.slug, TEST_OPERATOR_SLUG)).limit(1);
+  if (existing[0]) {
+    await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, existing[0].id));
+    await db().delete(operatorFieldMappings).where(eq(operatorFieldMappings.operatorId, existing[0].id));
+    await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, existing[0].id));
+    await db().delete(operatorLookups).where(eq(operatorLookups.operatorId, existing[0].id));
+    await db().delete(operators).where(eq(operators.id, existing[0].id));
+  }
+  const inserted = await db().insert(operators).values({
+    slug: TEST_OPERATOR_SLUG,
     displayName: 'Decl svc test',
     active: true,
-  });
+    // Identity columns required by the renderer (post-migration 0054).
+    tabadulUserid: 'uwqfr002',
+    tabadulAcctId: 'uwqf',
+    brokerLicenseType: '5',
+    brokerLicenseNo: '1',
+    brokerRepresentativeNo: '1732',
+    defaultSourceCompanyName: 'ناقل',
+    defaultSourceCompanyNo: '340476',
+    // Consignee-address default (post-migration 0056).
+    defaultConsigneeAddress: { cityCode: '131', zipCode: '1111', poBox: '11' },
+  }).returning();
+  testOperatorId = inserted[0]!.id;
   // Override the bundle size to 3 so the test exercises LV chunking with
   // few items. ZATCA tunables live in setup_meta (see migration 0046); the
   // declaration runner reads them at phase start. We mutate the value
@@ -101,7 +121,7 @@ beforeEach(async () => {
   ];
   for (const m of minMappings) {
     await db().insert(operatorFieldMappings).values({
-      operatorSlug: TEST_TENANT_SLUG,
+      operatorId: testOperatorId,
       sourceColumn: m.sourceColumn,
       canonicalField: m.canonicalField,
       required: true,
@@ -110,57 +130,34 @@ beforeEach(async () => {
     });
   }
 
-  // Tenant constants required by the renderer.
+  // After migration 0056 only `default_reg_port_code` lives in operator_constants.
   const minConstants: Array<[string, string]> = [
-    ['reference_userid', 'uwqfr002'],
-    ['reference_acct_id', 'uwqf'],
     ['default_reg_port_code', '23'],
-    ['sender_broker_license_type', '5'],
-    ['sender_broker_license_no', '1'],
-    ['sender_broker_representative_no', '1732'],
-    ['declaration_type', '2'],
-    ['final_country', 'SA'],
-    ['inspection_group_id', '10'],
-    ['payment_method', '1'],
-    ['invoice_seq_no', '1'],
-    ['invoice_type_id', '5'],
-    ['invoice_payment_method_id', '1'],
-    ['payment_document_status_id', '0'],
-    ['deal_value', '1'],
-    ['item_invoice_measurement_unit', '7'],
-    ['item_international_measurement_unit', '7'],
-    ['item_unit_per_packages', '1'],
-    ['item_duty_type_id', '1'],
-    ['express_transport_type', '4'],
-    ['express_add_country_code', '100'],
-    ['express_country', '100'],
-    ['express_default_city', '131'],
-    ['express_zip_code', '1111'],
-    ['express_po_box', '11'],
-    ['default_source_company_name', 'ناقل'],
-    ['default_source_company_no', '340476'],
   ];
   for (const [k, v] of minConstants) {
-    await db().insert(operatorConstants).values({ operatorSlug: TEST_TENANT_SLUG, key: k, value: v });
+    await db().insert(operatorConstants).values({ operatorId: testOperatorId, key: k, value: v });
   }
 
-  // Minimum lookups for the renderer to resolve all required values.
-  const minLookups: Array<[string, string, string, Record<string, unknown>]> = [
+  // Minimum lookups for the renderer to resolve all required values. These
+  // are universal Tabadul codes — they live in tabadul_codes, not
+  // operator_lookups, so we upsert (any prior test may have seeded them).
+  const universal: Array<[string, string, string, Record<string, unknown>]> = [
     ['currency_code', 'USD', '410', {}],
     ['currency_code', 'SAR', '100', {}],
     ['country_of_origin', 'CN', '111', {}],
+    ['uom', 'PIECE', '7', {}],
   ];
-  for (const [t, src, can, meta] of minLookups) {
-    await db().insert(operatorLookups).values({
-      operatorSlug: TEST_TENANT_SLUG,
-      lookupType: t,
+  for (const [t, src, can, meta] of universal) {
+    await db().insert(tabadulCodes).values({
+      codeType: t,
       sourceValue: src,
       canonicalValue: can,
       metadata: meta,
-    });
+    }).onConflictDoNothing({ target: [tabadulCodes.codeType, tabadulCodes.sourceValue] });
   }
 
   clearCache();
+  clearZatcaDefaultsCache();
 });
 
 interface SeedItem {
@@ -172,7 +169,7 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
   const declarationRunId = newId();
   await db().insert(declarationRuns).values({
     id: declarationRunId,
-    operatorSlug: TEST_TENANT_SLUG,
+    operatorId: testOperatorId,
     mode: 'classify_and_declare',
     declarationStatus: 'pending',
     classificationStatus: 'completed',
@@ -192,8 +189,8 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
       canonical: {
         itemId: 'placeholder',
         rowIndex: i + 1,
-        tenantId: 'placeholder',
-        operatorSlug: TEST_TENANT_SLUG,
+        operatorId: testOperatorId,
+        operatorSlug: TEST_OPERATOR_SLUG,
         description: `Item ${i + 1}`,
         waybillNo: `WB-${i + 1}`,
         merchantHsCode: null,
@@ -209,6 +206,7 @@ async function seed(itemSpecs: ReadonlyArray<SeedItem>): Promise<string> {
         consigneeName: 'Test Consignee',
         consigneeNationalId: '1069595681',
         consigneePhone: '966500000000',
+        consigneeAddress: null,
         invoiceDate: null,
       },
       rawRow: {},

@@ -16,8 +16,8 @@ export type {
 
 export { operatorCodeOverrides } from './schema/operator-code-overrides.js';
 export type {
-  TenantCodeOverride,
-  NewTenantCodeOverride,
+  OperatorCodeOverrideRow,
+  NewOperatorCodeOverrideRow,
 } from './schema/operator-code-overrides.js';
 
 export { setupMeta } from './schema/setup-meta.js';
@@ -35,7 +35,7 @@ export type {
   NewProcedureCodeRow,
 } from './schema/zatca-procedure-codes.js';
 
-// ─── BatchPlumber: tenants registry + batch processing tables ────────────────
+// ─── BatchPlumber: operators registry + reference data + batch processing tables ────────────
 
 export { operators } from './schema/operators.js';
 export type { OperatorRow, NewOperatorRow } from './schema/operators.js';
@@ -55,6 +55,15 @@ export type {
 export { operatorLookups } from './schema/operator-lookups.js';
 export type { OperatorLookupRow, NewOperatorLookupRow } from './schema/operator-lookups.js';
 
+export { tabadulCodes } from './schema/tabadul-codes.js';
+export type { TabadulCodeRow, NewTabadulCodeRow } from './schema/tabadul-codes.js';
+
+export { zatcaDeclarationDefaults } from './schema/zatca-declaration-defaults.js';
+export type {
+  ZatcaDeclarationDefaultRow,
+  NewZatcaDeclarationDefaultRow,
+} from './schema/zatca-declaration-defaults.js';
+
 export { declarationRuns } from './schema/declaration-runs.js';
 export type {
   DeclarationRunRow,
@@ -73,4 +82,12 @@ export type {
 } from './schema/declaration-run-items.js';
 
 export { declarationRunFilings } from './schema/declaration-run-filings.js';
-export type { DeclarationRow, NewDeclarationRow, BundleStrategy } from './schema/declaration-run-filings.js';
+export type {
+  DeclarationRunFilingRow,
+  NewDeclarationRunFilingRow,
+  DeclarationRow,
+  NewDeclarationRow,
+  BundleStrategy,
+  FilingStatus,
+  FilingZatcaStatus,
+} from './schema/declaration-run-filings.js';
