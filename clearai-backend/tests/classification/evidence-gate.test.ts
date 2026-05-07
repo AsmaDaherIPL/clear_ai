@@ -34,12 +34,64 @@ describe('evaluateGate', () => {
     if (!r.passed) expect(r.reason).toBe('weak_retrieval');
   });
 
-  it('fails when top1-top2 gap below MIN_GAP and headings differ', () => {
-    // 1509.20.xx (olive oil) vs 1510.10.xx (other oils) — different
-    // HS-4 headings → genuinely ambiguous, gate refuses.
+  it('fails when top1-top2 gap below MIN_GAP and top-K spans unrelated chapters', () => {
+    // 1509.20.xx (olive oil) vs 4203.10.xx (leather garments) —
+    // different chapters, not an adjacent pair, top-3 spans 3 chapters.
+    // Genuinely ambiguous, gate refuses.
     const r = evaluateGate(
-      [cand('150920000000', 0.5), cand('151010000000', 0.49)],
+      [
+        cand('150920000000', 0.5),
+        cand('420310000000', 0.49),
+        cand('850440000000', 0.48),
+      ],
       { minScore: 0.3, minGap: 0.04 },
+    );
+    expect(r.passed).toBe(false);
+    if (!r.passed) expect(r.reason).toBe('ambiguous_top_candidates');
+  });
+
+  it('passes when top-3 share one chapter despite differing HS-4 headings', () => {
+    // The olive-oil family case: 1509.20 (extra virgin) + 1510.10
+    // (other oils) + 1509.40 — different HS-4 headings but all under
+    // chapter 15 (animal/vegetable fats). Coherent product domain →
+    // picker disambiguates rather than the gate refusing.
+    const r = evaluateGate(
+      [
+        cand('150920000000', 0.5),
+        cand('151010000000', 0.49),
+        cand('150940000000', 0.48),
+      ],
+      { minScore: 0.3, minGap: 0.04 },
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it('passes when top-3 straddles an adjacent garment chapter pair (61+62)', () => {
+    // The white-tshirt-men-long-sleeve case: top-1 6205 woven shirt,
+    // top-2 6109 knit t-shirt with sleeves, top-3 6205 plush. Two
+    // adjacent garment chapters → picker disambiguates knit vs woven.
+    const r = evaluateGate(
+      [
+        cand('620500000000', 0.041),
+        cand('610990000005', 0.040),
+        cand('620590000002', 0.039),
+      ],
+      { minScore: 0.02, minGap: 0.003 },
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it('refuses when top-3 straddles non-adjacent chapters', () => {
+    // Top-1 chapter 15 (oils) + top-2 chapter 80 (tin) + top-3 chapter
+    // 61 (knit garments) — three unrelated product domains, no
+    // adjacent-pair coverage. Refuse.
+    const r = evaluateGate(
+      [
+        cand('150920000000', 0.041),
+        cand('800700000000', 0.040),
+        cand('610990000005', 0.039),
+      ],
+      { minScore: 0.02, minGap: 0.003 },
     );
     expect(r.passed).toBe(false);
     if (!r.passed) expect(r.reason).toBe('ambiguous_top_candidates');
