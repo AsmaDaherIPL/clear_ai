@@ -5,9 +5,16 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { ClassifyMode } from './ModeTabs';
 
+export interface ComposerExtras {
+  /** Numeric value of the item, parsed from the value input. Undefined when empty. */
+  valueAmount?: number;
+  /** ISO 4217 3-letter code (uppercase). Undefined when default. */
+  currencyCode?: string;
+}
+
 interface ComposerProps {
   mode: ClassifyMode;
-  onSubmit?: (description: string, parentCode?: string) => void;
+  onSubmit?: (description: string, parentCode?: string, extras?: ComposerExtras) => void;
   loading?: boolean;
   className?: string;
 }
@@ -16,10 +23,14 @@ interface ComposerProps {
 const DESCRIPTION_MAX = 250;
 const DESCRIPTION_WARN_AT = Math.floor(DESCRIPTION_MAX * 0.9);
 
+const CURRENCIES = ['SAR', 'USD', 'EUR', 'AED', 'GBP', 'CNY', 'JPY', 'INR'] as const;
+
 export default function Composer({ mode, onSubmit, loading, className }: ComposerProps) {
   const t = useT();
   const [description, setDescription] = useState('');
   const [parentCode, setParentCode] = useState('');
+  const [valueAmount, setValueAmount] = useState('');
+  const [currencyCode, setCurrencyCode] = useState<typeof CURRENCIES[number]>('SAR');
   const charCount = description.length;
   const nearCap = charCount >= DESCRIPTION_WARN_AT;
   const atCap = charCount >= DESCRIPTION_MAX;
@@ -31,7 +42,18 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
     const trimmed = description.trim();
     if (!trimmed) return;
     if (!parentCodeValid) return;
-    onSubmit?.(trimmed, mode === 'expand' ? parentCode.trim() || undefined : undefined);
+    const parsedValue = valueAmount.trim() ? Number(valueAmount) : undefined;
+    const extras: ComposerExtras = {
+      valueAmount: parsedValue !== undefined && Number.isFinite(parsedValue) && parsedValue > 0
+        ? parsedValue
+        : undefined,
+      currencyCode: currencyCode === 'SAR' ? undefined : currencyCode,
+    };
+    onSubmit?.(
+      trimmed,
+      mode === 'expand' ? parentCode.trim() || undefined : undefined,
+      extras,
+    );
   };
 
   return (
@@ -89,6 +111,46 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
                 placeholder="e.g. 010121 / 3304993 / 01012110"
                 className="flex-1 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
               />
+            </div>
+          )}
+
+          {/* Generate-only value + currency row. Optional commercial context — */}
+          {/* the backend Stage 3 sanity check uses this to flag declared values */}
+          {/* that look implausible for the chosen HS code (e.g. $0.50 watch). */}
+          {mode === 'generate' && (
+            <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
+              <label
+                htmlFor="composer-value"
+                className="font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase shrink-0"
+              >
+                Value
+              </label>
+              <input
+                id="composer-value"
+                type="text"
+                inputMode="decimal"
+                value={valueAmount}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/[^0-9.]/g, '');
+                  const parts = cleaned.split('.');
+                  const next = parts.length > 1
+                    ? `${parts[0]}.${parts.slice(1).join('').slice(0, 2)}`
+                    : cleaned;
+                  setValueAmount(next.slice(0, 12));
+                }}
+                placeholder="optional, e.g. 199.50"
+                className="flex-1 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
+              />
+              <select
+                aria-label="Currency"
+                value={currencyCode}
+                onChange={(e) => setCurrencyCode(e.target.value as typeof CURRENCIES[number])}
+                className="border-0 outline-none bg-transparent font-mono text-[13px] text-[var(--ink-2)] tracking-[0.02em] cursor-pointer"
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
             </div>
           )}
 

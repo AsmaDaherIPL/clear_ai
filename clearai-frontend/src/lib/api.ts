@@ -230,6 +230,35 @@ export interface ExpandRequest {
   description: string;
 }
 
+/** POST /pipeline/dispatch body. */
+export interface DispatchRequest {
+  description: string;
+  merchant_code?: string;
+  /** Defaults to 'naqel' on the backend if omitted. */
+  operator_slug?: string;
+  /** Commercial value of the item — passed through to Stage 3 sanity. */
+  value_amount?: number;
+  /** ISO 4217 3-letter code (e.g. 'SAR', 'USD'). */
+  currency_code?: string;
+}
+
+/** Subset of the new pipeline trace shape that this client actually reads. */
+export interface DispatchResponse {
+  /** 12-digit code. Null when the pipeline did not accept (BLOCK or no-fit). */
+  final_code: string | null;
+  /** Arabic goods description from the catalog. Null on BLOCK. */
+  goods_description_ar: string | null;
+  sanity_verdict: 'PASS' | 'FLAG' | 'BLOCK';
+  trace: {
+    signal_count: 'two_signal' | 'single_a' | 'single_b' | 'zero';
+    track_a: unknown | null;
+    track_b: unknown | null;
+    verdict: unknown | null;
+    sanity: unknown | null;
+    stages: Array<{ name: string; duration_ms: number; outcome: string; detail?: unknown }>;
+  };
+}
+
 /** Lazy-loaded ZATCA submission description from POST /classifications/{id}/submission-description. */
 export interface NewDescriptionResponse {
   description_ar: string;
@@ -295,6 +324,16 @@ export const api = {
   /** POST /classifications — primary classification endpoint. */
   classify: (b: ClassifyRequest) =>
     request<DescribeResponse>('/classifications', {
+      method: 'POST',
+      body: JSON.stringify(b),
+    }),
+
+  /**
+   * POST /pipeline/dispatch — new two-track pipeline (description classifier +
+   * code resolver + reconciliation + sanity). Returns the full trace inline.
+   */
+  dispatch: (b: DispatchRequest) =>
+    request<DispatchResponse>('/pipeline/dispatch', {
       method: 'POST',
       body: JSON.stringify(b),
     }),

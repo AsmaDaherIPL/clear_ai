@@ -4,14 +4,42 @@ import { useEffect, useRef, useState } from 'react';
 import TopBar from './TopBar';
 import Hero from './Hero';
 import ModeTabs, { type ClassifyMode } from './ModeTabs';
-import Composer from './Composer';
+import Composer, { type ComposerExtras } from './Composer';
 import ProcessingSteps from './ProcessingSteps';
 import ResultSingle from './ResultSingle';
 import ResultBatch from './ResultBatch';
 import Footer from './Footer';
 import { useAuthState, LoginCard } from './SignInGate';
 import { useT } from '@/lib/i18n';
-import { api, ApiError, type DescribeResponse } from '@/lib/api';
+import {
+  api,
+  ApiError,
+  type DescribeResponse,
+  type DispatchResponse,
+} from '@/lib/api';
+
+/**
+ * Adapt the new `/pipeline/dispatch` response shape into the legacy
+ * `DescribeResponse` envelope the existing `ResultSingle` renderer expects.
+ * Plan B step 3 will replace this with a purpose-built renderer for the
+ * cleaner trace shape.
+ */
+function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
+  const accepted = d.final_code !== null && d.sanity_verdict !== 'BLOCK';
+  return {
+    decision_status: accepted ? 'accepted' : 'needs_clarification',
+    decision_reason: accepted ? 'strong_match' : 'ambiguous_top_candidates',
+    alternatives: [],
+    result: accepted
+      ? {
+          code: d.final_code as string,
+          description_en: null,
+          description_ar: d.goods_description_ar,
+        }
+      : undefined,
+    model: { embedder: 'multilingual-e5-small', llm: null },
+  };
+}
 
 type Phase = 'idle' | 'classifying' | 'result' | 'error';
 
@@ -61,7 +89,7 @@ export default function ClassifyApp() {
   });
   const lastSubmission = useRef<Record<
     ClassifyMode,
-    { description: string; parentCode?: string } | null
+    { description: string; parentCode?: string; extras?: ComposerExtras } | null
   >>({ generate: null, expand: null, batch: null });
   const stepsRef = useRef<HTMLDivElement | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
@@ -80,7 +108,11 @@ export default function ClassifyApp() {
     stepTimers.current[m].push(window.setTimeout(() => patchMode(m, { activeStep: 3 }), 2200));
   };
 
-  const handleSubmit = async (description: string, parentCode?: string) => {
+  const handleSubmit = async (
+    description: string,
+    parentCode?: string,
+    extras?: ComposerExtras,
+  ) => {
     // Capture mode at submit time so a tab switch mid-request lands in the
     // originating slice, not the new active tab.
     const m = mode;
@@ -89,7 +121,7 @@ export default function ClassifyApp() {
       patchMode(m, { errorMessage: t('err_empty'), phase: 'error' });
       return;
     }
-    lastSubmission.current[m] = { description, parentCode };
+    lastSubmission.current[m] = { description, parentCode, extras };
     patchMode(m, {
       errorMessage: null,
       response: null,
@@ -102,7 +134,16 @@ export default function ClassifyApp() {
     try {
       let res: DescribeResponse;
       if (m === 'generate') {
-        res = await api.classify({ description });
+        // Generate mode now talks to the new two-track pipeline. The
+        // dispatch response is adapted into a legacy DescribeResponse so
+        // ResultSingle keeps working until Plan B step 3 lands a renderer
+        // for the cleaner trace shape.
+        const dispatchRes = await api.dispatch({
+          description,
+          value_amount: extras?.valueAmount,
+          currency_code: extras?.currencyCode,
+        });
+        res = dispatchToDescribe(dispatchRes);
       } else if (m === 'expand') {
         if (!parentCode) {
           throw new Error('Parent code required for Expand mode.');
@@ -140,7 +181,7 @@ export default function ClassifyApp() {
   const handleRetry = () => {
     const last = lastSubmission.current[mode];
     if (!last) return;
-    handleSubmit(last.description, last.parentCode);
+    handleSubmit(last.description, last.parentCode, last.extras);
   };
 
   /** Promote an alternative to chosen leaf, synthesizing an accepted envelope. */
