@@ -52,14 +52,11 @@ type DispatchBody = z.infer<typeof DispatchBody>;
  * classification pipeline (only by Phase 2 declaration generation, which
  * single-shot dispatch never runs).
  */
-function buildItem(body: DispatchBody): CanonicalLineItem {
+function buildItem(body: DispatchBody, operatorId: string): CanonicalLineItem {
   return {
     itemId: randomUUID(),
     rowIndex: 0,
-    // tenantId is the legacy field name kept on CanonicalLineItem for
-    // backwards-compat; operatorSlug is the canonical one. The mapper
-    // populates both with the same value during bulk runs.
-    tenantId: body.operator_slug,
+    operatorId,
     operatorSlug: body.operator_slug,
     description: body.description,
     waybillNo: '',
@@ -70,6 +67,7 @@ function buildItem(body: DispatchBody): CanonicalLineItem {
     quantity: 1,
     uom: 'PCE',
     netWeightKg: 0,
+    consigneeAddress: null,
     clientId: '',
     countryOfOrigin: '',
     destinationStationId: '',
@@ -111,8 +109,9 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     }
     const body = parsed.data;
 
+    let operatorConfig;
     try {
-      await resolveOperator(body.operator_slug);
+      operatorConfig = await resolveOperator(body.operator_slug);
     } catch (err) {
       if (err instanceof OperatorNotFoundError) {
         return reply.code(404).send({
@@ -122,7 +121,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
 
-    const item = buildItem(body);
+    const item = buildItem(body, operatorConfig.id);
     const startedAt = new Date().toISOString();
     const result: PipelineResult = await runPipeline(item, body.operator_slug, item.itemId);
     const completedAt = new Date().toISOString();
