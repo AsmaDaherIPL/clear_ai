@@ -160,10 +160,26 @@ export type StageVerdictOutput = VerdictResult | VerdictEscalate;
 // Stage 3 — Sanity
 // ---------------------------------------------------------------------------
 
-export type SanityVerdict = 'PASS' | 'FLAG' | 'BLOCK';
+/**
+ * What the sanity LLM is allowed to return. Value-plausibility only —
+ * the code is already decided by Stage 2; sanity does NOT re-litigate it.
+ * BLOCK is intentionally absent: the LLM cannot reject a classification
+ * the rest of the pipeline accepted. FLAG routes to HITL with the code
+ * intact.
+ */
+export type SanityLlmVerdict = 'PASS' | 'FLAG';
+
+/**
+ * What the orchestrator emits as the overall pipeline outcome on
+ * `PipelineResult.sanity_verdict`. Adds BLOCK for upstream pre-
+ * classification rejections (parse failure, cleanup unusable) that the
+ * orchestrator emits BEFORE the sanity stage ever runs. The LLM itself
+ * is bounded to SanityLlmVerdict.
+ */
+export type SanityVerdict = SanityLlmVerdict | 'BLOCK';
 
 export interface SanityResult {
-  verdict: SanityVerdict;
+  verdict: SanityLlmVerdict;
   rationale: string;
   latency_ms: number;
 }

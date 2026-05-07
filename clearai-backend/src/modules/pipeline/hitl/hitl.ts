@@ -37,6 +37,9 @@ export function shouldEnqueue(
   sanityResult: SanityResult | null,
 ): boolean {
   if (!verdictOutput || verdictOutput.decision === 'escalate') return true;
-  if (sanityResult?.verdict === 'FLAG' || sanityResult?.verdict === 'BLOCK') return true;
+  // sanity LLM only returns PASS | FLAG; BLOCK on PipelineResult is reserved
+  // for pre-classification rejections that the orchestrator emits before
+  // sanity runs and never produces a SanityResult for.
+  if (sanityResult?.verdict === 'FLAG') return true;
   return false;
 }

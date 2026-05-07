@@ -1,19 +1,36 @@
 /**
- * Stage 3 — Sanity check (standard LLM, Sonnet-tier, always runs).
+ * Stage 3 — Sanity check (lightweight LLM, value-plausibility only).
  *
- * Checks that the final code accepted by Stage 2 is plausible for the
- * cleaned description. Optionally checks value/currency plausibility.
+ * Runs after Stage 2 reconciliation accepted a final code. The orchestrator
+ * skips this stage when no code was decided (escalated reconciliation), so
+ * by the time we run, both the code and the description are settled.
  *
- * Returns PASS | FLAG | BLOCK. Never throws — degrades to FLAG on failure.
+ * One job: judge whether the declared value is plausible for the item
+ * described. The Rolex-for-$50 catcher. We do NOT re-litigate the code.
+ *
+ * Returns PASS | FLAG. The code stands either way — FLAG just routes the
+ * item to HITL for human review with the code intact. There is no BLOCK
+ * path: BLOCK on PipelineResult.sanity_verdict is reserved for upstream
+ * pre-classification rejections (parse failure, cleanup unusable) that
+ * the orchestrator emits BEFORE this stage runs. The LLM never produces
+ * BLOCK.
+ *
+ * Model: Haiku (LLM_MODEL). Sufficient for value-range plausibility
+ * judgments. The prompt's "when in doubt, FLAG" instruction biases
+ * conservatively — false positives go to cheap HITL, false negatives
+ * become customs problems.
+ *
+ * Never throws — degrades to FLAG on LLM failure so HITL still sees the
+ * item rather than silently passing.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
 import { env } from '../../../config/env.js';
-import type { SanityResult, SanityVerdict } from '../shared/pipeline.types.js';
+import type { SanityResult } from '../shared/pipeline.types.js';
 
 const SanitySchema = z
   .object({
-    verdict: z.enum(['PASS', 'FLAG', 'BLOCK']).optional(),
+    verdict: z.enum(['PASS', 'FLAG']).optional(),
     rationale: z.unknown().optional(),
   })
   .passthrough();
@@ -25,7 +42,7 @@ export async function runSanity(params: {
   currency_code: string | null;
 }): Promise<SanityResult> {
   const start = Date.now();
-  const model = env().LLM_MODEL_STRONG;
+  const model = env().LLM_MODEL;
 
   const user = JSON.stringify({
     final_code: params.final_code,
@@ -47,14 +64,14 @@ export async function runSanity(params: {
   const latency_ms = Date.now() - start;
 
   if (outcome.kind !== 'ok') {
-    // Degrade to FLAG — don't block items on an LLM infrastructure failure,
-    // but don't silently pass them either. HITL will review.
+    // Degrade to FLAG — don't pass-through on infra failure. HITL will review.
     return { verdict: 'FLAG', rationale: `sanity LLM failed: ${outcome.kind}`, latency_ms };
   }
 
   const d = outcome.data;
-  const verdict: SanityVerdict =
-    d.verdict === 'PASS' || d.verdict === 'BLOCK' ? d.verdict : 'FLAG';
+  // Anything that isn't a clean PASS becomes FLAG (parse miss, malformed
+  // verdict, model returned BLOCK by mistake, etc.). When in doubt, FLAG.
+  const verdict: 'PASS' | 'FLAG' = d.verdict === 'PASS' ? 'PASS' : 'FLAG';
   const rationale = typeof d.rationale === 'string' ? d.rationale : '';
 
   return { verdict, rationale, latency_ms };

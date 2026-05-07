@@ -144,7 +144,10 @@ describe('runClassificationPhase', () => {
     const dispatch: DispatchFn = async () => {
       n++;
       if (n === 1) return { finalCode: '010121000000', goodsDescriptionAr: 'فستان', sanityVerdict: 'FLAG', trace: { pathTaken: 'flag', stages: [] } };
-      if (n === 2) return { finalCode: '010121000000', goodsDescriptionAr: 'فستان', sanityVerdict: 'BLOCK', trace: { pathTaken: 'block', stages: [] } };
+      // BLOCK is emitted by the orchestrator's pre-classification path
+      // (parse failure / cleanup unusable), not by the sanity LLM. Those
+      // returns always carry finalCode: null + goodsDescriptionAr: null.
+      if (n === 2) return { finalCode: null, goodsDescriptionAr: null, sanityVerdict: 'BLOCK', trace: { pathTaken: 'block', stages: [] } };
       throw new Error('boom');
     };
 

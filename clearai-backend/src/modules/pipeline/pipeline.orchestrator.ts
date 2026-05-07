@@ -218,17 +218,11 @@ export async function runPipeline(
     });
   }
 
-  // BLOCK — exclude from declaration phase
-  if (sanity.verdict === 'BLOCK') {
-    return {
-      final_code: null,
-      goods_description_ar: null,
-      sanity_verdict: 'BLOCK',
-      trace,
-    };
-  }
-
-  // PASS or FLAG — return with the LLM-generated submission description
+  // Sanity is value-plausibility only and emits PASS | FLAG. The code is
+  // already decided by Stage 2 reconciliation; FLAG just routes to HITL
+  // with the code intact. BLOCK on PipelineResult.sanity_verdict is
+  // reserved for the upstream parse / cleanup-unusable rejections above
+  // (lines ~85-115); the LLM never produces it.
   return {
     final_code: verdict.final_code,
     goods_description_ar: submission.descriptionAr,
