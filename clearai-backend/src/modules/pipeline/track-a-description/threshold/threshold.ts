@@ -38,12 +38,15 @@ export function runThreshold(
  *   • bm25-only rank-1 hit:     1.5/61              ≈ 0.025
  *   • two-arm rank-1 vs rank-2 gap (rrf only): tiny (~0.0006)
  *
- * minScore=0.020 lets through any genuine match where at least the BM25 arm
- * fires. minGap=0.003 allows the picker to disambiguate when retrieval is
- * already pointing at one HS-4 family but a couple of leaves are tied close.
- * Calibrate against the bench corpus once embedder swap lands.
+ * Calibrated against post-Plan-B retrieval (text-embedding-3-large @ 1024):
+ * a coherent-but-broad query like "white tshirt men long sleeve" produces
+ * top-1 around 0.019 (vec ranks 1, BM25 ranks 1 but the trigram arm doesn't
+ * match strongly because the query term order differs from the catalog
+ * descriptions). minScore=0.015 lets that through; minGap=0.003 gives the
+ * coherent-block escape room to fire when top-K straddles e.g. chapters
+ * 61+62 (knit + woven garments).
  */
 export const DEFAULT_THRESHOLDS: GateThresholds = {
-  minScore: 0.02,
+  minScore: 0.015,
   minGap: 0.003,
 };
