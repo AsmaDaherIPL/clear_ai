@@ -7,8 +7,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api, ApiError, type NewDescriptionResponse } from '@/lib/api';
 
 interface SubmissionDescriptionCardProps {
-  /** UUID from POST /classifications; null/undefined skips the fetch. */
-  requestId: string | null | undefined;
+  /**
+   * Inline submission description from a /pipeline/dispatch response. When
+   * provided, no fetch happens — this is the new path.
+   */
+  inline?: { description_ar: string | null; description_en?: string | null } | null;
+  /**
+   * Legacy: UUID from POST /classifications; null/undefined skips the fetch.
+   * Only used when `inline` is absent. Will be removed once /classifications
+   * is fully retired.
+   */
+  requestId?: string | null | undefined;
   className?: string;
 }
 
@@ -32,17 +41,47 @@ const RetryIcon = () => (
 );
 
 export default function SubmissionDescriptionCard({
+  inline,
   requestId,
   className,
 }: SubmissionDescriptionCardProps) {
   const t = useT();
-  const [status, setStatus] = useState<Status>('loading');
-  const [data, setData] = useState<NewDescriptionResponse | null>(null);
+  // Inline mode: the dispatch already returned the description — synthesize a
+  // success state directly. No fetch, no retry button, no spinner. The inline
+  // payload is the source of truth and never has the legacy `model_call` /
+  // `source: 'guard_fallback'` metadata.
+  const inlineData: NewDescriptionResponse | null = inline
+    ? {
+        description_ar: inline.description_ar ?? '',
+        description_en: inline.description_en ?? '',
+        source: 'llm',
+      }
+    : null;
+  const initialStatus: Status =
+    inline ? (inline.description_ar ? 'success' : 'not_applicable') : 'loading';
+
+  const [status, setStatus] = useState<Status>(initialStatus);
+  const [data, setData] = useState<NewDescriptionResponse | null>(inlineData);
   /** Bumped by the retry button to re-run the effect without changing requestId. */
   const [retryNonce, setRetryNonce] = useState(0);
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    // Inline mode short-circuits the fetch entirely.
+    if (inline) {
+      setStatus(inline.description_ar ? 'success' : 'not_applicable');
+      setData(
+        inline.description_ar
+          ? {
+              description_ar: inline.description_ar,
+              description_en: inline.description_en ?? '',
+              source: 'llm',
+            }
+          : null,
+      );
+      return;
+    }
+
     if (!requestId) return;
 
     controllerRef.current?.abort();
@@ -79,7 +118,7 @@ export default function SubmissionDescriptionCard({
     return () => {
       controller.abort();
     };
-  }, [requestId, retryNonce]);
+  }, [inline, requestId, retryNonce]);
 
   if (status === 'not_applicable') return null;
 

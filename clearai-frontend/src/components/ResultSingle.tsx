@@ -765,8 +765,23 @@ export default function ResultSingle({
             </div>
           )}
 
-          {/* §4 SUGGESTED ZATCA SUBMISSION DESCRIPTION — owns its own fetch. */}
-          <SubmissionDescriptionCard requestId={data.request_id} />
+          {/* §4 SUGGESTED ZATCA SUBMISSION DESCRIPTION
+              Inline path (post-dispatch-v1): use the description that came
+              back on the dispatch response. The legacy fallback path uses
+              data.request_id to fetch from /classifications/{id}/submission-
+              description — kept for the expand/batch flows that haven't
+              migrated to /pipeline/dispatch yet. */}
+          <SubmissionDescriptionCard
+            inline={
+              data.submission_description
+                ? {
+                    description_ar: data.submission_description.description_ar,
+                    description_en: data.submission_description.description_en,
+                  }
+                : null
+            }
+            requestId={data.request_id}
+          />
 
           {/* §5 GIR rationale — always-visible prose, no collapse. */}
           {data.rationale && (

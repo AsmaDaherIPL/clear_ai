@@ -26,6 +26,25 @@ import {
  */
 function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
   const accepted = d.final_code !== null && d.sanity_verdict !== 'BLOCK';
+
+  // Pull the submission description from the dispatch trace's
+  // submission_description action so the SPA's renderer can short-circuit
+  // the legacy /classifications/{id}/submission-description fetch.
+  const classify = d.trace.stages.find((s) => s.stage === 'classify');
+  const subAction = classify?.actions.find((a) => a.action === 'submission_description');
+  const subOutput = (subAction?.output ?? {}) as {
+    description_ar?: string | null;
+    description_en?: string | null;
+  };
+  const description_ar =
+    typeof subOutput.description_ar === 'string'
+      ? subOutput.description_ar
+      : d.goods_description_ar;
+  const description_en =
+    typeof subOutput.description_en === 'string'
+      ? subOutput.description_en
+      : null;
+
   return {
     decision_status: accepted ? 'accepted' : 'needs_clarification',
     decision_reason: accepted ? 'strong_match' : 'ambiguous_top_candidates',
@@ -37,7 +56,16 @@ function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
           description_ar: d.goods_description_ar,
         }
       : undefined,
-    model: { embedder: 'multilingual-e5-small', llm: null },
+    submission_description: description_ar
+      ? {
+          description_ar,
+          description_en: description_en ?? '',
+          rationale: '',
+          differs_from_catalog: true,
+          source: 'llm',
+        }
+      : undefined,
+    model: { embedder: 'text-embedding-3-large', llm: null },
   };
 }
 

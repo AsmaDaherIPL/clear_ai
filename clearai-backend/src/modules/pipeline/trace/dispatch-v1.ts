@@ -231,7 +231,7 @@ function buildSubmissionDescriptionAction(
     outcome: mapOutcome(stage),
     llm_used: true,
     output: {
-      goods_description_ar: result.goods_description_ar,
+      description_ar: result.goods_description_ar,
       source: detail.source ?? null,
       length: detail.length ?? null,
     },

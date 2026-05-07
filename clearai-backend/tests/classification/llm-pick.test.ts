@@ -43,7 +43,7 @@ describe('llmPick — empty provider response is operational failure', () => {
       latencyMs: 12,
       model: 'mock-haiku',
     });
-    const r = await llmPick({ kind: 'describe', query: 'horse', candidates, pathMode: 0 });
+    const r = await llmPick({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('error');
     expect(r.chosenCode).toBeNull();
     expect(r.rawError).toMatch(/no text block/i);
@@ -57,7 +57,7 @@ describe('llmPick — empty provider response is operational failure', () => {
       latencyMs: 8,
       model: 'mock-haiku',
     });
-    const r = await llmPick({ kind: 'describe', query: 'horse', candidates, pathMode: 0 });
+    const r = await llmPick({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('error');
   });
 
@@ -69,7 +69,7 @@ describe('llmPick — empty provider response is operational failure', () => {
       latencyMs: 200,
       model: 'mock-sonnet',
     });
-    const r = await llmPick({ kind: 'describe', query: 'horse', candidates, pathMode: 0 });
+    const r = await llmPick({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('ok');
     expect(r.chosenCode).toBe('010121100000');
     expect(r.guardTripped).toBe(false);
