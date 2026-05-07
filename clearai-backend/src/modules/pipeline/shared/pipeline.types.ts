@@ -47,6 +47,31 @@ export interface CleanupResult {
 // Track A — Description classifier output
 // ---------------------------------------------------------------------------
 
+/** Shape of the retrieval candidates surfaced in the trace. */
+export interface TrackACandidate {
+  code: string;
+  description_en: string | null;
+  description_ar: string | null;
+  rrf_score: number;
+}
+
+/** Researcher detail surfaced in the trace. */
+export interface TrackAResearchDetail {
+  /** Stage at which the researcher fired. */
+  source: 'cheap_llm' | 'web_search' | 'failed_passthrough';
+  /** True when the researcher returned a canonical description. */
+  recognised: boolean;
+  /** What the researcher's enriched description was (the input to retrieval). */
+  enriched_description: string;
+  /** Reason / error string when not recognised. */
+  unrecognised_reason: string | null;
+  /** Web evidence quote (only set when source='web_search' and recognised). */
+  evidence_quote: string | null;
+  /** Model that produced the result. */
+  model: string | null;
+  latency_ms: number;
+}
+
 export interface TrackAResult {
   /** Null when threshold failed or Picker returned no_fit. */
   chosen_code: string | null;
@@ -60,6 +85,14 @@ export interface TrackAResult {
   no_fit: boolean;
   /** Stage the input reached before retrieval. */
   interpretation_stage: 'passthrough' | 'cleaned' | 'researched';
+  /** Description fed into retrieval (post-cleanup, possibly post-researcher). */
+  effective_description: string;
+  /** Top retrieval candidates the picker saw, ordered by score. Empty when retrieval returned nothing. */
+  candidates: TrackACandidate[];
+  /** Researcher details — null when researcher didn't run. */
+  research: TrackAResearchDetail | null;
+  /** Web research details — null when web research didn't run. */
+  web_research: TrackAResearchDetail | null;
 }
 
 // ---------------------------------------------------------------------------
