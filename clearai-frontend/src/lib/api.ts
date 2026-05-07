@@ -242,21 +242,103 @@ export interface DispatchRequest {
   currency_code?: string;
 }
 
-/** Subset of the new pipeline trace shape that this client actually reads. */
-export interface DispatchResponse {
-  /** 12-digit code. Null when the pipeline did not accept (BLOCK or no-fit). */
+/**
+ * dispatch-v1 wire format from POST /pipeline/dispatch.
+ *
+ * Three-level vocabulary, never overloaded:
+ *   stage   = top-level pipeline phase: normalize | classify | sanity
+ *   action  = inside stage.actions[]:   parse, cleanup, description_classifier,
+ *                                        code_resolver, reconciliation,
+ *                                        submission_description, sanity_check
+ *   step    = inside action.steps[]:    researcher, retrieval, threshold,
+ *                                        web_researcher, picker, …
+ */
+export type DispatchOutcome = 'ok' | 'skipped' | 'failed' | 'failed_gate';
+export type DispatchStageName = 'normalize' | 'classify' | 'sanity';
+export type DispatchActionName =
+  | 'parse'
+  | 'cleanup'
+  | 'description_classifier'
+  | 'code_resolver'
+  | 'reconciliation'
+  | 'submission_description'
+  | 'sanity_check';
+export type DispatchStepName =
+  | 'researcher'
+  | 'retrieval'
+  | 'threshold'
+  | 'web_researcher'
+  | 'retrieval_after_web'
+  | 'threshold_after_web'
+  | 'picker'
+  | 'operator_override_lookup'
+  | 'codebook_lookup';
+
+export interface DispatchStep {
+  step: DispatchStepName;
+  duration_ms: number;
+  outcome: DispatchOutcome;
+  model?: string;
+  output?: Record<string, unknown>;
+}
+
+export interface DispatchAction {
+  action: DispatchActionName;
+  duration_ms: number;
+  outcome: DispatchOutcome;
+  llm_used?: boolean;
+  model?: string;
+  merchant_code_visible_to_model?: boolean;
+  input?: Record<string, unknown>;
+  steps?: DispatchStep[];
+  output?: Record<string, unknown>;
+}
+
+export interface DispatchStage {
+  stage: DispatchStageName;
+  started_at: string;
+  duration_ms: number;
+  outcome: DispatchOutcome;
+  input?: Record<string, unknown>;
+  actions: DispatchAction[];
+  output?: Record<string, unknown>;
+}
+
+export interface DispatchSummary {
+  merchant_code_state: string | null;
+  description_classifier_code: string | null;
+  code_resolver_code: string | null;
+  reconciliation:
+    | 'description_classifier'
+    | 'code_resolver'
+    | 'reconciled'
+    | 'escalated'
+    | null;
+  operator_override_applied: boolean;
   final_code: string | null;
-  /** Arabic goods description from the catalog. Null on BLOCK. */
+  sanity_verdict: 'PASS' | 'FLAG' | 'BLOCK' | null;
+}
+
+export interface DispatchTrace {
+  trace_version: 'dispatch-v1';
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  llm_calls_used: number;
+  signal_count: 'two_signal' | 'single_a' | 'single_b' | 'zero';
+  summary: DispatchSummary;
+  stages: DispatchStage[];
+}
+
+export interface DispatchResponse {
+  item_id: string;
+  operator_slug: string;
+  status: 'succeeded' | 'failed' | 'rejected';
+  final_code: string | null;
   goods_description_ar: string | null;
+  goods_description_en: string | null;
   sanity_verdict: 'PASS' | 'FLAG' | 'BLOCK';
-  trace: {
-    signal_count: 'two_signal' | 'single_a' | 'single_b' | 'zero';
-    track_a: unknown | null;
-    track_b: unknown | null;
-    verdict: unknown | null;
-    sanity: unknown | null;
-    stages: Array<{ name: string; duration_ms: number; outcome: string; detail?: unknown }>;
-  };
+  trace: DispatchTrace;
 }
 
 /** Lazy-loaded ZATCA submission description from POST /classifications/{id}/submission-description. */

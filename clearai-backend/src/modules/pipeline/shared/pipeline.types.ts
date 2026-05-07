@@ -204,3 +204,109 @@ export interface PipelineResult {
   sanity_verdict: SanityVerdict;
   trace: PipelineTrace;
 }
+
+// ---------------------------------------------------------------------------
+// dispatch-v1 — wire format for POST /pipeline/dispatch
+// ---------------------------------------------------------------------------
+//
+// Vocabulary contract (three nesting levels, never overloaded):
+//   stage   = top-level pipeline phase: normalize | classify | sanity
+//   action  = inside stage.actions[]:   parse, cleanup, description_classifier,
+//                                       code_resolver, reconciliation,
+//                                       submission_description, sanity_check
+//   step    = inside action.steps[]:    researcher, retrieval, threshold,
+//                                       web_researcher, picker,
+//                                       operator_override_lookup,
+//                                       codebook_lookup
+//
+// PipelineTrace (the legacy in-process shape) is still used by Track A and
+// the orchestrator while the algorithms run. The route handler converts it
+// to DispatchV1Response at the wire boundary so the SPA/UI sees the cleaner
+// shape without forcing a stage-by-stage refactor of the orchestrator.
+
+export type DispatchV1Outcome = 'ok' | 'skipped' | 'failed' | 'failed_gate';
+
+export type DispatchV1StageName = 'normalize' | 'classify' | 'sanity';
+
+export type DispatchV1ActionName =
+  | 'parse'
+  | 'cleanup'
+  | 'description_classifier'
+  | 'code_resolver'
+  | 'reconciliation'
+  | 'submission_description'
+  | 'sanity_check';
+
+export type DispatchV1StepName =
+  | 'researcher'
+  | 'retrieval'
+  | 'threshold'
+  | 'web_researcher'
+  | 'retrieval_after_web'
+  | 'threshold_after_web'
+  | 'picker'
+  | 'operator_override_lookup'
+  | 'codebook_lookup';
+
+export interface DispatchV1Step {
+  step: DispatchV1StepName;
+  duration_ms: number;
+  outcome: DispatchV1Outcome;
+  model?: string;
+  output?: Record<string, unknown>;
+}
+
+export interface DispatchV1Action {
+  action: DispatchV1ActionName;
+  duration_ms: number;
+  outcome: DispatchV1Outcome;
+  llm_used?: boolean;
+  model?: string;
+  /** True for code_resolver, false for description_classifier. Surfaces the architectural blindness invariant. */
+  merchant_code_visible_to_model?: boolean;
+  input?: Record<string, unknown>;
+  steps?: DispatchV1Step[];
+  output?: Record<string, unknown>;
+}
+
+export interface DispatchV1Stage {
+  stage: DispatchV1StageName;
+  started_at: string;
+  duration_ms: number;
+  outcome: DispatchV1Outcome;
+  input?: Record<string, unknown>;
+  actions: DispatchV1Action[];
+  output?: Record<string, unknown>;
+}
+
+export interface DispatchV1Summary {
+  merchant_code_state: MerchantCodeState | null;
+  description_classifier_code: string | null;
+  code_resolver_code: string | null;
+  reconciliation: 'description_classifier' | 'code_resolver' | 'reconciled' | 'escalated' | null;
+  operator_override_applied: boolean;
+  final_code: string | null;
+  sanity_verdict: SanityVerdict | null;
+}
+
+export interface DispatchV1Trace {
+  trace_version: 'dispatch-v1';
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  llm_calls_used: number;
+  signal_count: SignalCount;
+  summary: DispatchV1Summary;
+  stages: DispatchV1Stage[];
+}
+
+export interface DispatchV1Response {
+  item_id: string;
+  operator_slug: string;
+  status: 'succeeded' | 'failed' | 'rejected';
+  final_code: string | null;
+  goods_description_ar: string | null;
+  goods_description_en: string | null;
+  sanity_verdict: SanityVerdict;
+  trace: DispatchV1Trace;
+}

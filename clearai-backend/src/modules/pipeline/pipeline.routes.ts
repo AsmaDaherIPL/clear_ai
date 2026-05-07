@@ -19,6 +19,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { runPipeline } from './pipeline.orchestrator.js';
+import { assembleDispatchV1 } from './trace/dispatch-v1.js';
 import { getPool } from '../../db/client.js';
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { OperatorNotFoundError } from '../operators/operator.errors.js';
@@ -122,16 +123,19 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const item = buildItem(body);
+    const startedAt = new Date().toISOString();
     const result: PipelineResult = await runPipeline(item, body.operator_slug, item.itemId);
+    const completedAt = new Date().toISOString();
 
-    return reply.code(200).send({
-      item_id: item.itemId,
-      operator_slug: body.operator_slug,
-      final_code: result.final_code,
-      goods_description_ar: result.goods_description_ar,
-      sanity_verdict: result.sanity_verdict,
-      trace: result.trace,
-    });
+    return reply.code(200).send(
+      assembleDispatchV1({
+        itemId: item.itemId,
+        operatorSlug: body.operator_slug,
+        result,
+        startedAt,
+        completedAt,
+      }),
+    );
   });
 
   // GET /pipeline/trace/:id

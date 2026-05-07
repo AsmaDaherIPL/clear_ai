@@ -76,7 +76,17 @@ export async function runPipeline(
     started_at: new Date(t0a).toISOString(),
     duration_ms: Date.now() - t0a,
     outcome: 'ok',
-    detail: { rejected: parsed.rejected },
+    detail: {
+      rejected: parsed.rejected,
+      ...(parsed.rejected
+        ? {}
+        : {
+            merchant_code_state: parsed.item.merchant_code_state,
+            raw_merchant_code: parsed.item.raw_merchant_code,
+            currency_code: parsed.item.currency_code,
+            value_amount: parsed.item.value_amount,
+          }),
+    },
   });
 
   if (parsed.rejected) {
