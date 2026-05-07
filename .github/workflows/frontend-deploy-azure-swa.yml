@@ -89,11 +89,11 @@ jobs:
       # If a value changes (new tenant, new APIM gateway, new app reg), update
       # the repo variable in the GitHub UI — no code edit required.
       #
-      # Architecture context: as of 2026-05-05, the SPA does its own auth via
-      # MSAL.js (Authorization Code + PKCE) and calls APIM directly with the
-      # user's access token. The SWA-managed-Functions BFF is being removed in
-      # a follow-up; the BFF build/deploy steps below remain for one revision
-      # to keep the api_location surface populated until the cleanup commit.
+      # Architecture context: the SPA does its own auth via MSAL.js
+      # (Authorization Code + PKCE) and calls APIM directly with the user's
+      # access token. The SWA-managed-Functions BFF that used to live at
+      # clearai-frontend/api/ was deleted on 2026-05-07 — see commit history
+      # if you're chasing the BFF source (clearaiProxy.ts).
       - name: Build SPA
         working-directory: clearai-frontend
         env:
@@ -103,43 +103,13 @@ jobs:
           PUBLIC_APIM_BASE_URL: ${{ vars.PUBLIC_APIM_BASE_URL }}
         run: npm run build
 
-      # Build the BFF Function. This compiles api/src/**/*.ts to api/dist/.
-      # SWA's deploy action picks up api/ as the api_location and ships its
-      # compiled output as a managed-function sidecar.
-      - name: Install BFF deps
-        working-directory: clearai-frontend/api
-        run: npm ci
-
-      - name: Build BFF
-        working-directory: clearai-frontend/api
-        run: npm run build
-
-      # Deploys the pre-built dist/ + the BFF api/ to Azure Static Web Apps.
+      # Deploys the pre-built dist/ to Azure Static Web Apps. No api_location
+      # — the SPA talks to APIM directly with the user's MSAL token, no
+      # SWA-managed Function in the request path.
       #
-      # api_location: clearai-frontend/api  → SWA picks up the Function code
-      #                                        as a managed-function sidecar.
-      #                                        It MUST contain host.json +
-      #                                        package.json at the root (it
-      #                                        does — see api/host.json).
-      # skip_app_build: true                → don't run Oryx's SPA build
-      #                                        (we already built above).
-      # skip_api_build: true                → don't run Oryx's API build
-      #                                        either (we tsc'd above);
-      #                                        Oryx would otherwise discard
-      #                                        api/dist and rebuild from
-      #                                        api/src, which is fine but
-      #                                        wastes time.
-      #
-      # Required SWA Application Settings (Configuration blade) — set BEFORE
-      # the first deploy, otherwise the BFF returns 500 bff_misconfigured:
-      #   APIM_BASE_URL          (plain)
-      #   ENTRA_TENANT_ID        (plain — your Workforce tenant id)
-      #   ENTRA_CLIENT_ID        (plain — infp-clearai-web-bff-dev-01 client_id)
-      #   ENTRA_CLIENT_SECRET    (Key Vault reference recommended:
-      #                           @Microsoft.KeyVault(SecretUri=https://kv-infp-clearai-dev-gwc.vault.azure.net/secrets/entra-bff-client-secret/))
-      #   ENTRA_API_SCOPE        (api://infp-clearai-api-dev-01/.default)
-      #   BFF_MAX_REQUEST_BYTES  (262144)
-      #   BFF_FORWARD_SUB_KEY    (false — we dropped APIM subscriptionRequired)
+      # skip_app_build: true → don't run Oryx's SPA build (we already built
+      #                        above with PUBLIC_* env vars from GH Actions
+      #                        Variables; Oryx can't see those).
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
@@ -147,7 +117,5 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           app_location: "clearai-frontend/dist"
-          api_location: "clearai-frontend/api"
           skip_app_build: true
-          skip_api_build: true
           output_location: ""

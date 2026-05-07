@@ -1,17 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/staticwebapp.config.json",
 
-  "_comment_platform": "apiRuntime tells SWA which Azure Functions runtime to provision for the managed function in clearai-frontend/api/. Required — without it the deployer fails with 'Function language info isn't provided.' Node 20 is the highest currently-supported runtime per Microsoft Learn's supported-languages-and-runtimes table (Node 22 not yet listed). Bump when SWA adds Node 22.",
-  "platform": {
-    "apiRuntime": "node:20"
-  },
-
-  "_comment_navigationFallback": "SPA fallback — unknown paths serve index.html so client-side routing handles them. Excludes asset paths AND recon paths so /.env, /.git/*, /admin etc. return real 404s instead of the SPA shell (frontend security review L2). /api/* must be excluded so SWA managed-functions get the request, not the rewrite.",
+  "_comment_navigationFallback": "SPA fallback — unknown paths serve index.html so client-side routing handles them. Excludes asset paths AND recon paths so /.env, /.git/*, /admin etc. return real 404s instead of the SPA shell (frontend security review L2). The previous /api/* exclude + apiRuntime: node:20 platform block were for the SWA-managed-Function BFF (clearaiProxy) that was deleted on 2026-05-07 — the SPA now talks to APIM directly via MSAL.js.",
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [
       "/_astro/*",
-      "/api/*",
       "/assets/*",
       "/.well-known/*",
       "/.env*",
@@ -43,15 +37,5 @@
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
     "X-XSS-Protection": "0"
-  },
-
-  "_comment_routes": "Force Cache-Control on the API path so SWA's edge never caches a per-user (future) or per-request (today) BFF response. The bundle assets at /_astro/* are immutably hashed by Astro; SWA's default Cache-Control: public,max-age=300,must-revalidate is fine for them.",
-  "routes": [
-    {
-      "route": "/api/*",
-      "headers": {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"
-      }
-    }
-  ]
+  }
 }

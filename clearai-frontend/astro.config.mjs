@@ -3,34 +3,15 @@ import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import tailwindcss from '@tailwindcss/vite';
 
-// ClearAI Frontend v2 — sibling rebuild alongside v1.
-// v1 runs on :5173 (or :5175). v2 runs on :5180 so both can run locally.
-// Static output only (no SSR) — deploys to Azure Static Web Apps.
+// ClearAI Frontend — Astro static SPA, deploys to Azure Static Web Apps.
+// Listens on :5180 in dev. Static output only (no SSR).
 //
-// Backend target: same-origin /api/* (SWA managed Function BFF) →
-// https://apim-infp-clearai-be-dev-gwc-01.azure-api.net (server-side fetch).
-// The browser never speaks to APIM directly anymore — the BFF holds the
-// Entra client-credentials secret + APIM subscription key. See ADR and
-// docs/SECURITY-REMEDIATION-PLAN.md §1 for the architecture.
-// Local dev proxy target. Defaults to the local Fastify backend on :3000.
-// Override with CLEARAI_DEV_API_TARGET if you want to point at a remote
-// backend (e.g. a preview deployment). Production is unaffected — the
-// `vite.server.proxy` block ONLY runs during `astro dev`; `astro build`
-// (what SWA's CI runs) ignores it entirely.
-//
-// Why this exists: in production the SPA's /api/* lands on the SWA
-// managed-function BFF (clearai-frontend/api/clearaiProxy.ts) which adds
-// Entra Bearer auth and forwards to APIM. In dev, that BFF needs Entra
-// credentials we don't bootstrap until Phase 1 lands — so for local
-// testing we skip the BFF entirely and proxy /api/* straight to a local
-// Fastify backend that bypasses auth via NODE_ENV=development.
-//
-// This proxy:
-//   - Server-side only (Vite dev), zero JS-bundle exposure
-//   - Strips /api prefix so the Fastify routes (mounted at root) match
-//   - Adds an x-apim-shared-secret header IF set, otherwise omits — local
-//     Fastify only enforces the header in production mode
-const DEV_API_TARGET = process.env.CLEARAI_DEV_API_TARGET ?? 'http://localhost:3000';
+// Backend access: the SPA holds an MSAL.js (Authorization Code + PKCE)
+// access token and calls APIM directly at PUBLIC_APIM_BASE_URL. There is
+// no /api/* path on the SWA origin — the previous SWA-managed-Function
+// BFF (clearai-frontend/api/clearaiProxy.ts) was removed on 2026-05-07.
+// To run the SPA against a local backend, set PUBLIC_APIM_BASE_URL=
+// http://localhost:3000 in clearai-frontend/.env (no Vite proxy needed).
 
 export default defineConfig({
   site: 'http://localhost:5180',
@@ -38,16 +19,6 @@ export default defineConfig({
   integrations: [react()],
   vite: {
     plugins: [tailwindcss()],
-    // Dev-only: forward /api/* to the local backend.
-    server: {
-      proxy: {
-        '/api': {
-          target: DEV_API_TARGET,
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api/, ''),
-        },
-      },
-    },
   },
 
   // CSP is enforced via the HTTP response header configured in

@@ -1,11 +1,10 @@
 /**
  * MSAL.js Authorization Code + PKCE setup.
  *
- * Replaces the old SWA-managed-Functions BFF. The browser now talks
- * directly to APIM, attaching a USER-issued Entra access token. The
- * BFF held a client_credentials (app) token; that path is gone — all
- * `clearai-frontend/api/` code is dead and will be deleted by infra
- * once this rollout verifies green in production.
+ * The browser talks directly to APIM, attaching a USER-issued Entra
+ * access token. The old SWA-managed-Functions BFF held a
+ * client_credentials (app) token; that path was removed on 2026-05-07
+ * along with the clearai-frontend/api/ folder.
  *
  * Why sessionStorage (not memoryStorage, not localStorage):
  *   The redirect flow REQUIRES a cache that survives a page unload.

@@ -6,12 +6,11 @@
  *   Browser → MSAL.js Auth-Code+PKCE → Entra → access_token →
  *   Browser → APIM (validates JWT) → backend.
  *
- * The previous SWA managed-Functions BFF in clearai-frontend/api/ held
- * an app-credential secret. SWA Free does not support managed identity
- * for Functions, so the secret had to live as plaintext app-setting —
- * not acceptable. Switched to per-user delegated tokens via MSAL.js
- * for the dev environment; production will move to a Container App
- * BFF with proper MI + KV later.
+ * The SWA managed-Functions BFF that used to live in clearai-frontend/api/
+ * held an app-credential secret. SWA Free does not support managed identity
+ * for Functions, so the secret had to live as plaintext app-setting — not
+ * acceptable. Switched to per-user delegated tokens via MSAL.js, and the
+ * api/ folder was removed on 2026-05-07.
  *
  * The bundle still holds NO credentials. The four PUBLIC_* env vars
  * (tenant, client, scope, APIM base URL) are public discovery values,
@@ -26,10 +25,9 @@
 import { getAccessToken } from './auth';
 
 
-// Direct browser → APIM. The BFF (clearai-frontend/api/) is dead; the
-// SPA now talks straight to the gateway with a USER-issued Entra token
-// fetched via MSAL (see src/lib/auth.ts). PUBLIC_APIM_BASE_URL is set
-// at build time per environment.
+// Direct browser → APIM. The SPA talks straight to the gateway with a
+// USER-issued Entra token fetched via MSAL (see src/lib/auth.ts).
+// PUBLIC_APIM_BASE_URL is set at build time per environment.
 //
 // Resolved lazily — module-eval runs during Astro's static prerender
 // step on the build machine, where PUBLIC_* env vars may not be
