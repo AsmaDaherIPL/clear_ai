@@ -21,7 +21,7 @@
  *                    the next digit. Walking by dash-depth within the
  *                    heading is the only correct ancestry inference.
  *                    Always ends with self.
- *   • path_en/ar   = labels of path_codes, joined by " > "
+ *   • path_en/ar   = labels of path_codes, joined by ", " (en) / "، " (ar)
  *
  * Note: the previous is_generic_label / is_declarable columns were
  * removed in 0030 — both were derivable at read time and violated the
@@ -189,8 +189,12 @@ async function main(): Promise<void> {
       if (lbl.labelEn) pathEnParts.push(lbl.labelEn);
       if (lbl.labelAr) pathArParts.push(lbl.labelAr);
     }
-    const pathEn = pathEnParts.join(' > ');
-    const pathAr = pathArParts.length ? pathArParts.join(' > ') : null;
+    // Comma separators (en: ", ", ar: "، "). Bottoms-out as a single
+    // sentence so the picker LLM can read the full context as natural-
+    // language prose instead of a hierarchy notation. Last segment after
+    // the final separator is the leaf's own label.
+    const pathEn = pathEnParts.join(', ');
+    const pathAr = pathArParts.length ? pathArParts.join('، ') : null;
 
     display.push({
       code: r.code,

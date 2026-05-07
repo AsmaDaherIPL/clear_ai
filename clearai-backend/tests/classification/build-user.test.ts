@@ -1,12 +1,16 @@
 /**
- * Picker user-message format tests for the three PICKER_PATH_MODE values.
+ * Picker user-message format tests.
  *
- * Why this exists:
- *   buildUser() is the only place candidate-context is actually injected into
- *   the picker prompt. Mode 0/1/2 are gated by setup_meta and A/B-tested
- *   against the eval suite — these tests pin the wire format so a refactor
- *   can't silently change what the model sees (which would invalidate
- *   accuracy comparisons across runs).
+ * The picker prompt has one canonical layout: per candidate, emit
+ *   N. code=<12-digit>
+ *      path_en: <breadcrumb ending with leaf's own EN label>
+ *      path_ar: <breadcrumb ending with leaf's own AR label>
+ *
+ * `path_en` / `path_ar` are produced by ingest-zatca-hs-code-display.ts as
+ * a single comma-joined sentence (en: ", " — ar: "، "), so the last segment
+ * after the final separator IS the leaf's own description. We deliberately
+ * do NOT emit a separate `description_en`/`description_ar` block — that
+ * data is already the tail of the path.
  */
 import { describe, expect, it } from 'vitest';
 import { buildUser } from '../../src/modules/pipeline/track-a-description/picker/llm-pick.js';
@@ -32,124 +36,93 @@ function cand(overrides: Partial<Candidate>): Candidate {
   };
 }
 
-// Two candidates from the same heading (1509), one from a different heading (1510).
-// RRF order is preserved: A1, A2 (heading 1509), then B (heading 1510).
 const candidates: Candidate[] = [
   cand({
     code: '150910100000',
     description_en: 'Virgin olive oil',
     description_ar: 'زيت زيتون بكر',
-    path_en: 'Olive oil and its fractions > Virgin olive oil',
-    path_ar: 'زيت زيتون ومجزآته > زيت زيتون بكر',
+    path_en: 'Olive oil and its fractions, Virgin olive oil',
+    path_ar: 'زيت زيتون ومجزآته، زيت زيتون بكر',
     path_codes: ['150900000000', '150910100000'],
-  }),
-  cand({
-    code: '150910900000',
-    description_en: 'Other',
-    description_ar: 'غيرها',
-    path_en: 'Olive oil and its fractions > Other',
-    path_ar: 'زيت زيتون ومجزآته > غيرها',
-    path_codes: ['150900000000', '150910900000'],
   }),
   cand({
     code: '151000100000',
     description_en: 'Crude',
     description_ar: 'خام',
-    path_en: 'Other oils obtained solely from olives > Crude',
-    path_ar: 'زيوت أخرى محضرة من الزيتون > خام',
+    path_en: 'Other oils obtained solely from olives, Crude',
+    path_ar: 'زيوت أخرى محضرة من الزيتون، خام',
     path_codes: ['151000000000', '151000100000'],
   }),
 ];
 
-describe('buildUser — PICKER_PATH_MODE = 0 (none)', () => {
-  it('emits the flat numbered list with no path lines or heading headers', () => {
-    const out = buildUser('olive oil', candidates, 0);
+describe('buildUser — picker prompt format', () => {
+  it('emits a numbered list with path_en + path_ar per candidate', () => {
+    const out = buildUser('olive oil', candidates);
     expect(out).toContain('User description:\nolive oil');
     expect(out).toContain('1. code=150910100000');
-    expect(out).toContain('   en: Virgin olive oil');
-    expect(out).toContain('   ar: زيت زيتون بكر');
-    expect(out).toContain('2. code=150910900000');
-    expect(out).toContain('3. code=151000100000');
-    // No heading headers.
-    expect(out).not.toContain('Heading 1509');
-    expect(out).not.toContain('Heading 1510');
-    // No path breadcrumbs.
-    expect(out).not.toContain('path:');
+    expect(out).toContain('   path_en: Olive oil and its fractions, Virgin olive oil');
+    expect(out).toContain('   path_ar: زيت زيتون ومجزآته، زيت زيتون بكر');
+    expect(out).toContain('2. code=151000100000');
+    expect(out).toContain('   path_en: Other oils obtained solely from olives, Crude');
+  });
+
+  it('does NOT emit separate `description_en` / `description_ar` lines', () => {
+    const out = buildUser('olive oil', candidates);
+    expect(out).not.toContain('description_en:');
+    expect(out).not.toContain('description_ar:');
+    expect(out).not.toMatch(/^\s+en:/m);
+    expect(out).not.toMatch(/^\s+ar:/m);
+  });
+
+  it('does NOT emit Heading group headers', () => {
+    const out = buildUser('olive oil', candidates);
+    expect(out).not.toMatch(/^Heading \d{4}/m);
+  });
+
+  it('does NOT emit the legacy `path:` breadcrumb-with-arrows line', () => {
+    const out = buildUser('olive oil', candidates);
+    expect(out).not.toContain('path:'); // path_en / path_ar yes, bare "path:" no
+    expect(out).not.toContain(' › '); // legacy mode-2 separator
+    expect(out).not.toContain(' > '); // legacy storage separator
   });
 
   it('handles parentPrefix when provided', () => {
-    const out = buildUser('olive oil', candidates, 0, '1509');
+    const out = buildUser('olive oil', candidates, '1509');
     expect(out.startsWith('Declared parent prefix: 1509')).toBe(true);
   });
-});
 
-describe('buildUser — PICKER_PATH_MODE = 1 (heading-only grouping)', () => {
-  it('groups consecutive same-heading candidates under a Heading header', () => {
-    const out = buildUser('olive oil', candidates, 1);
-    expect(out).toContain('Heading 1509 — Olive oil and its fractions');
-    expect(out).toContain('Heading 1510 — Other oils obtained solely from olives');
-    // Heading 1509 must appear before its leaves.
-    const heading1509Idx = out.indexOf('Heading 1509');
-    const leaf1509Idx = out.indexOf('150910100000');
-    expect(heading1509Idx).toBeLessThan(leaf1509Idx);
-    // Heading 1510 must appear after the 1509 leaves but before the 1510 leaf.
-    const heading1510Idx = out.indexOf('Heading 1510');
-    const leaf1510Idx = out.indexOf('151000100000');
-    expect(heading1510Idx).toBeGreaterThan(leaf1509Idx);
-    expect(heading1510Idx).toBeLessThan(leaf1510Idx);
-  });
-
-  it('preserves RRF rank numbering across headings (does not restart per-group)', () => {
-    const out = buildUser('olive oil', candidates, 1);
-    // Index 1, 2 in heading 1509; index 3 in heading 1510.
-    expect(out).toContain('1. code=150910100000');
-    expect(out).toContain('2. code=150910900000');
-    expect(out).toContain('3. code=151000100000');
-  });
-
-  it('falls back to bare "Heading <NNNN>" when path data is missing', () => {
+  it('falls back to description_en/ar as path_en/ar when path data is missing', () => {
     const orphan: Candidate[] = [
       cand({
         code: '999999000000',
         description_en: 'Orphan leaf',
+        description_ar: 'ورقة يتيمة',
+        path_en: '',
+        path_ar: '',
+        path_codes: [],
+      }),
+    ];
+    const out = buildUser('orphan', orphan);
+    expect(out).toContain('1. code=999999000000');
+    // Defensive fallback: when LEFT JOIN to display missed, emit raw labels
+    // under the path_en/ar keys so the picker still sees something.
+    expect(out).toContain('   path_en: Orphan leaf');
+    expect(out).toContain('   path_ar: ورقة يتيمة');
+  });
+
+  it('emits "(none)" when path data is missing AND descriptions are null', () => {
+    const empty: Candidate[] = [
+      cand({
+        code: '888888000000',
+        description_en: null,
         description_ar: null,
         path_en: '',
         path_ar: '',
-        path_codes: [],
       }),
     ];
-    const out = buildUser('orphan', orphan, 1);
-    expect(out).toContain('Heading 9999');
-    expect(out).not.toContain('Heading 9999 —');
-  });
-});
-
-describe('buildUser — PICKER_PATH_MODE = 2 (full breadcrumb per candidate)', () => {
-  it('appends a `path:` line with " › " separator for each candidate', () => {
-    const out = buildUser('olive oil', candidates, 2);
-    expect(out).toContain('path: Olive oil and its fractions › Virgin olive oil');
-    expect(out).toContain('path: Olive oil and its fractions › Other');
-    expect(out).toContain('path: Other oils obtained solely from olives › Crude');
-  });
-
-  it('does NOT emit Heading group headers (no grouping in mode 2)', () => {
-    const out = buildUser('olive oil', candidates, 2);
-    expect(out).not.toContain('Heading 1509 —');
-    expect(out).not.toContain('Heading 1510 —');
-  });
-
-  it('omits the `path:` line entirely for candidates with no path data', () => {
-    const orphan: Candidate[] = [
-      cand({
-        code: '999999000000',
-        description_en: 'Orphan leaf',
-        path_en: '',
-        path_ar: '',
-        path_codes: [],
-      }),
-    ];
-    const out = buildUser('orphan', orphan, 2);
-    expect(out).toContain('1. code=999999000000');
-    expect(out).not.toContain('path:');
+    const out = buildUser('empty', empty);
+    expect(out).toContain('1. code=888888000000');
+    expect(out).toContain('   path_en: (none)');
+    expect(out).toContain('   path_ar: (none)');
   });
 });

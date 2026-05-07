@@ -49,8 +49,9 @@ export interface Candidate {
   description_ar: string | null;
   parent10: string;
   /**
-   * Breadcrumb path to this leaf, joined by " > ", from
+   * Breadcrumb path to this leaf, joined by ", " (and "، " in AR), from
    * zatca_hs_code_display.path_en. Aligned 1:1 with `path_codes`.
+   * The last segment after the final separator is the leaf's own label.
    * Element [0] is the heading title (XXXX00000000) when this row has
    * a heading ancestor; for rows that ARE the heading the array contains
    * only the leaf label. Empty string if the display row is missing

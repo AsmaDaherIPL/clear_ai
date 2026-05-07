@@ -151,7 +151,6 @@ export async function runTrackB(
       kind: 'describe',
       query: cleaned_description,
       candidates,
-      pathMode: 0,
     });
 
     if (pick.llmStatus === 'ok' && !pick.guardTripped && pick.chosenCode) {
@@ -209,7 +208,6 @@ export async function runTrackB(
       kind: 'expand',
       query: cleaned_description,
       candidates,
-      pathMode: 1,
       parentPrefix: raw_merchant_code,
     });
 
