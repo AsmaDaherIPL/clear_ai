@@ -161,27 +161,21 @@ export default function ClassifyApp() {
     const startedAt = performance.now();
     try {
       let res: DescribeResponse;
-      if (m === 'generate') {
-        // Generate mode now talks to the new two-track pipeline. The
-        // dispatch response is adapted into a legacy DescribeResponse so
-        // ResultSingle keeps working until Plan B step 3 lands a renderer
-        // for the cleaner trace shape.
+      if (m === 'generate' || m === 'expand') {
+        // Both Generate and Expand now route through /pipeline/dispatch.
+        // Expand passes the parent code as merchant_code so Track B can
+        // resolve / disambiguate against the merchant-supplied prefix in
+        // parallel with Track A's blind classification.
+        if (m === 'expand' && !parentCode) {
+          throw new Error('Parent code required for Expand mode.');
+        }
         const dispatchRes = await api.dispatch({
           description,
           value_amount: extras?.valueAmount,
           currency_code: extras?.currencyCode,
+          ...(m === 'expand' && parentCode ? { merchant_code: parentCode } : {}),
         });
         res = dispatchToDescribe(dispatchRes);
-      } else if (m === 'expand') {
-        if (!parentCode) {
-          throw new Error('Parent code required for Expand mode.');
-        }
-        const expandRes = await api.expand({ code: parentCode, description });
-        // Hoist chosen leaf into result.* so ResultSingle can render it transparently.
-        res = {
-          ...expandRes,
-          result: expandRes.after,
-        };
       } else {
         throw new Error('Batch mode is not wired yet.');
       }

@@ -114,10 +114,11 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
             </div>
           )}
 
-          {/* Generate-only value + currency row. Optional commercial context — */}
-          {/* the backend Stage 3 sanity check uses this to flag declared values */}
-          {/* that look implausible for the chosen HS code (e.g. $0.50 watch). */}
-          {mode === 'generate' && (
+          {/* Value + currency row — visible in both Generate and Expand modes. */}
+          {/* Optional commercial context fed to /pipeline/dispatch. The backend */}
+          {/* Stage 3 sanity check uses this to flag declared values that look */}
+          {/* implausible for the chosen HS code (e.g. $0.50 watch). */}
+          {(mode === 'generate' || mode === 'expand') && (
             <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
               <label
                 htmlFor="composer-value"
