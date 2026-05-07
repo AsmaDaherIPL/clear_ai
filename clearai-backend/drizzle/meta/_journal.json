@@ -407,6 +407,13 @@
       "when": 1777215700000,
       "tag": "0057_embedder_dim_1024",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1777215800000,
+      "tag": "0058_submission_descriptions",
+      "breakpoints": true
     }
   ]
 }

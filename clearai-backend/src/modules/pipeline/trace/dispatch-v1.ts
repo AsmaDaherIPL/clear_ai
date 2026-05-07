@@ -225,14 +225,18 @@ function buildSubmissionDescriptionAction(
   const stage = findStage(stages, 'stage-2.5/submission-description');
   if (!stage) return null;
   const detail = (stage.detail as Record<string, unknown>) ?? {};
+  // Cache hits and deterministic fallbacks don't actually call the LLM;
+  // only sources of 'llm' / 'llm_failed' touch Foundry.
+  const source = typeof detail.source === 'string' ? detail.source : null;
+  const llmUsed = source === 'llm' || source === 'llm_failed';
   return {
     action: 'submission_description',
     duration_ms: stage.duration_ms,
     outcome: mapOutcome(stage),
-    llm_used: true,
+    llm_used: llmUsed,
     output: {
       description_ar: result.goods_description_ar,
-      source: detail.source ?? null,
+      source: source,
       length: detail.length ?? null,
     },
   };

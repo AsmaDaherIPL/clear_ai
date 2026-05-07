@@ -30,9 +30,15 @@
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
 import { env } from '../../../config/env.js';
+import {
+  bumpHit,
+  findCached,
+  normalizeForCache,
+  upsertCached,
+} from './submission-descriptions.repository.js';
 
 export interface SubmissionDescriptionResult {
-  invoked: 'llm' | 'llm_failed' | 'fallback' | 'fallback_after_collision';
+  invoked: 'cache' | 'llm' | 'llm_failed' | 'fallback' | 'fallback_after_collision';
   /** ZATCA-safe Arabic description, ≤300 chars. Always non-empty. */
   descriptionAr: string;
   latencyMs: number;
@@ -116,6 +122,32 @@ export async function generateSubmissionDescription(
     catalogPathEn,
   } = params;
 
+  const start = Date.now();
+
+  // Cache lookup. The lookup key is (catalog_path_ar, normalized cleaned
+  // description). path_ar is the actual semantic context the LLM
+  // conditions on; normalising the description means casing / whitespace
+  // / NBSP / Arabic-comma variations all hit the same row.
+  //
+  // Cache misses (DB hiccup, missing path_ar, never-seen input) silently
+  // fall through to the LLM call. Cache hits skip the LLM entirely and
+  // bump hit_count fire-and-forget.
+  const cleanedNorm = normalizeForCache(cleanedDescription);
+  if (catalogPathAr && cleanedNorm) {
+    const hit = await findCached(catalogPathAr, cleanedNorm);
+    if (hit) {
+      // Fire-and-forget hit-count bump. Don't await — the read result is
+      // already what the caller needs; the counter is an analytics signal.
+      void bumpHit(hit.id);
+      return {
+        invoked: 'cache',
+        descriptionAr: hit.descriptionAr,
+        latencyMs: Date.now() - start,
+        model: hit.model ?? undefined,
+      };
+    }
+  }
+
   const model = params.model ?? env().LLM_MODEL;
 
   const user = JSON.stringify({
@@ -168,6 +200,21 @@ export async function generateSubmissionDescription(
       latencyMs: outcome.trace.latency_ms,
       model: outcome.trace.model,
     };
+  }
+
+  // Memoize. Only LLM-success rows go in — fallbacks are deterministic
+  // and cheap to recompute, and putting them in the lookup would
+  // pollute the table with low-quality strings. Fire-and-forget; a
+  // write failure is benign (next call recomputes the same value).
+  if (catalogPathAr && cleanedNorm) {
+    void upsertCached({
+      pathAr: catalogPathAr,
+      cleanedDescriptionNorm: cleanedNorm,
+      cleanedDescriptionRaw: cleanedDescription,
+      descriptionAr: cleaned,
+      source: 'llm',
+      model: outcome.trace.model ?? null,
+    });
   }
 
   return {

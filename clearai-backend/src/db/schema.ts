@@ -91,3 +91,9 @@ export type {
   FilingStatus,
   FilingZatcaStatus,
 } from './schema/declaration-run-filings.js';
+
+export { submissionDescriptions } from './schema/submission-descriptions.js';
+export type {
+  SubmissionDescriptionRow,
+  NewSubmissionDescriptionRow,
+} from './schema/submission-descriptions.js';
