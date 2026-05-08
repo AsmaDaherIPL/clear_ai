@@ -7,6 +7,7 @@ import { env } from '../config/env.js';
 import { declarationRunsRoutes } from '../modules/declaration-runs/declaration-runs.routes.js';
 import { submissionDescriptionRoute } from '../modules/pipeline/submission-description/submission-description.routes.js';
 import { pipelineRoutes } from '../modules/pipeline/pipeline.routes.js';
+import { hitlRoutes } from '../modules/hitl/hitl.routes.js';
 import { getPool, closeDb } from '../db/client.js';
 import { registerErrorHandler } from './error-handler.js';
 import { warmEmbedder } from '../inference/embeddings/embedder.js';
@@ -104,6 +105,7 @@ app.get('/ready', async (_req, reply) => {
 await app.register(declarationRunsRoutes);
 await app.register(submissionDescriptionRoute);
 await app.register(pipelineRoutes);
+await app.register(hitlRoutes);
 
 const start = async (): Promise<void> => {
   try {
