@@ -6,7 +6,9 @@
  * by the time we run, both the code and the description are settled.
  *
  * One job: judge whether the declared value is plausible for the item
- * described. The Rolex-for-$50 catcher. We do NOT re-litigate the code.
+ * described. The Rolex-for-$50 / unbranded-T-shirt-for-$4000 catcher —
+ * order-of-magnitude only, NOT a price audit. We do NOT re-litigate
+ * the code.
  *
  * Returns PASS | FLAG. The code stands either way — FLAG just routes the
  * item to HITL for human review with the code intact. There is no BLOCK
@@ -15,13 +17,15 @@
  * the orchestrator emits BEFORE this stage runs. The LLM never produces
  * BLOCK.
  *
- * Model: Haiku (LLM_MODEL). Sufficient for value-range plausibility
- * judgments. The prompt's "when in doubt, FLAG" instruction biases
- * conservatively — false positives go to cheap HITL, false negatives
- * become customs problems.
+ * Model: Haiku (LLM_MODEL). Sufficient for ~10x order-of-magnitude
+ * plausibility judgments. The prompt biases toward PASS — borderline
+ * prices in normal retail bands are PASS; only ~10x mismatches FLAG.
+ * False positives waste reviewer time and desensitise the queue.
  *
  * Never throws — degrades to FLAG on LLM failure so HITL still sees the
- * item rather than silently passing.
+ * item rather than silently passing on infra error. (FLAG-on-failure is
+ * a structural fallback, not a content judgement; it doesn't conflict
+ * with the prompt's PASS bias on real LLM responses.)
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
