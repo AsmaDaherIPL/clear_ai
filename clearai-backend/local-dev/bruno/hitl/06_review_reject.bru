@@ -1,0 +1,35 @@
+meta {
+  name: POST hitl/queue/:id/review (reject)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/hitl/queue/{{lastHitlId}}/review
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "decision": "reject",
+    "reviewer_notes": "input was bogus / not classifiable; dropping from declaration"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq dismissed
+  res.body.reviewer_decision: eq reject
+}
+
+docs {
+  Dismiss a HITL row without picking a code.
+
+  decision='reject' marks the item as not-classifiable from the
+  reviewer's perspective. Final status is 'dismissed', distinguishing
+  it from 'resolved' (which means a code was approved or overridden).
+
+  Use this for items where the input itself is unusable — bogus
+  description, accidentally-empty rows, etc.
+}

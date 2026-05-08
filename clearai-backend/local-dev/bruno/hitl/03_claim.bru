@@ -1,0 +1,26 @@
+meta {
+  name: POST hitl/queue/:id/claim
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/hitl/queue/{{lastHitlId}}/claim
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq in_review
+}
+
+docs {
+  Flip a HITL row from 'pending' to 'in_review'.
+
+  Returns 409 invalid_state if the row is already in_review, resolved,
+  or dismissed. Returns 404 if the id is unknown.
+
+  reviewed_by stays NULL until the BFF starts stamping a user header
+  (out of scope for v0).
+}
