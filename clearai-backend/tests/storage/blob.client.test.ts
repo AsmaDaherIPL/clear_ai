@@ -76,6 +76,47 @@ describe('LocalBlobClient (file:// adapter)', () => {
     const { getBlobClient } = await import('../../src/storage/blob.client.js');
     await expect(getBlobClient().delete('does/not/exist.bin')).resolves.toBeUndefined();
   });
+
+  it('list returns blobs under a prefix with sizes and content types', async () => {
+    const { getBlobClient } = await import('../../src/storage/blob.client.js');
+    const client = getBlobClient();
+    await client.put('naqel/2026/05/08/r1/manifest.json', Buffer.from('{}', 'utf8'), 'application/json');
+    await client.put('naqel/2026/05/08/r1/hv/a.xml', Buffer.from('<a/>', 'utf8'), 'application/xml');
+    await client.put('naqel/2026/05/08/r1/lv/b.xml', Buffer.from('<bbb/>', 'utf8'), 'application/xml');
+    // Out-of-prefix sibling — must not appear.
+    await client.put('naqel/2026/05/09/r2/manifest.json', Buffer.from('{}', 'utf8'), 'application/json');
+
+    const items = await client.list('naqel/2026/05/08/r1');
+    expect(items).toHaveLength(3);
+    const keys = items.map((i) => i.key).sort();
+    expect(keys).toEqual([
+      'naqel/2026/05/08/r1/hv/a.xml',
+      'naqel/2026/05/08/r1/lv/b.xml',
+      'naqel/2026/05/08/r1/manifest.json',
+    ]);
+    const xml = items.find((i) => i.key.endsWith('hv/a.xml'))!;
+    expect(xml.contentType).toBe('application/xml');
+    expect(xml.sizeBytes).toBe(4);
+  });
+
+  it('getReadSasUrl returns a file:// url with a future expiry', async () => {
+    const { getBlobClient } = await import('../../src/storage/blob.client.js');
+    const client = getBlobClient();
+    await client.put('demo/x.txt', Buffer.from('hi', 'utf8'), 'text/plain');
+
+    const t0 = Date.now();
+    const sas = await client.getReadSasUrl('demo/x.txt', 60_000);
+    expect(sas.url.startsWith('file://')).toBe(true);
+    expect(new Date(sas.expiresAt).getTime()).toBeGreaterThan(t0);
+  });
+
+  it('getReadSasUrl on a missing key throws BlobNotFoundError', async () => {
+    const { getBlobClient } = await import('../../src/storage/blob.client.js');
+    const { BlobNotFoundError } = await import('../../src/storage/blob.types.js');
+    await expect(getBlobClient().getReadSasUrl('nope/missing.bin', 1000)).rejects.toBeInstanceOf(
+      BlobNotFoundError,
+    );
+  });
 });
 
 describe('blob.paths', () => {
@@ -93,6 +134,28 @@ describe('blob.paths', () => {
   it('rejects negative bundle indices', async () => {
     const { declarationKey } = await import('../../src/storage/blob.paths.js');
     expect(() => declarationKey('abc', -1)).toThrow(RangeError);
+  });
+
+  it('declarationRunPrefix builds {operator}/YYYY/MM/DD/{runId} with UTC zero-pad', async () => {
+    const { declarationRunPrefix, manifestKey, hvFilingKey, lvFilingKey } = await import(
+      '../../src/storage/blob.paths.js'
+    );
+    const prefix = declarationRunPrefix({
+      operatorSlug: 'naqel',
+      // Pick a date that exercises zero-padding on both fields.
+      createdAt: new Date(Date.UTC(2026, 4, 8, 23, 59, 59)),
+      runId: 'aa11bb22-cccc-dddd-eeee-ff0011223344',
+    });
+    expect(prefix).toBe('naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344');
+    expect(manifestKey(prefix)).toBe(
+      'naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344/manifest.json',
+    );
+    expect(hvFilingKey(prefix, 'filing-001')).toBe(
+      'naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344/hv/filing-001.xml',
+    );
+    expect(lvFilingKey(prefix, 'filing-002')).toBe(
+      'naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344/lv/filing-002.xml',
+    );
   });
 });
 

@@ -181,6 +181,13 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             // When another custom domain is added it must be appended HERE
             // AND in apim.bicep's corsAllowedOrigins.
             { name: 'CORS_ORIGINS', value: 'https://apim-infp-clearai-be-dev-gwc-01.azure-api.net,http://localhost:5173,http://localhost:4321,https://yellow-glacier-05e43ee03.7.azurestaticapps.net,https://clearai-dev.infinitepl.app' }
+            // Blob storage for declaration-runs output (manifest + HV/LV XMLs).
+            // MI auth — DefaultAzureCredential resolves to the system-assigned
+            // identity at runtime; the storage account has allowSharedKeyAccess=false
+            // and publicNetworkAccess=Disabled so connection strings would fail anyway.
+            { name: 'BATCH_BLOB_BACKEND',   value: 'azure-blob' }
+            { name: 'BATCH_BLOB_ACCOUNT',   value: 'stinfpclearaidevgwc01' }
+            { name: 'BATCH_BLOB_CONTAINER', value: 'declaration-runs' }
           ])
           probes: [
             {

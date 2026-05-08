@@ -655,6 +655,86 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /declaration-runs/{id}/download-links:
+    parameters:
+      - $ref: '#/components/parameters/DeclarationRunId'
+
+    get:
+      operationId: get-declaration-runs-id-download-links
+      tags: [declaration-runs]
+      summary: Short-lived download URLs for all files produced by the run
+      description: |
+        Lists every blob under the run's prefix and returns a
+        user-delegation SAS URL for each. URLs are valid for 5 minutes;
+        the SPA should start downloads or zip them client-side promptly.
+        Returns 409 no_blob_prefix when the run has not yet produced any
+        XML output (legacy or in-flight runs).
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: List of short-lived SAS URLs, one per file.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runId, expiresAt, files]
+                properties:
+                  runId: { type: string, format: uuid }
+                  expiresAt: { type: string, format: date-time }
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, url]
+                      properties:
+                        name: { type: string, example: hv/filing-001.xml }
+                        url: { type: string, format: uri }
+                        sizeBytes: { type: integer, nullable: true }
+                        contentType: { type: string, nullable: true }
+        '404':
+          description: No run with that id, or no files under its prefix.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Run has no blob output yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /declaration-runs/{id}/files/{path}:
+    parameters:
+      - $ref: '#/components/parameters/DeclarationRunId'
+      - name: path
+        in: path
+        required: true
+        description: Path inside the run prefix, e.g. `hv/filing-001.xml`.
+        schema: { type: string, example: hv/filing-001.xml }
+
+    get:
+      operationId: get-declaration-runs-id-files
+      tags: [declaration-runs]
+      summary: Stream a single file from a declaration run through the backend
+      description: |
+        Convenience endpoint for previewing a single XML/JSON file.
+        Streams bytes through the backend rather than handing out a SAS;
+        prefer /download-links for bulk fetches.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: File bytes (XML, JSON, or octet-stream).
+          content:
+            '*/*': {}
+        '404':
+          description: No run with that id, or no file at that path.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   # ────────────────────────────────────────────────────────────────────────
   # Pipeline single-shot
   # ────────────────────────────────────────────────────────────────────────

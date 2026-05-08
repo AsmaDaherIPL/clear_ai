@@ -102,15 +102,25 @@ const EnvSchema = z
     /** Azure Blob container name for source + result files. */
     BATCH_BLOB_CONTAINER: z.string().min(1).default('batches'),
     /**
-     * Azure Blob connection string OR a `file://` URI rooted at a local
-     * directory (dev fallback). The blob.client picks the adapter based on
-     * the prefix; see src/storage/blob.client.ts.
-     *
-     * Optional at boot so the backend can come up in environments where
-     * declaration-run uploads aren't yet provisioned (e.g. dev APIM with no
-     * storage account). blob.client.ts throws a clear error on first use
-     * if this is unset, so /declaration-runs returns a 5xx at upload time
-     * but probes / single-shot pipeline routes still work.
+     * Adapter selector. Three valid combinations:
+     *   - 'file' (default in dev): use BATCH_BLOB_CONNECTION='file://...'
+     *     for the local-disk dev fallback.
+     *   - 'azure-blob' (prod / dev Azure): set BATCH_BLOB_ACCOUNT to the
+     *     storage account short name; auth is via DefaultAzureCredential
+     *     (managed identity in Container Apps; az login locally if you
+     *     ever run against a public-network-enabled account).
+     *   - omitted entirely: backend stays up; the first storage call
+     *     throws a clear error, but probes / single-shot pipeline routes
+     *     still work.
+     */
+    BATCH_BLOB_BACKEND: z.enum(['file', 'azure-blob']).optional(),
+    /** Storage account short name (e.g. 'stinfpclearaidevgwc01'). Required when BATCH_BLOB_BACKEND='azure-blob'. */
+    BATCH_BLOB_ACCOUNT: z.string().min(1).optional(),
+    /**
+     * Legacy: Azure Blob connection string OR a `file://` URI. Used when
+     * BATCH_BLOB_BACKEND is unset (back-compat) or set to 'file'. The
+     * MI-auth path (BATCH_BLOB_BACKEND='azure-blob') ignores this entirely
+     * — DefaultAzureCredential never sees an account key.
      */
     BATCH_BLOB_CONNECTION: z.string().min(1).optional(),
 

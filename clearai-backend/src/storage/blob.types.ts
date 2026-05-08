@@ -15,11 +15,37 @@ export interface BlobRef {
   writtenAt: string;
 }
 
+export interface BlobListItem {
+  /** Full key including any prefix the caller queried for. */
+  key: string;
+  /** Bytes; null when the adapter cannot cheaply determine size (file adapter populates it). */
+  sizeBytes: number | null;
+  /** MIME type if known. */
+  contentType: string | null;
+}
+
+export interface SignedReadUrl {
+  url: string;
+  expiresAt: string; // ISO-8601 UTC
+}
+
 export interface BlobClient {
   put(key: string, body: Buffer, contentType: string): Promise<BlobRef>;
   get(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
+  /** List blobs under a prefix. Returns full keys, not relative names. */
+  list(prefix: string): Promise<BlobListItem[]>;
+  /**
+   * Mint a short-lived read URL for a single blob.
+   *
+   * - Azure adapter: user-delegation SAS signed with the MI's key
+   *   (Storage Blob Data Contributor includes getUserDelegationKey).
+   * - File adapter: returns a synthetic `file:///` URL the route handler
+   *   should reject for direct client use — local-dev callers stream
+   *   the bytes through the backend's single-file endpoint instead.
+   */
+  getReadSasUrl(key: string, ttlMs: number): Promise<SignedReadUrl>;
 }
 
 export class BlobNotFoundError extends Error {
