@@ -25,8 +25,16 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
   const result = await runPipeline(item, operatorSlug, itemId);
 
   // Adapt PipelineTrace → ItemTrace (the existing contract shape).
+  // pathTaken summarises which signals fired, derived from whether each
+  // track produced a code. Used for the legacy ItemTrace contract only;
+  // dispatch-v1 callers should look at description_classifier_chosen_code
+  // / code_resolver_resolved_code in the trace stages directly.
+  const hasA = !!result.trace.track_a?.chosen_code;
+  const hasB = !!result.trace.track_b?.resolved_code;
+  const pathTaken = hasA && hasB ? 'two_signal' : hasA ? 'single_a' : hasB ? 'single_b' : 'zero';
+
   const itemTrace = {
-    pathTaken: result.trace.signal_count,
+    pathTaken,
     stages: result.trace.stages.map((s) => ({
       name: s.name,
       startedAt: s.started_at,

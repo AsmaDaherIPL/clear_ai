@@ -133,6 +133,12 @@ export interface TrackBResult {
 // Stage 2 — Verdict / Reconciliation
 // ---------------------------------------------------------------------------
 
+/**
+ * Internal-only enum used by reconciliation control flow. NOT surfaced in
+ * the trace output — consumers should derive it (or whatever they actually
+ * need) from `description_classifier_chosen_code` / `code_resolver_resolved_code`
+ * being non-null.
+ */
 export type SignalCount = 'two_signal' | 'single_a' | 'single_b' | 'zero';
 
 export type ReconciliationSource = 'track_a' | 'track_b' | 'reconciled';
@@ -145,12 +151,10 @@ export interface VerdictResult {
   confidence: number;
   rationale: string;
   source: ReconciliationSource;
-  signal_count: SignalCount;
 }
 
 export interface VerdictEscalate {
   decision: 'escalate';
-  signal_count: SignalCount;
   disagreement_summary: string;
 }
 
@@ -197,7 +201,6 @@ export interface StageTrace {
 }
 
 export interface PipelineTrace {
-  signal_count: SignalCount;
   track_a: TrackAResult | null;
   track_b: TrackBResult | null;
   verdict: StageVerdictOutput | null;
@@ -311,7 +314,6 @@ export interface DispatchV1Trace {
   completed_at: string;
   duration_ms: number;
   llm_calls_used: number;
-  signal_count: SignalCount;
   summary: DispatchV1Summary;
   stages: DispatchV1Stage[];
 }

@@ -24,7 +24,6 @@ import type {
   DispatchV1Trace,
   PipelineResult,
   PipelineTrace,
-  SignalCount,
   StageTrace,
   TrackAResult,
   TrackBResult,
@@ -204,7 +203,6 @@ function buildReconciliationAction(
         }
       : {
           decision: verdict.decision,
-          signal_count: verdict.signal_count,
           disagreement_summary: verdict.disagreement_summary,
         }
     : {};
@@ -270,15 +268,13 @@ function buildClassifyStage(
           final_code: verdict.final_code,
           decision: verdict.decision,
           source: verdict.source,
-          signal_count: verdict.signal_count,
           goods_description_ar: result.goods_description_ar,
         }
       : {
           decision: verdict.decision,
-          signal_count: verdict.signal_count,
           disagreement_summary: verdict.disagreement_summary,
         }
-    : { signal_count: trace.signal_count };
+    : {};
 
   return {
     stage: 'classify',
@@ -383,7 +379,6 @@ export function assembleDispatchV1(params: AssembleParams): DispatchV1Response {
     completed_at: completedAt,
     duration_ms: new Date(completedAt).getTime() - new Date(startedAt).getTime(),
     llm_calls_used: countLlmCalls(stages),
-    signal_count: trace.signal_count as SignalCount,
     summary,
     stages,
   };

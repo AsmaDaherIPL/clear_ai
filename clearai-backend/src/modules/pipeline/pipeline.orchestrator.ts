@@ -145,7 +145,7 @@ export async function runPipeline(
     started_at: new Date(t2).toISOString(),
     duration_ms: Date.now() - t2,
     outcome: 'ok',
-    detail: { decision: verdict.decision, signal_count: verdict.signal_count },
+    detail: { decision: verdict.decision },
   });
 
   // Escalate to HITL — item still progresses as 'flagged'.

@@ -94,7 +94,6 @@ async function callReconciliationLlm(params: {
     // LLM failed — escalate rather than guess.
     return {
       decision: 'escalate',
-      signal_count: params.signal_count,
       disagreement_summary: `reconciliation LLM failed: ${outcome.kind}`,
     };
   }
@@ -113,13 +112,11 @@ async function callReconciliationLlm(params: {
       confidence: typeof d.confidence === 'number' ? d.confidence : 0.7,
       rationale: typeof d.rationale === 'string' ? d.rationale : '',
       source,
-      signal_count: params.signal_count,
     };
   }
 
   return {
     decision: 'escalate',
-    signal_count: params.signal_count,
     disagreement_summary:
       typeof d.disagreement_summary === 'string'
         ? d.disagreement_summary
@@ -142,7 +139,6 @@ export async function runReconciliation(
     case 'zero':
       return {
         decision: 'escalate',
-        signal_count,
         disagreement_summary: 'both tracks returned no signal',
       };
 
@@ -151,9 +147,8 @@ export async function runReconciliation(
         decision: 'accept',
         final_code: trackA.chosen_code!,
         confidence: trackA.confidence ?? 0.7,
-        rationale: trackA.rationale ?? 'single signal from Track A',
+        rationale: trackA.rationale ?? 'single signal from description_classifier',
         source: 'track_a',
-        signal_count,
       };
 
     case 'single_b':
@@ -172,14 +167,14 @@ export async function runReconciliation(
       const b = trackB.resolved_code!;
 
       if (codesAgree(a, b)) {
-        // Deterministic agree — no LLM needed, prefer Track A (blind to merchant).
+        // Deterministic agree — no LLM needed, prefer description_classifier
+        // (blind to merchant code).
         return {
           decision: 'accept',
           final_code: a,
           confidence: 1.0,
-          rationale: 'Track A and Track B agree',
+          rationale: 'description_classifier and code_resolver agree',
           source: 'track_a',
-          signal_count,
         };
       }
 

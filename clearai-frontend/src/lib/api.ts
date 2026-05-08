@@ -323,7 +323,6 @@ export interface DispatchTrace {
   completed_at: string;
   duration_ms: number;
   llm_calls_used: number;
-  signal_count: 'two_signal' | 'single_a' | 'single_b' | 'zero';
   summary: DispatchSummary;
   stages: DispatchStage[];
 }
