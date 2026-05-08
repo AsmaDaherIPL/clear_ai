@@ -99,8 +99,15 @@ export interface TrackAResult {
 // Track B — Code resolver output
 // ---------------------------------------------------------------------------
 
+/**
+ * How the codebook resolved the input that was actually walked. When a
+ * tenant override fired, the input to this walk is the override's target
+ * code, not the raw merchant code — `override_applied` and
+ * `override_target_code` on TrackBResult tell you whether and to what
+ * the override translated. There is no `tenant_override` enum value
+ * because override is no longer a terminal stop.
+ */
 export type TrackBResolution =
-  | 'tenant_override'
   | 'passthrough'                    // 12-digit, active in codebook
   | 'deterministic_swap'             // deprecated, single replacement
   | 'llm_pick_among_replacements'    // deprecated, multiple replacements, LLM picked
@@ -125,6 +132,10 @@ export interface TrackBResult {
   resolution: TrackBResolution;
   raw_merchant_code: string | null;
   codebook_state: CodebookState;
+  /** True when a tenant override matched the merchant code and its target was fed into the codebook walk. */
+  override_applied: boolean;
+  /** The code the override mapped to before the codebook walk. Null when no override fired. */
+  override_target_code: string | null;
   /** Present only for llm_pick_among_replacements and llm_pick_under_prefix. */
   llm_context?: TrackBLlmContext;
 }

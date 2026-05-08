@@ -169,12 +169,16 @@ function buildCodeResolverAction(
     input: {
       raw_merchant_code: trackB.raw_merchant_code,
       codebook_state: trackB.codebook_state,
+      override_applied: trackB.override_applied,
+      override_target_code: trackB.override_target_code,
     },
     output: {
       resolved_code: trackB.resolved_code,
       resolution: trackB.resolution,
       raw_merchant_code: trackB.raw_merchant_code,
       codebook_state: trackB.codebook_state,
+      override_applied: trackB.override_applied,
+      override_target_code: trackB.override_target_code,
       ...(trackB.llm_context ? { llm_context: trackB.llm_context } : {}),
     },
   };
@@ -368,7 +372,7 @@ export function assembleDispatchV1(params: AssembleParams): DispatchV1Response {
     description_classifier_code: trace.track_a?.chosen_code ?? null,
     code_resolver_code: trace.track_b?.resolved_code ?? null,
     reconciliation: reconciliationLabel,
-    operator_override_applied: trace.track_b?.resolution === 'tenant_override',
+    operator_override_applied: trace.track_b?.override_applied ?? false,
     final_code: result.final_code,
     sanity_verdict: trace.sanity?.verdict ?? result.sanity_verdict ?? null,
   };

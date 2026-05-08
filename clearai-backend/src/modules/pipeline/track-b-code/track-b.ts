@@ -2,23 +2,38 @@
  * Track B — Code resolver.
  *
  * Deterministic-first resolution of the merchant-supplied HS code.
- * Description is used only as a tiebreaker when multiple replacement codes
- * or prefix children exist. Track B never emits a correctness judgment.
+ * Description is used only as a tiebreaker when multiple replacement
+ * codes or prefix children exist. Track B never emits a correctness
+ * judgment.
  *
- * Resolution priority:
- *   1. Tenant override (exact or prefix match in operator_code_overrides)
- *   2. Codebook lookup (zatca_hs_codes)
- *      a. 12-digit active          → passthrough
- *      b. 12-digit deprecated, 1 replacement → deterministic swap
- *      c. 12-digit deprecated, N replacements → lightweight LLM picks
- *      d. Short prefix (6/8/10) → expand + lightweight LLM picks leaf
- *   3. Absent / malformed / unknown → null_resolution
+ * Resolution flow:
+ *   1. Tenant override lookup. If a matching override row exists, the
+ *      walk continues with the override's TARGET code as input — the
+ *      override is no longer a terminal stop. This catches stale
+ *      overrides (target deprecated/unknown to the current codebook)
+ *      that used to silently pass bad data through.
+ *   2. Codebook lookup on the chosen input (override target or raw
+ *      merchant code):
+ *        a. 12-digit active                        → passthrough
+ *        b. 12-digit deprecated, 1 replacement     → deterministic swap
+ *        c. 12-digit deprecated, N replacements    → lightweight LLM picks
+ *        d. 6/8/10-digit prefix → expand-with-fallback + LLM picks
+ *   3. Absent / malformed / unknown                → null_resolution
+ *
+ * The TrackBResult carries `override_applied` + `override_target_code`
+ * so downstream consumers (recorder, trace) can distinguish:
+ *   - "no override, codebook resolved X to Y the normal way"
+ *   - "override fired, codebook resolved its target to Y" (good)
+ *   - "override fired, target is unknown — null_resolution"   (stale override — operator action needed)
  */
 import { getPool } from '../../../db/client.js';
 import { lookupTenantOverride } from '../../pipeline/track-b-code/codebook-override.js';
 import { llmPick } from '../../pipeline/track-a-description/picker/llm-pick.js';
 import type {
   TrackBResult,
+  TrackBResolution,
+  CodebookState,
+  TrackBLlmContext,
   MerchantCodeState,
 } from '../shared/pipeline.types.js';
 import type { Candidate } from '../../../inference/retrieval/retrieve.js';
@@ -29,6 +44,18 @@ interface HsCodeRecord {
   replacement_codes: string[] | null;
   description_en: string | null;
   description_ar: string | null;
+}
+
+/**
+ * The shape returned by the inner walk. Mirrors TrackBResult minus the
+ * override fields, which the entry point fills in based on whether an
+ * override fired.
+ */
+interface CodebookResolution {
+  resolved_code: string | null;
+  resolution: TrackBResolution;
+  codebook_state: CodebookState;
+  llm_context?: TrackBLlmContext;
 }
 
 async function lookupCode(code: string): Promise<HsCodeRecord | null> {
@@ -57,17 +84,11 @@ async function expandPrefix(prefix: string, limit = 50): Promise<HsCodeRecord[]>
 }
 
 /**
- * Walk a merchant prefix down to a granularity that exists in the codebook.
- *
- * A merchant code like `8516299100` (10 digits) may not match any active
- * leaf because the carrier's national extension uses a different padding
- * convention than ZATCA's canonical 12-digit form. Rather than throwing the
- * whole code away when the full prefix returns zero children, fall back to
- * shorter prefixes: 10 → 8 → 6. The 6-digit HS6 is the international
- * harmonized prefix and is almost always present in the codebook.
- *
- * Returns the first non-empty expansion plus which prefix actually matched,
- * so the trace can record at what granularity the merchant code resolved.
+ * Walk a merchant prefix down to a granularity that exists in the
+ * codebook. A 10-digit code may not match because the carrier's
+ * national extension uses a different padding convention than ZATCA's
+ * canonical 12-digit form. Try 10 → 8 → 6; the 6-digit HS6 is the
+ * international harmonized prefix and almost always present.
  */
 async function expandWithFallback(
   fullPrefix: string,
@@ -77,7 +98,6 @@ async function expandWithFallback(
   if (fullPrefix.length >= 10) candidates.push(fullPrefix.slice(0, 10));
   if (fullPrefix.length >= 8) candidates.push(fullPrefix.slice(0, 8));
   if (fullPrefix.length >= 6) candidates.push(fullPrefix.slice(0, 6));
-  // Dedupe — if fullPrefix is already 8 digits, the 10-slice is the same string.
   const tried = new Set<string>();
   for (const p of candidates) {
     if (tried.has(p)) continue;
@@ -109,6 +129,156 @@ function rowToCandidate(row: HsCodeRecord, rank: number): Candidate {
   };
 }
 
+/**
+ * Classify a code's length so we know which branch of the codebook walk
+ * to take. The merchant_code_state from Stage 0 only describes the
+ * *raw* merchant input; when we walk the override target instead, we
+ * recompute this here.
+ */
+function classifyLength(code: string): 'twelve_digit' | 'short_prefix' | 'malformed' {
+  if (code.length === 12) return 'twelve_digit';
+  if (code.length === 6 || code.length === 8 || code.length === 10) return 'short_prefix';
+  return 'malformed';
+}
+
+/**
+ * Inner codebook walk. Pure function of (code, length classification,
+ * cleaned_description) — knows nothing about overrides.
+ */
+async function resolveAgainstCodebook(
+  code: string,
+  state: 'twelve_digit' | 'short_prefix',
+  cleaned_description: string,
+): Promise<CodebookResolution> {
+  if (state === 'twelve_digit') {
+    const record = await lookupCode(code);
+
+    if (!record) {
+      return {
+        resolved_code: null,
+        resolution: 'null_resolution',
+        codebook_state: 'unknown_to_codebook',
+      };
+    }
+
+    if (!record.is_deleted) {
+      return {
+        resolved_code: record.code,
+        resolution: 'passthrough',
+        codebook_state: 'active',
+      };
+    }
+
+    const replacements = record.replacement_codes ?? [];
+
+    if (replacements.length === 0) {
+      return {
+        resolved_code: null,
+        resolution: 'null_resolution',
+        codebook_state: 'deprecated_single_replacement',
+      };
+    }
+
+    if (replacements.length === 1) {
+      return {
+        resolved_code: replacements[0]!,
+        resolution: 'deterministic_swap',
+        codebook_state: 'deprecated_single_replacement',
+      };
+    }
+
+    const candidates = replacements.map((c, i) =>
+      rowToCandidate(
+        { code: c, is_deleted: false, replacement_codes: null, description_en: null, description_ar: null },
+        i,
+      ),
+    );
+    const pick = await llmPick({
+      kind: 'describe',
+      query: cleaned_description,
+      candidates,
+    });
+
+    if (pick.llmStatus === 'ok' && !pick.guardTripped && pick.chosenCode) {
+      const runnersCodes = replacements.filter((c) => c !== pick.chosenCode).slice(0, 3);
+      return {
+        resolved_code: pick.chosenCode,
+        resolution: 'llm_pick_among_replacements',
+        codebook_state: 'deprecated_multiple_replacements',
+        llm_context: {
+          chosen: { code: pick.chosenCode, rationale: pick.rationale ?? '' },
+          runners_up: runnersCodes.map((c) => ({ code: c, rationale: '' })),
+        },
+      };
+    }
+
+    return {
+      resolved_code: replacements[0]!,
+      resolution: 'deterministic_swap',
+      codebook_state: 'deprecated_multiple_replacements',
+    };
+  }
+
+  // Short prefix
+  const { children, matched_prefix } = await expandWithFallback(code);
+
+  if (children.length === 0) {
+    return {
+      resolved_code: null,
+      resolution: 'null_resolution',
+      codebook_state: 'unknown_to_codebook',
+    };
+  }
+
+  if (children.length === 1) {
+    return {
+      resolved_code: children[0]!.code,
+      resolution: 'llm_pick_under_prefix',
+      codebook_state: 'active',
+      llm_context: {
+        chosen: {
+          code: children[0]!.code,
+          rationale:
+            matched_prefix === code
+              ? 'single child under prefix'
+              : `single child under fallback prefix ${matched_prefix}`,
+        },
+        runners_up: [],
+      },
+    };
+  }
+
+  const candidates = children.slice(0, 20).map((r, i) => rowToCandidate(r, i));
+  const pick = await llmPick({
+    kind: 'expand',
+    query: cleaned_description,
+    candidates,
+    parentPrefix: matched_prefix,
+  });
+
+  if (pick.llmStatus === 'ok' && !pick.guardTripped && pick.chosenCode) {
+    const runners_up = candidates
+      .filter((c) => c.code !== pick.chosenCode)
+      .slice(0, 3)
+      .map((c) => ({ code: c.code, rationale: c.description_en ?? '' }));
+    return {
+      resolved_code: pick.chosenCode,
+      resolution: 'llm_pick_under_prefix',
+      codebook_state: 'active',
+      llm_context: {
+        chosen: { code: pick.chosenCode, rationale: pick.rationale ?? '' },
+        runners_up,
+      },
+    };
+  }
+
+  return {
+    resolved_code: children[0]!.code,
+    resolution: 'llm_pick_under_prefix',
+    codebook_state: 'active',
+  };
+}
+
 export async function runTrackB(
   raw_merchant_code: string | null,
   merchant_code_state: MerchantCodeState,
@@ -121,170 +291,42 @@ export async function runTrackB(
       resolution: 'null_resolution',
       raw_merchant_code,
       codebook_state: 'not_applicable',
+      override_applied: false,
+      override_target_code: null,
     };
   }
 
-  // 1. Tenant override
+  // 1. Tenant override — feeds its target into the codebook walk
+  //    instead of returning early. Stale overrides (target deprecated
+  //    or unknown to the current codebook) now surface as
+  //    null_resolution / deterministic_swap rather than confidently
+  //    emitting bad data. Override metadata is preserved on the result
+  //    so the trace can flag operator action when the codebook walk
+  //    invalidates the mapping.
   const override = await lookupTenantOverride(raw_merchant_code, operatorSlug);
-  if (override) {
+  const overrideApplied = override !== null;
+  const overrideTarget = override?.targetCode ?? null;
+
+  const codeToWalk = overrideTarget ?? raw_merchant_code;
+  const lengthState = classifyLength(codeToWalk);
+
+  if (lengthState === 'malformed') {
     return {
-      resolved_code: override.targetCode,
-      resolution: 'tenant_override',
+      resolved_code: null,
+      resolution: 'null_resolution',
       raw_merchant_code,
-      codebook_state: 'active',
+      codebook_state: 'not_applicable',
+      override_applied: overrideApplied,
+      override_target_code: overrideTarget,
     };
   }
 
-  // 2. 12-digit codebook lookup
-  if (merchant_code_state === 'twelve_digit') {
-    const record = await lookupCode(raw_merchant_code);
-
-    if (!record) {
-      return {
-        resolved_code: null,
-        resolution: 'null_resolution',
-        raw_merchant_code,
-        codebook_state: 'unknown_to_codebook',
-      };
-    }
-
-    if (!record.is_deleted) {
-      return {
-        resolved_code: record.code,
-        resolution: 'passthrough',
-        raw_merchant_code,
-        codebook_state: 'active',
-      };
-    }
-
-    // Deprecated code — check replacement_codes
-    const replacements = record.replacement_codes ?? [];
-
-    if (replacements.length === 0) {
-      // Deleted with no replacement — cannot resolve.
-      return {
-        resolved_code: null,
-        resolution: 'null_resolution',
-        raw_merchant_code,
-        codebook_state: 'deprecated_single_replacement',
-      };
-    }
-
-    if (replacements.length === 1) {
-      return {
-        resolved_code: replacements[0]!,
-        resolution: 'deterministic_swap',
-        raw_merchant_code,
-        codebook_state: 'deprecated_single_replacement',
-      };
-    }
-
-    // Multiple replacements — lightweight LLM picks
-    const candidates = replacements.map((code, i) => rowToCandidate({ code, is_deleted: false, replacement_codes: null, description_en: null, description_ar: null }, i));
-    const pick = await llmPick({
-      kind: 'describe',
-      query: cleaned_description,
-      candidates,
-    });
-
-    if (pick.llmStatus === 'ok' && !pick.guardTripped && pick.chosenCode) {
-      const runnersCodes = replacements.filter((c) => c !== pick.chosenCode).slice(0, 3);
-      const runners_up = runnersCodes.map((code) => ({ code, rationale: '' }));
-      return {
-        resolved_code: pick.chosenCode,
-        resolution: 'llm_pick_among_replacements',
-        raw_merchant_code,
-        codebook_state: 'deprecated_multiple_replacements',
-        llm_context: {
-          chosen: { code: pick.chosenCode, rationale: pick.rationale ?? '' },
-          runners_up,
-        },
-      };
-    }
-
-    // LLM failed — fall back to first replacement deterministically
-    return {
-      resolved_code: replacements[0]!,
-      resolution: 'deterministic_swap',
-      raw_merchant_code,
-      codebook_state: 'deprecated_multiple_replacements',
-    };
-  }
-
-  // 3. Short prefix — expand and lightweight LLM picks leaf.
-  // If the full prefix returns no children (merchant's national extension
-  // doesn't match ZATCA's padding), fall back to 8-digit then 6-digit HS6
-  // so we still surface the chapter+heading as a real Track B signal
-  // rather than discarding the merchant code entirely.
-  if (merchant_code_state === 'short_prefix') {
-    const { children, matched_prefix } = await expandWithFallback(raw_merchant_code);
-
-    if (children.length === 0) {
-      return {
-        resolved_code: null,
-        resolution: 'null_resolution',
-        raw_merchant_code,
-        codebook_state: 'unknown_to_codebook',
-      };
-    }
-
-    if (children.length === 1) {
-      return {
-        resolved_code: children[0]!.code,
-        resolution: 'llm_pick_under_prefix',
-        raw_merchant_code,
-        codebook_state: 'active',
-        llm_context: {
-          chosen: {
-            code: children[0]!.code,
-            rationale:
-              matched_prefix === raw_merchant_code
-                ? 'single child under prefix'
-                : `single child under fallback prefix ${matched_prefix}`,
-          },
-          runners_up: [],
-        },
-      };
-    }
-
-    const candidates = children.slice(0, 20).map((r, i) => rowToCandidate(r, i));
-    const pick = await llmPick({
-      kind: 'expand',
-      query: cleaned_description,
-      candidates,
-      parentPrefix: matched_prefix,
-    });
-
-    if (pick.llmStatus === 'ok' && !pick.guardTripped && pick.chosenCode) {
-      const runners_up = candidates
-        .filter((c) => c.code !== pick.chosenCode)
-        .slice(0, 3)
-        .map((c) => ({ code: c.code, rationale: c.description_en ?? '' }));
-      return {
-        resolved_code: pick.chosenCode,
-        resolution: 'llm_pick_under_prefix',
-        raw_merchant_code,
-        codebook_state: 'active',
-        llm_context: {
-          chosen: { code: pick.chosenCode, rationale: pick.rationale ?? '' },
-          runners_up,
-        },
-      };
-    }
-
-    // LLM failed — pick first child deterministically
-    return {
-      resolved_code: children[0]!.code,
-      resolution: 'llm_pick_under_prefix',
-      raw_merchant_code,
-      codebook_state: 'active',
-    };
-  }
+  const resolution = await resolveAgainstCodebook(codeToWalk, lengthState, cleaned_description);
 
   return {
-    resolved_code: null,
-    resolution: 'null_resolution',
+    ...resolution,
     raw_merchant_code,
-    codebook_state: 'not_applicable',
+    override_applied: overrideApplied,
+    override_target_code: overrideTarget,
   };
 }

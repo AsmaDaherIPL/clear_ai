@@ -55,7 +55,7 @@ export async function recordClassificationEvent(
   const codeResolverResolution =
     typeof crOutput.resolution === 'string' ? (crOutput.resolution as TrackBResolution) : null;
   const codeResolverPath = mapResolverPath(codeResolverResolution);
-  const tenantOverrideApplied = codeResolverResolution === 'tenant_override';
+  const tenantOverrideApplied = crOutput.override_applied === true;
 
   const redactedRequest = redactRequestBody(request) ?? null;
 
@@ -121,8 +121,6 @@ function mapResolverPath(resolution: TrackBResolution | null): string | null {
       return 'llm_pick_among_replacements';
     case 'llm_pick_under_prefix':
       return 'llm_pick_under_prefix';
-    case 'tenant_override':
-      return 'tenant_override';
     case 'null_resolution':
       return 'null_resolution';
     default:
