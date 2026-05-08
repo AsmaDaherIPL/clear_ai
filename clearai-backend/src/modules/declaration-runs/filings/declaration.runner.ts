@@ -18,8 +18,9 @@ import { getLookupsByOperatorIdWithMetadata } from '../../operators/operator-loo
 import { partitionHvLv } from '../../../integrations/zatca/declaration/declaration.bundler.js';
 import { renderDeclarationXml } from '../../../integrations/zatca/declaration/declaration.template.js';
 import { getBlobClient } from '../../../storage/blob.client.js';
-import { declarationKey } from '../../../storage/blob.paths.js';
+import { filingKey } from '../../../storage/blob.paths.js';
 import { getDeclarationRun } from '../declaration-run.repository.js';
+import { newId } from '../../../common/utils/uuid.js';
 import { env } from '../../../config/env.js';
 import { loadThresholds } from '../../reference-data/setup-meta.repository.js';
 import { loadZatcaDefaults } from '../../reference-data/zatca-defaults.repository.js';
@@ -34,6 +35,12 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
     throw new Error(`operator ${declarationRun.operatorId} not found for declaration_run ${declarationRunId}`);
   }
   const operator = await resolveOperator(operatorRow.slug);
+  const blobPrefix = declarationRun.blobPrefix;
+  if (!blobPrefix) {
+    throw new Error(
+      `declaration_run ${declarationRunId} has no blob_prefix; runs created before 0061 cannot be re-rendered.`,
+    );
+  }
   const lookups = await getLookupsByOperatorIdWithMetadata(operator.id);
   const items = await listClassifiedItems(declarationRunId);
 
@@ -87,9 +94,15 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
       lookups,
       now,
     });
-    const key = declarationKey(declarationRunId, bundleIndex);
+    // Mint the filing id up front so the blob key (filingId.xml) and the
+    // DB row PK match. The repository accepts a pre-allocated id; if it
+    // didn't, we'd have to round-trip through the DB to learn the id
+    // before we could write the blob.
+    const filingId = newId();
+    const key = filingKey({ prefix: blobPrefix, strategy: bundle.strategy, filingId });
     await blob.put(key, Buffer.from(xml, 'utf8'), 'application/xml');
     await recordDeclaration({
+      filingId,
       declarationRunId,
       bundleIndex,
       strategy: bundle.strategy,

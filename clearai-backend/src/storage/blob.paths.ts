@@ -1,55 +1,33 @@
 /**
- * Deterministic blob-key builder. Centralised so every reader/writer
- * agrees on the path layout inside BATCH_BLOB_CONTAINER.
+ * Deterministic blob-key builder. Every reader/writer agrees on the
+ * tree layout inside BATCH_BLOB_CONTAINER:
  *
- * Two layouts coexist:
+ *   {operatorSlug}/{YYYY}/{MM}/{DD}/{run_id}/
+ *     input.{csv|xlsx}                — uploaded source
+ *     classifications.json            — Phase 1 per-item result dump
+ *     manifest.json                   — index of every blob in the run
+ *     hv/{filing_id}.xml              — HV bundles (rendered XML)
+ *     lv/{filing_id}.xml              — LV bundles (rendered XML)
  *
- *   Legacy (input + Phase-1 result, still in use):
- *     declaration-runs/{id}/input.{ext}
- *     declaration-runs/{id}/result.json
- *     declaration-runs/{id}/result.xml
- *     declaration-runs/{id}/declarations/{idx}.xml
+ * The prefix is computed once at run creation time (createdAt is locked
+ * in by the DB default + immediately read back) and persisted on
+ * declaration_runs.blob_prefix so the read path is timezone-immune.
  *
- *   New tree layout (per the dev-Azure storage handover, used for the
- *   rendered HV/LV XML output that the SPA downloads):
- *     {operatorSlug}/{YYYY}/{MM}/{DD}/{run_id}/manifest.json
- *     {operatorSlug}/{YYYY}/{MM}/{DD}/{run_id}/hv/{filing_id}.xml
- *     {operatorSlug}/{YYYY}/{MM}/{DD}/{run_id}/lv/{filing_id}.xml
- *
- * The new layout makes the Storage browser tree navigable and lets the
- * lifecycle policy delete entire date partitions.
+ * Legacy keys (declaration-runs/{id}/input.{ext}, .../result.json,
+ * .../declarations/0000.xml) are dropped — runs created before this
+ * migration land remain readable as long as the 90-day lifecycle
+ * window keeps them around, then they expire naturally.
  */
-
-const DECLARATION_RUN_PREFIX = 'declaration-runs';
-
-export function inputKey(declarationRunId: string, ext: 'csv' | 'xlsx'): string {
-  return `${DECLARATION_RUN_PREFIX}/${declarationRunId}/input.${ext}`;
-}
-
-export function classificationsResultKey(declarationRunId: string): string {
-  return `${DECLARATION_RUN_PREFIX}/${declarationRunId}/result.json`;
-}
-
-export function declarationKey(declarationRunId: string, bundleIndex: number): string {
-  if (!Number.isInteger(bundleIndex) || bundleIndex < 0) {
-    throw new RangeError(`declarationKey: bundleIndex must be a non-negative integer (got ${bundleIndex})`);
-  }
-  return `${DECLARATION_RUN_PREFIX}/${declarationRunId}/declarations/${String(bundleIndex).padStart(4, '0')}.xml`;
-}
-
-// ---------------------------------------------------------------------------
-// New tree layout
-// ---------------------------------------------------------------------------
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
 /**
- * Build the run prefix for the new tree layout. `createdAt` is required so
- * the path is locked in at run-creation time and immune to timezone drift
- * later. `operatorSlug` lives at the top level — when multi-operator
- * lands, queue listings can scope to one operator with a prefix scan.
+ * Build the per-run blob prefix. `createdAt` is required so the path
+ * is locked in at run-creation time and immune to timezone drift
+ * later. `operatorSlug` at the top level so prefix-scanning lists
+ * scope to one operator cheaply.
  */
 export function declarationRunPrefix(params: {
   operatorSlug: string;
@@ -66,14 +44,31 @@ export function declarationRunPrefix(params: {
   ].join('/');
 }
 
+export function inputKey(prefix: string, ext: 'csv' | 'xlsx'): string {
+  return `${prefix}/input.${ext}`;
+}
+
+/** Phase 1 dump of per-item classification results (canonical + final code + trace). */
+export function classificationsKey(prefix: string): string {
+  return `${prefix}/classifications.json`;
+}
+
 export function manifestKey(prefix: string): string {
   return `${prefix}/manifest.json`;
 }
 
-export function hvFilingKey(prefix: string, filingId: string): string {
-  return `${prefix}/hv/${filingId}.xml`;
-}
-
-export function lvFilingKey(prefix: string, filingId: string): string {
-  return `${prefix}/lv/${filingId}.xml`;
+/**
+ * Build the rendered-XML key for a filing.
+ *
+ * `strategy` chooses the hv/ or lv/ subfolder. `filingId` is the
+ * declaration_run_filings.id (uuid) — guaranteed unique per run so
+ * collisions are impossible without a primary-key violation.
+ */
+export function filingKey(params: {
+  prefix: string;
+  strategy: 'HV_STANDALONE' | 'LV_BUNDLED';
+  filingId: string;
+}): string {
+  const sub = params.strategy === 'HV_STANDALONE' ? 'hv' : 'lv';
+  return `${params.prefix}/${sub}/${params.filingId}.xml`;
 }

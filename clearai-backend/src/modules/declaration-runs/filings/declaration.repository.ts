@@ -27,6 +27,8 @@ export async function listClassifiedItems(declarationRunId: string): Promise<Dec
 }
 
 export interface RecordDeclarationInput {
+  /** Pre-allocated row id; matches the {filingId}.xml in the blob key. */
+  filingId: string;
   declarationRunId: string;
   bundleIndex: number;
   strategy: BundleStrategy;
@@ -36,6 +38,7 @@ export interface RecordDeclarationInput {
 
 export async function recordDeclaration(input: RecordDeclarationInput): Promise<void> {
   await db().insert(declarationRunFilings).values({
+    id: input.filingId,
     declarationRunId: input.declarationRunId,
     bundleIndex: input.bundleIndex,
     bundleStrategy: input.strategy,

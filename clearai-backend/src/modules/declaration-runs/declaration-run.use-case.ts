@@ -27,7 +27,7 @@ import {
 import { DeclarationRunTooLargeError, DeclarationRunValidationError } from './declaration-run.errors.js';
 import { env } from '../../config/env.js';
 import { getBlobClient } from '../../storage/blob.client.js';
-import { inputKey } from '../../storage/blob.paths.js';
+import { declarationRunPrefix, inputKey } from '../../storage/blob.paths.js';
 import type { OperatorConfig } from '../operators/operator-config.types.js';
 import type { DeclarationRunMode, DeclarationRunRow } from '../../db/schema.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
@@ -75,7 +75,16 @@ export async function createDeclarationRun(input: CreateDeclarationRunInput): Pr
   const items = canonicaliseRows(parsed.rows, operator, lookups);
 
   const declarationRunId = newId();
-  const sourceBlobKey = inputKey(declarationRunId, input.uploadKind);
+  // Lock the blob prefix in at creation time so every Phase that reads
+  // back uses the same date partition, regardless of how long Phase 2
+  // takes to start (UTC-fixed, no timezone drift).
+  const createdAt = new Date();
+  const blobPrefix = declarationRunPrefix({
+    operatorSlug: operator.slug,
+    createdAt,
+    runId: declarationRunId,
+  });
+  const sourceBlobKey = inputKey(blobPrefix, input.uploadKind);
   const contentType = input.uploadKind === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   await getBlobClient().put(sourceBlobKey, input.uploadBytes, contentType);
 
@@ -84,6 +93,7 @@ export async function createDeclarationRun(input: CreateDeclarationRunInput): Pr
     operatorId: operator.id,
     mode: input.mode,
     sourceBlobKey,
+    blobPrefix,
     rowCount: items.length,
     metadata: input.metadata,
     items,
@@ -102,6 +112,19 @@ export async function runProcessing(declarationRunId: string, dispatch: Dispatch
     // Phase 2 — declaration. The service no-ops when mode === 'classify_only'.
     const { runDeclarationPhaseIfNeeded } = await import('./filings/declaration.service.js');
     await runDeclarationPhaseIfNeeded(declarationRunId);
+
+    // Phase 3 — manifest. Best-effort: classifications.json + manifest.json
+    // land under the run's blob_prefix so a single
+    // GET /declaration-runs/:id/download-links returns everything.
+    // A failure here doesn't fail the run — the DB rows are authoritative.
+    const { writeClassificationsJson, writeManifestJson } = await import('./manifest.js');
+    try {
+      await writeClassificationsJson(declarationRunId);
+      await writeManifestJson(declarationRunId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[manifest] write failed for run', declarationRunId, err);
+    }
 
     await setDeclarationRunStatus(declarationRunId, { status: 'completed', completedAt: new Date() });
   } catch (err) {

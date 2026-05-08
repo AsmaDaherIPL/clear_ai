@@ -120,41 +120,32 @@ describe('LocalBlobClient (file:// adapter)', () => {
 });
 
 describe('blob.paths', () => {
-  it('builds deterministic input/result keys', async () => {
-    const { inputKey, classificationsResultKey, declarationKey } = await import(
-      '../../src/storage/blob.paths.js'
-    );
-    expect(inputKey('abc', 'csv')).toBe('declaration-runs/abc/input.csv');
-    expect(inputKey('abc', 'xlsx')).toBe('declaration-runs/abc/input.xlsx');
-    expect(classificationsResultKey('abc')).toBe('declaration-runs/abc/result.json');
-    expect(declarationKey('abc', 0)).toBe('declaration-runs/abc/declarations/0000.xml');
-    expect(declarationKey('abc', 17)).toBe('declaration-runs/abc/declarations/0017.xml');
-  });
-
-  it('rejects negative bundle indices', async () => {
-    const { declarationKey } = await import('../../src/storage/blob.paths.js');
-    expect(() => declarationKey('abc', -1)).toThrow(RangeError);
-  });
+  const PREFIX = 'naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344';
 
   it('declarationRunPrefix builds {operator}/YYYY/MM/DD/{runId} with UTC zero-pad', async () => {
-    const { declarationRunPrefix, manifestKey, hvFilingKey, lvFilingKey } = await import(
-      '../../src/storage/blob.paths.js'
-    );
+    const { declarationRunPrefix } = await import('../../src/storage/blob.paths.js');
     const prefix = declarationRunPrefix({
       operatorSlug: 'naqel',
       // Pick a date that exercises zero-padding on both fields.
       createdAt: new Date(Date.UTC(2026, 4, 8, 23, 59, 59)),
       runId: 'aa11bb22-cccc-dddd-eeee-ff0011223344',
     });
-    expect(prefix).toBe('naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344');
-    expect(manifestKey(prefix)).toBe(
-      'naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344/manifest.json',
+    expect(prefix).toBe(PREFIX);
+  });
+
+  it('builds keys under the prefix', async () => {
+    const { inputKey, classificationsKey, manifestKey, filingKey } = await import(
+      '../../src/storage/blob.paths.js'
     );
-    expect(hvFilingKey(prefix, 'filing-001')).toBe(
-      'naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344/hv/filing-001.xml',
+    expect(inputKey(PREFIX, 'csv')).toBe(`${PREFIX}/input.csv`);
+    expect(inputKey(PREFIX, 'xlsx')).toBe(`${PREFIX}/input.xlsx`);
+    expect(classificationsKey(PREFIX)).toBe(`${PREFIX}/classifications.json`);
+    expect(manifestKey(PREFIX)).toBe(`${PREFIX}/manifest.json`);
+    expect(filingKey({ prefix: PREFIX, strategy: 'HV_STANDALONE', filingId: 'f1' })).toBe(
+      `${PREFIX}/hv/f1.xml`,
     );
-    expect(lvFilingKey(prefix, 'filing-002')).toBe(
-      'naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344/lv/filing-002.xml',
+    expect(filingKey({ prefix: PREFIX, strategy: 'LV_BUNDLED', filingId: 'f2' })).toBe(
+      `${PREFIX}/lv/f2.xml`,
     );
   });
 });

@@ -40,6 +40,8 @@ export interface InsertDeclarationRunInput {
   operatorId: string;
   mode: DeclarationRunMode;
   sourceBlobKey: string;
+  /** Tree-layout prefix locked in at creation time (e.g. naqel/2026/05/08/<run_id>). */
+  blobPrefix: string;
   rowCount: number;
   metadata: Record<string, unknown>;
   items: ReadonlyArray<DeclarationRunItemInput>;
@@ -66,6 +68,7 @@ export async function insertDeclarationRun(input: InsertDeclarationRunInput): Pr
         classificationStatus: 'pending',
         declarationStatus: declStatus,
         sourceBlobKey: input.sourceBlobKey,
+        blobPrefix: input.blobPrefix,
         rowCount: input.rowCount,
         metadata: input.metadata,
       })
