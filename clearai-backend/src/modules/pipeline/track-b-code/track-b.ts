@@ -56,6 +56,40 @@ async function expandPrefix(prefix: string, limit = 50): Promise<HsCodeRecord[]>
   return r.rows;
 }
 
+/**
+ * Walk a merchant prefix down to a granularity that exists in the codebook.
+ *
+ * A merchant code like `8516299100` (10 digits) may not match any active
+ * leaf because the carrier's national extension uses a different padding
+ * convention than ZATCA's canonical 12-digit form. Rather than throwing the
+ * whole code away when the full prefix returns zero children, fall back to
+ * shorter prefixes: 10 → 8 → 6. The 6-digit HS6 is the international
+ * harmonized prefix and is almost always present in the codebook.
+ *
+ * Returns the first non-empty expansion plus which prefix actually matched,
+ * so the trace can record at what granularity the merchant code resolved.
+ */
+async function expandWithFallback(
+  fullPrefix: string,
+  limit = 50,
+): Promise<{ children: HsCodeRecord[]; matched_prefix: string }> {
+  const candidates: string[] = [];
+  if (fullPrefix.length >= 10) candidates.push(fullPrefix.slice(0, 10));
+  if (fullPrefix.length >= 8) candidates.push(fullPrefix.slice(0, 8));
+  if (fullPrefix.length >= 6) candidates.push(fullPrefix.slice(0, 6));
+  // Dedupe — if fullPrefix is already 8 digits, the 10-slice is the same string.
+  const tried = new Set<string>();
+  for (const p of candidates) {
+    if (tried.has(p)) continue;
+    tried.add(p);
+    const children = await expandPrefix(p, limit);
+    if (children.length > 0) {
+      return { children, matched_prefix: p };
+    }
+  }
+  return { children: [], matched_prefix: fullPrefix };
+}
+
 function rowToCandidate(row: HsCodeRecord, rank: number): Candidate {
   return {
     code: row.code,
@@ -177,9 +211,13 @@ export async function runTrackB(
     };
   }
 
-  // 3. Short prefix — expand and lightweight LLM picks leaf
+  // 3. Short prefix — expand and lightweight LLM picks leaf.
+  // If the full prefix returns no children (merchant's national extension
+  // doesn't match ZATCA's padding), fall back to 8-digit then 6-digit HS6
+  // so we still surface the chapter+heading as a real Track B signal
+  // rather than discarding the merchant code entirely.
   if (merchant_code_state === 'short_prefix') {
-    const children = await expandPrefix(raw_merchant_code);
+    const { children, matched_prefix } = await expandWithFallback(raw_merchant_code);
 
     if (children.length === 0) {
       return {
@@ -197,7 +235,13 @@ export async function runTrackB(
         raw_merchant_code,
         codebook_state: 'active',
         llm_context: {
-          chosen: { code: children[0]!.code, rationale: 'single child under prefix' },
+          chosen: {
+            code: children[0]!.code,
+            rationale:
+              matched_prefix === raw_merchant_code
+                ? 'single child under prefix'
+                : `single child under fallback prefix ${matched_prefix}`,
+          },
           runners_up: [],
         },
       };
@@ -208,7 +252,7 @@ export async function runTrackB(
       kind: 'expand',
       query: cleaned_description,
       candidates,
-      parentPrefix: raw_merchant_code,
+      parentPrefix: matched_prefix,
     });
 
     if (pick.llmStatus === 'ok' && !pick.guardTripped && pick.chosenCode) {
