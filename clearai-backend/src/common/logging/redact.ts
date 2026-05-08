@@ -1,17 +1,12 @@
 /**
- * PII redaction for the request body persisted on classification_events.
+ * PII redaction for request bodies persisted on pipeline_events.
  *
- * Phase 2.4 of the security remediation (backend security review H5).
- * This module produces a redacted shadow copy of every request body that
- * gets logged. Storage layout:
- *
- *   classification_events.request           - raw, full audit (admin only)
- *   classification_events.request_redacted  - this function's output
- *
- * Why a separate column:
- *   See migration 0020_pii_redaction.sql header. Briefly: forensics
- *   sometimes need the raw input, the redactor evolves over time, and
- *   the column-level GRANT in 0019 already restricts who can read raw.
+ * The recorder calls redactRequestBody() before INSERT. Only the
+ * redacted form is stored — the raw request is not retained at the row
+ * level. If forensic replay needs the raw request, the dispatch can be
+ * re-run with the redacted shape (every field except phone/email/long-id/
+ * URL is preserved verbatim, so descriptions, codes, currencies, and
+ * values round-trip correctly).
  *
  * What we redact:
  *   - Phone numbers (Saudi/Gulf E.164 + locally formatted variants).

@@ -414,6 +414,13 @@
       "when": 1777215800000,
       "tag": "0058_submission_descriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1777215900000,
+      "tag": "0059_pipeline_events_and_drop_legacy",
+      "breakpoints": true
     }
   ]
 }

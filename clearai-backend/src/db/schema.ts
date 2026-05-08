@@ -23,11 +23,11 @@ export type {
 export { setupMeta } from './schema/setup-meta.js';
 export type { SetupMetaRow } from './schema/setup-meta.js';
 
-export { classificationEvents } from './schema/classification-events.js';
+export { pipelineEvents } from './schema/pipeline-events.js';
 export type {
-  ClassificationEventRow,
-  NewClassificationEventRow,
-} from './schema/classification-events.js';
+  PipelineEventRow,
+  NewPipelineEventRow,
+} from './schema/pipeline-events.js';
 
 export { procedureCodes } from './schema/zatca-procedure-codes.js';
 export type {

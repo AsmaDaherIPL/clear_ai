@@ -169,7 +169,8 @@ const DATA_URI = /\bdata\s*:\s*[a-z]+\/[a-z+\-]+(?:;[a-z0-9\-=]+)*,[^"'\s<]*/gi;
  * Strip dangerous content from picker-emitted free text.
  *
  * Applied in two places:
- *   1. Before persisting `rationale` to classification_events.
+ *   1. Before persisting `rationale` (currently surfaced inside the
+ *      DispatchV1Trace persisted on pipeline_events).
  *   2. Before the response body that ships `rationale` back to the client.
  *
  * Both passes use this same function so persisted data == shipped data.

@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { runPipeline } from './pipeline.orchestrator.js';
 import { assembleDispatchV1 } from './trace/dispatch-v1.js';
+import { recordPipelineEvent } from './events/recorder.js';
 import { getPool } from '../../db/client.js';
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { OperatorNotFoundError } from '../operators/operator.errors.js';
@@ -122,19 +123,32 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const item = buildItem(body, operatorConfig.id);
-    const startedAt = new Date().toISOString();
+    const startedAtMs = Date.now();
+    const startedAt = new Date(startedAtMs).toISOString();
     const result: PipelineResult = await runPipeline(item, body.operator_slug, item.itemId);
     const completedAt = new Date().toISOString();
 
-    return reply.code(200).send(
-      assembleDispatchV1({
-        itemId: item.itemId,
+    const response = assembleDispatchV1({
+      itemId: item.itemId,
+      operatorSlug: body.operator_slug,
+      result,
+      startedAt,
+      completedAt,
+    });
+
+    // Best-effort audit row. Never blocks or fails the response.
+    void recordPipelineEvent(
+      {
+        operatorId: operatorConfig.id,
         operatorSlug: body.operator_slug,
-        result,
-        startedAt,
-        completedAt,
-      }),
+        request: body,
+        response,
+        totalLatencyMs: Date.now() - startedAtMs,
+      },
+      req.log,
     );
+
+    return reply.code(200).send(response);
   });
 
   // GET /pipeline/trace/:id

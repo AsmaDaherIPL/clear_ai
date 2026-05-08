@@ -20,8 +20,7 @@
  *
  * Tables that should use this helper:
  *   • hs_codes.id                      (catalog ingest, bulk)
- *   • classification_events.id         (runtime, per-request)
- *   • classification_feedback.id       (runtime, per-feedback)
+ *   • pipeline_events.id               (runtime, per-dispatch)
  *   • Future GUID PKs on hs_code_display / hs_code_search / operator_code_overrides
  *
  * Tables that may stay on the PG default (`gen_random_uuid()`) for now
