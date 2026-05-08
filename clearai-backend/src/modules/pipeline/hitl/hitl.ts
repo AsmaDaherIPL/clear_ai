@@ -1,35 +1,84 @@
 /**
  * HITL queue — Human-in-the-loop escalation.
  *
- * v0 policy: any item where Stage 2 escalates or Stage 3 returns FLAG is
- * enqueued here. The queue is a simple DB insert; a future worker reads it.
+ * Wired to the hitl_queue table (added in 0060). The orchestrator surfaces
+ * its HITL intent on PipelineResult.hitl; the dispatch route calls
+ * enqueueHitl() AFTER the classification_events row has been written, so
+ * the FK from hitl_queue.classification_event_id is always satisfied.
  *
- * Items enqueued here still progress to the declaration phase as 'flagged'
- * status — they are included in Phase 2 but marked for human review.
+ * Items enqueued here still ship back to the caller with sanity_verdict
+ * 'FLAG' and status 'flagged' — they're additionally surfaced in the
+ * review queue.
+ *
+ * v0 access policy: rows are filtered by operator_slug at the app layer.
+ * Any logged-in user with access to operator X sees X's pending items.
+ * No claim/assignment semantics yet.
  */
-import type { StageVerdictOutput, SanityResult, PipelineTrace } from '../shared/pipeline.types.js';
+import { getPool } from '../../../db/client.js';
+import { newId } from '../../../common/utils/uuid.js';
+import type { StageVerdictOutput, SanityResult } from '../shared/pipeline.types.js';
+
+interface PipelineEventLogger {
+  error(obj: unknown, msg?: string): void;
+}
 
 export interface HitlPayload {
+  /** UUID of the classification_events row this review points to. */
+  classification_event_id: string;
   item_id: string;
   operator_slug: string;
+  reason: 'verdict_escalate' | 'sanity_flag';
   cleaned_description: string;
   verdict_output: StageVerdictOutput | null;
   sanity_result: SanityResult | null;
-  trace: PipelineTrace;
+  /** Full DispatchV1Trace serialised as jsonb. */
+  trace: unknown;
   enqueued_at: string;
 }
 
 /**
- * Enqueue an item for human review.
- * v0: logs to console + returns the payload. A real DB-backed queue
- * implementation lands in the next sprint.
+ * Insert one hitl_queue row. Best-effort: a queue write failure logs but
+ * never throws — the dispatch response has already been built.
  */
-export async function enqueueHitl(payload: HitlPayload): Promise<void> {
-  // TODO(hitl-worker): replace with a DB insert into hitl_queue table.
-  console.warn(
-    `[HITL] item_id=${payload.item_id} operator=${payload.operator_slug} ` +
-    `reason=${payload.sanity_result?.verdict ?? 'verdict_escalate'}`,
-  );
+export async function enqueueHitl(
+  payload: HitlPayload,
+  logger?: PipelineEventLogger,
+): Promise<void> {
+  const pool = getPool();
+  try {
+    await pool.query(
+      `INSERT INTO hitl_queue (
+        id,
+        enqueued_at,
+        classification_event_id,
+        item_id,
+        operator_slug,
+        reason,
+        payload
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        newId(),
+        payload.enqueued_at,
+        payload.classification_event_id,
+        payload.item_id,
+        payload.operator_slug,
+        payload.reason,
+        JSON.stringify({
+          cleaned_description: payload.cleaned_description,
+          verdict_output: payload.verdict_output,
+          sanity_result: payload.sanity_result,
+          trace: payload.trace,
+        }),
+      ],
+    );
+  } catch (err) {
+    if (logger) {
+      logger.error({ err, item_id: payload.item_id }, '[hitl_queue] insert failed');
+    } else {
+      // eslint-disable-next-line no-console
+      console.error('[hitl_queue] insert failed:', err);
+    }
+  }
 }
 
 export function shouldEnqueue(

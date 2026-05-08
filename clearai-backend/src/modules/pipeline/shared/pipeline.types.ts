@@ -212,6 +212,17 @@ export interface PipelineTrace {
 // Final pipeline output (consumed by declaration-runs/classification)
 // ---------------------------------------------------------------------------
 
+/**
+ * HITL intent attached to PipelineResult when Stage 2 escalates or Stage 3
+ * FLAGs. The orchestrator does NOT write the queue row directly — the
+ * route handler does, after the classification_events row is persisted,
+ * so the FK is always satisfied. Null when the item does not need review.
+ */
+export interface HitlIntent {
+  reason: 'verdict_escalate' | 'sanity_flag';
+  cleaned_description: string;
+}
+
 export interface PipelineResult {
   /** 12-digit code accepted by Stage 2 + Stage 3. Null if pipeline did not accept. */
   final_code: string | null;
@@ -222,6 +233,8 @@ export interface PipelineResult {
   goods_description_ar: string | null;
   sanity_verdict: SanityVerdict;
   trace: PipelineTrace;
+  /** Set when the item should be enqueued for HITL review. Null otherwise. */
+  hitl: HitlIntent | null;
 }
 
 // ---------------------------------------------------------------------------

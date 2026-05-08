@@ -23,11 +23,14 @@ export type {
 export { setupMeta } from './schema/setup-meta.js';
 export type { SetupMetaRow } from './schema/setup-meta.js';
 
-export { pipelineEvents } from './schema/pipeline-events.js';
+export { classificationEvents } from './schema/classification-events.js';
 export type {
-  PipelineEventRow,
-  NewPipelineEventRow,
-} from './schema/pipeline-events.js';
+  ClassificationEventRow,
+  NewClassificationEventRow,
+} from './schema/classification-events.js';
+
+export { hitlQueue } from './schema/hitl-queue.js';
+export type { HitlQueueRow, NewHitlQueueRow } from './schema/hitl-queue.js';
 
 export { procedureCodes } from './schema/zatca-procedure-codes.js';
 export type {

@@ -20,7 +20,8 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { runPipeline } from './pipeline.orchestrator.js';
 import { assembleDispatchV1 } from './trace/dispatch-v1.js';
-import { recordPipelineEvent } from './events/recorder.js';
+import { recordClassificationEvent } from './events/recorder.js';
+import { enqueueHitl } from './hitl/hitl.js';
 import { getPool } from '../../db/client.js';
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { OperatorNotFoundError } from '../operators/operator.errors.js';
@@ -136,17 +137,40 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       completedAt,
     });
 
-    // Best-effort audit row. Never blocks or fails the response.
-    void recordPipelineEvent(
-      {
-        operatorId: operatorConfig.id,
-        operatorSlug: body.operator_slug,
-        request: body,
-        response,
-        totalLatencyMs: Date.now() - startedAtMs,
-      },
-      req.log,
-    );
+    // Persist audit row first; if it succeeds and the orchestrator
+    // surfaced a HITL intent, follow with the queue write so the FK
+    // from hitl_queue.classification_event_id is satisfied. Both writes
+    // are best-effort — failures are logged but never block the
+    // response that's about to be sent.
+    void (async () => {
+      const eventOk = await recordClassificationEvent(
+        {
+          operatorId: operatorConfig.id,
+          operatorSlug: body.operator_slug,
+          request: body,
+          response,
+          totalLatencyMs: Date.now() - startedAtMs,
+        },
+        req.log,
+      );
+
+      if (eventOk && result.hitl) {
+        await enqueueHitl(
+          {
+            classification_event_id: response.item_id,
+            item_id: response.item_id,
+            operator_slug: body.operator_slug,
+            reason: result.hitl.reason,
+            cleaned_description: result.hitl.cleaned_description,
+            verdict_output: result.trace.verdict,
+            sanity_result: result.trace.sanity,
+            trace: response.trace,
+            enqueued_at: new Date().toISOString(),
+          },
+          req.log,
+        );
+      }
+    })();
 
     return reply.code(200).send(response);
   });

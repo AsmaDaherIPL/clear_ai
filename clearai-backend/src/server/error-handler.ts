@@ -7,7 +7,7 @@
  * messages, library versions, and stack details aren't leaked.
  *
  * Audit logging for the dispatch pipeline now lives in
- * `pipeline_events` via recordPipelineEvent(). This handler does not
+ * `classification_events` via recordClassificationEvent(). This handler does not
  * write any DB rows — exception paths skip the recorder, and that's
  * fine because the request never produced a usable trace anyway.
  */

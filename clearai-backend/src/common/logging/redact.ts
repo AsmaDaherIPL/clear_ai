@@ -1,5 +1,5 @@
 /**
- * PII redaction for request bodies persisted on pipeline_events.
+ * PII redaction for request bodies persisted on classification_events.
  *
  * The recorder calls redactRequestBody() before INSERT. Only the
  * redacted form is stored — the raw request is not retained at the row

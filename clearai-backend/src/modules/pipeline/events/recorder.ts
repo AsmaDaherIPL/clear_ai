@@ -1,8 +1,10 @@
 /**
- * pipeline_events recorder.
+ * classification_events recorder.
  *
- * One INSERT per dispatch invocation. Best-effort: a recorder failure must
- * never break the dispatch response, so all errors are caught and logged.
+ * One INSERT per dispatch invocation. Best-effort: a recorder failure
+ * must never break the dispatch response, so all errors are caught and
+ * logged. Returns true on success so the caller knows whether to follow
+ * with a hitl_queue write (the queue's FK references this row).
  *
  * The full DispatchV1Trace lives in `trace` jsonb; the top-level columns
  * are denormalized facts you'll filter and aggregate on regularly.
@@ -16,7 +18,7 @@ import type {
   TrackBResolution,
 } from '../shared/pipeline.types.js';
 
-export interface RecordPipelineEventInput {
+export interface RecordClassificationEventInput {
   operatorId: string | null;
   operatorSlug: string;
   request: unknown;
@@ -28,10 +30,10 @@ interface PipelineEventLogger {
   error(obj: unknown, msg?: string): void;
 }
 
-export async function recordPipelineEvent(
-  input: RecordPipelineEventInput,
+export async function recordClassificationEvent(
+  input: RecordClassificationEventInput,
   logger?: PipelineEventLogger,
-): Promise<void> {
+): Promise<boolean> {
   const pool = getPool();
   const { response, request } = input;
   const trace = response.trace;
@@ -59,7 +61,7 @@ export async function recordPipelineEvent(
 
   try {
     await pool.query(
-      `INSERT INTO pipeline_events (
+      `INSERT INTO classification_events (
         id, operator_id, operator_slug,
         status, final_code, sanity_verdict,
         description_classifier_chosen_code, description_classifier_confidence,
@@ -89,13 +91,15 @@ export async function recordPipelineEvent(
         JSON.stringify(trace),
       ],
     );
+    return true;
   } catch (err) {
     if (logger) {
-      logger.error({ err, item_id: response.item_id }, '[pipeline_events] insert failed');
+      logger.error({ err, item_id: response.item_id }, '[classification_events] insert failed');
     } else {
       // eslint-disable-next-line no-console
-      console.error('[pipeline_events] insert failed:', err);
+      console.error('[classification_events] insert failed:', err);
     }
+    return false;
   }
 }
 

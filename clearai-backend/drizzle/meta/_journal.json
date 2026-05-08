@@ -421,6 +421,13 @@
       "when": 1777215900000,
       "tag": "0059_pipeline_events_and_drop_legacy",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1777216000000,
+      "tag": "0060_classification_events_rename_and_hitl_queue",
+      "breakpoints": true
     }
   ]
 }

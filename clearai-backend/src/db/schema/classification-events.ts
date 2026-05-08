@@ -1,11 +1,13 @@
 /**
- * pipeline_events — append-only audit log for /pipeline/dispatch and the
- * per-item batch path. Replaces the legacy classification_events +
- * classification_feedback tables (dropped in 0059).
+ * classification_events — append-only audit log for /pipeline/dispatch.
+ *
+ * Renamed from the original classification_events (legacy describe/expand
+ * shape, dropped in 0059) and from the interim pipeline_events name (0059)
+ * back to classification_events in 0060 to match team vocabulary.
  *
  * Design intent: minimal columns for the dimensions you filter and
  * aggregate on regularly; full DispatchV1Trace stays in `trace` jsonb.
- * Anything else needed for an ad-hoc query lives inside the trace.
+ * Anything else needed for ad-hoc queries lives inside the trace.
  */
 import {
   pgTable,
@@ -21,8 +23,8 @@ import {
 import { sql } from 'drizzle-orm';
 import { operators } from './operators.js';
 
-export const pipelineEvents = pgTable(
-  'pipeline_events',
+export const classificationEvents = pgTable(
+  'classification_events',
   {
     id: uuid('id').primaryKey(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -65,12 +67,12 @@ export const pipelineEvents = pgTable(
     trace: jsonb('trace').notNull(),
   },
   (t) => ({
-    createdAtIdx: index('pipeline_events_created_at_idx').on(sql`${t.createdAt} DESC`),
-    operatorIdx: index('pipeline_events_operator_idx').on(t.operatorId, sql`${t.createdAt} DESC`),
-    statusIdx: index('pipeline_events_status_idx').on(t.status),
-    resolverPathIdx: index('pipeline_events_resolver_path_idx').on(t.codeResolverPath),
+    createdAtIdx: index('classification_events_created_at_idx').on(sql`${t.createdAt} DESC`),
+    operatorIdx: index('classification_events_operator_idx').on(t.operatorId, sql`${t.createdAt} DESC`),
+    statusIdx: index('classification_events_status_idx').on(t.status),
+    resolverPathIdx: index('classification_events_resolver_path_idx').on(t.codeResolverPath),
   }),
 );
 
-export type PipelineEventRow = typeof pipelineEvents.$inferSelect;
-export type NewPipelineEventRow = typeof pipelineEvents.$inferInsert;
+export type ClassificationEventRow = typeof classificationEvents.$inferSelect;
+export type NewClassificationEventRow = typeof classificationEvents.$inferInsert;

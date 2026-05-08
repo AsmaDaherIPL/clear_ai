@@ -21,11 +21,11 @@ import { runTrackB } from './track-b-code/track-b.js';
 import { runReconciliation } from './stage-2-verdict/reconciliation.js';
 import { generateSubmissionDescription } from './submission-description/submission-description.js';
 import { runSanity } from './stage-3-sanity/sanity.js';
-import { enqueueHitl, shouldEnqueue } from './hitl/hitl.js';
+import { shouldEnqueue } from './hitl/hitl.js';
 import { buildTrace } from './trace/trace.js';
 import { getPool } from '../../db/client.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
-import type { PipelineResult, StageTrace } from './shared/pipeline.types.js';
+import type { PipelineResult, StageTrace, HitlIntent } from './shared/pipeline.types.js';
 
 interface CatalogContext {
   /** Leaf Arabic from zatca_hs_codes.description_ar. Same string the breadcrumb terminates with. */
@@ -64,7 +64,7 @@ async function lookupCatalogContext(code: string): Promise<CatalogContext> {
 export async function runPipeline(
   item: CanonicalLineItem,
   operatorSlug: string,
-  itemId: string,
+  _itemId: string,
 ): Promise<PipelineResult> {
   const allStages: StageTrace[] = [];
 
@@ -96,6 +96,7 @@ export async function runPipeline(
       goods_description_ar: null,
       sanity_verdict: 'BLOCK',
       trace,
+      hitl: null,
     };
   }
 
@@ -120,6 +121,7 @@ export async function runPipeline(
       goods_description_ar: null,
       sanity_verdict: 'BLOCK',
       trace,
+      hitl: null,
     };
   }
 
@@ -151,20 +153,15 @@ export async function runPipeline(
   // Escalate to HITL — item still progresses as 'flagged'.
   if (verdict.decision === 'escalate') {
     const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity: null, stages: allStages });
-    await enqueueHitl({
-      item_id: itemId,
-      operator_slug: operatorSlug,
-      cleaned_description: cleanup.cleaned_description,
-      verdict_output: verdict,
-      sanity_result: null,
-      trace,
-      enqueued_at: new Date().toISOString(),
-    });
     return {
       final_code: null,
       goods_description_ar: null,
       sanity_verdict: 'FLAG',
       trace,
+      hitl: {
+        reason: 'verdict_escalate',
+        cleaned_description: cleanup.cleaned_description,
+      },
     };
   }
 
@@ -205,28 +202,22 @@ export async function runPipeline(
 
   const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity, stages: allStages });
 
-  // HITL for FLAG or BLOCK
-  if (shouldEnqueue(verdict, sanity)) {
-    await enqueueHitl({
-      item_id: itemId,
-      operator_slug: operatorSlug,
-      cleaned_description: cleanup.cleaned_description,
-      verdict_output: verdict,
-      sanity_result: sanity,
-      trace,
-      enqueued_at: new Date().toISOString(),
-    });
-  }
+  const hitl: HitlIntent | null = shouldEnqueue(verdict, sanity)
+    ? { reason: 'sanity_flag', cleaned_description: cleanup.cleaned_description }
+    : null;
 
   // Sanity is value-plausibility only and emits PASS | FLAG. The code is
   // already decided by Stage 2 reconciliation; FLAG just routes to HITL
   // with the code intact. BLOCK on PipelineResult.sanity_verdict is
   // reserved for the upstream parse / cleanup-unusable rejections above
   // (lines ~85-115); the LLM never produces it.
+  // The route handler writes hitl_queue after classification_events so
+  // the FK from hitl_queue.classification_event_id is satisfied.
   return {
     final_code: verdict.final_code,
     goods_description_ar: submission.descriptionAr,
     sanity_verdict: sanity.verdict,
     trace,
+    hitl,
   };
 }

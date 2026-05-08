@@ -170,7 +170,7 @@ const DATA_URI = /\bdata\s*:\s*[a-z]+\/[a-z+\-]+(?:;[a-z0-9\-=]+)*,[^"'\s<]*/gi;
  *
  * Applied in two places:
  *   1. Before persisting `rationale` (currently surfaced inside the
- *      DispatchV1Trace persisted on pipeline_events).
+ *      DispatchV1Trace persisted on classification_events).
  *   2. Before the response body that ships `rationale` back to the client.
  *
  * Both passes use this same function so persisted data == shipped data.
