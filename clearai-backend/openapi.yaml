@@ -54,6 +54,8 @@ tags:
     description: Bulk pipeline runs from uploaded xlsx/csv.
   - name: pipeline
     description: Single-shot pipeline endpoints.
+  - name: hitl
+    description: Human-in-the-loop review queue for items the pipeline escalated.
 
 # -----------------------------------------------------------------------------
 # Components
@@ -431,6 +433,44 @@ components:
             - type: string
             - type: object
               additionalProperties: true
+
+    # ---------- HITL queue ----------
+
+    HitlRow:
+      type: object
+      required:
+        - id
+        - created_at
+        - enqueued_at
+        - classification_event_id
+        - item_id
+        - operator_slug
+        - reason
+        - status
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        enqueued_at: { type: string, format: date-time }
+        classification_event_id: { type: string, format: uuid }
+        item_id: { type: string, format: uuid }
+        operator_slug: { type: string, example: naqel }
+        reason:
+          type: string
+          enum: [verdict_escalate, sanity_flag]
+        status:
+          type: string
+          enum: [pending, in_review, resolved, dismissed]
+        reviewed_at: { type: string, format: date-time, nullable: true }
+        reviewed_by: { type: string, nullable: true }
+        reviewer_decision:
+          type: string
+          enum: [approve, override, reject]
+          nullable: true
+        reviewer_code:
+          type: string
+          pattern: '^\d{12}$'
+          nullable: true
+        reviewer_notes: { type: string, nullable: true }
 
 # -----------------------------------------------------------------------------
 # Paths
@@ -866,6 +906,191 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '401':
           description: Origin access denied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ────────────────────────────────────────────────────────────────────────
+  # HITL queue
+  # ────────────────────────────────────────────────────────────────────────
+
+  /hitl/queue:
+    get:
+      operationId: get-hitl-queue
+      tags: [hitl]
+      summary: List HITL review rows
+      description: |
+        Returns rows from the human-in-the-loop queue, optionally filtered
+        by status and operator_slug. Default page size 50, max 200.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, in_review, resolved, dismissed]
+        - name: operator_slug
+          in: query
+          required: false
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{2,31}$' }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: Page of HITL rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/HitlRow' }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400':
+          description: Query validation failed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /hitl/queue/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      operationId: get-hitl-queue-id
+      tags: [hitl]
+      summary: Fetch a single HITL row including the forensic payload
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: HITL row with payload.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/HitlRow'
+                  - type: object
+                    required: [payload]
+                    properties:
+                      payload:
+                        type: object
+                        description: |
+                          Forensic snapshot — cleaned_description,
+                          verdict_output, sanity_result, full trace.
+                        additionalProperties: true
+        '404':
+          description: No row with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /hitl/queue/{id}/claim:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    post:
+      operationId: post-hitl-queue-id-claim
+      tags: [hitl]
+      summary: Claim a pending HITL row for review
+      description: |
+        Transitions status from 'pending' to 'in_review'. Returns 409
+        invalid_state if the row is in any other status.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: Row updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HitlRow' }
+        '404':
+          description: No row with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Row is not in 'pending' status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /hitl/queue/{id}/review:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    post:
+      operationId: post-hitl-queue-id-review
+      tags: [hitl]
+      summary: Resolve or dismiss a HITL row
+      description: |
+        Transitions status to 'resolved' (decision=approve|override) or
+        'dismissed' (decision=reject). decision='override' requires
+        reviewer_code (12 digits). Idempotent on terminal rows: returns
+        409 invalid_state.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, override, reject]
+                reviewer_code:
+                  type: string
+                  pattern: '^\d{12}$'
+                  description: Required when decision='override'.
+                reviewer_notes:
+                  type: string
+                  maxLength: 2000
+      responses:
+        '200':
+          description: Row updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HitlRow' }
+        '400':
+          description: Body invalid, or override missing reviewer_code.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: No row with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Row is already resolved or dismissed.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
