@@ -86,21 +86,13 @@ function buildItem(body: DispatchBody, operatorId: string): CanonicalLineItem {
 
 const TraceIdSchema = z.string().uuid();
 
-interface BatchItemTraceRow {
-  id: string;
-  declaration_run_id: string;
-  status: string;
-  final_code: string | null;
-  trace: unknown;
-  classification_result: unknown;
-  error: string | null;
-}
-
 interface ClassificationEventTraceRow {
   id: string;
+  operator_slug: string;
   status: string;
   final_code: string | null;
   trace: unknown;
+  created_at: Date;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,19 +176,11 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /pipeline/trace/:id
   //
-  // Two-source lookup so the same id works regardless of how the trace
-  // got produced:
-  //
-  //   1. declaration_run_items.id → batch path. Single source of truth
-  //      for items processed via POST /declaration-runs.
-  //   2. classification_events.id → one-off /pipeline/dispatch path.
-  //      The recorder writes the dispatch trace here keyed on the
-  //      response's item_id; falling back here lets Bruno / SPA fetch
-  //      a single-shot trace by the same id the dispatch returned.
-  //
-  // Returns the same response shape from either source; declaration_run_id
-  // and classification_result are null when the row came from
-  // classification_events.
+  // classification_events is the single source of truth for traces —
+  // every classification (one-off /pipeline/dispatch and per-item batch
+  // processing) writes here via recordClassificationEvent. The id used
+  // is canonical: it's the same UUID that flows through
+  // declaration_run_items.id and the dispatch response's item_id.
   app.get<{ Params: { id: string } }>('/pipeline/trace/:id', async (req, reply) => {
     const idParse = TraceIdSchema.safeParse(req.params.id);
     if (!idParse.success) {
@@ -207,50 +191,26 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     const id = idParse.data;
 
     const pool = getPool();
-    const batchRes = await pool.query<BatchItemTraceRow>(
-      `SELECT id, declaration_run_id, status, final_code, trace, classification_result, error
-         FROM declaration_run_items
-        WHERE id = $1
-        LIMIT 1`,
-      [id],
-    );
-    if (batchRes.rowCount && batchRes.rows[0]) {
-      const row = batchRes.rows[0];
-      return reply.code(200).send({
-        item_id: row.id,
-        source: 'batch',
-        declaration_run_id: row.declaration_run_id,
-        status: row.status,
-        final_code: row.final_code,
-        classification_result: row.classification_result,
-        trace: row.trace,
-        error: row.error,
-      });
-    }
-
-    const eventRes = await pool.query<ClassificationEventTraceRow>(
-      `SELECT id, status, final_code, trace
+    const r = await pool.query<ClassificationEventTraceRow>(
+      `SELECT id, operator_slug, status, final_code, trace, created_at
          FROM classification_events
         WHERE id = $1
         LIMIT 1`,
       [id],
     );
-    if (eventRes.rowCount && eventRes.rows[0]) {
-      const row = eventRes.rows[0];
-      return reply.code(200).send({
-        item_id: row.id,
-        source: 'dispatch',
-        declaration_run_id: null,
-        status: row.status,
-        final_code: row.final_code,
-        classification_result: null,
-        trace: row.trace,
-        error: null,
+    if (r.rowCount === 0 || !r.rows[0]) {
+      return reply.code(404).send({
+        error: { code: 'trace_not_found', message: `No classification event for id ${id}.` },
       });
     }
-
-    return reply.code(404).send({
-      error: { code: 'trace_not_found', message: `No pipeline trace for item id ${id}.` },
+    const row = r.rows[0];
+    return reply.code(200).send({
+      item_id: row.id,
+      operator_slug: row.operator_slug,
+      status: row.status,
+      final_code: row.final_code,
+      created_at: row.created_at.toISOString(),
+      trace: row.trace,
     });
   });
 }
