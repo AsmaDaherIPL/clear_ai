@@ -49,3 +49,12 @@ clearai-backend-python/
 # repo to avoid bloat and to honour the data-sharing agreement that
 # limits redistribution. Lives locally only.
 naqel-shared-data/
+
+# Internal coordination notes — agent handover briefs and ADRs that
+# reference deployment internals, oids, and operational context. Keep
+# local; do not publish to origin.
+tracker/
+
+# Local accuracy-test scaffolding (benchmarking scripts + fixtures).
+# Not part of the runtime; not for the public repo.
+scripts/accuracy-test/
