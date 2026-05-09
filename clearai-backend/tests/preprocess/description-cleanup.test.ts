@@ -25,7 +25,6 @@ describe('looksClean — deterministic short-circuit', () => {
     'Jackets',
     'Dresses',
     '',
-    'parcel', // ungrounded but short — cleanup is skipped, route falls through
   ])('treats %s as already-clean (skip LLM)', (input) => {
     expect(looksClean(input)).toBe(true);
   });
@@ -60,6 +59,37 @@ describe('looksClean — deterministic short-circuit', () => {
   it('treats single common nouns as clean', () => {
     expect(looksClean('Smartphone')).toBe(true);
     expect(looksClean('Headphones')).toBe(true);
+  });
+
+  // Generic shipping nouns that describe a CONTAINER, not a product.
+  // These must reach the LLM cleanup so it can classify them as
+  // `ungrounded` and the Researcher fires.
+  it.each([
+    'parcel',
+    'Parcel',
+    'item',
+    'shipment',
+    'goods',
+    'product',
+    'box',
+    'package',
+    'cargo',
+    'merchandise',
+    'commodity',
+    'consignment',
+    'freight',
+    'unit',
+    'piece',
+    'sample',
+    'gift',
+    'document',
+    'envelope',
+    // Combinations of generic nouns / adjectives don't rescue the input.
+    'small parcel',
+    'Box of items',
+    '1 parcel',
+  ])('routes generic shipping noun "%s" to LLM (not clean)', (input) => {
+    expect(looksClean(input)).toBe(false);
   });
 
   it('strips whitespace before evaluating', () => {

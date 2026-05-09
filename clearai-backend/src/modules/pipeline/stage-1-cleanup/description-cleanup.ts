@@ -53,6 +53,47 @@ export interface DescriptionCleanupResult {
 }
 
 /**
+ * Generic shipping nouns that describe a CONTAINER, not a product.
+ * If the input boils down to one of these, retrieval will pattern-match
+ * the noun itself ("parcel" → trgm-hits chapter 48 paper packaging, etc.)
+ * and the picker has nothing real to choose from. Force the LLM cleanup
+ * pass so these classify as `ungrounded` and the Researcher fires.
+ */
+const GENERIC_SHIPPING_NOUNS = new Set([
+  'parcel', 'parcels',
+  'item', 'items',
+  'shipment', 'shipments',
+  'goods', 'good',
+  'product', 'products',
+  'box', 'boxes',
+  'package', 'packages',
+  'cargo',
+  'merchandise',
+  'commodity', 'commodities',
+  'consignment',
+  'freight',
+  'unit', 'units',
+  'piece', 'pieces',
+  'sample', 'samples',
+  'gift', 'gifts',
+  'document', 'documents',
+  'letter', 'letters',
+  'envelope', 'envelopes',
+]);
+
+/**
+ * Stop words filtered out before the deny-list check. These don't
+ * rescue an otherwise generic input: "small parcel" and "box of items"
+ * are still nothing-but-containers once these are removed.
+ */
+const SHIPPING_STOPWORDS = new Set([
+  'a', 'an', 'the',
+  'of', 'in', 'on', 'with', 'and', 'or', 'for',
+  'small', 'medium', 'large', 'big',
+  'one', 'two', 'three',
+]);
+
+/**
  * True when input is already broker-grade and cleanup can be skipped.
  *
  * Conservative — false-positive (running cleanup unnecessarily) costs
@@ -68,6 +109,20 @@ export function looksClean(input: string): boolean {
   if (tokens.length > 4) return false;
   if (/B0[A-Z0-9]{8}/.test(trimmed)) return false;
   if (/[,(){}[\]/]/.test(trimmed)) return false;
+
+  // Generic-shipping-noun gate: drop stop-words ("of", "small", "1"),
+  // then if every remaining alphabetic token is a generic container
+  // noun, this isn't a product description. Force the LLM cleanup
+  // so it classifies as `ungrounded` and the Researcher fires.
+  const contentTokens = tokens
+    .map((t) => t.replace(/[^A-Za-z]/g, '').toLowerCase())
+    .filter((t) => t.length >= 2 && !SHIPPING_STOPWORDS.has(t));
+  if (
+    contentTokens.length > 0 &&
+    contentTokens.every((t) => GENERIC_SHIPPING_NOUNS.has(t))
+  ) {
+    return false;
+  }
 
   for (const tok of tokens) {
     const cleaned = tok.replace(/[^A-Za-z0-9]/g, '');
