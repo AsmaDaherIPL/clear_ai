@@ -180,6 +180,7 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
     error: string | null;
     catalog_path_en: string | null;
     submission_description_ar: string | null;
+    confidence_band: string | null;
   }>(
     `SELECT i.id,
             i.row_index,
@@ -189,7 +190,8 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
             i.trace,
             i.error,
             d.path_en              AS catalog_path_en,
-            (i.classification_result -> 'goods_description_ar')::text AS submission_description_ar
+            (i.classification_result -> 'goods_description_ar')::text AS submission_description_ar,
+            (i.trace -> 'meta' -> 'verdict' ->> 'confidence_band')    AS confidence_band
        FROM declaration_run_items i
        LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
       WHERE i.declaration_run_id = $1
@@ -207,6 +209,7 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
       submission_description_ar: i.submission_description_ar
         ? i.submission_description_ar.replace(/^"|"$/g, '')
         : null,
+      confidence_band: i.confidence_band,
       classification_result: i.classification_result,
       trace: i.trace,
       error: i.error,

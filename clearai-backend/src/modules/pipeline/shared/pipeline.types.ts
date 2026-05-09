@@ -149,10 +149,22 @@ export type ReconciliationSource = 'description_classifier' | 'code_resolver' | 
 
 export type VerdictDecision = 'accept' | 'escalate';
 
+/**
+ * Named confidence tier emitted by reconciliation.
+ *
+ * certain  — both tracks independently agree (deterministic corroboration).
+ * high     — strong single signal: resolver in partial-fit set, or description
+ *            classifier produced a fits-level candidate with no resolver dispute.
+ * medium   — LLM arbitration on two-signal disagreement, or single_a partial only.
+ * low      — override-curated code passed through after reconciliation LLM failure.
+ * none     — pipeline escalated; no code accepted.
+ */
+export type ConfidenceBand = 'certain' | 'high' | 'medium' | 'low' | 'none';
+
 export interface VerdictResult {
   decision: 'accept';
   final_code: string;
-  confidence: number;
+  confidence_band: ConfidenceBand;
   rationale: string;
   source: ReconciliationSource;
 }

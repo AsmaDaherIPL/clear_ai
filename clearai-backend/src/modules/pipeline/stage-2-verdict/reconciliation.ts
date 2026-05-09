@@ -8,6 +8,7 @@ import type {
   SignalCount,
   ReconciliationSource,
   AnnotatedCandidate,
+  ConfidenceBand,
 } from '../shared/pipeline.types.js';
 
 function countSignals(trackA: TrackAResult, trackB: TrackBResult): SignalCount {
@@ -82,7 +83,7 @@ async function callReconciliationLlm(params: {
       return {
         decision: 'accept',
         final_code: params.trackB.resolved_code,
-        confidence: 0.5,
+        confidence_band: 'low' as ConfidenceBand,
         rationale: `code_resolver passthrough (override-curated); reconciliation LLM unavailable: ${outcome.kind}`,
         source: 'code_resolver',
       };
@@ -119,7 +120,7 @@ async function callReconciliationLlm(params: {
     return {
       decision: 'accept',
       final_code: d.final_code,
-      confidence: 0.75,
+      confidence_band: 'medium' as ConfidenceBand,
       rationale: typeof d.rationale === 'string' ? d.rationale : '',
       source,
     };
@@ -152,7 +153,7 @@ export async function runReconciliation(
       return {
         decision: 'accept',
         final_code: trackB.resolved_code,
-        confidence: 1.0,
+        confidence_band: 'certain' as ConfidenceBand,
         rationale: `code_resolver and description_classifier agree: ${resolverVerdict.rationale}`,
         source: 'code_resolver',
       };
@@ -161,7 +162,7 @@ export async function runReconciliation(
       return {
         decision: 'accept',
         final_code: trackB.resolved_code,
-        confidence: 0.8,
+        confidence_band: 'high' as ConfidenceBand,
         rationale: `code_resolver in partial-fit set: ${resolverVerdict.rationale}`,
         source: 'code_resolver',
       };
@@ -175,7 +176,7 @@ export async function runReconciliation(
       return {
         decision: 'accept',
         final_code: top.code,
-        confidence: top.fit === 'fits' ? 0.85 : 0.65,
+        confidence_band: (top.fit === 'fits' ? 'high' : 'medium') as ConfidenceBand,
         rationale: top.rationale,
         source: 'description_classifier',
       };

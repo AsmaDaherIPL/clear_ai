@@ -197,7 +197,7 @@ function buildReconciliationAction(
       ? {
           decision: verdict.decision,
           final_code: verdict.final_code,
-          confidence: verdict.confidence,
+          confidence_band: verdict.confidence_band,
           source: sourceMap[verdict.source] ?? verdict.source,
           rationale: verdict.rationale,
         }

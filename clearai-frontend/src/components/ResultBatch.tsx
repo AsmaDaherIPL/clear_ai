@@ -25,6 +25,14 @@ const STATUS_BADGE: Record<string, string> = {
   failed: 'bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]',
 };
 
+const CONFIDENCE_BADGE: Record<string, { cls: string; label: string }> = {
+  certain: { cls: 'bg-[oklch(0.88_0.08_140)] text-[oklch(0.30_0.12_140)]', label: 'Certain' },
+  high:    { cls: 'bg-[oklch(0.90_0.06_160)] text-[oklch(0.32_0.10_160)]', label: 'High' },
+  medium:  { cls: 'bg-[oklch(0.93_0.08_220)] text-[oklch(0.35_0.12_220)]', label: 'Medium' },
+  low:     { cls: 'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',  label: 'Low' },
+  none:    { cls: 'bg-[var(--line-2)] text-[var(--ink-3)]',                 label: 'None' },
+};
+
 export default function ResultBatch({ visible, state, className }: ResultBatchProps) {
   const t = useT();
   const [downloadLinks, setDownloadLinks] = useState<DownloadLinks | null>(null);
@@ -139,6 +147,7 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
                 { key: 'line', label: 'Line' },
                 { key: 'path_en', label: 'Description (EN)' },
                 { key: 'code', label: 'HS code' },
+                { key: 'confidence', label: 'Confidence' },
                 { key: 'submission_ar', label: 'Submission (AR)' },
                 { key: 'status', label: 'Status' },
                 { key: 'error', label: 'Error' },
@@ -155,7 +164,7 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
           <tbody>
             {items.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3.5 py-6 text-[13px] text-[var(--ink-3)] italic text-center">
+                <td colSpan={7} className="px-3.5 py-6 text-[13px] text-[var(--ink-3)] italic text-center">
                   {isPolling
                     ? 'Items will appear once Phase 1 (classification) completes.'
                     : summary?.status === 'failed' && summary.succeeded === 0
@@ -174,6 +183,17 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
                   </td>
                   <td className="px-3.5 py-2.5 font-mono text-[12.5px] text-[var(--ink-2)] align-top whitespace-nowrap">
                     {item.final_code ?? '—'}
+                  </td>
+                  <td className="px-3.5 py-2.5 text-[12px] align-top">
+                    {(() => {
+                      const band = (item as { confidence_band?: string | null }).confidence_band;
+                      const b = band ? CONFIDENCE_BADGE[band] : null;
+                      return b ? (
+                        <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono uppercase tracking-[0.04em]', b.cls)}>
+                          {b.label}
+                        </span>
+                      ) : <span className="text-[var(--ink-3)]">—</span>;
+                    })()}
                   </td>
                   <td
                     className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[260px] align-top break-words"
