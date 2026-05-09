@@ -8,7 +8,7 @@
 ## Image to deploy
 
 ```
-ghcr.io/asmadaheripl/clearai-backend:sha-ad798f1
+ghcr.io/asmadaheripl/clearai-backend:sha-5f3befc
 ```
 
 GHCR build for `ad798f1` completed at 17:41 UTC.
@@ -59,7 +59,7 @@ az account set --subscription 8b4ce84d-8f95-4d64-9740-2f565448b5d5
 az containerapp update \
   -g rg-infp-clearai-common-dev-gwc-01 \
   -n ca-infp-clearai-be-dev-gwc-01 \
-  --image ghcr.io/asmadaheripl/clearai-backend:sha-ad798f1
+  --image ghcr.io/asmadaheripl/clearai-backend:sha-5f3befc
 
 # Backend agent's first attempt failed — the container app may live in a
 # different RG than expected. If the above errors with "does not exist":
