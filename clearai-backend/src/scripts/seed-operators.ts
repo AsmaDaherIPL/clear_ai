@@ -24,7 +24,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { db, closeDb } from '../db/client.js';
-import { operators, operatorFieldMappings, operatorConstants } from '../db/schema.js';
+import { operators, operatorFieldMappings, operatorDeclarationConfig } from '../db/schema.js';
 import { getOperatorBySlug } from '../modules/operators/operator.repository.js';
 import type { CanonicalField, TransformKind } from '../modules/operators/operator-config.types.js';
 
@@ -90,31 +90,31 @@ const NAQEL_IDENTITY = {
   brokerRepresentativeNo: '1732',
   defaultSourceCompanyName: 'ناقل',
   defaultSourceCompanyNo: '340476',
-  /**
-   * Operator-level fallback for consignee-address fields (cityCode/zipCode/
-   * poBox/streetAr). Used when canonical.consigneeAddress is null or
-   * partial. The placeholder values for zipCode/poBox match the historical
-   * test xlsx output — pending Naqel confirmation. cityCode '131' (Riyadh)
-   * is the fallback when destination_station lookup misses.
-   */
-  defaultConsigneeAddress: {
-    cityCode: '131',
-    zipCode: '1111',
-    poBox: '11',
-    // streetAr left undefined; renderer falls back to Arabic city name from
-    // the tabdul_city lookup when neither row nor operator default has it.
-  },
 };
 
 /**
- * Remaining placeholder constants pending Naqel confirmation. After 0056
- * only `default_reg_port_code` is left — when Naqel clarifies whether
- * different shipments use different reg ports, this either moves to a
- * canonical field or becomes a column on operators and the table is dropped.
+ * Naqel's row in operator_declaration_config — every render default
+ * lives here. Defaults match the post-processed sample XMLs and the
+ * Naqel field-mapping spec. zatca_submitter_carrier_id stays null
+ * until Naqel ships their ZATCA registration value.
  */
-const NAQEL_PLACEHOLDER_CONSTANTS: ReadonlyArray<{ key: string; value: string; comment: string }> = [
-  { key: 'default_reg_port_code', value: '23', comment: 'decsub:regPort — Naqel default reg port' },
-];
+const NAQEL_DECLARATION_CONFIG = {
+  // zatca submitter — operator must populate carrier_id from ZATCA registration
+  zatcaSubmitterCarrierId: null as string | null,
+  zatcaSubmitterName: 'Naqel',
+  zatcaDeclarationNamespace: 'http://www.saudiedi.com/schema/decsub',
+  // Consignee defaults — placeholder values from the historical test xlsx
+  // output; cityCode '131' (Riyadh) is the fallback when the
+  // destination_station lookup misses.
+  consigneeDefaultCityCode: '131',
+  consigneeDefaultZipCode: '1111',
+  consigneeDefaultPoBox: '11',
+  consigneeDefaultStreetAr: null as string | null,
+  // Was operator_constants.<key>; promoted to typed columns in 0064.
+  defaultRegPortCode: '23',
+  defaultCarrierPrefix: null as string | null,
+  docRefPrefix: 'NQD',
+};
 
 async function main(): Promise<void> {
   // Upsert operator row with identity columns. Update path needs explicit
@@ -162,18 +162,21 @@ async function main(): Promise<void> {
   }
   console.log(`mappings inserted ${NAQEL_MAPPINGS.length} rows for ${NAQEL_SLUG}`);
 
-  // Replace this operator's placeholder constants wholesale.
-  await db().delete(operatorConstants).where(eq(operatorConstants.operatorId, operatorId));
-  for (const c of NAQEL_PLACEHOLDER_CONSTANTS) {
-    await db().insert(operatorConstants).values({ operatorId, key: c.key, value: c.value });
-  }
-  console.log(`constants inserted ${NAQEL_PLACEHOLDER_CONSTANTS.length} placeholder rows for ${NAQEL_SLUG}`);
+  // Upsert operator_declaration_config — one row per operator.
+  await db()
+    .insert(operatorDeclarationConfig)
+    .values({ operatorId, ...NAQEL_DECLARATION_CONFIG })
+    .onConflictDoUpdate({
+      target: operatorDeclarationConfig.operatorId,
+      set: NAQEL_DECLARATION_CONFIG,
+    });
+  console.log(`operator_declaration_config upsert for ${NAQEL_SLUG}`);
 
   // Confirm the registry can hydrate it without errors.
   const { resolve } = await import('../modules/operators/operator-config.registry.js');
   const cfg = await resolve(NAQEL_SLUG);
   console.log(
-    `registry resolved ${cfg.slug}: ${cfg.mappings.length} mappings, ${Object.keys(cfg.constants).length} placeholder constants, identity=${cfg.identity.tabadulUserid}`,
+    `registry resolved ${cfg.slug}: ${cfg.mappings.length} mappings, identity=${cfg.identity.tabadulUserid}`,
   );
 }
 

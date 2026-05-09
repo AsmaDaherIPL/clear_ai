@@ -64,14 +64,6 @@ function xml(value: unknown): string {
     .replace(/'/g, '&apos;');
 }
 
-/** Read a per-operator placeholder constant; throws when missing and no fallback. */
-function constant(input: RenderInput, key: string, fallback?: string): string {
-  const v = input.operator.constants[key];
-  if (v !== undefined && v !== '') return v;
-  if (fallback !== undefined) return fallback;
-  throw new ZatcaRenderError(`operator_constants['${key}'] is required for operator '${input.operator.slug}'`);
-}
-
 /** Stringify a config value (envelope constants are smallint columns). */
 function cfg(value: number | string): string {
   return String(value);
@@ -114,16 +106,12 @@ function deriveTransportIdType(consigneeNationalId: string): string {
   return '5';
 }
 
-/**
- * carrierPrefix is a per-shipment lookup keyed on something Naqel hasn't
- * shared with us yet (looks like an internal carrier table; samples show
- * unrelated values 141, 346, 65). Until they ship the rule, emit a literal
- * placeholder string `{carrier_prefix}` for Naqel's post-processing layer
- * to find-and-replace. Operator-level static override available via
- * `default_carrier_prefix` constant.
- */
-function deriveCarrierPrefix(_waybillNo: string, operatorConstants: Readonly<Record<string, string>>): string {
-  const override = operatorConstants['default_carrier_prefix'];
+// Per-shipment lookup keyed on something Naqel hasn't shared yet
+// (samples show unrelated values 141, 346, 65). Until that rule lands,
+// emit `{carrier_prefix}` for Naqel's post-processing layer to
+// find-and-replace. Operator-level static override:
+// operator_declaration_config.default_carrier_prefix.
+function deriveCarrierPrefix(_waybillNo: string, override: string | null): string {
   if (override) return override;
   return '{carrier_prefix}';
 }
@@ -143,7 +131,7 @@ function renderRootOpen(input: RenderInput, docRefNo: string): string {
 function renderReference(input: RenderInput, docRefNo: string): string {
   const userid = xml(input.operator.identity.tabadulUserid);
   const acctId = xml(input.operator.identity.tabadulAcctId);
-  const regPort = xml(constant(input, 'default_reg_port_code', '23'));
+  const regPort = xml(input.config.defaultRegPortCode ?? '23');
   return [
     '      <decsub:reference>',
     `        <decsub:userid>${userid}</decsub:userid>`,
@@ -256,7 +244,7 @@ function renderInvoice(input: RenderInput): string {
 
   // Source company: client_source_company keyed on `${clientId}:${regPort}`.
   // Falls back to operator identity (e.g. "ناقل" / 340476) when not found.
-  const regPort = constant(input, 'default_reg_port_code', '23');
+  const regPort = input.config.defaultRegPortCode ?? '23';
   const sourceCompanyKey = `${first.canonical.clientId}:${regPort}`;
   const sourceCompany = lookup(input, 'client_source_company', sourceCompanyKey);
   const sourceCompanyName = sourceCompany
@@ -301,7 +289,7 @@ function formatNumeric(n: number): string {
 
 function renderExportAirBL(input: RenderInput): string {
   const first = input.items[0]!;
-  const carrierPrefix = deriveCarrierPrefix(first.canonical.waybillNo, input.operator.constants);
+  const carrierPrefix = deriveCarrierPrefix(first.canonical.waybillNo, input.config.defaultCarrierPrefix);
   const blDate = first.canonical.invoiceDate ?? isoDate(input.now);
   return [
     '      <decsub:exportAirBL>',
@@ -417,7 +405,7 @@ export function renderDeclarationXml(input: RenderInput): string {
   }
 
   const docRefNo = buildDocRefNo({
-    prefix: input.operator.constants['doc_ref_prefix'],
+    prefix: input.config.docRefPrefix ?? undefined,
     suffixOverride: input.docRefSuffixOverride,
   });
 

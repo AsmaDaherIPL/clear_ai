@@ -16,7 +16,6 @@ export interface RenderInput {
   operator: {
     slug: string;
     displayName: string;
-    constants: Readonly<Record<string, string>>;
     identity: Readonly<OperatorIdentity>;
   };
   /**

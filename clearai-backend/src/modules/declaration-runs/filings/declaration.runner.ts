@@ -77,7 +77,6 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
       operator: {
         slug: operator.slug,
         displayName: operator.displayName,
-        constants: operator.constants,
         identity: operator.identity,
       },
       config,

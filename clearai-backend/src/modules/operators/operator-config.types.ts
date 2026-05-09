@@ -85,7 +85,6 @@ export interface OperatorConfig {
   displayName: string;
   active: boolean;
   mappings: ReadonlyArray<ColumnMappingRule>;
-  constants: Readonly<Record<string, string>>;
   identity: Readonly<OperatorIdentity>;
 }
 

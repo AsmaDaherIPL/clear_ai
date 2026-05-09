@@ -49,12 +49,6 @@ export type {
   NewOperatorFieldMappingRow,
 } from './schema/operator-field-mappings.js';
 
-export { operatorConstants } from './schema/operator-constants.js';
-export type {
-  OperatorConstantRow,
-  NewOperatorConstantRow,
-} from './schema/operator-constants.js';
-
 export { operatorLookups } from './schema/operator-lookups.js';
 export type { OperatorLookupRow, NewOperatorLookupRow } from './schema/operator-lookups.js';
 

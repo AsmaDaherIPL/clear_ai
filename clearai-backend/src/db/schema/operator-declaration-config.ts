@@ -37,6 +37,11 @@ export const operatorDeclarationConfig = pgTable('operator_declaration_config', 
   consigneeDefaultPoBox: varchar('consignee_default_po_box', { length: 8 }),
   consigneeDefaultStreetAr: text('consignee_default_street_ar'),
 
+  // Was operator_constants.<key>; dropped that table in 0064.
+  defaultRegPortCode: varchar('default_reg_port_code', { length: 8 }),
+  defaultCarrierPrefix: varchar('default_carrier_prefix', { length: 16 }),
+  docRefPrefix: varchar('doc_ref_prefix', { length: 16 }),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

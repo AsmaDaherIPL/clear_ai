@@ -23,11 +23,10 @@ import {
 import {
   getOperatorBySlug,
   getMappingsByOperatorId,
-  getConstantsByOperatorId,
   listOperators,
 } from './operator.repository.js';
 import { MappingValidationError, OperatorNotFoundError } from './operator.errors.js';
-import type { OperatorFieldMappingRow, OperatorConstantRow, OperatorRow } from '../../db/schema.js';
+import type { OperatorFieldMappingRow, OperatorRow } from '../../db/schema.js';
 
 const CACHE = new Map<string, OperatorConfig>();
 
@@ -38,17 +37,13 @@ const CACHE = new Map<string, OperatorConfig>();
 async function loadOne(slug: string): Promise<OperatorConfig | null> {
   const operator = await getOperatorBySlug(slug);
   if (!operator) return null;
-  const [mappings, constants] = await Promise.all([
-    getMappingsByOperatorId(operator.id),
-    getConstantsByOperatorId(operator.id),
-  ]);
-  return buildConfig(operator, mappings, constants);
+  const mappings = await getMappingsByOperatorId(operator.id);
+  return buildConfig(operator, mappings);
 }
 
 function buildConfig(
   operator: OperatorRow,
   mappingRows: ReadonlyArray<OperatorFieldMappingRow>,
-  constantRows: ReadonlyArray<OperatorConstantRow>,
 ): OperatorConfig {
   const mappings: ColumnMappingRule[] = [];
   const problems: string[] = [];
@@ -104,16 +99,12 @@ function buildConfig(
     );
   }
 
-  const constants: Record<string, string> = {};
-  for (const c of constantRows) constants[c.key] = c.value;
-
   return Object.freeze<OperatorConfig>({
     id: operator.id,
     slug: operator.slug,
     displayName: operator.displayName,
     active: operator.active,
     mappings: Object.freeze(mappings),
-    constants: Object.freeze(constants),
     identity: Object.freeze({
       tabadulUserid: operator.tabadulUserid!,
       tabadulAcctId: operator.tabadulAcctId!,

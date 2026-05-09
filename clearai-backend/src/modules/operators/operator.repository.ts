@@ -11,11 +11,9 @@ import { db } from '../../db/client.js';
 import {
   operators,
   operatorFieldMappings,
-  operatorConstants,
   type OperatorRow,
   type NewOperatorRow,
   type OperatorFieldMappingRow,
-  type OperatorConstantRow,
 } from '../../db/schema.js';
 
 export async function getOperatorBySlug(slug: string): Promise<OperatorRow | null> {
@@ -38,10 +36,6 @@ export async function getMappingsByOperatorId(operatorId: string): Promise<Opera
     .from(operatorFieldMappings)
     .where(eq(operatorFieldMappings.operatorId, operatorId))
     .orderBy(operatorFieldMappings.canonicalField);
-}
-
-export async function getConstantsByOperatorId(operatorId: string): Promise<OperatorConstantRow[]> {
-  return db().select().from(operatorConstants).where(eq(operatorConstants.operatorId, operatorId));
 }
 
 /**

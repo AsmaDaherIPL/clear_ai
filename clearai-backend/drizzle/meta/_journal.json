@@ -449,6 +449,13 @@
       "when": 1777216300000,
       "tag": "0063_operator_declaration_config",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1777216400000,
+      "tag": "0064_operator_declaration_config_constants",
+      "breakpoints": true
     }
   ]
 }
