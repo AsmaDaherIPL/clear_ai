@@ -86,7 +86,7 @@ function buildItem(body: DispatchBody, operatorId: string): CanonicalLineItem {
 
 const TraceIdSchema = z.string().uuid();
 
-interface TraceRow {
+interface BatchItemTraceRow {
   id: string;
   declaration_run_id: string;
   status: string;
@@ -94,6 +94,13 @@ interface TraceRow {
   trace: unknown;
   classification_result: unknown;
   error: string | null;
+}
+
+interface ClassificationEventTraceRow {
+  id: string;
+  status: string;
+  final_code: string | null;
+  trace: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +183,20 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /pipeline/trace/:id
+  //
+  // Two-source lookup so the same id works regardless of how the trace
+  // got produced:
+  //
+  //   1. declaration_run_items.id → batch path. Single source of truth
+  //      for items processed via POST /declaration-runs.
+  //   2. classification_events.id → one-off /pipeline/dispatch path.
+  //      The recorder writes the dispatch trace here keyed on the
+  //      response's item_id; falling back here lets Bruno / SPA fetch
+  //      a single-shot trace by the same id the dispatch returned.
+  //
+  // Returns the same response shape from either source; declaration_run_id
+  // and classification_result are null when the row came from
+  // classification_events.
   app.get<{ Params: { id: string } }>('/pipeline/trace/:id', async (req, reply) => {
     const idParse = TraceIdSchema.safeParse(req.params.id);
     if (!idParse.success) {
@@ -186,28 +207,50 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     const id = idParse.data;
 
     const pool = getPool();
-    const r = await pool.query<TraceRow>(
+    const batchRes = await pool.query<BatchItemTraceRow>(
       `SELECT id, declaration_run_id, status, final_code, trace, classification_result, error
          FROM declaration_run_items
         WHERE id = $1
         LIMIT 1`,
       [id],
     );
-    if (r.rowCount === 0) {
-      return reply.code(404).send({
-        error: { code: 'trace_not_found', message: `No pipeline trace for item id ${id}.` },
+    if (batchRes.rowCount && batchRes.rows[0]) {
+      const row = batchRes.rows[0];
+      return reply.code(200).send({
+        item_id: row.id,
+        source: 'batch',
+        declaration_run_id: row.declaration_run_id,
+        status: row.status,
+        final_code: row.final_code,
+        classification_result: row.classification_result,
+        trace: row.trace,
+        error: row.error,
       });
     }
-    const row = r.rows[0]!;
 
-    return reply.code(200).send({
-      item_id: row.id,
-      declaration_run_id: row.declaration_run_id,
-      status: row.status,
-      final_code: row.final_code,
-      classification_result: row.classification_result,
-      trace: row.trace,
-      error: row.error,
+    const eventRes = await pool.query<ClassificationEventTraceRow>(
+      `SELECT id, status, final_code, trace
+         FROM classification_events
+        WHERE id = $1
+        LIMIT 1`,
+      [id],
+    );
+    if (eventRes.rowCount && eventRes.rows[0]) {
+      const row = eventRes.rows[0];
+      return reply.code(200).send({
+        item_id: row.id,
+        source: 'dispatch',
+        declaration_run_id: null,
+        status: row.status,
+        final_code: row.final_code,
+        classification_result: null,
+        trace: row.trace,
+        error: null,
+      });
+    }
+
+    return reply.code(404).send({
+      error: { code: 'trace_not_found', message: `No pipeline trace for item id ${id}.` },
     });
   });
 }
