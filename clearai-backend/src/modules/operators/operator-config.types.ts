@@ -77,26 +77,6 @@ export interface OperatorIdentity {
   brokerRepresentativeNo: string;
   defaultSourceCompanyName: string;
   defaultSourceCompanyNo: string;
-  // ZATCA submitter identity. Required for declaration rendering;
-  // empty string means an admin hasn't seeded this operator yet, and
-  // the renderer fails with an operator-scoped error.
-  zatcaSubmitterCarrierId: string;
-  zatcaSubmitterName: string;
-  zatcaDeclarationNamespace: string;
-}
-
-/**
- * Operator-level consignee-address default (post-migration 0056). The
- * renderer falls back to these when a row's canonical.consigneeAddress is
- * null or missing a specific field. Each field is individually optional
- * — partial defaults are allowed (e.g. provide a default cityCode but
- * always require zipCode per row).
- */
-export interface OperatorDefaultConsigneeAddress {
-  cityCode?: string;
-  zipCode?: string;
-  poBox?: string;
-  streetAr?: string;
 }
 
 export interface OperatorConfig {
@@ -105,20 +85,8 @@ export interface OperatorConfig {
   displayName: string;
   active: boolean;
   mappings: ReadonlyArray<ColumnMappingRule>;
-  /**
-   * Frozen view of operator_constants for this operator; key -> value.
-   * After migration 0056 this carries only `default_reg_port_code`. Once
-   * Naqel ships per-row reg port data the table can be dropped entirely.
-   */
   constants: Readonly<Record<string, string>>;
-  /** Operator's Tabadul identity — typed columns from the operators table. */
   identity: Readonly<OperatorIdentity>;
-  /**
-   * Operator's default consignee address. NULL when the operator hasn't
-   * configured any defaults — in that case the renderer requires every
-   * field to come from canonical.consigneeAddress.
-   */
-  defaultConsigneeAddress: Readonly<OperatorDefaultConsigneeAddress> | null;
 }
 
 /**

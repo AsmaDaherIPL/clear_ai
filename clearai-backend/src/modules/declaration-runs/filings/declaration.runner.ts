@@ -15,6 +15,7 @@ import type { PhaseDeclarationSummary } from './declaration.types.js';
 import { resolve as resolveOperator } from '../../operators/operator-config.registry.js';
 import { getOperatorById } from '../../operators/operator.repository.js';
 import { getLookupsByOperatorIdWithMetadata } from '../../operators/operator-lookups.repository.js';
+import { loadDeclarationConfig } from '../../operators/operator-declaration-config.repository.js';
 import { partitionHvLv } from '../../../integrations/zatca/declaration/declaration.bundler.js';
 import { renderDeclarationXml } from '../../../integrations/zatca/declaration/declaration.template.js';
 import { getBlobClient } from '../../../storage/blob.client.js';
@@ -22,7 +23,6 @@ import { filingKey } from '../../../storage/blob.paths.js';
 import { getDeclarationRun } from '../declaration-run.repository.js';
 import { newId } from '../../../common/utils/uuid.js';
 import { loadThresholds } from '../../reference-data/setup-meta.repository.js';
-import { loadZatcaDefaults } from '../../reference-data/zatca-defaults.repository.js';
 
 export async function runDeclarationPhase(declarationRunId: string): Promise<PhaseDeclarationSummary> {
   const startMs = Date.now();
@@ -43,11 +43,12 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   const lookups = await getLookupsByOperatorIdWithMetadata(operator.id);
   const items = await listClassifiedItems(declarationRunId);
 
-  // ZATCA tunables (HV threshold, bundle size) live in setup_meta — spec-wide.
-  // ZATCA envelope defaults live in zatca_declaration_defaults — also spec-wide.
-  const [thresholds, zatcaDefaults] = await Promise.all([
+  // setup_meta = spec-wide HV/LV tunables.
+  // operator_declaration_config = per-operator render defaults (submitter,
+  // envelope constants, consignee fallbacks).
+  const [thresholds, config] = await Promise.all([
     loadThresholds(),
-    loadZatcaDefaults(),
+    loadDeclarationConfig(operator.id),
   ]);
 
   const bundles = partitionHvLv(items, {
@@ -59,13 +60,14 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   const now = new Date();
 
   // Submitting with an empty carrier id would produce a ZATCA-rejected
-  // declaration. Fail loudly with the operator named so an admin knows
-  // which row to update.
-  if (!operator.identity.zatcaSubmitterCarrierId) {
+  // declaration. Fail with the operator named so an admin knows which
+  // row to update.
+  if (!config.zatcaSubmitterCarrierId) {
     throw new Error(
       `Operator '${operator.slug}' has no zatca_submitter_carrier_id configured. ` +
-      `An admin must populate operators.zatca_submitter_carrier_id with the value ` +
-      `assigned at the operator's ZATCA registration before declaration rendering can run.`,
+      `An admin must populate operator_declaration_config.zatca_submitter_carrier_id ` +
+      `with the value assigned at the operator's ZATCA registration before declaration ` +
+      `rendering can run.`,
     );
   }
 
@@ -77,16 +79,10 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
         displayName: operator.displayName,
         constants: operator.constants,
         identity: operator.identity,
-        defaultConsigneeAddress: operator.defaultConsigneeAddress,
       },
-      zatcaDefaults,
+      config,
       bundleStrategy: bundle.strategy,
       items: bundle.items,
-      submitter: {
-        carrierId: operator.identity.zatcaSubmitterCarrierId,
-        name: operator.identity.zatcaSubmitterName,
-      },
-      namespaces: { decsub: operator.identity.zatcaDeclarationNamespace },
       lookups,
       now,
     });

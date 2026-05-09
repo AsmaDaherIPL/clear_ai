@@ -1,43 +1,11 @@
 /**
- * operators — registry of carriers/brokers using ClearAI.
+ * operators — identity-only registry of carriers/brokers.
  *
- * Source of truth for operator identity. ZATCA tunables (HV threshold, bundle
- * size) live in setup_meta — they're spec-wide, not per-operator. ZATCA-spec
- * envelope defaults live in zatca_declaration_defaults — also spec-wide.
- *
- * Operator-identity values that used to live as key-value rows in
- * operator_constants are now first-class columns here (migration 0054):
- *   tabadul_userid, tabadul_acct_id, broker_license_type, broker_license_no,
- *   broker_representative_no, default_source_company_name, default_source_company_no
- *
- * Related tables (all FK on operators.id):
- *   • operator_field_mappings  — per-operator column mapping rules
- *   • operator_constants       — per-operator placeholders (TODO: drop once empty)
- *   • operator_lookups         — per-operator value translations
- *   • operator_code_overrides  — per-operator HS-code overrides
- *   • declaration_runs         — every run is owned by one operator
- *
- * PK is uuid; `slug` is a UNIQUE human-readable label kept on the operators
- * table only — it is NOT a foreign-key target (children FK on id).
+ * Render defaults (ZATCA submitter, envelope constants, consignee
+ * address) live on operator_declaration_config (1:1).
  */
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-
-/**
- * Shape of operators.default_consignee_address jsonb. Used by the renderer
- * as the operator-level fallback when a row's canonical.consigneeAddress
- * is null or missing fields.
- *
- * All fields are individually optional (the per-row override might fill
- * one of them while leaving others to fall back to the operator default).
- */
-export interface OperatorDefaultConsigneeAddress {
-  cityCode?: string;
-  zipCode?: string;
-  poBox?: string;
-  /** Free-text Arabic street address. */
-  streetAr?: string;
-}
 
 export const operators = pgTable(
   'operators',
@@ -77,26 +45,9 @@ export const operators = pgTable(
     /** Fallback `<decsub:sourceCompanyNo>` for the same case. */
     defaultSourceCompanyNo: varchar('default_source_company_no', { length: 32 }),
 
-    // ── ZATCA submitter identity (was env vars; moved here in 0062) ──
-
-    /** ZATCA-assigned carrier id. Filled by an admin from Naqel's ZATCA registration. */
-    zatcaSubmitterCarrierId: varchar('zatca_submitter_carrier_id', { length: 32 }),
-
-    /** Submitter name in the declaration envelope. Falls back to display_name when null. */
-    zatcaSubmitterName: text('zatca_submitter_name'),
-
-    /** XML namespace ZATCA assigns. Almost always 'http://www.saudiedi.com/schema/decsub'; column lets it be overridden per operator. */
-    zatcaDeclarationNamespace: text('zatca_declaration_namespace'),
-
-    /**
-     * Operator-level consignee-address default. The 4 fields (cityCode,
-     * zipCode, poBox, streetAr) feed the `<decsub:expressMailInfomation>`
-     * block. Used as the fallback when a row's canonical.consigneeAddress
-     * is null or missing a specific field. NULL when the operator hasn't
-     * configured any defaults — in that case the renderer requires every
-     * field to come from the canonical row.
-     */
-    defaultConsigneeAddress: jsonb('default_consignee_address').$type<OperatorDefaultConsigneeAddress>(),
+    // ZATCA submitter, envelope constants, and consignee-address
+    // defaults moved to operator_declaration_config in 0063. This row
+    // holds identity-toward-Tabadul/SABER only.
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     /** Auto-bumped by operators_touch_updated_at_trg. */

@@ -72,13 +72,9 @@ function constant(input: RenderInput, key: string, fallback?: string): string {
   throw new ZatcaRenderError(`operator_constants['${key}'] is required for operator '${input.operator.slug}'`);
 }
 
-/** Read a ZATCA-spec default; throws when the row is missing from zatca_declaration_defaults. */
-function zatcaDefault(input: RenderInput, key: string): string {
-  const v = input.zatcaDefaults[key];
-  if (v === undefined || v === '') {
-    throw new ZatcaRenderError(`zatca_declaration_defaults['${key}'] is missing — seed the row`);
-  }
-  return v;
+/** Stringify a config value (envelope constants are smallint columns). */
+function cfg(value: number | string): string {
+  return String(value);
 }
 
 function lookup(
@@ -137,7 +133,7 @@ function deriveCarrierPrefix(_waybillNo: string, operatorConstants: Readonly<Rec
 /* ──────────────────────────────────────────────────────────────────────── */
 
 function renderRootOpen(input: RenderInput, docRefNo: string): string {
-  const ns = xml(input.namespaces.decsub);
+  const ns = xml(input.config.zatcaDeclarationNamespace ?? 'http://www.saudiedi.com/schema/decsub');
   return (
     '<?xml version="1.0" encoding="utf-8"?>\n' +
     `<decsub:saudiEDI xmlns:deccm="http://www.saudiedi.com/schema/deccm" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:sau="http://www.saudiedi.com/schema/sau" xmlns:cm="http://www.saudiedi.com/schema/common" xmlns:schemaLocation="http://www.saudiedi.com/schema/decsub.xsd" xmlns:deckey="http://www.saudiedi.com/schema/deckey" decsub:docType="DEC" decsub:id="${xml(docRefNo)}" decsub:msgType="H2HDECSUB" xmlns:decsub="${ns}">`
@@ -172,10 +168,10 @@ function renderSenderInformation(input: RenderInput): string {
 function renderDeclarationHeader(input: RenderInput): string {
   return [
     '      <decsub:declarationHeader>',
-    `        <decsub:declarationType>${xml(zatcaDefault(input, 'declaration_type'))}</decsub:declarationType>`,
-    `        <decsub:finalCountry>${xml(zatcaDefault(input, 'final_country'))}</decsub:finalCountry>`,
-    `        <decsub:inspectionGroupID>${xml(zatcaDefault(input, 'inspection_group_id'))}</decsub:inspectionGroupID>`,
-    `        <decsub:paymentMethod>${xml(zatcaDefault(input, 'payment_method'))}</decsub:paymentMethod>`,
+    `        <decsub:declarationType>${xml(cfg(input.config.declarationType))}</decsub:declarationType>`,
+    `        <decsub:finalCountry>${xml(input.config.finalCountry)}</decsub:finalCountry>`,
+    `        <decsub:inspectionGroupID>${xml(cfg(input.config.inspectionGroupId))}</decsub:inspectionGroupID>`,
+    `        <decsub:paymentMethod>${xml(cfg(input.config.paymentMethod))}</decsub:paymentMethod>`,
     `        <decsub:totalNoOfInvoice>1</decsub:totalNoOfInvoice>`,
     '      </decsub:declarationHeader>',
   ].join('\n');
@@ -226,10 +222,10 @@ function renderInvoiceItem(item: DeclarationRunItemRow, idx: number, input: Rend
     `          <deccm:quantityInternationalUnit>${xml(qty)}</deccm:quantityInternationalUnit>`,
     `          <deccm:grossWeight>${xml(formatNumeric(weight))}</deccm:grossWeight>`,
     `          <deccm:netWeight>${xml(formatNumeric(weight))}</deccm:netWeight>`,
-    `          <deccm:unitPerPackages>${xml(zatcaDefault(input, 'item_unit_per_packages'))}</deccm:unitPerPackages>`,
+    `          <deccm:unitPerPackages>${xml(cfg(input.config.itemUnitPerPackages))}</deccm:unitPerPackages>`,
     `          <deccm:unitInvoiceCost>${xml(formatNumeric(unitInvoiceCost))}</deccm:unitInvoiceCost>`,
     `          <deccm:itemCost>${xml(formatNumeric(itemCost))}</deccm:itemCost>`,
-    `          <deccm:itemDutyType>${xml(zatcaDefault(input, 'item_duty_type_id'))}</deccm:itemDutyType>`,
+    `          <deccm:itemDutyType>${xml(cfg(input.config.itemDutyTypeId))}</deccm:itemDutyType>`,
     `        </decsub:items>`,
   ].join('\n');
 }
@@ -272,8 +268,8 @@ function renderInvoice(input: RenderInput): string {
 
   return [
     '      <decsub:invoices>',
-    `        <decsub:invoiceSeqNo>${xml(zatcaDefault(input, 'invoice_seq_no'))}</decsub:invoiceSeqNo>`,
-    `        <deccm:invoiceType>${xml(zatcaDefault(input, 'invoice_type_id'))}</deccm:invoiceType>`,
+    `        <decsub:invoiceSeqNo>${xml(cfg(input.config.invoiceSeqNo))}</decsub:invoiceSeqNo>`,
+    `        <deccm:invoiceType>${xml(cfg(input.config.invoiceTypeId))}</deccm:invoiceType>`,
     `        <deccm:invoiceNo>${xml(first.canonical.waybillNo)}</deccm:invoiceNo>`,
     `        <deccm:totalNoItems>${totalNoItems}</deccm:totalNoItems>`,
     `        <deccm:invoiceCost>${xml(formatNumeric(totalCost))}</deccm:invoiceCost>`,
@@ -284,11 +280,11 @@ function renderInvoice(input: RenderInput): string {
     `          <deccm:sourceCompanyName>${xml(sourceCompanyName)}</deccm:sourceCompanyName>`,
     `          <decsub:sourceCompanyNo>${xml(sourceCompanyNo)}</decsub:sourceCompanyNo>`,
     '        </decsub:sourceCompany>',
-    `        <deccm:deal>${xml(zatcaDefault(input, 'deal_value'))}</deccm:deal>`,
+    `        <deccm:deal>${xml(cfg(input.config.dealValue))}</deccm:deal>`,
     '        <decsub:paymentInfo>',
     `          <deccm:paymentInfoSeqNo>1</deccm:paymentInfoSeqNo>`,
-    `          <deccm:invoicePayment>${xml(zatcaDefault(input, 'invoice_payment_method_id'))}</deccm:invoicePayment>`,
-    `          <deccm:paymentDocumentsStatus>${xml(zatcaDefault(input, 'payment_document_status_id'))}</deccm:paymentDocumentsStatus>`,
+    `          <deccm:invoicePayment>${xml(cfg(input.config.invoicePaymentMethodId))}</deccm:invoicePayment>`,
+    `          <deccm:paymentDocumentsStatus>${xml(cfg(input.config.paymentDocumentStatusId))}</deccm:paymentDocumentsStatus>`,
     `          <deccm:documentAmount>${xml(formatNumeric(totalCost))}</deccm:documentAmount>`,
     '        </decsub:paymentInfo>',
     renderInvoiceItems(items, input),
@@ -332,10 +328,9 @@ function renderDeclarationDocuments(input: RenderInput): string {
 /**
  * Read a consignee-address field with the fallback chain:
  *   1. canonical.consigneeAddress.<field>  (per-row from request)
- *   2. operator.defaultConsigneeAddress.<field>  (operator-level default)
+ *   2. operator_declaration_config.consignee_default_*  (operator-level default)
  *   3. tabdulCityFallback (streetAr only — Arabic city name from tabdul_city lookup)
- *   4. for streetAr: empty string (matches historical behaviour when city name is unknown)
- *      for other fields: throw (we won't silently emit empty zip / poBox / cityCode)
+ *   4. for streetAr: empty string; for the others: throw.
  */
 function consigneeField(
   input: RenderInput,
@@ -345,14 +340,19 @@ function consigneeField(
   const first = input.items[0]!;
   const fromRow = first.canonical.consigneeAddress?.[field] ?? null;
   if (fromRow !== null && fromRow !== '') return fromRow;
-  const fromOperator = input.operator.defaultConsigneeAddress?.[field];
-  if (fromOperator !== undefined && fromOperator !== '') return fromOperator;
+  const cfg = input.config;
+  const fromOperator =
+    field === 'cityCode' ? cfg.consigneeDefaultCityCode
+    : field === 'zipCode' ? cfg.consigneeDefaultZipCode
+    : field === 'poBox' ? cfg.consigneeDefaultPoBox
+    : cfg.consigneeDefaultStreetAr;
+  if (fromOperator !== null && fromOperator !== undefined && fromOperator !== '') return fromOperator;
   if (field === 'streetAr') {
     if (tabdulCityFallback !== undefined && tabdulCityFallback !== '') return tabdulCityFallback;
-    return ''; // matches historical render: empty <deccm:address> when nothing known
+    return '';
   }
   throw new ZatcaRenderError(
-    `consigneeAddress.${field} is null on canonical row and operator '${input.operator.slug}' has no defaultConsigneeAddress.${field} fallback`,
+    `consigneeAddress.${field} is null on canonical row and operator '${input.operator.slug}' has no consignee_default_${field} fallback in operator_declaration_config`,
   );
 }
 
@@ -389,12 +389,12 @@ function renderExpressMail(input: RenderInput): string {
 
   return [
     '      <decsub:expressMailInfomation>',
-    `        <deccm:transportType>${xml(zatcaDefault(input, 'express_transport_type'))}</deccm:transportType>`,
+    `        <deccm:transportType>${xml(cfg(input.config.expressTransportType))}</deccm:transportType>`,
     `        <deccm:transportIDType>${xml(transportIdType)}</deccm:transportIDType>`,
     `        <deccm:transportID>${xml(c.consigneeNationalId)}</deccm:transportID>`,
     `        <deccm:name>${xml(c.consigneeName)}</deccm:name>`,
-    `        <deccm:addCtryCd>${xml(zatcaDefault(input, 'express_add_country_code'))}</deccm:addCtryCd>`,
-    `        <deccm:country>${xml(zatcaDefault(input, 'express_country'))}</deccm:country>`,
+    `        <deccm:addCtryCd>${xml(cfg(input.config.expressAddCountryCode))}</deccm:addCtryCd>`,
+    `        <deccm:country>${xml(cfg(input.config.expressCountry))}</deccm:country>`,
     `        <deccm:city>${xml(cityCode)}</deccm:city>`,
     `        <deccm:zipCode>${xml(zipCode)}</deccm:zipCode>`,
     `        <deccm:poBox>${xml(poBox)}</deccm:poBox>`,

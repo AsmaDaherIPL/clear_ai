@@ -122,14 +122,7 @@ function buildConfig(
       brokerRepresentativeNo: operator.brokerRepresentativeNo!,
       defaultSourceCompanyName: operator.defaultSourceCompanyName!,
       defaultSourceCompanyNo: operator.defaultSourceCompanyNo!,
-      zatcaSubmitterCarrierId: operator.zatcaSubmitterCarrierId ?? '',
-      zatcaSubmitterName: operator.zatcaSubmitterName ?? operator.displayName,
-      zatcaDeclarationNamespace:
-        operator.zatcaDeclarationNamespace ?? 'http://www.saudiedi.com/schema/decsub',
     }),
-    defaultConsigneeAddress: operator.defaultConsigneeAddress
-      ? Object.freeze({ ...operator.defaultConsigneeAddress })
-      : null,
   });
 }
 

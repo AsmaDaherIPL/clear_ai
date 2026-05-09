@@ -442,6 +442,13 @@
       "when": 1777216200000,
       "tag": "0062_operators_zatca_submitter",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1777216300000,
+      "tag": "0063_operator_declaration_config",
+      "breakpoints": true
     }
   ]
 }
