@@ -9,6 +9,7 @@
 import { runPipeline } from '../pipeline/pipeline.orchestrator.js';
 import { assembleDispatchV1 } from '../pipeline/trace/dispatch-v1.js';
 import { recordClassificationEvent } from '../pipeline/events/recorder.js';
+import { enqueueHitl } from '../pipeline/hitl/hitl.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import type { DispatchResult } from './dispatch.contract.js';
 
@@ -30,8 +31,10 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     completedAt,
   });
 
-  // Best-effort: a recorder failure must not abort the dispatch result.
-  void recordClassificationEvent({
+  // Persist the audit row first (FK target for the queue), then the
+  // queue write if the orchestrator surfaced HITL intent. Both
+  // best-effort; failures don't abort the dispatch result.
+  const eventOk = await recordClassificationEvent({
     operatorId,
     operatorSlug,
     request: {
@@ -45,6 +48,20 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     response: v1Response,
     totalLatencyMs: Date.now() - startedAtMs,
   });
+
+  if (eventOk && result.hitl) {
+    await enqueueHitl({
+      classification_event_id: itemId,
+      item_id: itemId,
+      operator_slug: operatorSlug,
+      reason: result.hitl.reason,
+      cleaned_description: result.hitl.cleaned_description,
+      verdict_output: result.trace.verdict,
+      sanity_result: result.trace.sanity,
+      trace: v1Response.trace,
+      enqueued_at: new Date().toISOString(),
+    });
+  }
 
   const hasA = !!result.trace.track_a?.chosen_code;
   const hasB = !!result.trace.track_b?.resolved_code;
@@ -68,9 +85,11 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
   };
 
   return {
-    finalCode: result.final_code ?? '',
-    goodsDescriptionAr: result.goods_description_ar ?? '',
+    finalCode: result.final_code,
+    goodsDescriptionAr: result.goods_description_ar,
     sanityVerdict: result.sanity_verdict,
+    hitl: result.hitl,
+    v1: v1Response,
     trace: itemTrace,
   };
 }

@@ -6,6 +6,7 @@
  * implementation, the declaration-runs module depends on the interface shape
  * declared here (mirrored in dispatch.contract.ts).
  */
+import type { DispatchV1Response } from '../../pipeline/shared/pipeline.types.js';
 
 export type SanityVerdict = 'PASS' | 'FLAG' | 'BLOCK';
 
@@ -25,20 +26,23 @@ export interface ItemTrace {
 }
 
 export interface DispatchResult {
-  /** 12-digit ZATCA HS code resolved by the dispatch pipeline. */
-  finalCode: string;
+  /**
+   * 12-digit ZATCA HS code. Null when the pipeline escalated (FLAG via
+   * Stage 2 escalate, BLOCK from parse/cleanup) and no code was decided.
+   * Persisting empty strings would fail the char(12) + FK on
+   * declaration_run_items.final_code, so the contract carries null.
+   */
+  finalCode: string | null;
   /**
    * Arabic goods description that feeds `<deccm:goodsDescription>` in the
-   * ZATCA Declaration envelope. Sourced from the resolved hs_code's Arabic
-   * gloss in zatca_hs_codes (with non-Arabic characters stripped per Naqel's
-   * `Naqel (Fields details + Mapping data).xlsx` -> `InvoiceItem - Fields`
-   * spec: "GoodsDescription = HSCode Arabic Description (Removing
-   * non-arabic characters)").
-   *
-   * Always present when sanityVerdict ∈ {'PASS','FLAG'}; absent on 'BLOCK'.
+   * ZATCA Declaration envelope. Null when finalCode is null.
    */
-  goodsDescriptionAr: string;
+  goodsDescriptionAr: string | null;
   sanityVerdict: SanityVerdict;
+  /** HITL intent surfaced by the orchestrator. Null when no review is needed. */
+  hitl: { reason: 'verdict_escalate' | 'sanity_flag'; cleaned_description: string } | null;
+  /** dispatch-v1 wire response, pre-assembled so callers can record/enqueue. */
+  v1: DispatchV1Response;
   trace: ItemTrace;
 }
 

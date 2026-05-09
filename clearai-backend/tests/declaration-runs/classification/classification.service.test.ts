@@ -113,12 +113,47 @@ async function seedDeclarationRun(itemCount: number): Promise<{ declarationRunId
   return { declarationRunId, itemIds };
 }
 
+// Build a synthetic DispatchV1Response stub for test fixtures. Tests don't
+// exercise the recorder/HITL writes (they pass mock dispatchers that bypass
+// dispatch.use-case entirely), so the stub just needs to satisfy the type.
+function v1Stub(itemId: string, finalCode: string | null, sanityVerdict: 'PASS' | 'FLAG' | 'BLOCK') {
+  return {
+    item_id: itemId,
+    operator_slug: TEST_OPERATOR_SLUG,
+    status: (sanityVerdict === 'PASS' ? 'succeeded' : sanityVerdict === 'BLOCK' ? 'rejected' : 'flagged') as 'succeeded' | 'flagged' | 'rejected',
+    final_code: finalCode,
+    goods_description_ar: null,
+    goods_description_en: null,
+    sanity_verdict: sanityVerdict,
+    trace: {
+      trace_version: 'dispatch-v1' as const,
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      duration_ms: 0,
+      llm_calls_used: 0,
+      summary: {
+        merchant_code_state: null,
+        description_classifier_code: finalCode,
+        code_resolver_code: null,
+        reconciliation: null,
+        operator_override_applied: false,
+        final_code: finalCode,
+        sanity_verdict: sanityVerdict,
+      },
+      stages: [],
+    },
+  };
+}
+
 describe('runClassificationPhase', () => {
   it('marks PASS items succeeded and persists final_code + trace', async () => {
     const { declarationRunId } = await seedDeclarationRun(3);
     const dispatch: DispatchFn = async (item) => ({
       finalCode: '010121000000',
-      goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS',
+      goodsDescriptionAr: 'فستان',
+      sanityVerdict: 'PASS',
+      hitl: null,
+      v1: v1Stub(item.itemId, '010121000000', 'PASS'),
       trace: { pathTaken: 'agree', stages: [], meta: { rowIndex: item.rowIndex } },
     });
 
@@ -141,13 +176,27 @@ describe('runClassificationPhase', () => {
   it('maps FLAG -> flagged, BLOCK -> blocked, throws -> failed', async () => {
     const { declarationRunId } = await seedDeclarationRun(3);
     let n = 0;
-    const dispatch: DispatchFn = async () => {
+    const dispatch: DispatchFn = async (item) => {
       n++;
-      if (n === 1) return { finalCode: '010121000000', goodsDescriptionAr: 'فستان', sanityVerdict: 'FLAG', trace: { pathTaken: 'flag', stages: [] } };
+      if (n === 1) return {
+        finalCode: '010121000000',
+        goodsDescriptionAr: 'فستان',
+        sanityVerdict: 'FLAG',
+        hitl: { reason: 'sanity_flag', cleaned_description: 'item' },
+        v1: v1Stub(item.itemId, '010121000000', 'FLAG'),
+        trace: { pathTaken: 'flag', stages: [] },
+      };
       // BLOCK is emitted by the orchestrator's pre-classification path
       // (parse failure / cleanup unusable), not by the sanity LLM. Those
       // returns always carry finalCode: null + goodsDescriptionAr: null.
-      if (n === 2) return { finalCode: null, goodsDescriptionAr: null, sanityVerdict: 'BLOCK', trace: { pathTaken: 'block', stages: [] } };
+      if (n === 2) return {
+        finalCode: null,
+        goodsDescriptionAr: null,
+        sanityVerdict: 'BLOCK',
+        hitl: null,
+        v1: v1Stub(item.itemId, null, 'BLOCK'),
+        trace: { pathTaken: 'block', stages: [] },
+      };
       throw new Error('boom');
     };
 
@@ -173,12 +222,19 @@ describe('runClassificationPhase', () => {
     const { declarationRunId } = await seedDeclarationRun(8);
     let inFlight = 0;
     let max = 0;
-    const dispatch: DispatchFn = async () => {
+    const dispatch: DispatchFn = async (item) => {
       inFlight++;
       max = Math.max(max, inFlight);
       await new Promise((r) => setTimeout(r, 5));
       inFlight--;
-      return { finalCode: '010121000000', goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS', trace: { pathTaken: 'agree', stages: [] } };
+      return {
+        finalCode: '010121000000',
+        goodsDescriptionAr: 'فستان',
+        sanityVerdict: 'PASS',
+        hitl: null,
+        v1: v1Stub(item.itemId, '010121000000', 'PASS'),
+        trace: { pathTaken: 'agree', stages: [] },
+      };
     };
     await runClassificationPhase(declarationRunId, { dispatch, concurrency: 2 });
     expect(max).toBeLessThanOrEqual(2);
@@ -203,9 +259,12 @@ describe('runClassificationPhase', () => {
       rawRow: {},
       status: 'pending',
     });
-    const dispatch: DispatchFn = async () => ({
+    const dispatch: DispatchFn = async (item) => ({
       finalCode: '010121000000',
-      goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS',
+      goodsDescriptionAr: 'فستان',
+      sanityVerdict: 'PASS',
+      hitl: null,
+      v1: v1Stub(item.itemId, '010121000000', 'PASS'),
       trace: { pathTaken: 'agree', stages: [] },
     });
     const summary = await runClassificationPhase(declarationRunId, { dispatch });
@@ -217,7 +276,14 @@ describe('runClassificationPhase', () => {
 
   it('handles empty declaration_runs without errors', async () => {
     const { declarationRunId } = await seedDeclarationRun(0);
-    const dispatch: DispatchFn = async () => ({ finalCode: 'x', goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS', trace: { pathTaken: '', stages: [] } });
+    const dispatch: DispatchFn = async (item) => ({
+      finalCode: 'x',
+      goodsDescriptionAr: 'فستان',
+      sanityVerdict: 'PASS',
+      hitl: null,
+      v1: v1Stub(item.itemId, 'x', 'PASS'),
+      trace: { pathTaken: '', stages: [] },
+    });
     const summary = await runClassificationPhase(declarationRunId, { dispatch });
     expect(summary.total).toBe(0);
     expect(and).toBeTruthy(); // keep the import used

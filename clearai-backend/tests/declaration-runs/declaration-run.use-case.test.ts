@@ -136,9 +136,37 @@ beforeEach(async () => {
   await db().delete(declarationRuns).where(eq(declarationRuns.operatorId, testOperatorId));
 });
 
-const passDispatch: DispatchFn = async () => ({
+const passDispatch: DispatchFn = async (item) => ({
   finalCode: '010121000000',
-  goodsDescriptionAr: 'فستان', sanityVerdict: 'PASS',
+  goodsDescriptionAr: 'فستان',
+  sanityVerdict: 'PASS',
+  hitl: null,
+  v1: {
+    item_id: item.itemId,
+    operator_slug: item.operatorSlug,
+    status: 'succeeded',
+    final_code: '010121000000',
+    goods_description_ar: 'فستان',
+    goods_description_en: null,
+    sanity_verdict: 'PASS',
+    trace: {
+      trace_version: 'dispatch-v1' as const,
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      duration_ms: 0,
+      llm_calls_used: 0,
+      summary: {
+        merchant_code_state: null,
+        description_classifier_code: '010121000000',
+        code_resolver_code: null,
+        reconciliation: null,
+        operator_override_applied: false,
+        final_code: '010121000000',
+        sanity_verdict: 'PASS',
+      },
+      stages: [],
+    },
+  },
   trace: { pathTaken: 'agree', stages: [] },
 });
 

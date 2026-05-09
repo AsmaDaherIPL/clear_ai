@@ -33,7 +33,12 @@ export interface RunOptions {
   concurrency?: number;
 }
 
-function classifyOutcome(verdict: SanityVerdict): ClassificationOutcome {
+function classifyOutcome(verdict: SanityVerdict, finalCode: string | null): ClassificationOutcome {
+  // declaration_run_items has a CHECK that final_code IS NOT NULL when
+  // status IN ('succeeded','flagged'). Stage-2 escalate emits FLAG with
+  // no code; that row goes to 'failed' here. The hitl_queue row is
+  // already written by dispatch.use-case so the reviewer still sees it.
+  if (finalCode === null) return 'failed';
   switch (verdict) {
     case 'PASS':
       return 'succeeded';
@@ -70,7 +75,7 @@ export async function runClassificationPhase(
         await markItemClassifying(row.id);
         try {
           const result: DispatchResult = await opts.dispatch(item);
-          const outcome = classifyOutcome(result.sanityVerdict);
+          const outcome = classifyOutcome(result.sanityVerdict, result.finalCode);
           counts[outcome]++;
           const succeededOrFlagged = outcome === 'succeeded' || outcome === 'flagged';
           await recordItemResult({
@@ -80,7 +85,9 @@ export async function runClassificationPhase(
             goodsDescriptionAr: succeededOrFlagged ? result.goodsDescriptionAr : null,
             classificationResult: serialiseResult(result),
             trace: result.trace,
-            error: null,
+            error: outcome === 'failed' && result.finalCode === null
+              ? 'Pipeline escalated to HITL with no code; see hitl_queue for review.'
+              : null,
           });
         } catch (err) {
           counts.failed++;
