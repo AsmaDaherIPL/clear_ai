@@ -62,6 +62,11 @@ param entraApiClientId = 'e39436da-d0ff-4923-8971-b4ec10300cfd'
 param createNetworkWatcher = false
 param networkWatcherName = 'nw-infp-clearai-dev-gwc-01'
 
+// ---- Storage Account (declaration-run blob artifacts) ----
+// Storage account names disallow hyphens, so the convention collapses from
+// infp-clearai-dev-gwc to infpclearaidevgwc. 21 chars, under the 24 cap.
+param storageAccountName = 'stinfpclearaidevgwc01'
+
 // ---- Tags ----
 param tags = {
   app: 'clearai'

@@ -110,6 +110,11 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           keyVaultUrl: '${kvUri}/secrets/apim-shared-secret'
           identity: 'system'
         }
+        {
+          name: 'foundry-embed-api-key'
+          keyVaultUrl: '${kvUri}/secrets/foundry-embed-api-key'
+          identity: 'system'
+        }
       ] : [
         // Pre-cutover (legacy single-admin path): everything points at the
         // admin connection string. Remove these entries from `secrets` and
@@ -128,6 +133,11 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'apim-shared-secret'
           keyVaultUrl: '${kvUri}/secrets/apim-shared-secret'
+          identity: 'system'
+        }
+        {
+          name: 'foundry-embed-api-key'
+          keyVaultUrl: '${kvUri}/secrets/foundry-embed-api-key'
           identity: 'system'
         }
       ]
@@ -167,9 +177,24 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'LLM_MODEL', value: 'claude-haiku-4-5-clearai-dev' }
             { name: 'LLM_MODEL_STRONG', value: 'claude-sonnet-4-6-clearai-dev' }
             { name: 'LLM_TIMEOUT_MS', value: '15000' }
-            // Embedder
-            { name: 'EMBEDDER_MODEL', value: 'Xenova/multilingual-e5-small' }
-            { name: 'EMBEDDER_DIM', value: '384' }
+            // Embedder — Foundry-hosted text-embedding-3-large (1024 dims).
+            // Migrated from the local ONNX Xenova/multilingual-e5-small (384 dims)
+            // in 0057_embedding_dim_to_1024.sql. The API key is sourced from
+            // KV via secretRef; endpoint and model are plain values (not
+            // secrets — discoverable via `az cognitiveservices account list`).
+            // FOUNDRY_EMBED_MODEL is the **deployment name** on Foundry,
+            // not the Azure model id. The deployment was created in
+            // sub-infp-ai-nonprod-eu / rg-infp-ai-dev-swc-01 / aif-infp-dev-swc-01
+            // with deployment id 'text-embedding-3-large-clearai-dev' pointing
+            // at model 'text-embedding-3-large' v1. The backend builds:
+            //   {ENDPOINT}/openai/deployments/{FOUNDRY_EMBED_MODEL}/embeddings
+            // so this MUST match the deployment id, not the model id.
+            { name: 'EMBEDDER_MODEL',          value: 'text-embedding-3-large-clearai-dev' }
+            { name: 'EMBEDDER_DIM',            value: '1024' }
+            { name: 'FOUNDRY_EMBED_ENDPOINT',  value: 'https://aif-infp-dev-swc-01.services.ai.azure.com' }
+            { name: 'FOUNDRY_EMBED_MODEL',     value: 'text-embedding-3-large-clearai-dev' }
+            { name: 'FOUNDRY_EMBED_DIM',       value: '1024' }
+            { name: 'FOUNDRY_EMBED_API_KEY',   secretRef: 'foundry-embed-api-key' }
             // CORS origin allowlist (defence-in-depth — APIM enforces CORS
             // first, this is the second layer). Comma-separated, no spaces.
             // Must mirror the <allowed-origins> set in apim.bicep:

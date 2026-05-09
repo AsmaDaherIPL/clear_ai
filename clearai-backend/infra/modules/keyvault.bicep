@@ -1,15 +1,29 @@
 // =============================================================================
 // Key Vault (Standard SKU, RBAC mode)
 // =============================================================================
+// Network posture is environment-gated:
+//   dev      -> public network on, defaultAction Allow + AzureServices bypass.
+//               Container Apps Consumption can't bind to a Private Endpoint
+//               without a Workload Profile env, so we lean on RBAC + the fact
+//               that the only KV operation Container Apps does is
+//               getSecret via secretref (audited).
+//   stg/prod -> public network OFF; KV is reachable only via Private Endpoint.
+//               Purge protection is forced on (cannot be undone — this is
+//               intentional, prod KVs must never be purgeable).
+//
+// Other settings (constant across envs):
+// - SKU: Standard
 // - Soft-delete: enabled (Azure default, cannot be disabled)
-// - Purge protection: OFF for dev (TODO: turn ON for prod)
-// - Access model: RBAC (no access policies)
-// - Public network access: Enabled (no PE in dev)
+// - RBAC mode (no access policies)
 // - Cost: free for first 10k operations / month
 // =============================================================================
 
 @description('Region.')
 param location string
+
+@description('Environment short code. Drives network posture and purge protection.')
+@allowed([ 'dev', 'stg', 'prd' ])
+param environmentName string
 
 @description('Key Vault name. Globally unique. Max 24 chars.')
 @maxLength(24)
@@ -19,6 +33,8 @@ param keyVaultName string
 param tags object
 
 // -----------------------------------------------------------------------------
+
+var isDev = environmentName == 'dev'
 
 resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
   name: keyVaultName
@@ -33,10 +49,13 @@ resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
     enableRbacAuthorization: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 90
-    enablePurgeProtection: null  // OFF for dev. Set to true in prod.
-    publicNetworkAccess: 'Enabled'
+    // Purge protection: OFF for dev so we can blow the KV away during
+    // experimentation. ON for stg/prod (irreversible — once enabled, the
+    // vault cannot be purged for the soft-delete window even by an Owner).
+    enablePurgeProtection: isDev ? null : true
+    publicNetworkAccess: isDev ? 'Enabled' : 'Disabled'
     networkAcls: {
-      defaultAction: 'Allow'
+      defaultAction: isDev ? 'Allow' : 'Deny'
       bypass: 'AzureServices'
     }
   }

@@ -133,6 +133,13 @@ param createNetworkWatcher bool = false
 @description('Network Watcher name (only used if createNetworkWatcher = true).')
 param networkWatcherName string = 'nw-infp-clearai-dev-gwc-01'
 
+// ---- Storage Account (declaration-run blob artifacts) ----------------------
+
+@description('Storage account name. 3-24 chars, lowercase alphanumeric only, globally unique. Stores ZATCA declaration XML output (HV/LV/manifest) under the declaration-runs container.')
+@minLength(3)
+@maxLength(24)
+param storageAccountName string = 'stinfpclearaidevgwc01'
+
 // ---- Tags -------------------------------------------------------------------
 
 @description('Common resource tags.')
@@ -152,6 +159,7 @@ module postgres 'modules/postgres.bicep' = {
   name: 'postgres-deploy'
   params: {
     location: location
+    environmentName: environmentName
     serverName: postgresServerName
     databaseName: postgresDatabaseName
     administratorLogin: postgresAdminLogin
@@ -164,11 +172,12 @@ module postgres 'modules/postgres.bicep' = {
   }
 }
 
-// 2. Key Vault (RBAC mode, soft-delete on, purge protection off for dev)
+// 2. Key Vault (RBAC mode, soft-delete on, env-gated public access + purge protection)
 module keyVault 'modules/keyvault.bicep' = {
   name: 'keyvault-deploy'
   params: {
     location: location
+    environmentName: environmentName
     keyVaultName: keyVaultName
     tags: tags
   }
@@ -239,6 +248,22 @@ module containerApp 'modules/containerapp.bicep' = {
   ]
 }
 
+// 5b. Storage Account + declaration-runs blob container.
+//     Locked down: public network access disabled, shared key access disabled,
+//     Entra-only auth via the Container App MI. SPA gets files via short-lived
+//     user-delegation SAS URLs minted by the backend, not direct blob reads.
+//     Account-scope role grant means RBAC stays simple as containers grow.
+module storage 'modules/storage.bicep' = {
+  name: 'storage-deploy'
+  params: {
+    location: location
+    environmentName: environmentName
+    storageAccountName: storageAccountName
+    containerAppPrincipalId: containerApp.outputs.principalId
+    tags: tags
+  }
+}
+
 // 6. (Optional) Network Watcher — only if your sub does not already
 //    have NetworkWatcher_germanywestcentral in NetworkWatcherRG.
 module networkWatcher 'modules/networkwatcher.bicep' = if (createNetworkWatcher) {
@@ -297,3 +322,7 @@ output apimPrincipalId string = apim.outputs.principalId
 output logAnalyticsName string = logAnalytics.outputs.name
 output logAnalyticsId string = logAnalytics.outputs.id
 output logAnalyticsCustomerId string = logAnalytics.outputs.customerId
+
+output storageAccountName string = storage.outputs.name
+output storageBlobEndpoint string = storage.outputs.blobEndpoint
+output storageDeclarationRunsContainer string = storage.outputs.declarationRunsContainerName

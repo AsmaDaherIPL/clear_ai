@@ -86,17 +86,63 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
   // created before that migration ran will not have a prefix and
   // return 404 here — they're served via the legacy declarations
   // listing path until backfill (out of scope for now).
+  //
+  // SECURITY POSTURE (current — Layer A: immediate hardening only):
+  //
+  // These endpoints are reachable to any caller with a valid Entra JWT
+  // (APIM enforces validate-jwt on the outer policy). What they're NOT
+  // doing yet:
+  //   - per-user ownership check    (no `created_by_oid` column exists)
+  //   - per-operator scope check    (caller's allowed operators not modelled)
+  //   - per-tenant scope check      (single-tenant deployment today)
+  //
+  // Net consequence: anyone with a valid token who learns or guesses a
+  // declaration_run_id can pull SAS URLs for that run's input.csv (raw
+  // commercial-invoice data: HS codes, values, consignee names, mobiles,
+  // national IDs).
+  //
+  // What Layer A *does* do, right here, right now:
+  //   1. ID format check enforces UUIDv7 shape (timestamp-prefixed). UUIDv7
+  //      has 74 random bits in the entropy region, so blind guessing is
+  //      computationally infeasible. Sequential id enumeration is also
+  //      infeasible (the random tail is per-row). Attacker still wins if
+  //      they exfiltrate a real id from logs / a screenshot / another bug.
+  //   2. Path-traversal guard on the relative path component below.
+  //   3. SAS URLs are scoped to a single blob (not a wildcard prefix) and
+  //      expire in 5 minutes (SAS_TTL_MS), limiting replay window.
+  //
+  // What Layer B (separate task — handover brief in tracker):
+  //   1. Add `created_by_oid text NULL` to `declaration_runs` (Drizzle
+  //      migration 0062 or next).
+  //   2. JWT verification middleware: parse `Authorization: Bearer ...`,
+  //      verify signature against Entra JWKS, attach `req.user.oid` and
+  //      `req.user.preferred_username` to the request.
+  //   3. POST /declaration-runs stamps `created_by_oid` from req.user.oid.
+  //   4. Both endpoints below add `AND created_by_oid = $2` (with an admin
+  //      role bypass for support).
+  //   5. Backfill choice: NULL == "legacy, anyone-can-download" OR assign
+  //      all existing rows to the operator's primary oid. Decision deferred
+  //      until Layer B starts.
+  //
+  // Tracker brief: tracker/AGENT_BRIEFS/backend-agent-download-authz-2026-05-09.md
 
-  const IdSchema = z.string().uuid();
+  // UUIDv7 strict matcher: 8-4-4-4-12 hex with version nibble = 7.
+  // Standard z.uuid() accepts v1/v4/v7 etc. — we narrow to the version
+  // we actually mint, so callers can't slip a guessable v1 (MAC + ts).
+  const UuidV7Schema = z
+    .string()
+    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, {
+      message: 'id must be a UUIDv7',
+    });
 
   // 5-minute SAS expiry. Long enough for the SPA to start parallel
   // downloads and for slow networks; short enough to limit replay.
   const SAS_TTL_MS = 5 * 60 * 1000;
 
   app.get<{ Params: { id: string } }>('/declaration-runs/:id/download-links', async (req, reply) => {
-    const idParse = IdSchema.safeParse(req.params.id);
+    const idParse = UuidV7Schema.safeParse(req.params.id);
     if (!idParse.success) {
-      return reply.code(400).send({ error: { code: 'invalid_id', message: 'id must be a UUID.' } });
+      return reply.code(400).send({ error: { code: 'invalid_id', message: 'id must be a UUIDv7.' } });
     }
 
     const pool = getPool();
@@ -144,12 +190,20 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
   app.get<{ Params: { id: string; '*': string } }>(
     '/declaration-runs/:id/files/*',
     async (req, reply) => {
-      const idParse = IdSchema.safeParse(req.params.id);
+      const idParse = UuidV7Schema.safeParse(req.params.id);
       if (!idParse.success) {
-        return reply.code(400).send({ error: { code: 'invalid_id', message: 'id must be a UUID.' } });
+        return reply.code(400).send({ error: { code: 'invalid_id', message: 'id must be a UUIDv7.' } });
       }
+      // Path-traversal hardening:
+      //   - reject empty
+      //   - reject any '..' segment (handles "../", "x/../y", URL-encoded
+      //     decodes done by Fastify before this point — Fastify's wildcard
+      //     route gives us the already-decoded path, so '..' is the only
+      //     literal we need to look for here).
+      //   - reject leading '/' (would let a caller bypass the prefix join)
+      //   - reject backslash (Windows-style path injection on the blob name)
       const relPath = req.params['*'];
-      if (!relPath || relPath.includes('..')) {
+      if (!relPath || relPath.startsWith('/') || relPath.includes('..') || relPath.includes('\\')) {
         return reply.code(400).send({ error: { code: 'invalid_path', message: 'Bad relative path.' } });
       }
 

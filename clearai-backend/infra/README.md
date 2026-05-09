@@ -30,7 +30,21 @@ clearai-backend/infra/
 | Key Vault         | `kv-infp-clearai-dev-gwc`               | Standard, RBAC, soft-delete on            |
 | Container Apps Env| `cae-infp-clearai-dev-gwc-01`           | Consumption only, no Log Analytics        |
 | Container App     | `ca-infp-clearai-be-dev-gwc-01`         | min=0/max=2, 0.5 vCPU / 1 GiB             |
+| Storage Account   | `stinfpclearaidevgwc01`                 | Standard_LRS, Hot, MI-only auth (no shared key), env-gated network posture (dev: public + Allow + RBAC; stg/prd: PE-only), 90-day lifecycle, 7-day soft-delete |
 | Network Watcher   | regional singleton (auto-detected)      | created only if missing                   |
+
+### Repeating storage for staging / prod
+
+The storage module (`modules/storage.bicep`) is environment-agnostic. To stand
+up staging or prod, add a new `main.<env>.bicepparam` and override
+`storageAccountName` with a globally-unique name following the convention
+`st<initiative><app><env><region><instance>` — e.g. `stinfpclearaistggwc01`,
+`stinfpclearaiprdgwc01`. Storage account names disallow hyphens, must be 3-24
+chars, lowercase alphanumeric. The Bicep grants `Storage Blob Data Contributor`
+to whatever Container App principalId is wired in `main.bicep`, so the same
+module works in any RG. For prod also: turn on blob versioning (`isVersioningEnabled: true`),
+enable purge protection on the account, and consider GRS (`Standard_GRS`) instead
+of LRS — the lifecycle/soft-delete defaults remain sane.
 
 Cost at idle: **~$13–15 / month** (Postgres B1ms is the only always-on cost).
 Container App scales to zero. KV first 10k ops / month are free.
