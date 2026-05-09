@@ -62,6 +62,10 @@ const ReconciliationSchema = z
 async function callReconciliationLlm(params: {
   track_a_code: string | null;
   track_a_rationale: string | null;
+  /** Top description-classifier candidates with EN/AR descriptions. Always
+   *  passed (when retrieval returned anything) so the LLM has description
+   *  evidence even when track A couldn't pick. */
+  track_a_candidates: ReadonlyArray<{ code: string; description_en: string | null; description_ar: string | null }>;
   track_b_code: string | null;
   track_b_resolution: string;
   cleaned_description: string;
@@ -75,6 +79,10 @@ async function callReconciliationLlm(params: {
     track_a: params.track_a_code
       ? { code: params.track_a_code, rationale: params.track_a_rationale }
       : null,
+    // The retrieval candidate list is shown even when track_a.code is null
+    // (threshold/no_fit). The LLM uses it to reason about whether track_b's
+    // code is plausible for the description.
+    track_a_candidates: params.track_a_candidates.slice(0, 8),
     track_b: params.track_b_code
       ? { code: params.track_b_code, resolution: params.track_b_resolution }
       : null,
@@ -169,10 +177,15 @@ export async function runReconciliation(
       };
 
     case 'single_b':
-      // Light-verify via LLM before accepting a code-only result.
+      // Light-verify via LLM, with the description-classifier candidate
+      // list as evidence. If retrieval pulled candidates that disagree
+      // with track_b's chapter, the LLM can escalate with that context;
+      // if the candidates are coherent with track_b (or track_a returned
+      // no candidates at all), the LLM accepts.
       return callReconciliationLlm({
         track_a_code: null,
         track_a_rationale: null,
+        track_a_candidates: trackA.candidates,
         track_b_code: trackB.resolved_code,
         track_b_resolution: trackB.resolution,
         cleaned_description,
@@ -199,6 +212,7 @@ export async function runReconciliation(
       return callReconciliationLlm({
         track_a_code: a,
         track_a_rationale: trackA.rationale,
+        track_a_candidates: trackA.candidates,
         track_b_code: b,
         track_b_resolution: trackB.resolution,
         cleaned_description,
