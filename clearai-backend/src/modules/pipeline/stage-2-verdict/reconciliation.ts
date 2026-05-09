@@ -102,16 +102,33 @@ async function callReconciliationLlm(params: {
   const decision = d.decision ?? 'escalate';
 
   if (decision === 'accept' && typeof d.chosen_code === 'string') {
-    const source: ReconciliationSource =
-      d.source === 'track_a' || d.source === 'track_b' || d.source === 'reconciled'
-        ? d.source
-        : 'reconciled';
+    // The LLM's job is to PICK between the two opinions, not invent
+    // a third. Reject anything that doesn't match track A or track B
+    // exactly — a hallucinated code would 12-digit-look-real but fail
+    // the FK to zatca_hs_codes downstream and ship as a ZATCA-rejected
+    // declaration.
+    const candidates = [params.track_a_code, params.track_b_code].filter(
+      (c): c is string => typeof c === 'string' && /^\d{12}$/.test(c),
+    );
+    const matched = candidates.find((c) => c === d.chosen_code) ?? null;
+    if (matched !== null) {
+      const source: ReconciliationSource =
+        matched === params.track_a_code ? 'track_a' : 'track_b';
+      return {
+        decision: 'accept',
+        final_code: matched,
+        confidence: typeof d.confidence === 'number' ? d.confidence : 0.7,
+        rationale: typeof d.rationale === 'string' ? d.rationale : '',
+        source,
+      };
+    }
+    // LLM returned a code that doesn't match either track. Escalate
+    // — the picker spec only authorises choosing between A and B.
     return {
-      decision: 'accept',
-      final_code: d.chosen_code,
-      confidence: typeof d.confidence === 'number' ? d.confidence : 0.7,
-      rationale: typeof d.rationale === 'string' ? d.rationale : '',
-      source,
+      decision: 'escalate',
+      disagreement_summary:
+        `reconciliation LLM returned chosen_code='${d.chosen_code}' which matches neither ` +
+        `track_a (${params.track_a_code ?? 'null'}) nor track_b (${params.track_b_code ?? 'null'}); escalating.`,
     };
   }
 

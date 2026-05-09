@@ -178,9 +178,12 @@ async function resolveAgainstCodebook(
       };
     }
 
+    // LLM failed or tripped guard. Picking replacements[0] (lowest code
+    // by SQL order) would turn uncertainty into a confident wrong answer.
+    // Drop the signal — description_classifier carries the row.
     return {
-      resolved_code: replacements[0]!,
-      resolution: 'deterministic_swap',
+      resolved_code: null,
+      resolution: 'null_resolution',
       codebook_state: 'deprecated_multiple_replacements',
     };
   }
@@ -238,10 +241,13 @@ async function resolveAgainstCodebook(
     };
   }
 
+  // LLM failed or tripped guard. children[0] is the lowest code under
+  // the prefix (SQL ORDER BY) — arbitrary, not most likely. Drop the
+  // signal rather than emit a confident wrong code.
   return {
-    resolved_code: children[0]!.code,
-    resolution: 'llm_pick_under_prefix',
-    codebook_state: 'active',
+    resolved_code: null,
+    resolution: 'null_resolution',
+    codebook_state: 'unknown_to_codebook',
   };
 }
 
