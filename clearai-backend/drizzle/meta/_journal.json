@@ -456,6 +456,13 @@
       "when": 1777216400000,
       "tag": "0064_operator_declaration_config_constants",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1777216500000,
+      "tag": "0065_zatca_hs_code_display_drop_legacy_cols",
+      "breakpoints": true
     }
   ]
 }

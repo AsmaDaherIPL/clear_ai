@@ -21,7 +21,6 @@ import {
   char,
   text,
   smallint,
-  timestamp,
   json,
   index,
   uuid,
@@ -61,14 +60,6 @@ export const hsCodeDisplay = pgTable(
 
     /** Hierarchy depth from dash count: 0 = heading-padded, up to ~4 for product-leaves. */
     depth: smallint('depth').notNull(),
-
-    /** LLM-polished canonical name. NULL until populated by the lazy-fill helper. */
-    submissionDescriptionEn: text('submission_description_en'),
-    submissionDescriptionAr: text('submission_description_ar'),
-    submissionDescModel: text('submission_desc_model'),
-    submissionDescGeneratedAt: timestamp('submission_desc_generated_at', { withTimezone: true }),
-
-    derivedAt: timestamp('derived_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     pathCodesGin: index('zatca_hs_code_display_path_codes_gin').on(t.pathCodes),

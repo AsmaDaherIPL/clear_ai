@@ -417,6 +417,10 @@ export interface DeclarationRunItem {
   row_index: number;
   status: DeclarationRunItemStatus;
   final_code: string | null;
+  /** ZATCA breadcrumb in English (zatca_hs_code_display.path_en). Null when no final_code. */
+  catalog_path_en: string | null;
+  /** LLM-generated Arabic submission description that ships in the XML. Null when no final_code. */
+  submission_description_ar: string | null;
   classification_result: Record<string, unknown> | null;
   trace: Record<string, unknown> | null;
   error: string | null;

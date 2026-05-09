@@ -252,6 +252,14 @@ components:
           nullable: true
           pattern: '^\d{12}$'
           description: 12-digit ZATCA HS code, present when status=succeeded|flagged.
+        catalog_path_en:
+          type: string
+          nullable: true
+          description: ZATCA breadcrumb in English (zatca_hs_code_display.path_en) for the chosen final_code. Null when there's no final_code.
+        submission_description_ar:
+          type: string
+          nullable: true
+          description: LLM-generated Arabic goods description that ships in the XML envelope. Null when there's no final_code.
         classification_result:
           type: object
           nullable: true

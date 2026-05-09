@@ -247,6 +247,24 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
       {/* Batch dropzone pane. */}
       {mode === 'batch' && (
         <div className="p-3.5">
+          <div className="flex items-center justify-end gap-3 pb-2 text-[12.5px] text-[var(--ink-3)]">
+            <span>Need the column shape?</span>
+            <a
+              href="/templates/clearai-batch-template.xlsx"
+              download
+              className="underline hover:text-[var(--ink-2)]"
+            >
+              Excel template
+            </a>
+            <span aria-hidden>·</span>
+            <a
+              href="/templates/clearai-batch-template.csv"
+              download
+              className="underline hover:text-[var(--ink-2)]"
+            >
+              CSV template
+            </a>
+          </div>
           <div
             onDragOver={(e) => {
               e.preventDefault();

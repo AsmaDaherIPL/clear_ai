@@ -1,0 +1,2 @@
+Description,WaybillNo,CustomsCommodityCode,SKU,Amount,Currency,Quantity,UnitType,weight,ClientID,CountryofManufacture,DestinationStationID,ConsigneeName,ConsigneeNationalID,Mobile
+Wireless headphones with bluetooth,WB-TEST-0001,851830000000,SKU-TEST-001,150.00,SAR,1,PIECE,0.25,CLIENT-TEST,CN,RUH,Test Consignee,1234567890,966500000000

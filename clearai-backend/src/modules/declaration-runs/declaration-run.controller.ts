@@ -11,8 +11,8 @@ import {
   cancelDeclarationRunIfActive,
   countItemsByStatus,
   getDeclarationRun,
-  listItems,
 } from './declaration-run.repository.js';
+import { getPool } from '../../db/client.js';
 import {
   DeclarationRunValidationError,
   DeclarationRunTooLargeError,
@@ -166,15 +166,48 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
   if (declarationRun.classificationStatus === 'pending' || declarationRun.classificationStatus === 'running') {
     return reply.code(425).send({ error: { code: 'phase_not_ready', message: 'classification phase still running' } });
   }
-  const items = await listItems(declarationRun.id);
+  // Single query joins display + submission_descriptions so the SPA
+  // result table can render `path_en` and the LLM-generated Arabic
+  // submission text per item without follow-up fetches.
+  const pool = getPool();
+  const r = await pool.query<{
+    id: string;
+    row_index: number;
+    status: string;
+    final_code: string | null;
+    classification_result: unknown;
+    trace: unknown;
+    error: string | null;
+    catalog_path_en: string | null;
+    submission_description_ar: string | null;
+  }>(
+    `SELECT i.id,
+            i.row_index,
+            i.status,
+            i.final_code,
+            i.classification_result,
+            i.trace,
+            i.error,
+            d.path_en              AS catalog_path_en,
+            (i.classification_result -> 'goods_description_ar')::text AS submission_description_ar
+       FROM declaration_run_items i
+       LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
+      WHERE i.declaration_run_id = $1
+      ORDER BY i.row_index`,
+    [declarationRun.id],
+  );
   return reply.send({
     declaration_run_id: declarationRun.id,
-    items: items.map((i) => ({
+    items: r.rows.map((i) => ({
       id: i.id,
-      row_index: i.rowIndex,
+      row_index: i.row_index,
       status: i.status,
-      final_code: i.finalCode,
-      classification_result: i.classificationResult,
+      final_code: i.final_code,
+      catalog_path_en: i.catalog_path_en,
+      submission_description_ar: i.submission_description_ar
+        ? i.submission_description_ar.replace(/^"|"$/g, '')
+        : null,
+      classification_result: i.classification_result,
       trace: i.trace,
       error: i.error,
     })),

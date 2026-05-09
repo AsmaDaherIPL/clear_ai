@@ -113,16 +113,38 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
         )}
       </div>
 
+      {/* Run-level error banner: shown when the run as a whole failed and
+          no items succeeded, so the table doesn't render phantom rows for
+          a Phase-2 failure that wasn't actually a per-item failure. */}
+      {summary && summary.status === 'failed' && summary.succeeded === 0 && (
+        <div
+          className="px-[22px] py-3 border-b border-[var(--line-2)] bg-[oklch(0.95_0.07_25)] text-[13px] text-[oklch(0.32_0.12_25)]"
+          role="alert"
+        >
+          <div className="font-medium mb-1">Run failed before any item completed.</div>
+          <div className="text-[12.5px]">
+            {summary.error ?? 'No items were classified. Check the run configuration and try again.'}
+          </div>
+        </div>
+      )}
+
       <div className="max-h-[480px] overflow-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr className="sticky top-0 bg-[var(--line-2)]">
-              {(['th_line', 'th_desc', 'th_code', 'th_status'] as const).map((key) => (
+              {[
+                { key: 'line', label: 'Line' },
+                { key: 'path_en', label: 'Description (EN)' },
+                { key: 'code', label: 'HS code' },
+                { key: 'submission_ar', label: 'Submission (AR)' },
+                { key: 'status', label: 'Status' },
+                { key: 'error', label: 'Error' },
+              ].map((c) => (
                 <th
-                  key={key}
+                  key={c.key}
                   className="text-start px-3.5 py-3 border-b border-[var(--line-2)] font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase"
                 >
-                  {t(key)}
+                  {c.label}
                 </th>
               ))}
             </tr>
@@ -130,51 +152,54 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
           <tbody>
             {items.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-3.5 py-6 text-[13px] text-[var(--ink-3)] italic text-center">
+                <td colSpan={6} className="px-3.5 py-6 text-[13px] text-[var(--ink-3)] italic text-center">
                   {isPolling
                     ? 'Items will appear once Phase 1 (classification) completes.'
-                    : 'No items.'}
+                    : summary?.status === 'failed' && summary.succeeded === 0
+                      ? 'No items processed.'
+                      : 'No items.'}
                 </td>
               </tr>
             ) : (
-              items.map((item) => {
-                const desc =
-                  (item.classification_result as { cleaned_description?: string } | null)
-                    ?.cleaned_description ??
-                  (item.classification_result as { description?: string } | null)?.description ??
-                  '—';
-                return (
-                  <tr key={item.id} className="border-b border-[var(--line-2)]">
-                    <td className="px-3.5 py-2.5 font-mono text-[12px] text-[var(--ink-2)]">
-                      {item.row_index}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[420px] truncate" title={desc}>
-                      {desc}
-                    </td>
-                    <td className="px-3.5 py-2.5 font-mono text-[12.5px] text-[var(--ink-2)]">
-                      {item.final_code ?? '—'}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-[12px]">
-                      <span
-                        className={cn(
-                          'inline-block px-2 py-0.5 rounded-full font-mono uppercase tracking-[0.04em]',
-                          STATUS_BADGE[item.status] ?? STATUS_BADGE.pending,
-                        )}
-                      >
-                        {item.status}
-                      </span>
-                      {item.error && (
-                        <span
-                          className="ml-2 text-[var(--accent-ink)] truncate inline-block max-w-[200px] align-middle"
-                          title={item.error}
-                        >
-                          {item.error}
-                        </span>
+              items.map((item) => (
+                <tr key={item.id} className="border-b border-[var(--line-2)]">
+                  <td className="px-3.5 py-2.5 font-mono text-[12px] text-[var(--ink-2)] align-top">
+                    {item.row_index}
+                  </td>
+                  <td
+                    className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[320px] truncate align-top"
+                    title={item.catalog_path_en ?? '—'}
+                  >
+                    {item.catalog_path_en ?? '—'}
+                  </td>
+                  <td className="px-3.5 py-2.5 font-mono text-[12.5px] text-[var(--ink-2)] align-top whitespace-nowrap">
+                    {item.final_code ?? '—'}
+                  </td>
+                  <td
+                    className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[260px] truncate align-top"
+                    dir="rtl"
+                    title={item.submission_description_ar ?? '—'}
+                  >
+                    {item.submission_description_ar ?? '—'}
+                  </td>
+                  <td className="px-3.5 py-2.5 text-[12px] align-top">
+                    <span
+                      className={cn(
+                        'inline-block px-2 py-0.5 rounded-full font-mono uppercase tracking-[0.04em]',
+                        STATUS_BADGE[item.status] ?? STATUS_BADGE.pending,
                       )}
-                    </td>
-                  </tr>
-                );
-              })
+                    >
+                      {item.status}
+                    </span>
+                  </td>
+                  <td
+                    className="px-3.5 py-2.5 text-[12px] text-[var(--accent-ink)] max-w-[240px] truncate align-top"
+                    title={item.error ?? ''}
+                  >
+                    {item.error ?? ''}
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
