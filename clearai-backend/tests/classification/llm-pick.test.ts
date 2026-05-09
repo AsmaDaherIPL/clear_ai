@@ -1,14 +1,14 @@
 /**
- * Verifies the operational-failure escalation in llmPick: the provider
+ * Verifies operational-failure escalation in llmClassify: the provider
  * returning status='ok' with no text MUST surface as llmStatus='error' so
- * the picker reports an operational failure rather than the misleading
- * 'no fit'/'ambiguous' verdict.
+ * the classifier reports an operational failure rather than a misleading
+ * empty verdicts list.
  *
  * We don't test against real Foundry — we mock the LLM client.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// Mock the LLM client BEFORE importing llmPick (which captures it at module load).
+// Mock the LLM client BEFORE importing llmClassify (which captures it at module load).
 vi.mock('../../src/inference/llm/client.js', () => ({
   callLlmWithRetry: vi.fn(),
 }));
@@ -18,19 +18,16 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue('mock-prompt'),
 }));
 
-import { llmPick } from '../../src/modules/pipeline/track-a-description/picker/llm-pick.js';
+import { llmClassify } from '../../src/modules/pipeline/track-a-description/picker/llm-pick.js';
 import { callLlmWithRetry } from '../../src/inference/llm/client.js';
 import type { Candidate } from '../../src/inference/retrieval/retrieve.js';
 
-// llmPick only reads `code` / `description_en` / `description_ar` from each
-// candidate, so we cast a minimal-shape literal rather than fabricating every
-// retrieval-internal field.
 const candidates = [
   { code: '010121100000', description_en: 'horse', description_ar: null, rrf_score: 0.95 },
   { code: '010121100001', description_en: 'mare', description_ar: null, rrf_score: 0.90 },
 ] as unknown as Candidate[];
 
-describe('llmPick — empty provider response is operational failure', () => {
+describe('llmClassify — empty provider response is operational failure', () => {
   beforeEach(() => {
     vi.mocked(callLlmWithRetry).mockReset();
   });
@@ -43,9 +40,9 @@ describe('llmPick — empty provider response is operational failure', () => {
       latencyMs: 12,
       model: 'mock-haiku',
     });
-    const r = await llmPick({ kind: 'describe', query: 'horse', candidates });
+    const r = await llmClassify({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('error');
-    expect(r.chosenCode).toBeNull();
+    expect(r.verdicts).toEqual([]);
     expect(r.rawError).toMatch(/no text block/i);
   });
 
@@ -57,21 +54,22 @@ describe('llmPick — empty provider response is operational failure', () => {
       latencyMs: 8,
       model: 'mock-haiku',
     });
-    const r = await llmPick({ kind: 'describe', query: 'horse', candidates });
+    const r = await llmClassify({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('error');
   });
 
-  it('preserves the existing happy path: ok+text+valid_json → accepted', async () => {
+  it('preserves the existing happy path: ok+text+valid_json → verdicts accepted', async () => {
     vi.mocked(callLlmWithRetry).mockResolvedValueOnce({
       status: 'ok',
-      text: '```json\n{"chosen_code":"010121100000","rationale":"matches","missing_attributes":[]}\n```',
+      text: '```json\n{"verdicts":[{"code":"010121100000","fit":"fits","rationale":"matches"},{"code":"010121100001","fit":"does_not_fit","rationale":"different"}],"missing_attributes":[]}\n```',
       raw: {},
       latencyMs: 200,
       model: 'mock-sonnet',
     });
-    const r = await llmPick({ kind: 'describe', query: 'horse', candidates });
+    const r = await llmClassify({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('ok');
-    expect(r.chosenCode).toBe('010121100000');
-    expect(r.guardTripped).toBe(false);
+    expect(r.parseFailed).toBe(false);
+    const fits = r.verdicts.find((v) => v.fit === 'fits');
+    expect(fits?.code).toBe('010121100000');
   });
 });

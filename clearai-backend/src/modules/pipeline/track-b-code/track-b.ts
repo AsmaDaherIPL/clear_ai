@@ -9,7 +9,7 @@
  */
 import { getPool } from '../../../db/client.js';
 import { lookupTenantOverride } from '../../pipeline/track-b-code/codebook-override.js';
-import { llmPick } from '../../pipeline/track-a-description/picker/llm-pick.js';
+import { llmClassify } from '../../pipeline/track-a-description/picker/llm-pick.js';
 import type {
   TrackBResult,
   TrackBResolution,
@@ -159,28 +159,22 @@ async function resolveAgainstCodebook(
         i,
       ),
     );
-    const pick = await llmPick({
-      kind: 'describe',
-      query: cleaned_description,
-      candidates,
-    });
+    const classify = await llmClassify({ kind: 'describe', query: cleaned_description, candidates });
+    const topFit = classify.verdicts.find((v) => v.fit === 'fits') ?? classify.verdicts.find((v) => v.fit === 'partial');
 
-    if (pick.llmStatus === 'ok' && !pick.guardTripped && pick.chosenCode) {
-      const runnersCodes = replacements.filter((c) => c !== pick.chosenCode).slice(0, 3);
+    if (classify.llmStatus === 'ok' && !classify.parseFailed && topFit) {
+      const runnersCodes = replacements.filter((c) => c !== topFit.code).slice(0, 3);
       return {
-        resolved_code: pick.chosenCode,
+        resolved_code: topFit.code,
         resolution: 'llm_pick_among_replacements',
         codebook_state: 'deprecated_multiple_replacements',
         llm_context: {
-          chosen: { code: pick.chosenCode, rationale: pick.rationale ?? '' },
+          chosen: { code: topFit.code, rationale: topFit.rationale },
           runners_up: runnersCodes.map((c) => ({ code: c, rationale: '' })),
         },
       };
     }
 
-    // LLM failed or tripped guard. Picking replacements[0] (lowest code
-    // by SQL order) would turn uncertainty into a confident wrong answer.
-    // Drop the signal — description_classifier carries the row.
     return {
       resolved_code: null,
       resolution: 'null_resolution',
@@ -218,32 +212,28 @@ async function resolveAgainstCodebook(
   }
 
   const candidates = children.slice(0, 20).map((r, i) => rowToCandidate(r, i));
-  const pick = await llmPick({
-    kind: 'expand',
-    query: cleaned_description,
-    candidates,
-    parentPrefix: matched_prefix,
-  });
+  const classify = await llmClassify({ kind: 'expand', query: cleaned_description, candidates, parentPrefix: matched_prefix });
+  const topFit =
+    classify.verdicts.find((v) => v.fit === 'fits') ?? classify.verdicts.find((v) => v.fit === 'partial');
 
-  if (pick.llmStatus === 'ok' && !pick.guardTripped && pick.chosenCode) {
+  if (classify.llmStatus === 'ok' && !classify.parseFailed && topFit) {
     const runners_up = candidates
-      .filter((c) => c.code !== pick.chosenCode)
+      .filter((c) => c.code !== topFit.code)
       .slice(0, 3)
       .map((c) => ({ code: c.code, rationale: c.description_en ?? '' }));
     return {
-      resolved_code: pick.chosenCode,
+      resolved_code: topFit.code,
       resolution: 'llm_pick_under_prefix',
       codebook_state: 'active',
       llm_context: {
-        chosen: { code: pick.chosenCode, rationale: pick.rationale ?? '' },
+        chosen: { code: topFit.code, rationale: topFit.rationale },
         runners_up,
       },
     };
   }
 
-  // LLM failed or tripped guard. children[0] is the lowest code under
-  // the prefix (SQL ORDER BY) — arbitrary, not most likely. Drop the
-  // signal rather than emit a confident wrong code.
+  // LLM failed or no candidate reached fits/partial. Drop the signal
+  // rather than emit a confident wrong code.
   return {
     resolved_code: null,
     resolution: 'null_resolution',

@@ -8,7 +8,6 @@ import {
   varchar,
   timestamp,
   integer,
-  doublePrecision,
   boolean,
   jsonb,
   index,
@@ -32,8 +31,7 @@ export const classificationEvents = pgTable(
     // for pre-classification rejections; the LLM itself only returns PASS/FLAG.
     sanityVerdict: varchar('sanity_verdict', { length: 8 }),
 
-    descriptionClassifierChosenCode: varchar('description_classifier_chosen_code', { length: 12 }),
-    descriptionClassifierConfidence: doublePrecision('description_classifier_confidence'),
+    descriptionClassifierTopFitCode: varchar('description_classifier_top_fit_code', { length: 12 }),
 
     codeResolverResolvedCode: varchar('code_resolver_resolved_code', { length: 12 }),
     codeResolverPath: varchar('code_resolver_path', { length: 40 }),

@@ -63,7 +63,9 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     });
   }
 
-  const hasA = !!result.trace.track_a?.chosen_code;
+  const hasA = (result.trace.track_a?.annotated_candidates ?? []).some(
+    (c) => c.fit === 'fits' || c.fit === 'partial',
+  );
   const hasB = !!result.trace.track_b?.resolved_code;
   const pathTaken = hasA && hasB ? 'two_signal' : hasA ? 'single_a' : hasB ? 'single_b' : 'zero';
 

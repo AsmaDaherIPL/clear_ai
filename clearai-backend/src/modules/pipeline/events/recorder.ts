@@ -39,10 +39,14 @@ export async function recordClassificationEvent(
   const dcOutput = (dcAction?.output as Record<string, unknown> | undefined) ?? {};
   const crOutput = (crAction?.output as Record<string, unknown> | undefined) ?? {};
 
-  const descriptionClassifierChosenCode =
-    typeof dcOutput.chosen_code === 'string' ? dcOutput.chosen_code : null;
-  const descriptionClassifierConfidence =
-    typeof dcOutput.confidence === 'number' ? dcOutput.confidence : null;
+  const annotatedCandidates = Array.isArray(dcOutput.annotated_candidates)
+    ? (dcOutput.annotated_candidates as Array<{ code?: unknown; fit?: unknown }>)
+    : [];
+  const descriptionClassifierTopFitCode =
+    annotatedCandidates.find((c) => c.fit === 'fits')?.code ?? null;
+  const topFitCode = typeof descriptionClassifierTopFitCode === 'string'
+    ? descriptionClassifierTopFitCode
+    : null;
 
   const codeResolverResolvedCode =
     typeof crOutput.resolved_code === 'string' ? crOutput.resolved_code : null;
@@ -58,15 +62,15 @@ export async function recordClassificationEvent(
       `INSERT INTO classification_events (
         id, operator_id, operator_slug,
         status, final_code, sanity_verdict,
-        description_classifier_chosen_code, description_classifier_confidence,
+        description_classifier_top_fit_code,
         code_resolver_resolved_code, code_resolver_path, tenant_override_applied,
         total_latency_ms, request, trace
       ) VALUES (
         $1, $2, $3,
         $4, $5, $6,
-        $7, $8,
-        $9, $10, $11,
-        $12, $13, $14
+        $7,
+        $8, $9, $10,
+        $11, $12, $13
       )`,
       [
         response.item_id,
@@ -75,8 +79,7 @@ export async function recordClassificationEvent(
         response.status,
         response.final_code,
         response.sanity_verdict,
-        descriptionClassifierChosenCode,
-        descriptionClassifierConfidence,
+        topFitCode,
         codeResolverResolvedCode,
         codeResolverPath,
         tenantOverrideApplied,

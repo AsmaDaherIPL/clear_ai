@@ -1,20 +1,9 @@
-/**
- * Track A / Picker — standard LLM (Sonnet-tier).
- *
- * Given ranked retrieval candidates, asks the LLM to pick the best
- * 12-digit code for the description. Returns the chosen code, confidence,
- * rationale, and runner-up alternatives.
- *
- * Only called when the threshold check passed.
- */
-import { llmPick } from '../../../pipeline/track-a-description/picker/llm-pick.js';
+import { llmClassify } from '../../../pipeline/track-a-description/picker/llm-pick.js';
 import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
+import type { AnnotatedCandidate } from '../../shared/pipeline.types.js';
 
 export interface PickerOutput {
-  chosen_code: string | null;
-  confidence: number | null;
-  rationale: string | null;
-  alternatives: Array<{ code: string; rationale: string }>;
+  annotated_candidates: AnnotatedCandidate[];
   no_fit: boolean;
   latency_ms: number;
 }
@@ -25,35 +14,41 @@ export async function runPicker(
 ): Promise<PickerOutput> {
   const start = Date.now();
 
-  const result = await llmPick({
+  const result = await llmClassify({
     kind: 'describe',
     query: effective_description,
     candidates,
   });
 
-  if (result.llmStatus !== 'ok' || result.guardTripped || result.chosenCode === null) {
+  // On LLM failure or parse failure, return empty verdicts so reconciliation
+  // treats description_classifier as having no signal (single_b or zero path).
+  if (result.llmStatus !== 'ok' || result.parseFailed) {
     return {
-      chosen_code: null,
-      confidence: null,
-      rationale: result.rationale,
-      alternatives: [],
+      annotated_candidates: [],
       no_fit: true,
       latency_ms: Date.now() - start,
     };
   }
 
-  // Top-3 runners-up that were not chosen.
-  const alternatives = candidates
-    .filter((c) => c.code !== result.chosenCode)
-    .slice(0, 3)
-    .map((c) => ({ code: c.code, rationale: c.description_en ?? '' }));
+  // Merge verdicts back onto the candidates to preserve rrf_score and descriptions.
+  const verdictMap = new Map(result.verdicts.map((v) => [v.code, v]));
+  const annotated: AnnotatedCandidate[] = candidates.map((c) => {
+    const verdict = verdictMap.get(c.code);
+    return {
+      code: c.code,
+      description_en: c.description_en,
+      description_ar: c.description_ar,
+      rrf_score: c.rrf_score,
+      fit: verdict?.fit ?? 'does_not_fit',
+      rationale: verdict?.rationale ?? 'no verdict returned by classifier',
+    };
+  });
+
+  const no_fit = annotated.every((a) => a.fit === 'does_not_fit');
 
   return {
-    chosen_code: result.chosenCode,
-    confidence: 0.8,  // numeric score not yet emitted by llmPick; default high-confidence
-    rationale: result.rationale,
-    alternatives,
-    no_fit: false,
+    annotated_candidates: annotated,
+    no_fit,
     latency_ms: Date.now() - start,
   };
 }

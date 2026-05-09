@@ -1,13 +1,14 @@
-/**
- * Batch-mode result panel. Renders status + per-item rows during polling
- * and after completion. Wired by ClassifyApp via the BatchState slice.
- */
-
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { api, ApiError, type DownloadLinks } from '@/lib/api';
 import type { BatchState } from './ClassifyApp';
+
+function humanError(raw: string | null | undefined): string {
+  if (!raw) return '';
+  if (raw.includes('escalated to HITL')) return 'Sent to manual review (HITL queue)';
+  return raw;
+}
 
 interface ResultBatchProps {
   visible: boolean;
@@ -84,12 +85,17 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
           </div>
           <p className="text-[14px] text-[var(--ink)] m-0">
             {phaseLabel}
-            {state.runId && (
-              <span className="ml-2 font-mono text-[12px] text-[var(--ink-3)]">
-                run {state.runId.slice(0, 8)}…
-              </span>
-            )}
           </p>
+          {state.runId && (
+            <button
+              type="button"
+              className="mt-1 font-mono text-[11px] text-[var(--ink-3)] hover:text-[var(--ink-2)] transition-colors cursor-copy select-all text-start"
+              title="Click to copy run ID"
+              onClick={() => navigator.clipboard.writeText(state.runId!)}
+            >
+              {state.runId}
+            </button>
+          )}
           {summary && (
             <p className="text-[12.5px] text-[var(--ink-3)] mt-1 m-0">
               {summary.row_count} rows ·{' '}
@@ -113,9 +119,6 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
         )}
       </div>
 
-      {/* Run-level error banner: shown when the run as a whole failed and
-          no items succeeded, so the table doesn't render phantom rows for
-          a Phase-2 failure that wasn't actually a per-item failure. */}
       {summary && summary.status === 'failed' && summary.succeeded === 0 && (
         <div
           className="px-[22px] py-3 border-b border-[var(--line-2)] bg-[oklch(0.95_0.07_25)] text-[13px] text-[oklch(0.32_0.12_25)]"
@@ -166,19 +169,15 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
                   <td className="px-3.5 py-2.5 font-mono text-[12px] text-[var(--ink-2)] align-top">
                     {item.row_index}
                   </td>
-                  <td
-                    className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[320px] truncate align-top"
-                    title={item.catalog_path_en ?? '—'}
-                  >
+                  <td className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[320px] align-top break-words">
                     {item.catalog_path_en ?? '—'}
                   </td>
                   <td className="px-3.5 py-2.5 font-mono text-[12.5px] text-[var(--ink-2)] align-top whitespace-nowrap">
                     {item.final_code ?? '—'}
                   </td>
                   <td
-                    className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[260px] truncate align-top"
+                    className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[260px] align-top break-words"
                     dir="rtl"
-                    title={item.submission_description_ar ?? '—'}
                   >
                     {item.submission_description_ar ?? '—'}
                   </td>
@@ -192,11 +191,8 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
                       {item.status}
                     </span>
                   </td>
-                  <td
-                    className="px-3.5 py-2.5 text-[12px] text-[var(--accent-ink)] max-w-[240px] truncate align-top"
-                    title={item.error ?? ''}
-                  >
-                    {item.error ?? ''}
+                  <td className="px-3.5 py-2.5 text-[12px] text-[var(--accent-ink)] max-w-[280px] align-top break-words">
+                    {humanError(item.error)}
                   </td>
                 </tr>
               ))

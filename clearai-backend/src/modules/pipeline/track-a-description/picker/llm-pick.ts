@@ -1,22 +1,24 @@
-/**
- * LLM picker. System prompt is gir-system.md + picker-{describe,expand}.md.
- * Hallucination guard: chosen_code must appear in the candidate set.
- */
 import { z } from 'zod';
 import { callLlmWithRetry, type LlmCallResult, type LlmStatus } from '../../../../inference/llm/client.js';
 import { extractJson } from '../../../../inference/llm/parse-json.js';
 import { loadPrompt } from '../../../../inference/llm/structured-call.js';
 import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
 import type { MissingAttribute } from '../../shared/domain.types.js';
+import type { CandidateFitVerdict } from '../../shared/pipeline.types.js';
 
-export interface LlmPickResult {
+export interface CandidateVerdict {
+  code: string;
+  fit: CandidateFitVerdict;
+  rationale: string;
+}
+
+export interface LlmClassifyResult {
   llmStatus: LlmStatus;
   llmModel: string;
   latencyMs: number;
-  guardTripped: boolean;
   parseFailed: boolean;
-  chosenCode: string | null;
-  rationale: string | null;
+  /** Per-candidate verdicts. Empty on parse failure or LLM error. */
+  verdicts: CandidateVerdict[];
   missingAttributes: MissingAttribute[];
   rawText: string | null;
   rawError?: string;
@@ -30,33 +32,15 @@ const MISSING_ENUM = new Set<MissingAttribute>([
   'composition',
 ]);
 
-/** Loose schema — downstream code re-narrows. */
-const ParsedPickerSchema = z
+const FIT_VALUES = new Set<CandidateFitVerdict>(['fits', 'partial', 'does_not_fit']);
+
+const ParsedClassifierSchema = z
   .object({
-    chosen_code: z.unknown().optional(),
-    rationale: z.unknown().optional(),
+    verdicts: z.unknown().optional(),
     missing_attributes: z.unknown().optional(),
   })
   .passthrough();
 
-/**
- * Build the picker's user message.
- *
- * Each candidate is emitted as:
- *
- *   N. code=<12-digit>
- *      path_en: <breadcrumb, ending with the leaf's own EN label>
- *      path_ar: <breadcrumb, ending with the leaf's own AR label>
- *
- * `path_en` / `path_ar` are produced by ingest-zatca-hs-code-display.ts as
- * a single comma-joined sentence (en: ", " — ar: "، "), so the last segment
- * after the final separator IS the leaf's own description. No separate
- * `description_en/ar` lines: that data is the tail of the path.
- *
- * Defensive fallback: when a candidate has no path data (LEFT JOIN miss in
- * retrieval), we emit code + raw description_en/ar so the picker still has
- * something to read, rather than a bare code.
- */
 export function buildUser(
   query: string,
   candidates: Candidate[],
@@ -72,7 +56,6 @@ export function buildUser(
       const ar = c.path_ar ? `\n   path_ar: ${c.path_ar}` : '';
       return `${head}${en}${ar}`;
     }
-    // No path data — use the raw labels so the picker still has context.
     const en = `\n   path_en: ${c.description_en ?? '(none)'}`;
     const ar = `\n   path_ar: ${c.description_ar ?? '(none)'}`;
     return `${head}${en}${ar}`;
@@ -81,13 +64,13 @@ export function buildUser(
   return `${parentLine}User description:\n${query}\n\nCandidates:\n${lines.join('\n\n')}\n\nReturn JSON only.`;
 }
 
-export async function llmPick(params: {
+export async function llmClassify(params: {
   kind: 'describe' | 'expand';
   query: string;
   candidates: Candidate[];
   parentPrefix?: string;
   model?: string;
-}): Promise<LlmPickResult> {
+}): Promise<LlmClassifyResult> {
   const pickerFile = params.kind === 'describe' ? 'picker-describe.md' : 'picker-expand.md';
   const [gir, picker] = await Promise.all([
     loadPrompt('gir-system.md'),
@@ -100,21 +83,18 @@ export async function llmPick(params: {
     system,
     user,
     ...(params.model ? { model: params.model } : {}),
-    maxTokens: 512,
+    maxTokens: 768,
     temperature: 0,
   });
 
-  // status=ok with no text block = unexpected provider shape; escalate to error.
   const isEmptyOk = llmResult.status === 'ok' && !llmResult.text;
   if (llmResult.status !== 'ok' || isEmptyOk) {
     return {
       llmStatus: isEmptyOk ? 'error' : llmResult.status,
       llmModel: llmResult.model,
       latencyMs: llmResult.latencyMs,
-      guardTripped: false,
       parseFailed: false,
-      chosenCode: null,
-      rationale: null,
+      verdicts: [],
       missingAttributes: [],
       rawText: null,
       ...(isEmptyOk
@@ -125,48 +105,56 @@ export async function llmPick(params: {
     };
   }
 
-  // Non-null assertion: the isEmptyOk guard above made TS see this as still nullable.
   const text = llmResult.text!;
-  const extract = extractJson(text, ParsedPickerSchema);
+  const extract = extractJson(text, ParsedClassifierSchema);
   if (!extract.ok) {
     return {
       llmStatus: 'ok',
       llmModel: llmResult.model,
       latencyMs: llmResult.latencyMs,
-      guardTripped: true,
       parseFailed: true,
-      chosenCode: null,
-      rationale: null,
+      verdicts: [],
       missingAttributes: [],
       rawText: llmResult.text,
     };
   }
-  const parsed = extract.data;
 
-  const codeRaw = parsed.chosen_code;
-  const chosen = typeof codeRaw === 'string' && codeRaw.length === 12 ? codeRaw : null;
-  const rationale =
-    typeof parsed.rationale === 'string' ? parsed.rationale.slice(0, 500) : null;
+  const parsed = extract.data;
+  const validCodes = new Set(params.candidates.map((c) => c.code));
+
+  const rawVerdicts = Array.isArray(parsed.verdicts) ? parsed.verdicts : [];
+  const verdicts: CandidateVerdict[] = rawVerdicts
+    .filter(
+      (v): v is { code: string; fit: string; rationale: string } =>
+        v != null &&
+        typeof v === 'object' &&
+        typeof v.code === 'string' &&
+        typeof v.fit === 'string' &&
+        typeof v.rationale === 'string' &&
+        validCodes.has(v.code) &&
+        FIT_VALUES.has(v.fit as CandidateFitVerdict),
+    )
+    .map((v) => ({
+      code: v.code,
+      fit: v.fit as CandidateFitVerdict,
+      rationale: v.rationale.slice(0, 200),
+    }));
 
   const missingRaw = Array.isArray(parsed.missing_attributes) ? parsed.missing_attributes : [];
-  const missing = missingRaw
-    .filter((x): x is MissingAttribute => typeof x === 'string' && MISSING_ENUM.has(x as MissingAttribute));
-
-  let guardTripped = false;
-  if (chosen) {
-    const inSet = params.candidates.some((c) => c.code === chosen);
-    if (!inSet) guardTripped = true;
-  }
+  const missingAttributes = missingRaw.filter(
+    (x): x is MissingAttribute => typeof x === 'string' && MISSING_ENUM.has(x as MissingAttribute),
+  );
 
   return {
     llmStatus: 'ok',
     llmModel: llmResult.model,
     latencyMs: llmResult.latencyMs,
-    guardTripped,
     parseFailed: false,
-    chosenCode: guardTripped ? null : chosen,
-    rationale,
-    missingAttributes: missing,
+    verdicts,
+    missingAttributes,
     rawText: llmResult.text,
   };
 }
+
+// Re-export buildUser so track-b expand path can continue using it if needed.
+export { buildUser as buildPickerUser };

@@ -47,51 +47,44 @@ export interface CleanupResult {
 // Track A — Description classifier output
 // ---------------------------------------------------------------------------
 
-/** Shape of the retrieval candidates surfaced in the trace. */
-export interface TrackACandidate {
+/** Fit verdict assigned by the description classifier to each retrieval candidate. */
+export type CandidateFitVerdict = 'fits' | 'partial' | 'does_not_fit';
+
+/** Retrieval candidate annotated with a relevance verdict by the description classifier. */
+export interface AnnotatedCandidate {
   code: string;
   description_en: string | null;
   description_ar: string | null;
   rrf_score: number;
+  fit: CandidateFitVerdict;
+  rationale: string;
 }
 
 /** Researcher detail surfaced in the trace. */
 export interface TrackAResearchDetail {
-  /** Stage at which the researcher fired. */
   source: 'cheap_llm' | 'web_search' | 'failed_passthrough';
-  /** True when the researcher returned a canonical description. */
   recognised: boolean;
-  /** What the researcher's enriched description was (the input to retrieval). */
   enriched_description: string;
-  /** Reason / error string when not recognised. */
   unrecognised_reason: string | null;
-  /** Web evidence quote (only set when source='web_search' and recognised). */
   evidence_quote: string | null;
-  /** Model that produced the result. */
   model: string | null;
   latency_ms: number;
 }
 
 export interface TrackAResult {
-  /** Null when threshold failed or Picker returned no_fit. */
-  chosen_code: string | null;
-  /** 0-1 confidence from Picker. Null when no code chosen. */
-  confidence: number | null;
-  rationale: string | null;
-  alternatives: Array<{ code: string; rationale: string }>;
+  /**
+   * Retrieval candidates annotated with fit verdicts by the description classifier.
+   * Ordered by retrieval score. Empty when threshold failed or retrieval returned nothing.
+   * Reconciliation uses this list as its primary description-side evidence.
+   */
+  annotated_candidates: AnnotatedCandidate[];
   /** True when retrieval threshold failed (uninformative candidates). */
   threshold_failed: boolean;
-  /** True when Picker returned no_fit despite threshold passing. */
+  /** True when all candidates were verdicted does_not_fit. */
   no_fit: boolean;
-  /** Stage the input reached before retrieval. */
   interpretation_stage: 'passthrough' | 'cleaned' | 'researched';
-  /** Description fed into retrieval (post-cleanup, possibly post-researcher). */
   effective_description: string;
-  /** Top retrieval candidates the picker saw, ordered by score. Empty when retrieval returned nothing. */
-  candidates: TrackACandidate[];
-  /** Researcher details — null when researcher didn't run. */
   research: TrackAResearchDetail | null;
-  /** Web research details — null when web research didn't run. */
   web_research: TrackAResearchDetail | null;
 }
 
@@ -152,7 +145,7 @@ export interface TrackBResult {
  */
 export type SignalCount = 'two_signal' | 'single_a' | 'single_b' | 'zero';
 
-export type ReconciliationSource = 'track_a' | 'track_b' | 'reconciled';
+export type ReconciliationSource = 'description_classifier' | 'code_resolver' | 'reconciled';
 
 export type VerdictDecision = 'accept' | 'escalate';
 
@@ -324,7 +317,8 @@ export interface DispatchV1Stage {
 
 export interface DispatchV1Summary {
   merchant_code_state: MerchantCodeState | null;
-  description_classifier_code: string | null;
+  /** Highest-RRF candidate verdicted 'fits' by the description classifier. Null when none. */
+  description_classifier_top_fit: string | null;
   code_resolver_code: string | null;
   reconciliation: 'description_classifier' | 'code_resolver' | 'reconciled' | 'escalated' | null;
   operator_override_applied: boolean;

@@ -143,15 +143,11 @@ function buildDescriptionClassifierAction(
     steps,
     output: trackA
       ? {
-          chosen_code: trackA.chosen_code,
-          confidence: trackA.confidence,
-          rationale: trackA.rationale,
-          interpretation_stage: trackA.interpretation_stage,
-          effective_description: trackA.effective_description,
-          alternatives: trackA.alternatives,
-          candidates: trackA.candidates,
+          annotated_candidates: trackA.annotated_candidates,
           threshold_failed: trackA.threshold_failed,
           no_fit: trackA.no_fit,
+          interpretation_stage: trackA.interpretation_stage,
+          effective_description: trackA.effective_description,
         }
       : {},
   };
@@ -338,12 +334,9 @@ function inferReconciliationLabel(
 ): DispatchV1Summary['reconciliation'] {
   if (!trace.verdict) return null;
   if (trace.verdict.decision === 'escalate') return 'escalated';
-  const map: Record<string, DispatchV1Summary['reconciliation']> = {
-    track_a: 'description_classifier',
-    track_b: 'code_resolver',
-    reconciled: 'reconciled',
-  };
-  return map[trace.verdict.source] ?? null;
+  const src = trace.verdict.source;
+  if (src === 'description_classifier' || src === 'code_resolver' || src === 'reconciled') return src;
+  return null;
 }
 
 export function assembleDispatchV1(params: AssembleParams): DispatchV1Response {
@@ -367,9 +360,11 @@ export function assembleDispatchV1(params: AssembleParams): DispatchV1Response {
   const parseDetail = trace.stages.find((s) => s.name === 'stage-0a/parse')?.detail as
     | { merchant_code_state?: string }
     | undefined;
+  const topFit =
+    trace.track_a?.annotated_candidates.find((c) => c.fit === 'fits')?.code ?? null;
   const summary: DispatchV1Summary = {
     merchant_code_state: (parseDetail?.merchant_code_state as never) ?? null,
-    description_classifier_code: trace.track_a?.chosen_code ?? null,
+    description_classifier_top_fit: topFit,
     code_resolver_code: trace.track_b?.resolved_code ?? null,
     reconciliation: reconciliationLabel,
     operator_override_applied: trace.track_b?.override_applied ?? false,
