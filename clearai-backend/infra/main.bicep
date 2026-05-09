@@ -109,6 +109,9 @@ param apimPublisherEmail string = 'asma.said020@gmail.com'
 @description('APIM publisher name.')
 param apimPublisherName string = 'ClearAI'
 
+@description('Set to true ONLY on the very first APIM deploy in a fresh subscription, before deploy.sh has granted the APIM MI Key Vault Secrets User on the KV. Default false; deploy.sh should never need to flip it after the first run. See modules/apim.bicep header for full rationale.')
+param apimNamedValueBootstrap bool = false
+
 // ---- Entra (for APIM validate-jwt policy) -----------------------------------
 // Drives the OIDC config URL + audiences/issuers in the inbound API policy.
 // Tenant id is your Workforce Entra tenant (the one that owns this Azure
@@ -278,8 +281,12 @@ module networkWatcher 'modules/networkwatcher.bicep' = if (createNetworkWatcher)
 // 7. APIM Consumption — single instance fronting the Container App.
 //    Provisioning takes 10–30 min on first create; idempotent thereafter.
 //    Depends on containerApp because we pass its FQDN as the backend URL.
-//    The KV-backed named-value is wired in by deploy.sh post-apply (see
-//    modules/apim.bicep header comment for why it's not in-template).
+//
+//    The `apim-shared-secret` named value is bound to the KV secret via the
+//    APIM MI. On a fresh subscription, set `apimNamedValueBootstrap=true`
+//    for the first deploy so bicep doesn't try to read the KV before the
+//    role grant exists; deploy.sh then grants the role and re-runs bicep
+//    with the flag back to false. See apim.bicep for the full rationale.
 module apim 'modules/apim.bicep' = {
   name: 'apim-deploy'
   params: {
@@ -292,8 +299,13 @@ module apim 'modules/apim.bicep' = {
     entraTenantId: entraTenantId
     entraApiAppIdUri: entraApiAppIdUri
     entraApiClientId: entraApiClientId
+    keyVaultName: keyVault.outputs.name
+    namedValueBootstrap: apimNamedValueBootstrap
     tags: tags
   }
+  dependsOn: [
+    keyVaultSecrets
+  ]
 }
 
 // -----------------------------------------------------------------------------

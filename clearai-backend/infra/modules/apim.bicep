@@ -96,6 +96,12 @@ param entraApiAppIdUri string
 @description('Optional client_id GUID of the protected API app. Accepted as alternate audience alongside entraApiAppIdUri.')
 param entraApiClientId string = ''
 
+@description('Key Vault name that holds the apim-shared-secret. The named value is bound directly to this KV secret via the APIM system MI.')
+param keyVaultName string = 'kv-infp-clearai-dev-gwc'
+
+@description('Set to true ONLY on the very first APIM deploy in a fresh subscription, before the APIM MI has been granted Key Vault Secrets User on the KV. When true, the named value is created with an inline placeholder value; deploy.sh then grants the role and re-runs bicep with this flag set false. Subsequent deploys leave it false (default) so the named value stays KV-backed and is NOT overwritten on every apply.')
+param namedValueBootstrap bool = false
+
 @description('Common tags.')
 param tags object
 
@@ -221,23 +227,46 @@ resource apim 'Microsoft.ApiManagement/service@2024-05-01' = {
 }
 
 // -----------------------------------------------------------------------------
-// Named value — placeholder inline value, flipped to KV-backed by deploy.sh.
+// Named value — KV-backed by default, bootstrap-only on first deploy.
 // -----------------------------------------------------------------------------
-// We intentionally do NOT set `keyVault: { secretIdentifier: ... }` here.
-// At Bicep apply time APIM tries to read the KV secret using its system MI,
-// but that MI was just created and has no role on the KV yet — so the apply
-// fails with `Caller is not authorized`. deploy.sh handles the role grant
-// then re-issues `az apim nv update --secret true ...` to flip this to
-// KV-backed. From that point on, rotation is `az keyvault secret set` and
-// APIM auto-refreshes via its MI.
+// Two modes:
+//
+//   1. Bootstrap mode (`namedValueBootstrap = true`, ONE-TIME):
+//      Used on the very first APIM deploy in a fresh subscription, before
+//      the APIM system MI has been granted `Key Vault Secrets User` on the
+//      KV. Bicep would fail with `Caller is not authorized` if it tried to
+//      bind to the KV reference at this point, so we set an inline
+//      placeholder. deploy.sh then:
+//        a) reads APIM's MI principalId
+//        b) grants Key Vault Secrets User on the KV
+//        c) re-runs bicep with `namedValueBootstrap = false`
+//      After that, mode 2 takes over and the named value is permanent.
+//
+//   2. KV-backed mode (`namedValueBootstrap = false`, DEFAULT):
+//      Named value is bound to the KV secret via the APIM MI. Bicep applies
+//      are idempotent — re-running bicep with the same params leaves the
+//      named value unchanged. KV-secret rotation propagates within ~4h
+//      auto-refresh or instantly via `az rest POST .../refreshSecret`.
+//
+// CRITICAL: do NOT regress this back to "always set inline value". A
+// previous version of this file did that, which silently overwrote the
+// KV-backed binding on every bicep apply, leaving APIM injecting a literal
+// placeholder string as the shared-secret header → backend rejected every
+// SPA call with `origin_access_denied` 401.
 
 resource sharedSecretNamedValue 'Microsoft.ApiManagement/service/namedValues@2024-05-01' = {
   parent: apim
   name: 'apim-shared-secret'
-  properties: {
+  properties: namedValueBootstrap ? {
     displayName: 'apim-shared-secret'
     secret: true
     value: '__bootstrap_replaced_by_deploy_sh__'
+  } : {
+    displayName: 'apim-shared-secret'
+    secret: true
+    keyVault: {
+      secretIdentifier: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets/apim-shared-secret'
+    }
   }
 }
 

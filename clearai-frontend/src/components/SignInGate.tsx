@@ -102,11 +102,19 @@ export function LoginCard() {
           onClick={async () => {
             if (signingIn) return;
             setSigningIn(true);
+            // Safety net: if loginRedirect() never navigates within 8s
+            // (third-party cookies blocking the iframe, MSAL hung on
+            // monitor_window_timeout, popup-blocker eating the redirect),
+            // reset the spinner so the user can retry instead of staring
+            // at a permanent "Redirecting to Microsoft..." label forever.
+            // The successful path navigates away long before this fires.
+            const safetyReset = window.setTimeout(() => setSigningIn(false), 8000);
             try {
               await signIn();
               // signIn() redirects away — anything below here only
               // runs if MSAL choked before the navigation.
             } catch {
+              window.clearTimeout(safetyReset);
               setSigningIn(false);
             }
           }}
