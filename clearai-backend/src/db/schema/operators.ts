@@ -77,6 +77,17 @@ export const operators = pgTable(
     /** Fallback `<decsub:sourceCompanyNo>` for the same case. */
     defaultSourceCompanyNo: varchar('default_source_company_no', { length: 32 }),
 
+    // ── ZATCA submitter identity (was env vars; moved here in 0062) ──
+
+    /** ZATCA-assigned carrier id. Filled by an admin from Naqel's ZATCA registration. */
+    zatcaSubmitterCarrierId: varchar('zatca_submitter_carrier_id', { length: 32 }),
+
+    /** Submitter name in the declaration envelope. Falls back to display_name when null. */
+    zatcaSubmitterName: text('zatca_submitter_name'),
+
+    /** XML namespace ZATCA assigns. Almost always 'http://www.saudiedi.com/schema/decsub'; column lets it be overridden per operator. */
+    zatcaDeclarationNamespace: text('zatca_declaration_namespace'),
+
     /**
      * Operator-level consignee-address default. The 4 fields (cityCode,
      * zipCode, poBox, streetAr) feed the `<decsub:expressMailInfomation>`

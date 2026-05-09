@@ -77,6 +77,12 @@ export interface OperatorIdentity {
   brokerRepresentativeNo: string;
   defaultSourceCompanyName: string;
   defaultSourceCompanyNo: string;
+  // ZATCA submitter identity. Required for declaration rendering;
+  // empty string means an admin hasn't seeded this operator yet, and
+  // the renderer fails with an operator-scoped error.
+  zatcaSubmitterCarrierId: string;
+  zatcaSubmitterName: string;
+  zatcaDeclarationNamespace: string;
 }
 
 /**

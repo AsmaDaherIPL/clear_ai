@@ -21,7 +21,6 @@ import { getBlobClient } from '../../../storage/blob.client.js';
 import { filingKey } from '../../../storage/blob.paths.js';
 import { getDeclarationRun } from '../declaration-run.repository.js';
 import { newId } from '../../../common/utils/uuid.js';
-import { env } from '../../../config/env.js';
 import { loadThresholds } from '../../reference-data/setup-meta.repository.js';
 import { loadZatcaDefaults } from '../../reference-data/zatca-defaults.repository.js';
 
@@ -57,21 +56,18 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   });
 
   const blob = getBlobClient();
-  const e = env();
   const now = new Date();
 
-  // ZATCA submitter id is operator-supplied (env-injected at deploy time);
-  // we cannot fabricate a carrier id, and submitting an empty one to ZATCA
-  // would produce a rejected declaration. Fail loudly here rather than emit
-  // bad XML.
-  if (!e.ZATCA_SUBMITTER_CARRIER_ID) {
+  // Submitting with an empty carrier id would produce a ZATCA-rejected
+  // declaration. Fail loudly with the operator named so an admin knows
+  // which row to update.
+  if (!operator.identity.zatcaSubmitterCarrierId) {
     throw new Error(
-      'ZATCA_SUBMITTER_CARRIER_ID is not set. The operator must configure ' +
-      'this env var with the carrier id assigned by ZATCA before declaration ' +
-      'rendering can run.',
+      `Operator '${operator.slug}' has no zatca_submitter_carrier_id configured. ` +
+      `An admin must populate operators.zatca_submitter_carrier_id with the value ` +
+      `assigned at the operator's ZATCA registration before declaration rendering can run.`,
     );
   }
-  const carrierId = e.ZATCA_SUBMITTER_CARRIER_ID;
 
   let bundleIndex = 0;
   for (const bundle of bundles) {
@@ -87,10 +83,10 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
       bundleStrategy: bundle.strategy,
       items: bundle.items,
       submitter: {
-        carrierId,
-        name: e.ZATCA_SUBMITTER_NAME,
+        carrierId: operator.identity.zatcaSubmitterCarrierId,
+        name: operator.identity.zatcaSubmitterName,
       },
-      namespaces: { decsub: e.ZATCA_DECLARATION_NS },
+      namespaces: { decsub: operator.identity.zatcaDeclarationNamespace },
       lookups,
       now,
     });

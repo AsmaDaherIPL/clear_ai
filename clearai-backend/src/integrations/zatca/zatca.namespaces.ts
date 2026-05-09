@@ -1,17 +1,9 @@
 /**
- * XML namespace URIs for the ZATCA decsub:saudiEDI envelope.
- *
- * The primary URI lives in env (ZATCA_DECLARATION_NS) so it can be updated
- * without redeploy if ZATCA bumps a version. Additional URIs that ship as
- * part of the envelope header are constants here — they're stable across
- * carrier configurations.
+ * XML namespaces in the decsub:saudiEDI envelope. The decsub URI is
+ * per-operator (operators.zatca_declaration_namespace) and threaded
+ * through the renderer; only the static URIs that ship with every
+ * envelope live here.
  */
-import { env } from '../../config/env.js';
-
-export function decsubNamespace(): string {
-  return env().ZATCA_DECLARATION_NS;
-}
-
 export const STATIC_NAMESPACES = Object.freeze({
   cm: 'http://www.saudiedi.com/schema/common',
   sau: 'http://www.saudiedi.com/schema/sau',

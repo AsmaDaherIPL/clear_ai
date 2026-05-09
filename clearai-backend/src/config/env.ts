@@ -126,20 +126,8 @@ const EnvSchema = z
 
     // ─── ZATCA Declaration envelope (rendered by BatchPlumber Phase 5) ──────
 
-    /**
-     * The next 3 fields drive the ZATCA XML render. Optional at boot so the
-     * backend doesn't refuse to start when ops hasn't yet supplied real
-     * carrier credentials. declaration.runner.ts asserts non-empty values
-     * before rendering, so /declaration-runs uploads complete classification
-     * but Phase 2 (XML emission) fails with a clear error pointing at the
-     * unset env var.
-     */
-    /** XML namespace URI for the decsub:saudiEDI envelope. Default = SaudiEDI standard URI. */
-    ZATCA_DECLARATION_NS: z.string().min(1).default('http://www.saudiedi.com/schema/decsub'),
-    /** Static carrier id assigned by ZATCA. Operator must supply via env. */
-    ZATCA_SUBMITTER_CARRIER_ID: z.string().min(1).optional(),
-    /** Display name of the submitting carrier in the envelope. Default Naqel. */
-    ZATCA_SUBMITTER_NAME: z.string().min(1).default('Naqel'),
+    // ZATCA submitter credentials moved to per-operator columns on
+    // operators in 0062; no env var equivalents.
 
     // ─── FX rates for HV/LV partition (G7) ─────────────────────────────────
     //
