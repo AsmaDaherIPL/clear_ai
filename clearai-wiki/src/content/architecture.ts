@@ -156,63 +156,114 @@ export const TECH_STACK = {
 export const DEPLOYMENT = {
   sectionLabel: 'B',
   sectionName: 'V1 Deployment',
-  title: 'APIM in front, Container App scale-to-zero, Postgres B1ms always-on',
+  title: 'Entra-protected SPA → APIM → Container App, all secrets via managed identity',
   desc:
-    "Total dev cost is roughly $20–25/month — the Postgres B1ms is the only always-on line item " +
-    "(~$13–15/mo); the Container App Consumption tier scales to zero between requests; Key Vault " +
-    "Standard is effectively free at this volume. APIM Consumption fronts the Container App with a " +
-    "per-key rate-limit policy and injects a shared secret on every forwarded request — the backend " +
-    "rejects any request that arrives without that exact header, so the Container App's public FQDN " +
-    "is unreachable in practice.",
+    "Single Azure subscription (sub-infp-clearai-nonprod-gwc, Germany West Central). The browser " +
+    "loads the SPA from a Static Web App, signs the user in against Microsoft Entra ID via MSAL.js " +
+    "(authorization-code + PKCE), then calls APIM with the Entra access token. APIM validates the " +
+    "JWT against the Entra JWKS, injects a Key-Vault-backed shared secret as a second layer of " +
+    "origin lock, then forwards to the Container App. The backend never holds passwords or API " +
+    "keys directly — every secret is fetched from Key Vault using the Container App's system-assigned " +
+    "managed identity at startup, and every blob read/write uses the same MI against the storage " +
+    "account. Bicep modules are environment-gated: dev keeps the pragmatic public-network posture " +
+    "that Container Apps Consumption requires; stg/prd flip to private endpoints. Total dev cost " +
+    "is roughly $20–25/month (Postgres B1ms is the only always-on line item).",
   resources: [
-    { name: 'Postgres Flexible Server (B1ms, PG 16, 32 GB, public + SSL)',         note: 'Extensions: vector (HNSW) / pg_trgm / unaccent / pgcrypto' },
-    { name: 'Database `clearai`',                                                 note: '5 tables: hs_codes · classification_events · classification_feedback · broker_code_mapping · procedure_codes · setup_meta' },
-    { name: 'Key Vault (Standard, RBAC, soft-delete)',                            note: 'postgres-password · postgres-conn-string · anthropic-api-key · apim-shared-secret' },
-    { name: 'Log Analytics workspace',                                            note: 'Wired into the Container Apps Environment for platform-level telemetry alongside structured pino logs.' },
-    { name: 'Container Apps Environment (Consumption + Log Analytics)',           note: 'Per-revision scale-to-zero; readiness gating via /ready holds traffic on the previous revision until embedder warmup finishes.' },
-    { name: 'Container App `ca-infp-clearai-be-dev-gwc-01` (1 vCPU / 2 GiB)',      note: 'System-assigned MI; secretref to KV; min=0 / max=2; liveness=/health, readiness=/ready' },
-    { name: 'API Management (Consumption tier)',                                   note: 'Per-key rate limit · injects x-apim-shared-secret on forward' },
+    { name: 'Static Web App `stapp-infp-clearai-dev-gwc-01`',                      note: 'Hosts the SPA (Vite + React, MSAL.js). Custom domain clearai-dev.infinitepl.app + auto-hostname *.azurestaticapps.net. Static files only — no SWA-managed Functions.' },
+    { name: 'API Management `apim-infp-clearai-be-dev-gwc-01` (Consumption)',      note: 'validate-jwt against Entra JWKS · KV-backed shared-secret injected on forward · per-API rate-limit · CORS allowlist mirrors backend CORS_ORIGINS.' },
+    { name: 'Container App `ca-infp-clearai-be-dev-gwc-01` (0.5 vCPU / 1 GiB)',     note: 'Fastify on Node 20. System-assigned MI. min=1 (always-warm)/max=2. Liveness=/health, readiness=/ready. KV secrets via secretref; storage + DB via DefaultAzureCredential.' },
+    { name: 'Container Apps Environment `cae-infp-clearai-dev-gwc-01`',            note: 'Consumption tier wired to Log Analytics. Cannot bind to Private Endpoints (would require Workload Profiles env + VNet) — drives the dev network posture decisions.' },
+    { name: 'Postgres Flexible Server `psql-infp-clearai-dev-gwc-01` (B1ms, PG 16)', note: 'Public + SSL on dev only; firewall = AllowAllAzureServicesAndResourcesWithinAzureIps (dev) + operator IP. Extensions: vector (HNSW) / pg_trgm / unaccent / pgcrypto. Three roles: clearai_admin · clearai_migrator · clearai_app (least-privilege runtime).' },
+    { name: 'Storage Account `stinfpclearaidevgwc01` (Standard_LRS, MI-only)',     note: 'Container `declaration-runs/` stores per-run input.csv + classifications.json + manifest.json + HV/LV XMLs under {operatorSlug}/YYYY/MM/DD/{runId}/. allowSharedKeyAccess=false; allowBlobPublicAccess=false; SPA downloads via 5-min user-delegation SAS URLs minted by the backend MI.' },
+    { name: 'Key Vault `kv-infp-clearai-dev-gwc` (Standard, RBAC)',                note: 'postgres-* connection strings · anthropic-api-key · apim-shared-secret · foundry-embed-api-key. Container App MI has Key Vault Secrets User; APIM MI has Key Vault Secrets User (used by the named-value KV reference).' },
+    { name: 'Log Analytics workspace `log-infp-clearai-dev-gwc`',                  note: 'Container App console + system logs (pino structured JSON). APIM diagnostic settings forward GatewayLogs and metrics. 30-day retention, 1 GB/day cap.' },
+    { name: 'Azure AI Foundry deployments (Sweden Central, separate sub)',         note: 'Anthropic-on-Foundry: claude-haiku-4-5-clearai-dev + claude-sonnet-4-6-clearai-dev. Embedder: text-embedding-3-large-clearai-dev (1024 dims). Backend talks to Foundry via API key from KV, not direct anthropic.com.' },
+    { name: 'Entra app registrations (Infinite Apps tenant, ef324fec-...)',         note: 'ClearAI API DEV (protected resource) · ClearAI SPA DEV (public, MSAL PKCE) · ClearAI CLI DEV (public, device code). SPA is in API\'s knownClientApplications + preAuthorizedApplications for combined consent.' },
   ],
   posture: [
     {
-      heading: 'APIM origin lock — fail closed.',
+      heading: 'Two-layer auth at APIM: Entra JWT + KV-backed origin lock.',
       body:
-        'The Fastify onRequest hook rejects every non-/health request that does not carry the exact ' +
-        'shared secret APIM injects. In production with the secret unset the hook returns 401 on ' +
-        'everything (loud signal that the wire-up is broken, never silently allows traffic). In ' +
-        'development the hook is bypassed entirely so `pnpm dev` does not need a fake APIM key.',
-      code: 'x-apim-shared-secret',
+        'APIM\'s inbound policy runs validate-jwt first against the Entra JWKS endpoint for the ' +
+        'Apps tenant — audience = ClearAI API DEV appId, issuer pinned to v2.0. On success it ' +
+        'strips any client-supplied x-apim-shared-secret (anti-spoof), then re-injects the value ' +
+        'from a Key-Vault-backed named value. The backend\'s onRequest hook then enforces that ' +
+        'header on every non-probe request. A request must satisfy both layers (valid user JWT ' +
+        'AND APIM-injected secret) — bypassing one is not enough. The APIM named value is bound ' +
+        'to the KV secret via the APIM system MI, so secret rotation propagates without redeploy.',
+      code: 'validate-jwt + x-apim-shared-secret',
     },
     {
-      heading: 'CORS is an explicit allowlist, not "*".',
+      heading: 'SPA sign-in: MSAL.js redirect + PKCE, no client secret in the browser.',
       body:
-        'Browsers refuse `*` once credentials are added later, so the allowlist is read from ' +
-        'CORS_ORIGINS (comma-separated) and the matched origin is reflected back. Local dev ' +
-        'defaults cover :5173/:5174/:5175/:5180 (Vite — multiple fallback ports for stale-process recovery) ' +
-        'and :4321 (Astro). Allowed headers include `x-apim-shared-secret` and ' +
-        '`ocp-apim-subscription-key` so APIM-fronted preflights pass.',
+        'The browser uses @azure/msal-browser to do an authorization-code flow with PKCE against ' +
+        'the ClearAI SPA DEV app reg (single-page-application platform, not Web). Cache lives in ' +
+        'sessionStorage so the auth round-trip survives page unload but not tab close. The SPA is ' +
+        'in the API app reg\'s knownClientApplications list, so consent for both apps is combined ' +
+        'into a single prompt; otherwise the silent-token iframe times out (monitor_window_timeout). ' +
+        'Redirect URIs are pinned per-environment on the SPA platform.',
     },
     {
-      heading: 'In-process per-IP rate limit alongside APIM.',
+      heading: 'Managed identity all the way down — backend never holds long-lived secrets.',
       body:
-        '@fastify/rate-limit (default 30 req/min) is defence-in-depth so that a runaway script from ' +
-        'an otherwise-legitimate APIM-fronted client still gets throttled per-IP. /health is exempt — ' +
-        'platform probes must never see a 429.',
+        'The Container App\'s system-assigned MI has three role assignments: Key Vault Secrets User ' +
+        '(reads connection strings + API keys), Storage Blob Data Contributor (read/write blobs + ' +
+        'mint user-delegation SAS), and Postgres role-mapped via password from KV. KV secretrefs ' +
+        'resolve at container start so no secret material is ever rendered into env vars on disk. ' +
+        'DefaultAzureCredential resolves to the MI at runtime — same credential type works locally ' +
+        '(developer login) and in production (MI), no code change.',
     },
     {
-      heading: '/health (liveness) stays cheap; /ready (readiness) gates cold-start traffic.',
+      heading: 'Storage: SAS URLs minted server-side, never long-lived keys to the browser.',
       body:
-        '/health returns `{ status, db }` from a `SELECT 1` against the pool — Container Apps and APIM ' +
-        'probes hit it constantly. /ready stays 503 until embedder weights, setup_meta cache, and the ' +
-        'hot prompt files are all warm; while it returns 503, Azure withholds traffic from the new ' +
-        'revision so the first request after a deploy never hits a cold replica.',
+        'allowSharedKeyAccess=false on the storage account permanently disables connection strings. ' +
+        'Anonymous container access is also off. The SPA downloads run artifacts by calling the ' +
+        'backend\'s /declaration-runs/:id/download-links — the backend MI calls getUserDelegationKey ' +
+        'and returns per-blob SAS URLs with a 5-minute TTL. The browser never sees the storage account ' +
+        'key, never holds a long-lived blob credential. UUIDv7-only ID validation + path-traversal ' +
+        'guard on the download routes (Layer A); operator/owner ownership filter is the next layer ' +
+        '(tracker handover for Layer B exists).',
+      code: '/declaration-runs/:id/download-links',
     },
     {
-      heading: 'setup_meta is fail-closed.',
+      heading: 'Network posture is environment-gated in bicep.',
       body:
-        'The Evidence Gate refuses to operate on silent defaults. A missing or non-numeric row in ' +
-        'setup_meta makes loadThresholds() throw — the global error handler turns that into a clean ' +
-        '503 instead of letting a stale threshold quietly approve a bad code (ADR-0009).',
+        'Every module accepts an environmentName param. dev: public-network on (Container Apps ' +
+        'Consumption can\'t use Private Endpoints) + storage defaultAction=Allow + Postgres ' +
+        'AllowAllAzure firewall rule + KV public network on. stg/prd flip every one of these to ' +
+        'Disabled and require Private Endpoints (out of this module\'s scope — landing-zone team ' +
+        'wires the PE NICs). KV purge protection forces ON for non-dev. Single param flip moves ' +
+        'the entire data plane from "pragmatic dev" to "PE-only prod".',
+    },
+    {
+      heading: 'CORS is an explicit allowlist, mirrored at APIM and backend.',
+      body:
+        'APIM\'s <cors> policy lists exactly the SPA origins (custom domain + SWA auto-hostname + ' +
+        'localhost ports for Vite/Astro dev). The backend\'s @fastify/cors uses the same allowlist ' +
+        'from CORS_ORIGINS as defence in depth. Both layers agree, so a misconfigured browser ' +
+        'origin is rejected at the gateway before it ever hits the backend.',
+    },
+    {
+      heading: 'Defence in depth: in-process rate limit + readiness gate + fail-closed setup_meta.',
+      body:
+        '@fastify/rate-limit (30 req/min, /health and /ready exempt) catches runaway scripts from ' +
+        'otherwise-legit APIM clients. /ready stays 503 until embedder weights + setup_meta cache + ' +
+        'hot prompt files are all warm — Azure withholds traffic from the new revision until it ' +
+        'flips to 200, eliminating cold-start first-request tails after deploy. Evidence Gate ' +
+        'thresholds are loaded from setup_meta on boot; a missing or non-numeric row makes ' +
+        'loadThresholds() throw and the global error handler returns 503 (ADR-0009) — silent ' +
+        'defaults are never used.',
+    },
+    {
+      heading: 'Postgres least-privilege roles + KV-only password.',
+      body:
+        'Three roles: clearai_admin (DDL, used only for migrator role grants and break-glass), ' +
+        'clearai_migrator (DDL on the schema, runs Drizzle migrate() at container start), ' +
+        'clearai_app (no DDL, DML on application tables only — what the running server uses). ' +
+        'The admin password lives only in KV (deploy.sh generates a 32-char password if one ' +
+        'doesn\'t exist, never round-trips through the operator\'s shell history). When ' +
+        'useRoleSeparation=true the Container App env binds DATABASE_URL to clearai_app and ' +
+        'MIGRATOR_DATABASE_URL to clearai_migrator separately.',
     },
   ],
 };
