@@ -16,6 +16,8 @@ import {
   ApiError,
   type DescribeResponse,
   type DispatchResponse,
+  type DeclarationRunSummary,
+  type DeclarationRunItem,
 } from '@/lib/api';
 
 /**
@@ -87,6 +89,29 @@ const initialModeState: ModeState = {
   errorMessage: null,
 };
 
+/**
+ * Batch-mode state. Kept separate from ModeState because a batch run
+ * has structurally different progress (run summary + per-item rows)
+ * than a single-shot dispatch (one DescribeResponse).
+ */
+export interface BatchState {
+  phase: 'idle' | 'uploading' | 'polling' | 'done' | 'error';
+  runId: string | null;
+  summary: DeclarationRunSummary | null;
+  items: DeclarationRunItem[];
+  errorMessage: string | null;
+}
+const initialBatchState: BatchState = {
+  phase: 'idle',
+  runId: null,
+  summary: null,
+  items: [],
+  errorMessage: null,
+};
+
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min cap; backend can run longer but the UI won't watch indefinitely
+
 export default function ClassifyApp() {
   const t = useT();
   // Auth state drives the composer/login swap. The page chrome
@@ -101,6 +126,8 @@ export default function ClassifyApp() {
     expand:   { ...initialModeState },
     batch:    { ...initialModeState },
   });
+  const [batchState, setBatchState] = useState<BatchState>(initialBatchState);
+  const pollTimerRef = useRef<number | null>(null);
   const cur = modeStates[mode];
   const phase = cur.phase;
   const activeStep = cur.activeStep;
@@ -111,6 +138,100 @@ export default function ClassifyApp() {
   const patchMode = (m: ClassifyMode, patch: Partial<ModeState>) => {
     setModeStates((s) => ({ ...s, [m]: { ...s[m], ...patch } }));
   };
+
+  const stopPolling = () => {
+    if (pollTimerRef.current !== null) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
+
+  /**
+   * Batch-mode entry point. Fired by Composer when the user picks a file.
+   * Uploads multipart, then polls /declaration-runs/:id every 2s until
+   * status is terminal (completed | failed | cancelled). When Phase 1
+   * completes (classification_status='completed') we fetch the per-item
+   * classifications so the result table can render even before Phase 2
+   * finishes XML rendering.
+   */
+  const handleBatchUpload = async (file: File) => {
+    stopPolling();
+    setBatchState({ ...initialBatchState, phase: 'uploading' });
+    try {
+      const created = await api.createDeclarationRun({
+        file,
+        operatorSlug: 'naqel',
+        mode: 'classify_and_declare',
+      });
+      const runId = created.declaration_run_id;
+      setBatchState((s) => ({ ...s, phase: 'polling', runId }));
+
+      const startedAt = Date.now();
+      let classificationsFetched = false;
+
+      const poll = async (): Promise<void> => {
+        if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+          setBatchState((s) => ({
+            ...s,
+            phase: 'error',
+            errorMessage: 'Run still in progress after 5 minutes — check the run page later.',
+          }));
+          return;
+        }
+        try {
+          const summary = await api.getDeclarationRun(runId);
+          setBatchState((s) => ({ ...s, summary }));
+
+          // Phase 1 done? Pull the items so the table can populate while
+          // Phase 2 may still be running.
+          if (
+            !classificationsFetched &&
+            (summary.classification_status === 'completed' ||
+              summary.status === 'completed' ||
+              summary.status === 'failed')
+          ) {
+            classificationsFetched = true;
+            try {
+              const cls = await api.getDeclarationRunClassifications(runId);
+              setBatchState((s) => ({ ...s, items: cls.items }));
+            } catch {
+              // Non-fatal: keep polling, items can be re-fetched after the run terminates.
+            }
+          }
+
+          if (
+            summary.status === 'completed' ||
+            summary.status === 'failed' ||
+            summary.status === 'cancelled'
+          ) {
+            setBatchState((s) => ({ ...s, phase: 'done' }));
+            return;
+          }
+          pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
+        } catch (err) {
+          const msg =
+            err instanceof ApiError
+              ? `${err.status}: ${err.message}`
+              : err instanceof Error
+                ? err.message
+                : 'Polling failed.';
+          setBatchState((s) => ({ ...s, phase: 'error', errorMessage: msg }));
+        }
+      };
+      pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? `${err.status}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : 'Upload failed.';
+      setBatchState({ ...initialBatchState, phase: 'error', errorMessage: msg });
+    }
+  };
+
+  // Stop polling on unmount.
+  useEffect(() => () => stopPolling(), []);
 
   const stepTimers = useRef<Record<ClassifyMode, number[]>>({
     generate: [], expand: [], batch: [],
@@ -177,7 +298,10 @@ export default function ClassifyApp() {
         });
         res = dispatchToDescribe(dispatchRes);
       } else {
-        throw new Error('Batch mode is not wired yet.');
+        // Batch mode submits via Composer's onPickFile callback into
+        // handleBatchUpload(); the textarea-form submit path never
+        // fires for batch (mode !== 'batch' guards above).
+        return;
       }
       const elapsed = performance.now() - startedAt;
       clearStepTimers(m);
@@ -290,7 +414,12 @@ export default function ClassifyApp() {
                 <Composer
                   mode={mode}
                   onSubmit={handleSubmit}
-                  loading={phase === 'classifying'}
+                  onPickFile={handleBatchUpload}
+                  loading={
+                    mode === 'batch'
+                      ? batchState.phase === 'uploading' || batchState.phase === 'polling'
+                      : phase === 'classifying'
+                  }
                   className="w-full"
                 />
               </div>
@@ -320,16 +449,23 @@ export default function ClassifyApp() {
 
         {/* Result lives outside the 760 inner wrapper so it breathes at full 1180px. */}
         <div ref={resultRef} className="scroll-mt-20">
-          {authState === 'authenticated' && phase === 'result' && (
+          {authState === 'authenticated' && (
             <div className="mt-6">
-              <ResultSingle
-                visible={mode === 'generate' || mode === 'expand'}
-                data={response}
-                latencyMs={latencyMs ?? undefined}
-                onRetry={handleRetry}
-                onPickAlternative={handleManualPick}
+              {/* Single-shot result. Only fills when phase='result' on the active single mode. */}
+              {phase === 'result' && (mode === 'generate' || mode === 'expand') && (
+                <ResultSingle
+                  visible
+                  data={response}
+                  latencyMs={latencyMs ?? undefined}
+                  onRetry={handleRetry}
+                  onPickAlternative={handleManualPick}
+                />
+              )}
+              {/* Batch result. Mounts during upload + polling so the user sees progress. */}
+              <ResultBatch
+                visible={mode === 'batch' && batchState.phase !== 'idle'}
+                state={batchState}
               />
-              <ResultBatch visible={mode === 'batch'} />
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 /** Main classify input area: textarea, optional parent-code field, batch dropzone. */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { ClassifyMode } from './ModeTabs';
@@ -15,9 +15,14 @@ export interface ComposerExtras {
 interface ComposerProps {
   mode: ClassifyMode;
   onSubmit?: (description: string, parentCode?: string, extras?: ComposerExtras) => void;
+  /** Batch-mode callback. Fires when the user drops or selects a CSV/XLSX. */
+  onPickFile?: (file: File) => void;
   loading?: boolean;
   className?: string;
 }
+
+const BATCH_ACCEPT = '.csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const BATCH_MAX_BYTES = 10 * 1024 * 1024; // 10 MiB — backend caps row count separately
 
 /** Mirrors backend zod cap; keep in lock-step with `describeBody` / `expandBody`. */
 const DESCRIPTION_MAX = 250;
@@ -25,17 +30,36 @@ const DESCRIPTION_WARN_AT = Math.floor(DESCRIPTION_MAX * 0.9);
 
 const CURRENCIES = ['SAR', 'USD', 'EUR', 'AED', 'GBP', 'CNY', 'JPY', 'INR'] as const;
 
-export default function Composer({ mode, onSubmit, loading, className }: ComposerProps) {
+export default function Composer({ mode, onSubmit, onPickFile, loading, className }: ComposerProps) {
   const t = useT();
   const [description, setDescription] = useState('');
   const [parentCode, setParentCode] = useState('');
   const [valueAmount, setValueAmount] = useState('');
   const [currencyCode, setCurrencyCode] = useState<typeof CURRENCIES[number]>('SAR');
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const charCount = description.length;
   const nearCap = charCount >= DESCRIPTION_WARN_AT;
   const atCap = charCount >= DESCRIPTION_MAX;
   const PARENT_CODE_MIN = 4;
   const parentCodeValid = mode !== 'expand' || parentCode.length >= PARENT_CODE_MIN;
+
+  const acceptFile = (file: File): void => {
+    setBatchError(null);
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith('.csv') && !lower.endsWith('.xlsx')) {
+      setBatchError('Only .csv or .xlsx files are accepted.');
+      return;
+    }
+    if (file.size > BATCH_MAX_BYTES) {
+      setBatchError(`File is too large (max ${Math.round(BATCH_MAX_BYTES / 1024 / 1024)} MiB).`);
+      return;
+    }
+    setBatchFile(file);
+    onPickFile?.(file);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,12 +248,26 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
       {mode === 'batch' && (
         <div className="p-3.5">
           <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!loading) setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              if (loading) return;
+              const file = e.dataTransfer.files?.[0];
+              if (file) acceptFile(file);
+            }}
             className={cn(
-              'border-[1.5px] border-dashed border-[var(--line)] rounded-[var(--radius)]',
-              'bg-[var(--line-2)]',
+              'border-[1.5px] border-dashed rounded-[var(--radius)]',
               'py-11 px-6',
               'flex flex-col items-center gap-2.5 text-center',
               'transition-[border-color,background] duration-150',
+              isDragOver
+                ? 'border-[var(--accent)] bg-[oklch(0.97_0.04_60)]'
+                : 'border-[var(--line)] bg-[var(--line-2)]',
             )}
           >
             <span className="w-[38px] h-[38px] rounded-full bg-[var(--surface)] border border-[var(--line)] inline-flex items-center justify-center text-[var(--ink-2)]">
@@ -238,22 +276,66 @@ export default function Composer({ mode, onSubmit, loading, className }: Compose
               </svg>
             </span>
             <h3 className="m-0 mt-1 text-[18px] font-medium tracking-[-0.01em] text-[var(--ink)]">
-              {t('drop_title')}
+              {batchFile ? batchFile.name : t('drop_title')}
             </h3>
-            <p className="m-0 text-[13px] text-[var(--ink-3)]">{t('drop_hint')}</p>
-            <button
-              type="button"
-              className={cn(
-                'mt-2.5 border-0',
-                'bg-[var(--accent)] text-white',
-                'px-[18px] py-2.5 rounded-full',
-                'text-[13.5px] font-medium',
-                'shadow-[0_4px_10px_-3px_rgba(233,123,58,0.4)]',
-                'hover:bg-[var(--accent-ink)] transition-colors duration-150',
+            <p className="m-0 text-[13px] text-[var(--ink-3)]">
+              {batchFile
+                ? `${(batchFile.size / 1024).toFixed(1)} KB · ready to submit`
+                : t('drop_hint')}
+            </p>
+            {batchError && (
+              <p className="m-0 text-[13px] text-[var(--accent-ink)]" role="alert">
+                {batchError}
+              </p>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={BATCH_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) acceptFile(file);
+                // Reset so the same filename can be re-picked.
+                e.target.value = '';
+              }}
+            />
+            <div className="mt-2.5 flex gap-2">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => fileInputRef.current?.click()}
+                className={cn(
+                  'border-0',
+                  'bg-[var(--accent)] text-white',
+                  'px-[18px] py-2.5 rounded-full',
+                  'text-[13.5px] font-medium',
+                  'shadow-[0_4px_10px_-3px_rgba(233,123,58,0.4)]',
+                  'hover:bg-[var(--accent-ink)] transition-colors duration-150',
+                  'disabled:opacity-50 disabled:pointer-events-none',
+                )}
+              >
+                {batchFile ? 'Replace file' : t('drop_browse')}
+              </button>
+              {batchFile && (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setBatchFile(null);
+                    setBatchError(null);
+                  }}
+                  className={cn(
+                    'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
+                    'px-[18px] py-2.5 rounded-full text-[13.5px] font-medium',
+                    'hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150',
+                    'disabled:opacity-50 disabled:pointer-events-none',
+                  )}
+                >
+                  Clear
+                </button>
               )}
-            >
-              {t('drop_browse')}
-            </button>
+            </div>
           </div>
         </div>
       )}

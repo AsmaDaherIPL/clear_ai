@@ -354,6 +354,93 @@ export interface ModelCallMeta {
   status: 'ok' | 'error' | 'timeout' | string;
 }
 
+// --- declaration-runs (bulk batch) ---------------------------------------
+
+export type DeclarationRunMode = 'classify_only' | 'classify_and_declare';
+
+export type DeclarationRunStatus =
+  | 'pending'
+  | 'ingesting'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type ClassificationPhaseStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export type DeclarationPhaseStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
+  | null;
+
+export type DeclarationRunItemStatus =
+  | 'pending'
+  | 'classifying'
+  | 'succeeded'
+  | 'flagged'
+  | 'blocked'
+  | 'failed';
+
+/** Response from POST /declaration-runs (HTTP 202). */
+export interface DeclarationRunCreated {
+  declaration_run_id: string;
+  mode: DeclarationRunMode;
+  poll_url: string;
+  classifications_url: string;
+  declarations_url?: string;
+}
+
+/** GET /declaration-runs/:id — used for polling. */
+export interface DeclarationRunSummary {
+  id: string;
+  operator_slug: string;
+  mode: DeclarationRunMode;
+  status: DeclarationRunStatus;
+  classification_status: ClassificationPhaseStatus;
+  declaration_status: DeclarationPhaseStatus;
+  row_count: number;
+  succeeded: number;
+  flagged: number;
+  blocked: number;
+  failed: number;
+  pending: number;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+}
+
+export interface DeclarationRunItem {
+  id: string;
+  row_index: number;
+  status: DeclarationRunItemStatus;
+  final_code: string | null;
+  classification_result: Record<string, unknown> | null;
+  trace: Record<string, unknown> | null;
+  error: string | null;
+}
+
+/** GET /declaration-runs/:id/classifications */
+export interface DeclarationRunClassifications {
+  declaration_run_id: string;
+  items: DeclarationRunItem[];
+}
+
+/** GET /declaration-runs/:id/download-links */
+export interface DownloadLinkFile {
+  name: string;
+  url: string;
+  sizeBytes: number | null;
+  contentType: string | null;
+}
+export interface DownloadLinks {
+  runId: string;
+  expiresAt: string;
+  files: DownloadLinkFile[];
+}
+
 // --- Client ---------------------------------------------------------------
 
 class ApiError extends Error {
@@ -380,6 +467,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${getApimBase()}${path}`, {
     ...init,
     headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+  });
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    /* non-JSON body */
+  }
+  if (!res.ok) {
+    const detail =
+      (body as { error?: string; detail?: unknown } | null)?.error ??
+      (body as { message?: string } | null)?.message ??
+      res.statusText;
+    throw new ApiError(res.status, String(detail), body);
+  }
+  return body as T;
+}
+
+/**
+ * Multipart variant for /declaration-runs uploads. The browser sets
+ * Content-Type with the right boundary automatically when given a
+ * FormData body, so we deliberately do NOT inject Content-Type here.
+ */
+async function requestMultipart<T>(path: string, form: FormData): Promise<T> {
+  const token = await getAccessToken();
+  const res = await fetch(`${getApimBase()}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
   });
   let body: unknown = null;
   try {
@@ -447,6 +562,38 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       },
+    ),
+
+  /**
+   * POST /declaration-runs — multipart upload of a CSV/XLSX invoice.
+   * Returns 202 with a poll URL; the run processes asynchronously.
+   */
+  createDeclarationRun: (params: {
+    file: File;
+    operatorSlug: string;
+    mode: DeclarationRunMode;
+  }) => {
+    const form = new FormData();
+    form.append('file', params.file);
+    form.append('operator_slug', params.operatorSlug);
+    form.append('mode', params.mode);
+    return requestMultipart<DeclarationRunCreated>('/declaration-runs', form);
+  },
+
+  /** GET /declaration-runs/{id} — poll for status. */
+  getDeclarationRun: (id: string) =>
+    request<DeclarationRunSummary>(`/declaration-runs/${encodeURIComponent(id)}`),
+
+  /** GET /declaration-runs/{id}/classifications — per-item results once Phase 1 completes. */
+  getDeclarationRunClassifications: (id: string) =>
+    request<DeclarationRunClassifications>(
+      `/declaration-runs/${encodeURIComponent(id)}/classifications`,
+    ),
+
+  /** GET /declaration-runs/{id}/download-links — short-lived SAS for run output. */
+  getDeclarationRunDownloadLinks: (id: string) =>
+    request<DownloadLinks>(
+      `/declaration-runs/${encodeURIComponent(id)}/download-links`,
     ),
 };
 
