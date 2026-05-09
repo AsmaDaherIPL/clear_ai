@@ -1,23 +1,12 @@
 /**
- * HITL queue HTTP surface.
+ * State machine enforced in SQL by the WHERE clauses below:
+ *   pending → in_review              (/claim)
+ *   pending | in_review → resolved   (/review approve|override)
+ *   pending | in_review → dismissed  (/review reject)
+ *   resolved | dismissed → terminal  (returns 409)
  *
- *   GET  /hitl/queue                  list rows; filter by status + operator
- *   GET  /hitl/queue/:id              fetch one row with full forensic payload
- *   POST /hitl/queue/:id/claim        flip status to 'in_review'
- *   POST /hitl/queue/:id/review       record reviewer decision; flip to resolved/dismissed
- *
- * v0 access policy: operator_slug filtering only. Anyone with access to
- * the API sees rows for the operators they ask about. `reviewed_by` is
- * left NULL — there's no authn principal to attribute reviews to until
- * the BFF starts stamping a user header.
- *
- * State machine:
- *   pending → in_review (via /claim)
- *   in_review → resolved (via /review with decision='approve'|'override')
- *   in_review → dismissed (via /review with decision='reject')
- *   pending → resolved | dismissed (skip claim, allowed)
- *   resolved | dismissed → terminal (re-review is a separate row insert,
- *                                    not a state transition)
+ * `reviewed_by` is NULL until the BFF stamps a user header on
+ * incoming requests; intentional gap for v0.
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';

@@ -1,18 +1,3 @@
-/**
- * manifest.json + classifications.json writer.
- *
- * Fires once at the end of a declaration run (after Phase 2, or after
- * Phase 1 for classify_only runs). Both files land under the run's
- * blob_prefix so a single GET /declaration-runs/:id/download-links
- * returns everything the SPA needs.
- *
- * classifications.json shape: array of { rowIndex, status, finalCode,
- *                                        goodsDescriptionAr, error }
- *
- * manifest.json shape: { runId, operatorSlug, mode, createdAt,
- *                        completedAt, files: [{ kind, name, sizeBytes,
- *                                               contentType }] }
- */
 import { getBlobClient } from '../../storage/blob.client.js';
 import { classificationsKey, manifestKey } from '../../storage/blob.paths.js';
 import { listClassifiedItems } from './filings/declaration.repository.js';
@@ -36,18 +21,12 @@ export interface RunManifest {
   files: ManifestFile[];
 }
 
-/**
- * Write classifications.json (per-item Phase 1 results) under the run's
- * blob_prefix. Best-effort: a write failure logs but doesn't fail the
- * run — the DB rows remain authoritative.
- */
 export async function writeClassificationsJson(declarationRunId: string): Promise<void> {
   const run = await getDeclarationRun(declarationRunId);
   if (!run.blobPrefix) return;
 
-  // listClassifiedItems returns post-Phase-1 succeeded/flagged rows;
-  // listPendingItems also returns blocked/failed. We want the union for
-  // the dump so the JSON reflects every row.
+  // Union both lists: listClassifiedItems is post-Phase-1 only
+  // (succeeded/flagged), listPendingItems also covers blocked/failed.
   const succeededOrFlagged = await listClassifiedItems(declarationRunId);
   const all = await listPendingItems(declarationRunId);
 
@@ -60,11 +39,6 @@ export async function writeClassificationsJson(declarationRunId: string): Promis
   await getBlobClient().put(classificationsKey(run.blobPrefix), body, 'application/json');
 }
 
-/**
- * List every blob under the run prefix and write a manifest.json index.
- * Called at the very end of a run so it captures input.csv,
- * classifications.json, and every hv/lv XML produced.
- */
 export async function writeManifestJson(declarationRunId: string): Promise<void> {
   const run = await getDeclarationRun(declarationRunId);
   if (!run.blobPrefix) return;
@@ -74,7 +48,6 @@ export async function writeManifestJson(declarationRunId: string): Promise<void>
   const items = await blob.list(run.blobPrefix);
 
   const files: ManifestFile[] = items
-    // Don't include the manifest itself.
     .filter((i) => !i.key.endsWith('/manifest.json'))
     .map((i) => {
       const rel = i.key.startsWith(`${run.blobPrefix}/`)

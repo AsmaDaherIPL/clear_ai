@@ -1,13 +1,7 @@
 /**
- * classification_events recorder.
- *
- * One INSERT per dispatch invocation. Best-effort: a recorder failure
- * must never break the dispatch response, so all errors are caught and
- * logged. Returns true on success so the caller knows whether to follow
- * with a hitl_queue write (the queue's FK references this row).
- *
- * The full DispatchV1Trace lives in `trace` jsonb; the top-level columns
- * are denormalized facts you'll filter and aggregate on regularly.
+ * Best-effort INSERT into classification_events. Returns true on success
+ * so the dispatch route can sequence the dependent hitl_queue write
+ * (the queue's FK references this row).
  */
 import { getPool } from '../../../db/client.js';
 import { redactRequestBody } from '../../../common/logging/redact.js';

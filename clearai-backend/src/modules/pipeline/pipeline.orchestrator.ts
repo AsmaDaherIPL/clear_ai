@@ -1,18 +1,12 @@
 /**
- * Pipeline orchestrator — runs the full classification pipeline for a single
- * CanonicalLineItem.
- *
- * Stages:
- *   0a    Parse (deterministic)
- *   0b    Cleanup (lightweight LLM)
- *   1A    Track A: Researcher? → Retrieval → Threshold → Picker
- *   1B    Track B: Override → Codebook → Expand/LLM
- *   2     Reconciliation (standard LLM when needed)
- *   2.5   Submission description (lightweight LLM, ≤300 char Arabic)
- *   3     Sanity (standard LLM, always)
- *
- * Returns a PipelineResult that mirrors the DispatchResult contract so
- * declaration-runs/classification.service.ts can consume it without change.
+ * Pipeline stages:
+ *   0a    Parse                              (deterministic)
+ *   0b    Cleanup                            (lightweight LLM)
+ *   1     description_classifier             (researcher? → retrieval → threshold → picker)
+ *   1     code_resolver                      (override → codebook → expand/LLM, parallel with 1)
+ *   2     Reconciliation                     (standard LLM when needed)
+ *   2.5   Submission description             (lightweight LLM, ≤300 char Arabic)
+ *   3     Sanity                             (standard LLM, always)
  */
 import { parseItem } from './stage-0-parse/parse.js';
 import { runCleanup } from './stage-1-cleanup/cleanup.js';

@@ -1,30 +1,11 @@
 /**
- * Track B — Code resolver.
- *
- * Deterministic-first resolution of the merchant-supplied HS code.
- * Description is used only as a tiebreaker when multiple replacement
- * codes or prefix children exist. Track B never emits a correctness
- * judgment.
- *
- * Resolution flow:
- *   1. Tenant override lookup. If a matching override row exists, the
- *      walk continues with the override's TARGET code as input — the
- *      override is no longer a terminal stop. This catches stale
- *      overrides (target deprecated/unknown to the current codebook)
- *      that used to silently pass bad data through.
- *   2. Codebook lookup on the chosen input (override target or raw
- *      merchant code):
- *        a. 12-digit active                        → passthrough
- *        b. 12-digit deprecated, 1 replacement     → deterministic swap
- *        c. 12-digit deprecated, N replacements    → lightweight LLM picks
- *        d. 6/8/10-digit prefix → expand-with-fallback + LLM picks
- *   3. Absent / malformed / unknown                → null_resolution
- *
- * The TrackBResult carries `override_applied` + `override_target_code`
- * so downstream consumers (recorder, trace) can distinguish:
- *   - "no override, codebook resolved X to Y the normal way"
- *   - "override fired, codebook resolved its target to Y" (good)
- *   - "override fired, target is unknown — null_resolution"   (stale override — operator action needed)
+ * Code resolver. Tenant overrides are NOT terminal: a matching override
+ * feeds its target code into the codebook walk so stale overrides
+ * (target deprecated or unknown) surface as deterministic_swap or
+ * null_resolution rather than silently emitting bad data. The result
+ * carries override_applied + override_target_code so downstream can
+ * distinguish "no override" from "override fired, codebook then
+ * resolved" from "override fired, target is stale".
  */
 import { getPool } from '../../../db/client.js';
 import { lookupTenantOverride } from '../../pipeline/track-b-code/codebook-override.js';
@@ -46,11 +27,6 @@ interface HsCodeRecord {
   description_ar: string | null;
 }
 
-/**
- * The shape returned by the inner walk. Mirrors TrackBResult minus the
- * override fields, which the entry point fills in based on whether an
- * override fired.
- */
 interface CodebookResolution {
   resolved_code: string | null;
   resolution: TrackBResolution;
@@ -83,13 +59,10 @@ async function expandPrefix(prefix: string, limit = 50): Promise<HsCodeRecord[]>
   return r.rows;
 }
 
-/**
- * Walk a merchant prefix down to a granularity that exists in the
- * codebook. A 10-digit code may not match because the carrier's
- * national extension uses a different padding convention than ZATCA's
- * canonical 12-digit form. Try 10 → 8 → 6; the 6-digit HS6 is the
- * international harmonized prefix and almost always present.
- */
+// Carriers' national extensions don't always match ZATCA's canonical
+// 12-digit padding, so a full prefix may return zero children even when
+// the chapter+heading exist. Walk down 10 → 8 → 6 (HS6 is the
+// international harmonized prefix, almost always present).
 async function expandWithFallback(
   fullPrefix: string,
   limit = 50,
@@ -129,22 +102,15 @@ function rowToCandidate(row: HsCodeRecord, rank: number): Candidate {
   };
 }
 
-/**
- * Classify a code's length so we know which branch of the codebook walk
- * to take. The merchant_code_state from Stage 0 only describes the
- * *raw* merchant input; when we walk the override target instead, we
- * recompute this here.
- */
+// merchant_code_state from Stage 0 describes the raw merchant input
+// only. When the walk runs against an override target, length must be
+// recomputed.
 function classifyLength(code: string): 'twelve_digit' | 'short_prefix' | 'malformed' {
   if (code.length === 12) return 'twelve_digit';
   if (code.length === 6 || code.length === 8 || code.length === 10) return 'short_prefix';
   return 'malformed';
 }
 
-/**
- * Inner codebook walk. Pure function of (code, length classification,
- * cleaned_description) — knows nothing about overrides.
- */
 async function resolveAgainstCodebook(
   code: string,
   state: 'twelve_digit' | 'short_prefix',
@@ -296,13 +262,6 @@ export async function runTrackB(
     };
   }
 
-  // 1. Tenant override — feeds its target into the codebook walk
-  //    instead of returning early. Stale overrides (target deprecated
-  //    or unknown to the current codebook) now surface as
-  //    null_resolution / deterministic_swap rather than confidently
-  //    emitting bad data. Override metadata is preserved on the result
-  //    so the trace can flag operator action when the codebook walk
-  //    invalidates the mapping.
   const override = await lookupTenantOverride(raw_merchant_code, operatorSlug);
   const overrideApplied = override !== null;
   const overrideTarget = override?.targetCode ?? null;

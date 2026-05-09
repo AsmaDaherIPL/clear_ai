@@ -1,18 +1,7 @@
 /**
- * HITL queue — Human-in-the-loop escalation.
- *
- * Wired to the hitl_queue table (added in 0060). The orchestrator surfaces
- * its HITL intent on PipelineResult.hitl; the dispatch route calls
- * enqueueHitl() AFTER the classification_events row has been written, so
- * the FK from hitl_queue.classification_event_id is always satisfied.
- *
- * Items enqueued here still ship back to the caller with sanity_verdict
- * 'FLAG' and status 'flagged' — they're additionally surfaced in the
- * review queue.
- *
- * v0 access policy: rows are filtered by operator_slug at the app layer.
- * Any logged-in user with access to operator X sees X's pending items.
- * No claim/assignment semantics yet.
+ * HITL queue writer. Caller must run this AFTER the
+ * classification_events row exists — hitl_queue.classification_event_id
+ * has an FK to it.
  */
 import { getPool } from '../../../db/client.js';
 import { newId } from '../../../common/utils/uuid.js';
@@ -23,7 +12,6 @@ interface PipelineEventLogger {
 }
 
 export interface HitlPayload {
-  /** UUID of the classification_events row this review points to. */
   classification_event_id: string;
   item_id: string;
   operator_slug: string;
@@ -31,15 +19,11 @@ export interface HitlPayload {
   cleaned_description: string;
   verdict_output: StageVerdictOutput | null;
   sanity_result: SanityResult | null;
-  /** Full DispatchV1Trace serialised as jsonb. */
   trace: unknown;
   enqueued_at: string;
 }
 
-/**
- * Insert one hitl_queue row. Best-effort: a queue write failure logs but
- * never throws — the dispatch response has already been built.
- */
+// Best-effort: a queue write failure must not abort the dispatch response.
 export async function enqueueHitl(
   payload: HitlPayload,
   logger?: PipelineEventLogger,
@@ -86,9 +70,6 @@ export function shouldEnqueue(
   sanityResult: SanityResult | null,
 ): boolean {
   if (!verdictOutput || verdictOutput.decision === 'escalate') return true;
-  // sanity LLM only returns PASS | FLAG; BLOCK on PipelineResult is reserved
-  // for pre-classification rejections that the orchestrator emits before
-  // sanity runs and never produces a SanityResult for.
   if (sanityResult?.verdict === 'FLAG') return true;
   return false;
 }
