@@ -19,7 +19,32 @@ import { shouldEnqueue } from './hitl/hitl.js';
 import { buildTrace } from './trace/trace.js';
 import { getPool } from '../../db/client.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
-import type { PipelineResult, StageTrace, HitlIntent } from './shared/pipeline.types.js';
+import type { PipelineResult, StageTrace, HitlIntent, ConfidenceBand, VerdictResult } from './shared/pipeline.types.js';
+
+const BAND_RANK: Record<ConfidenceBand, number> = {
+  certain: 4,
+  high:    3,
+  medium:  2,
+  low:     1,
+  none:    0,
+};
+
+async function loadMinConfidenceBand(operatorSlug: string): Promise<ConfidenceBand | null> {
+  const pool = getPool();
+  const r = await pool.query<{ min_confidence_band: string | null }>(
+    `SELECT c.min_confidence_band
+       FROM operator_declaration_config c
+       JOIN operators o ON o.id = c.operator_id
+      WHERE o.slug = $1`,
+    [operatorSlug],
+  );
+  const raw = r.rows[0]?.min_confidence_band ?? null;
+  return raw as ConfidenceBand | null;
+}
+
+function isBelowGate(verdict: VerdictResult, minBand: ConfidenceBand): boolean {
+  return BAND_RANK[verdict.confidence_band] < BAND_RANK[minBand];
+}
 
 interface CatalogContext {
   /** Leaf Arabic from zatca_hs_codes.description_ar. Same string the breadcrumb terminates with. */
@@ -147,6 +172,26 @@ export async function runPipeline(
   // Escalate to HITL — item still progresses as 'flagged'.
   if (verdict.decision === 'escalate') {
     const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity: null, stages: allStages });
+    return {
+      final_code: null,
+      goods_description_ar: null,
+      sanity_verdict: 'FLAG',
+      trace,
+      hitl: {
+        reason: 'verdict_escalate',
+        cleaned_description: cleanup.cleaned_description,
+      },
+    };
+  }
+
+  // ---- Stage 2 gate: per-operator minimum confidence band ----
+  const minBand = await loadMinConfidenceBand(operatorSlug);
+  if (minBand && isBelowGate(verdict, minBand)) {
+    const gateVerdict = {
+      decision: 'escalate' as const,
+      disagreement_summary: `confidence_band '${verdict.confidence_band}' is below operator minimum '${minBand}'`,
+    };
+    const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict: gateVerdict, sanity: null, stages: allStages });
     return {
       final_code: null,
       goods_description_ar: null,

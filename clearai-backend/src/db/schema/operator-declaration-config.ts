@@ -5,8 +5,10 @@
  * zatca_declaration_defaults table and the per-operator zatca_* +
  * default_consignee_address columns dropped in 0063.
  */
-import { pgTable, uuid, varchar, smallint, text, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, smallint, text, timestamp, pgEnum } from 'drizzle-orm/pg-core';
 import { operators } from './operators.js';
+
+export const confidenceBandEnum = pgEnum('confidence_band', ['certain', 'high', 'medium', 'low', 'none']);
 
 export const operatorDeclarationConfig = pgTable('operator_declaration_config', {
   operatorId: uuid('operator_id')
@@ -41,6 +43,14 @@ export const operatorDeclarationConfig = pgTable('operator_declaration_config', 
   defaultRegPortCode: varchar('default_reg_port_code', { length: 8 }),
   defaultCarrierPrefix: varchar('default_carrier_prefix', { length: 16 }),
   docRefPrefix: varchar('doc_ref_prefix', { length: 16 }),
+
+  /**
+   * Minimum confidence band accepted before escalating to HITL.
+   * Null = no gate (all accepted bands pass). Values ordered from strictest:
+   * certain > high > medium > low > none.
+   * Items whose confidence_band is below this threshold are escalated.
+   */
+  minConfidenceBand: confidenceBandEnum('min_confidence_band'),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
