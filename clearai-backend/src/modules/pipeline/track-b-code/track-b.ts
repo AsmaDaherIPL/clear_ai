@@ -243,11 +243,12 @@ async function resolveAgainstCodebook(
 
 export async function runTrackB(
   raw_merchant_code: string | null,
+  normalized_merchant_code: string | null,
   merchant_code_state: MerchantCodeState,
   cleaned_description: string,
   operatorSlug: string,
 ): Promise<TrackBResult> {
-  if (!raw_merchant_code || merchant_code_state === 'absent' || merchant_code_state === 'malformed') {
+  if (!normalized_merchant_code || merchant_code_state === 'absent' || merchant_code_state === 'malformed') {
     return {
       resolved_code: null,
       resolution: 'null_resolution',
@@ -258,11 +259,16 @@ export async function runTrackB(
     };
   }
 
-  const override = await lookupTenantOverride(raw_merchant_code, operatorSlug);
+  // Override lookup keys on what merchants actually send (raw, unpadded);
+  // codebook walk uses the padded normalized form so 7/9/11-digit Naqel codes
+  // land on a valid HS boundary.
+  const override = raw_merchant_code
+    ? await lookupTenantOverride(raw_merchant_code, operatorSlug)
+    : null;
   const overrideApplied = override !== null;
   const overrideTarget = override?.targetCode ?? null;
 
-  const codeToWalk = overrideTarget ?? raw_merchant_code;
+  const codeToWalk = overrideTarget ?? normalized_merchant_code;
   const lengthState = classifyLength(codeToWalk);
 
   if (lengthState === 'malformed') {

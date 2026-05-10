@@ -102,6 +102,7 @@ export async function runPipeline(
         : {
             merchant_code_state: parsed.item.merchant_code_state,
             raw_merchant_code: parsed.item.raw_merchant_code,
+            normalized_merchant_code: parsed.item.normalized_merchant_code,
             currency_code: parsed.item.currency_code,
             value_amount: parsed.item.value_amount,
           }),
@@ -149,6 +150,7 @@ export async function runPipeline(
     runTrackA(cleanup, parsedItem.raw_description!),
     runTrackB(
       parsedItem.raw_merchant_code,
+      parsedItem.normalized_merchant_code,
       parsedItem.merchant_code_state,
       cleanup.cleaned_description,
       operatorSlug,
