@@ -147,6 +147,17 @@ export default function ClassifyApp() {
   };
 
   /**
+   * Reset batch mode to its initial state. Called from the
+   * "Start a new batch" button in the result panel footer; also
+   * stops any in-flight poll. Causes the composer collapser to
+   * un-collapse and the result panel to unmount.
+   */
+  const handleResetBatch = () => {
+    stopPolling();
+    setBatchState({ ...initialBatchState });
+  };
+
+  /**
    * Batch-mode entry point. Fired by Composer when the user picks a file.
    * Uploads multipart, then polls /declaration-runs/:id every 2s until
    * status is terminal (completed | failed | cancelled). When Phase 1
@@ -425,20 +436,52 @@ export default function ClassifyApp() {
 
           {authState === 'authenticated' && (
             <>
-              <div className="flex flex-col items-center">
-                <ModeTabs mode={mode} onModeChange={setMode} />
-                <Composer
-                  mode={mode}
-                  onSubmit={handleSubmit}
-                  onPickFile={handleBatchUpload}
-                  loading={
-                    mode === 'batch'
-                      ? batchState.phase === 'uploading' || batchState.phase === 'polling'
-                      : phase === 'classifying'
-                  }
-                  className="w-full"
-                />
-              </div>
+              {/*
+                Composer collapser. In batch mode, the moment a file
+                upload kicks off (`batchState.phase !== 'idle'`) we
+                collapse the entire ModeTabs + Composer block so the
+                result panel below gets the full visual weight. The
+                wrapper animates max-height + padding + opacity +
+                margin-top in lockstep on the same cubic-bezier so the
+                page reflow feels intentional, not janky.
+
+                Generate / expand modes never collapse — those flows
+                expect the composer to stay editable while results
+                render below it.
+              */}
+              {(() => {
+                const composerCollapsed =
+                  mode === 'batch' && batchState.phase !== 'idle';
+                return (
+                  <div
+                    className="overflow-hidden"
+                    style={{
+                      maxHeight: composerCollapsed ? 0 : 720,
+                      opacity: composerCollapsed ? 0 : 1,
+                      marginTop: composerCollapsed ? 0 : undefined,
+                      pointerEvents: composerCollapsed ? 'none' : 'auto',
+                      transition:
+                        'max-height 0.55s cubic-bezier(0.7, 0, 0.3, 1), opacity 0.3s ease, margin-top 0.3s ease',
+                    }}
+                    aria-hidden={composerCollapsed}
+                  >
+                    <div className="flex flex-col items-center">
+                      <ModeTabs mode={mode} onModeChange={setMode} />
+                      <Composer
+                        mode={mode}
+                        onSubmit={handleSubmit}
+                        onPickFile={handleBatchUpload}
+                        loading={
+                          mode === 'batch'
+                            ? batchState.phase === 'uploading' || batchState.phase === 'polling'
+                            : phase === 'classifying'
+                        }
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Anchor wrappers stay mounted across phase transitions so refs are stable. */}
               <div ref={stepsRef} className="scroll-mt-20">
@@ -481,6 +524,7 @@ export default function ClassifyApp() {
               <ResultBatch
                 visible={mode === 'batch' && batchState.phase !== 'idle'}
                 state={batchState}
+                onReset={handleResetBatch}
               />
             </div>
           )}

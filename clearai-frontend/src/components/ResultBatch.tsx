@@ -14,10 +14,17 @@ function humanError(raw: string | null | undefined): string {
 interface ResultBatchProps {
   visible: boolean;
   state: BatchState;
+  /**
+   * Reset the batch flow back to the upload screen. Wired up by the
+   * "Start a new batch" button below the panel; only rendered once
+   * the run reaches a terminal state (success OR failure) so the user
+   * can't accidentally bin an in-flight run.
+   */
+  onReset?: () => void;
   className?: string;
 }
 
-export default function ResultBatch({ visible, state, className }: ResultBatchProps) {
+export default function ResultBatch({ visible, state, onReset, className }: ResultBatchProps) {
   const t = useT();
   const [downloadLinks, setDownloadLinks] = useState<DownloadLinks | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -137,6 +144,7 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
   })();
 
   return (
+    <>
     <div
       className={cn(
         'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
@@ -290,5 +298,44 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
         </div>
       )}
     </div>
+
+    {/*
+      "Start a new batch" reset button. Mirrors the Batch.html mockup:
+      a centred secondary pill below the panel, only shown once the run
+      has reached a terminal state so the operator can't accidentally
+      bin an in-flight run. Clicking it triggers onReset on the parent,
+      which clears batchState and un-collapses the composer above.
+    */}
+    {runFinished && onReset && (
+      <div className="flex justify-center mt-[18px] animate-[fadeUp_0.35s_ease_both]">
+        <button
+          type="button"
+          onClick={onReset}
+          className={cn(
+            'inline-flex items-center gap-2 px-4 py-2 rounded-[10px]',
+            'border border-[var(--line)] bg-[var(--surface)]',
+            'text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+            'transition-colors duration-150',
+          )}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M21 12a9 9 0 1 1-3-6.7" />
+            <path d="M21 4v5h-5" />
+          </svg>
+          {t('batch_start_new')}
+        </button>
+      </div>
+    )}
+    </>
   );
 }
