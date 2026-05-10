@@ -102,6 +102,12 @@ export async function runPipeline(
         : {
             merchant_code_state: parsed.item.merchant_code_state,
             raw_merchant_code: parsed.item.raw_merchant_code,
+            // raw_description: the merchant's verbatim text. Surfaced in the
+            // parse-stage trace so audit reviewers can see what the merchant
+            // sent vs. what Stage 0b cleanup turned it into (effective_description
+            // in track-a/retrieval). Useful when classification looks wrong and
+            // we need to know whether cleanup mangled the input.
+            raw_description: parsed.item.raw_description,
             currency_code: parsed.item.currency_code,
             value_amount: parsed.item.value_amount,
           }),

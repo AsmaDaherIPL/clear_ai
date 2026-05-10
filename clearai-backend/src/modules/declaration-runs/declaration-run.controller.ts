@@ -192,6 +192,8 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
     raw_merchant_code: string | null;
     codebook_state: string | null;
     override_applied: boolean | null;
+    raw_description: string | null;
+    effective_description: string | null;
   }>(
     `SELECT i.id,
             i.row_index,
@@ -205,7 +207,15 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
             (i.trace -> 'meta' -> 'verdict' ->> 'confidence_band')    AS confidence_band,
             (i.trace -> 'meta' -> 'track_b' ->> 'raw_merchant_code')  AS raw_merchant_code,
             (i.trace -> 'meta' -> 'track_b' ->> 'codebook_state')     AS codebook_state,
-            ((i.trace -> 'meta' -> 'track_b' ->> 'override_applied')::boolean) AS override_applied
+            ((i.trace -> 'meta' -> 'track_b' ->> 'override_applied')::boolean) AS override_applied,
+            -- raw_description: the merchant's verbatim input (xlsx 'Description' cell).
+            -- Lets the SPA show a "merchant said X / system saw Y" diff without
+            -- digging into declaration_run_items.canonical jsonb.
+            (i.canonical ->> 'description')                          AS raw_description,
+            -- effective_description: post-Stage-0b cleanup; what Track A retrieval
+            -- actually queried against. Reveals when cleanup mangled or stripped
+            -- something the merchant supplied.
+            (i.trace -> 'meta' -> 'track_a' ->> 'effective_description') AS effective_description
        FROM declaration_run_items i
        LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
       WHERE i.declaration_run_id = $1
@@ -230,6 +240,8 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
       raw_merchant_code: i.raw_merchant_code,
       codebook_state: i.codebook_state,
       override_applied: i.override_applied ?? false,
+      raw_description: i.raw_description,
+      effective_description: i.effective_description,
       classification_result: i.classification_result,
       trace: i.trace,
       error: i.error,
