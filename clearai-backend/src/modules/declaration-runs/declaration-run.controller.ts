@@ -170,6 +170,10 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
   // result table can render `path_en` and the LLM-generated Arabic
   // submission text per item without follow-up fetches.
   const pool = getPool();
+  // Top-level extracts let the SPA render the result table without
+  // traversing the heavy `trace` JSONB on every row. raw_merchant_code,
+  // codebook_state, override_applied feed the merchant→resolved diff
+  // and the "Valid"/"Override applied" pill in BatchResultsTable.
   const r = await pool.query<{
     id: string;
     row_index: number;
@@ -181,6 +185,9 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
     catalog_path_en: string | null;
     submission_description_ar: string | null;
     confidence_band: string | null;
+    raw_merchant_code: string | null;
+    codebook_state: string | null;
+    override_applied: boolean | null;
   }>(
     `SELECT i.id,
             i.row_index,
@@ -191,7 +198,10 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
             i.error,
             d.path_en              AS catalog_path_en,
             (i.classification_result -> 'goods_description_ar')::text AS submission_description_ar,
-            (i.trace -> 'meta' -> 'verdict' ->> 'confidence_band')    AS confidence_band
+            (i.trace -> 'meta' -> 'verdict' ->> 'confidence_band')    AS confidence_band,
+            (i.trace -> 'meta' -> 'track_b' ->> 'raw_merchant_code')  AS raw_merchant_code,
+            (i.trace -> 'meta' -> 'track_b' ->> 'codebook_state')     AS codebook_state,
+            ((i.trace -> 'meta' -> 'track_b' ->> 'override_applied')::boolean) AS override_applied
        FROM declaration_run_items i
        LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
       WHERE i.declaration_run_id = $1
@@ -210,6 +220,9 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
         ? i.submission_description_ar.replace(/^"|"$/g, '')
         : null,
       confidence_band: i.confidence_band,
+      raw_merchant_code: i.raw_merchant_code,
+      codebook_state: i.codebook_state,
+      override_applied: i.override_applied ?? false,
       classification_result: i.classification_result,
       trace: i.trace,
       error: i.error,

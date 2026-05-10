@@ -484,6 +484,13 @@
       "when": 1747440200000,
       "tag": "0068_operator_confidence_gate_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1747440300000,
+      "tag": "0069_seed_naqel_currencies",
+      "breakpoints": true
     }
   ]
 }
