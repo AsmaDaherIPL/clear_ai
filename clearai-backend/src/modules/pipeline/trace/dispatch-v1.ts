@@ -175,6 +175,10 @@ function buildCodeResolverAction(
       codebook_state: trackB.codebook_state,
       override_applied: trackB.override_applied,
       override_target_code: trackB.override_target_code,
+      // PR 5: subtree consistency check, surfaced for the UI and reconciliation.
+      consistency_verdict: trackB.consistency_verdict,
+      valid_prefix: trackB.valid_prefix,
+      subtree_candidates: trackB.subtree_candidates,
       ...(trackB.llm_context ? { llm_context: trackB.llm_context } : {}),
     },
   };

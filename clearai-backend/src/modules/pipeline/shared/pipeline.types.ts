@@ -127,6 +127,39 @@ export interface TrackBLlmContext {
   runners_up: Array<{ code: string; rationale: string }>;
 }
 
+/**
+ * Verdict from the description-anchored subtree retrieval (PR 5).
+ *
+ * consistent      — top reranker candidate's prefix matches valid_prefix AND
+ *                   its fit-verdict is `fits`. Description positively confirms
+ *                   the merchant's heading.
+ * ambiguous       — top reranker candidate's prefix matches valid_prefix but
+ *                   the description does NOT positively confirm the heading
+ *                   (top fit is `partial`, OR description is silent on
+ *                   dimensions the leaf constrains). Reconciliation should
+ *                   resolve as AMBIGUOUS_MATERIAL conflict, not silently
+ *                   accept the merchant code.
+ * contradicts     — top reranker candidate's prefix does NOT start with
+ *                   valid_prefix. Hard violation: the description pulls
+ *                   strongly toward a different chapter. Reconciliation
+ *                   resolves as CONTRADICTION conflict; merchant code
+ *                   overridden, audit_flag mandatory.
+ * not_applicable  — no valid prefix to anchor to (merchant code absent or
+ *                   malformed, or codebook walk produced no resolvable input).
+ *                   Subtree retrieval did not run.
+ */
+export type ConsistencyVerdict = 'consistent' | 'ambiguous' | 'contradicts' | 'not_applicable';
+
+/** Subtree retrieval candidate annotated with a relevance verdict (PR 5). */
+export interface SubtreeAnnotatedCandidate {
+  code: string;
+  description_en: string | null;
+  description_ar: string | null;
+  rrf_score: number;
+  fit: CandidateFitVerdict;
+  rationale: string;
+}
+
 export interface TrackBResult {
   /** Resolved 12-digit code. Null when resolution='null_resolution'. */
   resolved_code: string | null;
@@ -139,6 +172,27 @@ export interface TrackBResult {
   override_target_code: string | null;
   /** Present only for llm_pick_among_replacements and llm_pick_under_prefix. */
   llm_context?: TrackBLlmContext;
+  /**
+   * PR 5: description-anchored subtree retrieval verdict. Computed in parallel
+   * with the codebook walk above. `not_applicable` when no valid prefix to
+   * anchor to. Trace-only field — not surfaced as a top-level
+   * classification_events column until operational filtering proves useful.
+   */
+  consistency_verdict: ConsistencyVerdict;
+  /**
+   * The HS prefix (heading-level, 6 digits) the subtree retrieval anchored to.
+   * Derived from the merchant's claimed code. Null when consistency_verdict =
+   * not_applicable.
+   */
+  valid_prefix: string | null;
+  /**
+   * Subtree retrieval candidates (top 5) with per-candidate fit verdicts.
+   * Empty when consistency_verdict = not_applicable. Reconciliation reads this
+   * to decide AGREEMENT / AMBIGUOUS_MATERIAL / CONTRADICTION conflict types.
+   * When consistency_verdict = contradicts, the top candidate is from the
+   * unconstrained reranker output (forced through the prefix violation).
+   */
+  subtree_candidates: SubtreeAnnotatedCandidate[];
 }
 
 // ---------------------------------------------------------------------------

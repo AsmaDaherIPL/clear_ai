@@ -10,12 +10,15 @@
 import { getPool } from '../../../db/client.js';
 import { lookupTenantOverride } from '../../pipeline/track-b-code/codebook-override.js';
 import { llmClassify } from '../../pipeline/track-a-description/picker/llm-pick.js';
+import { retrieveCandidates } from '../../../inference/retrieval/retrieve.js';
 import type {
   TrackBResult,
   TrackBResolution,
   CodebookState,
   TrackBLlmContext,
   MerchantCodeState,
+  ConsistencyVerdict,
+  SubtreeAnnotatedCandidate,
 } from '../shared/pipeline.types.js';
 import type { Candidate } from '../../../inference/retrieval/retrieve.js';
 
@@ -241,6 +244,111 @@ async function resolveAgainstCodebook(
   };
 }
 
+/**
+ * PR 5: description-anchored subtree retrieval + consistency verdict.
+ *
+ * Given a valid HS prefix (heading-level, 6 digits) and the cleaned description:
+ *   1. Retrieve top-K candidates within the subtree (code LIKE prefix%) ranked
+ *      by description relevance.
+ *   2. In parallel, retrieve top-1 globally (no prefix filter) for the hard
+ *      prefix check.
+ *   3. If the unanchored top-1's prefix does NOT start with valid_prefix,
+ *      the description is pulling toward a different heading entirely →
+ *      consistency_verdict='contradicts'. Force the subtree_candidates to
+ *      a single entry from the unanchored top-1 (so reconciliation sees the
+ *      stronger signal Track A would have picked up).
+ *   4. Otherwise, run the LLM classifier against the anchored candidates
+ *      (using picker-expand.md). Map the top verdict to consistency:
+ *        fits    → consistent
+ *        partial → ambiguous (description doesn't positively confirm heading)
+ *        does_not_fit (or LLM error / no candidates) → ambiguous
+ *
+ * Returns null when the heading subtree is empty in zatca_hs_codes — caller
+ * surfaces this as consistency_verdict='not_applicable'.
+ */
+async function computeSubtreeConsistency(
+  validPrefix: string,
+  cleaned_description: string,
+): Promise<{
+  consistency_verdict: ConsistencyVerdict;
+  subtree_candidates: SubtreeAnnotatedCandidate[];
+} | null> {
+  const [anchored, unanchoredTop] = await Promise.all([
+    retrieveCandidates(cleaned_description, { prefixFilter: validPrefix, topK: 5 }),
+    retrieveCandidates(cleaned_description, { topK: 1 }),
+  ]);
+
+  if (anchored.length === 0) {
+    // Heading is empty in our codebook (broken seed or genuinely no descendants).
+    // Treat as not_applicable rather than emitting a bogus verdict.
+    return null;
+  }
+
+  // Hard prefix check: the unanchored description signal must point to the
+  // same heading. If it doesn't, this is a CONTRADICTION the merchant code
+  // cannot win.
+  const unanchoredCode = unanchoredTop[0]?.code;
+  if (unanchoredCode && !unanchoredCode.startsWith(validPrefix)) {
+    const top = unanchoredTop[0]!;
+    return {
+      consistency_verdict: 'contradicts',
+      subtree_candidates: [
+        {
+          code: top.code,
+          description_en: top.description_en,
+          description_ar: top.description_ar,
+          rrf_score: top.rrf_score,
+          fit: 'fits',
+          rationale: `forced from unanchored top-1; prefix violates declared heading ${validPrefix}`,
+        },
+      ],
+    };
+  }
+
+  // Prefix consistent — run LLM classifier on anchored candidates.
+  const classify = await llmClassify({
+    kind: 'expand',
+    query: cleaned_description,
+    candidates: anchored,
+    parentPrefix: validPrefix,
+  });
+
+  // Merge verdicts back onto candidates (preserving rrf_score), in retrieval order.
+  const verdictByCode = new Map(classify.verdicts.map((v) => [v.code, v]));
+  const annotated: SubtreeAnnotatedCandidate[] = anchored.map((c) => {
+    const v = verdictByCode.get(c.code);
+    return {
+      code: c.code,
+      description_en: c.description_en,
+      description_ar: c.description_ar,
+      rrf_score: c.rrf_score,
+      fit: v?.fit ?? 'does_not_fit',
+      rationale: v?.rationale ?? '',
+    };
+  });
+
+  // Determine consistency from the top-anchored verdict. Per the developer's
+  // clarification: ambiguous fires whenever the description cannot positively
+  // confirm the merchant's heading. So only top-fit=fits earns 'consistent'.
+  const topAnchoredFit = annotated[0]?.fit ?? 'does_not_fit';
+  const consistency_verdict: ConsistencyVerdict =
+    classify.llmStatus === 'ok' && !classify.parseFailed && topAnchoredFit === 'fits'
+      ? 'consistent'
+      : 'ambiguous';
+
+  return { consistency_verdict, subtree_candidates: annotated };
+}
+
+/**
+ * Reduce a normalized merchant code to its heading-level prefix (first 6
+ * digits — the international HS6 boundary). Returns null when input is
+ * shorter than 6 digits (caller should treat as not_applicable).
+ */
+function headingPrefix(code: string): string | null {
+  if (code.length < 6) return null;
+  return code.slice(0, 6);
+}
+
 export async function runTrackB(
   raw_merchant_code: string | null,
   normalized_merchant_code: string | null,
@@ -256,6 +364,9 @@ export async function runTrackB(
       codebook_state: 'not_applicable',
       override_applied: false,
       override_target_code: null,
+      consistency_verdict: 'not_applicable',
+      valid_prefix: null,
+      subtree_candidates: [],
     };
   }
 
@@ -279,15 +390,41 @@ export async function runTrackB(
       codebook_state: 'not_applicable',
       override_applied: overrideApplied,
       override_target_code: overrideTarget,
+      consistency_verdict: 'not_applicable',
+      valid_prefix: null,
+      subtree_candidates: [],
     };
   }
 
-  const resolution = await resolveAgainstCodebook(codeToWalk, lengthState, cleaned_description);
+  // Anchor the subtree consistency check on the heading (first 6 digits) of
+  // the code we'll walk against the codebook. Override targets count: an
+  // operator-curated remap to a different heading should drive the consistency
+  // check at the new heading, not the merchant's original one.
+  const validPrefix = headingPrefix(codeToWalk);
+
+  // Codebook walk (existing) and subtree consistency check (PR 5) run in parallel.
+  // The codebook walk produces resolved_code; the consistency check produces
+  // the verdict + annotated candidates. They are independent — failures in one
+  // do not block the other.
+  const [resolution, subtreeOutcome] = await Promise.all([
+    resolveAgainstCodebook(codeToWalk, lengthState, cleaned_description),
+    validPrefix
+      ? computeSubtreeConsistency(validPrefix, cleaned_description).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const consistency = subtreeOutcome ?? {
+    consistency_verdict: 'not_applicable' as ConsistencyVerdict,
+    subtree_candidates: [] as SubtreeAnnotatedCandidate[],
+  };
 
   return {
     ...resolution,
     raw_merchant_code,
     override_applied: overrideApplied,
     override_target_code: overrideTarget,
+    consistency_verdict: consistency.consistency_verdict,
+    valid_prefix: validPrefix,
+    subtree_candidates: consistency.subtree_candidates,
   };
 }
