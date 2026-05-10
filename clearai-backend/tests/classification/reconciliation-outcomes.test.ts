@@ -128,10 +128,12 @@ describe('runReconciliation — outcome map per conflict type', () => {
     expect(v.source).toBe('description_classifier');
   });
 
-  it('CONTRADICTION fallback: when Track A is empty, uses subtree_candidates[0] from PR 5 forced top', async () => {
-    // Track A has no fits/partial; trackB has subtree_candidates[0] from
-    // the PR 5 force-on-prefix-violation path. classifyConflict still
-    // returns CONTRADICTION because of consistency_verdict.
+  it('PR 6.1: when consistency_verdict=contradicts BUT Track A has no fits/partial, demotes to SPARSE_DESCRIPTION (no longer CONTRADICTION)', async () => {
+    // Pre-PR-6.1 this case promoted the unanchored top-1 (subtree_candidates[0])
+    // to the answer, even though Track A's retrieval was hallucinating. The
+    // hoodie case (2026-05-10) showed that's worse than passing the override
+    // through. Now: Track A signal is unreliable → SPARSE_DESCRIPTION,
+    // resolver carries the row at LOW confidence with audit.
     const a = trackA({ candidates: [ac('630790300000', 'does_not_fit')] });
     const b = trackB({
       resolved_code: '630790300000',
@@ -139,8 +141,9 @@ describe('runReconciliation — outcome map per conflict type', () => {
       subtree_top_code: '460200000000',
     });
     const v = (await runReconciliation(a, b, 'storage basket')) as VerdictResult;
-    expect(v.conflict_type).toBe('CONTRADICTION');
-    expect(v.final_code).toBe('460200000000');
+    expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
+    expect(v.final_code).toBe('630790300000'); // resolver code, not the hallucinated unanchored top
+    expect(v.confidence_band).toBe('low');
     expect(v.audit_flag).toBe(true);
   });
 

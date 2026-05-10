@@ -491,6 +491,13 @@
       "when": 1747440300000,
       "tag": "0069_seed_naqel_currencies",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1747440400000,
+      "tag": "0070_seed_naqel_countries",
+      "breakpoints": true
     }
   ]
 }

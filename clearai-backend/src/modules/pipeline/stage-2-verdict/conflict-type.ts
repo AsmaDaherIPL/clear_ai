@@ -95,13 +95,28 @@ export function classifyConflict(trackA: TrackAResult, trackB: TrackBResult): Co
   }
 
   // 2. CONTRADICTION — Track B subtree retrieval says the description
-  //    pulled toward a different chapter than the merchant claimed
-  if (trackB.consistency_verdict === 'contradicts') {
+  //    pulled toward a different chapter than the merchant claimed.
+  //
+  //    GUARD (PR 6.1): when Track A has NO fits AND NO partial candidates,
+  //    the description-side signal is unreliable — the picker rejected
+  //    every retrieved candidate, OR retrieval itself produced garbage
+  //    (common on Arabic apparel, weak descriptions, etc). Promoting
+  //    that hallucinated signal to "CONTRADICTION wins, Track A rank-1
+  //    overrides merchant code" is worse than yesterday's
+  //    override-passthrough behavior.
+  //
+  //    Demote to SPARSE_DESCRIPTION (resolver carries the row) or
+  //    ZERO_SIGNAL (nothing to act on) when Track A is empty of positive
+  //    signal. Only trust CONTRADICTION when Track A has at least one
+  //    positive candidate AND PR 5's subtree retrieval flagged a
+  //    cross-chapter mismatch — both signals together.
+  if (trackB.consistency_verdict === 'contradicts' && aHas) {
     return 'CONTRADICTION';
   }
 
   // 2b. CONTRADICTION (chapter-level cross-track) — Track A's strongest
-  //     positive candidate sits in a different chapter than the resolver code
+  //     positive candidate sits in a different chapter than the resolver code.
+  //     Same guard: Track A must have positive signal for this to fire.
   if (aHas && bHas) {
     const top = topFitOrPartial(trackA.annotated_candidates);
     const aCh = chapter(top?.code);

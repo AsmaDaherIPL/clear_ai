@@ -95,6 +95,41 @@ describe('classifyConflict — precedence tests', () => {
     expect(classifyConflict(a, b)).toBe('CONTRADICTION');
   });
 
+  // PR 6.1 — guard against Track A hallucinations on CONTRADICTION
+  it('PR 6.1 guard: consistency_verdict=contradicts but Track A has no fits/partial → SPARSE_DESCRIPTION (not CONTRADICTION)', () => {
+    // The hoodie case from 2026-05-10 batch 019e118a: Arabic input "هودي محبوك"
+    // produced 12 unrelated candidates (wood, honey, vanilla) all does_not_fit.
+    // PR 5's subtree retrieval also flagged contradicts. Pre-PR-6.1 this was
+    // promoted to CONTRADICTION and Track A's hallucinated rank-1 (wood
+    // jewellery) became the answer — worse than passing the override through.
+    const a = trackA({
+      candidates: [
+        ac('711790300000', 'does_not_fit'),
+        ac('711700000000', 'does_not_fit'),
+        ac('440420100001', 'does_not_fit'),
+      ],
+    });
+    const b = trackB({ resolved_code: '620442000000', consistency_verdict: 'contradicts' });
+    // With the guard: Track A has no fits/partial → don't trust Track A's rank-1.
+    // Track B has resolved_code → SPARSE_DESCRIPTION (resolver carries the row at low confidence).
+    expect(classifyConflict(a, b)).toBe('SPARSE_DESCRIPTION');
+  });
+
+  it('PR 6.1 guard: consistency_verdict=contradicts AND Track A empty AND Track B empty → ZERO_SIGNAL', () => {
+    const a = trackA({});
+    const b = trackB({ consistency_verdict: 'contradicts' }); // no resolved_code
+    expect(classifyConflict(a, b)).toBe('ZERO_SIGNAL');
+  });
+
+  it('PR 6.1 guard: CONTRADICTION still fires when Track A has a partial (not just fits)', () => {
+    // The guard only blocks CONTRADICTION when Track A has NEITHER fits NOR
+    // partial. A partial-only Track A combined with consistency_verdict=
+    // contradicts is still a real chapter mismatch worth surfacing.
+    const a = trackA({ candidates: [ac('460200000000', 'partial')] });
+    const b = trackB({ resolved_code: '630790300000', consistency_verdict: 'contradicts' });
+    expect(classifyConflict(a, b)).toBe('CONTRADICTION');
+  });
+
   // ──────────────────────────────────────────────────────────
   // 3. AGREEMENT
   // ──────────────────────────────────────────────────────────

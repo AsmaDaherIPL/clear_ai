@@ -201,7 +201,7 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
             i.trace,
             i.error,
             d.path_en              AS catalog_path_en,
-            (i.classification_result -> 'goods_description_ar')::text AS submission_description_ar,
+            i.goods_description_ar AS submission_description_ar,
             (i.trace -> 'meta' -> 'verdict' ->> 'confidence_band')    AS confidence_band,
             (i.trace -> 'meta' -> 'track_b' ->> 'raw_merchant_code')  AS raw_merchant_code,
             (i.trace -> 'meta' -> 'track_b' ->> 'codebook_state')     AS codebook_state,
@@ -225,9 +225,7 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
       status: i.status,
       final_code: i.final_code,
       catalog_path_en: i.catalog_path_en,
-      submission_description_ar: i.submission_description_ar
-        ? i.submission_description_ar.replace(/^"|"$/g, '')
-        : null,
+      submission_description_ar: i.submission_description_ar,
       confidence_band: i.confidence_band,
       raw_merchant_code: i.raw_merchant_code,
       codebook_state: i.codebook_state,
