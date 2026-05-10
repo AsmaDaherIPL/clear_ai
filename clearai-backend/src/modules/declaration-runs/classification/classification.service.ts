@@ -7,6 +7,7 @@
  */
 import { env } from '../../../config/env.js';
 import { withSemaphore } from '../../../common/concurrency/semaphore.js';
+import { isBreakerTripped, breakerStatus } from '../../../inference/llm/breaker.js';
 import {
   listPendingItems,
   markClassificationPhase,
@@ -72,6 +73,26 @@ export async function runClassificationPhase(
     pending.map((row) =>
       run(async () => {
         const item = row.canonical as unknown as CanonicalLineItem;
+        // Fast-fail: if the breaker is already tripped (this batch started
+        // healthy but later items hit a degraded Foundry, OR the breaker
+        // tripped on item N's call and items N+1..K are still queued), skip
+        // the dispatch attempt and record the same error. This avoids
+        // dozens of redundant 401/403 calls during an outage and keeps the
+        // failure reason consistent across the batch.
+        if (isBreakerTripped()) {
+          counts.failed++;
+          const status = breakerStatus();
+          await recordItemResult({
+            itemId: row.id,
+            outcome: 'failed',
+            finalCode: null,
+            goodsDescriptionAr: null,
+            classificationResult: null,
+            trace: null,
+            error: `llm_unavailable: ${status.last_error ?? 'circuit breaker tripped'}`,
+          });
+          return;
+        }
         await markItemClassifying(row.id);
         try {
           const result: DispatchResult = await opts.dispatch(item);

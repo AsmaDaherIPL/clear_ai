@@ -5,15 +5,42 @@
  * `item.itemId` is canonical — must flow into classification_events.id
  * and declaration_run_items.id so /pipeline/trace/:id resolves either
  * source by the same uuid.
+ *
+ * Refuses to start when the LLM circuit breaker is tripped (sustained
+ * auth-class failures from Foundry — see ./../../inference/llm/breaker.ts).
+ * Throws LlmUnavailableError; both the single-shot route and the batch
+ * runner translate that into a 503 response / failed item rather than
+ * silently producing low-confidence override-passthroughs while the env
+ * is broken.
  */
 import { runPipeline } from '../pipeline/pipeline.orchestrator.js';
 import { assembleDispatchV1 } from '../pipeline/trace/dispatch-v1.js';
 import { recordClassificationEvent } from '../pipeline/events/recorder.js';
 import { enqueueHitl } from '../pipeline/hitl/hitl.js';
+import { isBreakerTripped, breakerStatus } from '../../inference/llm/breaker.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import type { DispatchResult } from './dispatch.contract.js';
 
+export class LlmUnavailableError extends Error {
+  readonly code = 'llm_unavailable';
+  readonly trippedAtMs: number | null;
+  readonly lastError: string | null;
+  constructor() {
+    const status = breakerStatus();
+    super(
+      `LLM circuit breaker tripped after sustained auth-class failures. ` +
+        `Last error: ${status.last_error ?? 'unknown'}.`,
+    );
+    this.name = 'LlmUnavailableError';
+    this.trippedAtMs = status.tripped_at_ms;
+    this.lastError = status.last_error;
+  }
+}
+
 export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult> {
+  if (isBreakerTripped()) {
+    throw new LlmUnavailableError();
+  }
   const itemId = item.itemId;
   const operatorSlug = item.operatorSlug;
   const operatorId = item.operatorId ?? null;

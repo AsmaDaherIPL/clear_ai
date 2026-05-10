@@ -1,8 +1,15 @@
 /**
  * Foundry LLM client. Posts directly to ANTHROPIC_BASE_URL (complete Target
  * URI per ADR-0006) using the Anthropic JSON wire format.
+ *
+ * Every call result feeds the LLM circuit breaker (see ./breaker.ts) so
+ * sustained auth-class failures (401/403/404) trip a process-local breaker
+ * and dispatch routes refuse to start new classifications until the env
+ * is repaired. Transient failures (429/5xx, timeout) do NOT trip the
+ * breaker — they are absorbed by retry + graceful degradation upstream.
  */
 import { env } from '../../config/env.js';
+import { recordLlmOutcome, classifyLlmOutcome } from './breaker.js';
 import type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
 export type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
 
@@ -45,6 +52,25 @@ export interface LlmCallParams {
   timeoutMs?: number;
 }
 
+/**
+ * Single exit point for `callLlm`. Feeds the breaker and emits a WARN log
+ * on every non-ok result so failures are visible in container logs without
+ * having to read full pipeline traces. The result object is returned
+ * unchanged so callers can keep their existing branching.
+ */
+function finalize(result: LlmCallResult): LlmCallResult {
+  recordLlmOutcome(result);
+  if (result.status !== 'ok') {
+    const cls = classifyLlmOutcome(result);
+    // Pino is wired by the fastify app; if unavailable (unit tests, scripts)
+    // fall back to console so the message is never silently dropped.
+    const msg = `[llm] call failed: status=${result.status} class=${cls} model=${result.model} latency=${result.latencyMs}ms err=${(result.error ?? '').slice(0, 300)}`;
+    // eslint-disable-next-line no-console
+    console.warn(msg);
+  }
+  return result;
+}
+
 export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
   const { ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } = env();
   const model = params.model ?? LLM_MODEL;
@@ -79,38 +105,38 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      return {
+      return finalize({
         status: 'error',
         text: null,
         raw: errText,
         error: `HTTP ${res.status}: ${errText.slice(0, 300)}`,
         latencyMs: Date.now() - t0,
         model,
-      };
+      });
     }
     const json = (await res.json()) as AnthropicResponse;
     const text =
       json.content?.find((b) => b.type === 'text')?.text ??
       (json.content && json.content[0]?.text) ??
       null;
-    return {
+    return finalize({
       status: 'ok',
       text,
       raw: json,
       latencyMs: Date.now() - t0,
       model,
-    };
+    });
   } catch (err) {
     clearTimeout(timeout);
     const msg = err instanceof Error ? err.message : String(err);
-    return {
+    return finalize({
       status: msg.includes('aborted') ? 'timeout' : 'error',
       text: null,
       raw: null,
       error: msg,
       latencyMs: Date.now() - t0,
       model,
-    };
+    });
   }
 }
 

@@ -25,6 +25,7 @@ import { enqueueHitl } from './hitl/hitl.js';
 import { getPool } from '../../db/client.js';
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { OperatorNotFoundError } from '../operators/operator.errors.js';
+import { isBreakerTripped, breakerStatus } from '../../inference/llm/breaker.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import type { PipelineResult } from './shared/pipeline.types.js';
 
@@ -109,6 +110,23 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       });
     }
     const body = parsed.data;
+
+    // Refuse to start a classification when the LLM circuit breaker is tripped.
+    // Sustained auth-class failures (401/403/404) mean the env is broken — every
+    // call would silently produce a low-confidence override-passthrough or
+    // escalate, which is data corruption with a clean-looking trace. Surface
+    // 503 so the caller (SPA, infra agent, monitoring) sees the real reason.
+    if (isBreakerTripped()) {
+      const status = breakerStatus();
+      return reply.code(503).send({
+        error: {
+          code: 'llm_unavailable',
+          message: 'LLM circuit breaker tripped after sustained auth-class failures. Classification refused.',
+          tripped_at_ms: status.tripped_at_ms,
+          last_error: status.last_error,
+        },
+      });
+    }
 
     let operatorConfig;
     try {
