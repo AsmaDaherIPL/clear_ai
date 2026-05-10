@@ -430,6 +430,14 @@ export interface DeclarationRunItem {
 export interface DeclarationRunClassifications {
   declaration_run_id: string;
   items: DeclarationRunItem[];
+  /**
+   * Phase-1 (classification) lifecycle, separate from the run-level
+   * status. The run-level summary.status can be 'failed' because Phase
+   * 2 (declaration assembly) failed, even though Phase 1 finished
+   * normally — so this field is the authoritative stop signal for the
+   * live-poll loop. Optional for backward-compat with older trace rows.
+   */
+  classification_phase?: 'pending' | 'running' | 'completed' | 'failed';
 }
 
 /** GET /declaration-runs/:id/download-links */
@@ -594,11 +602,56 @@ export const api = {
       `/declaration-runs/${encodeURIComponent(id)}/classifications`,
     ),
 
-  /** GET /declaration-runs/{id}/download-links — short-lived SAS for run output. */
+  /**
+   * GET /declaration-runs/{id}/download-links — short-lived SAS URLs.
+   *
+   * Used by the SPA only to enumerate the file list (names, sizes,
+   * content-types). The browser does NOT click the SAS URLs directly
+   * any more — clicking a file goes through `getDeclarationRunFile`
+   * which streams via the backend (no expiry). The SAS pattern is
+   * retained for non-browser clients (CLI, future mobile app) that
+   * benefit from the direct-to-storage download path.
+   */
   getDeclarationRunDownloadLinks: (id: string) =>
     request<DownloadLinks>(
       `/declaration-runs/${encodeURIComponent(id)}/download-links`,
     ),
+
+  /**
+   * GET /declaration-runs/{id}/files/{path} — stream a single file
+   * through the backend (Bearer-authed). No SAS, no expiry — works
+   * however long the user takes to click. Returns the raw bytes as a
+   * Blob; the caller wraps it in an object URL and triggers a save.
+   *
+   * `relPath` is the file name relative to the run prefix
+   * (e.g. "input.csv", "manifest.json", "hv/{filing_id}.xml"). The
+   * backend rejects paths containing '..', '\\', or a leading '/'
+   * before resolving the blob.
+   */
+  getDeclarationRunFile: async (id: string, relPath: string): Promise<Blob> => {
+    const token = await getAccessToken();
+    const url = `${getApimBase()}/declaration-runs/${encodeURIComponent(id)}/files/${relPath
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/')}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      let detail: string = res.statusText;
+      try {
+        const body = await res.json();
+        detail =
+          (body as { error?: { message?: string } | string } | null)?.error
+            ? typeof (body as { error: unknown }).error === 'string'
+              ? (body as { error: string }).error
+              : (body as { error: { message?: string } }).error.message ?? res.statusText
+            : detail;
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(res.status, detail, null);
+    }
+    return res.blob();
+  },
 };
 
 export { ApiError };

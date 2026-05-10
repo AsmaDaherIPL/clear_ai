@@ -31,7 +31,17 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
   const summary = state.summary;
   const items = state.items;
   const isPolling = state.phase === 'uploading' || state.phase === 'polling';
-  const runDone = state.summary?.status === 'completed';
+  // v3.1: relaxed gate. Allow download when the run has finished one
+  // way or another AND any items succeeded — gives the operator
+  // partial output even if Phase 2 (declaration assembly) failed. The
+  // download endpoint already returns whatever blobs exist. Keep
+  // disabled only when the run failed AND nothing useful landed.
+  const runFinished =
+    state.summary?.status === 'completed' || state.summary?.status === 'failed';
+  const partialOutput =
+    (state.summary?.succeeded ?? 0) + (state.summary?.flagged ?? 0) > 0;
+  const runDone = runFinished && partialOutput;
+  const downloadIsPartial = state.summary?.status === 'failed' && partialOutput;
 
   const handleDownload = async () => {
     if (!state.runId) return;
@@ -226,7 +236,13 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
               'disabled:opacity-50 disabled:pointer-events-none',
             )}
           >
-            {downloadLoading ? 'Loading…' : downloadLinks ? 'Refresh file list' : t('act_xml_batch')}
+            {downloadLoading
+              ? 'Loading…'
+              : downloadLinks
+                ? 'Refresh file list'
+                : downloadIsPartial
+                  ? 'Download partial bundle'
+                  : t('act_xml_batch')}
           </button>
         </div>
       </div>

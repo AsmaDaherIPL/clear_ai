@@ -16,7 +16,7 @@
  * regardless of how many breakdown rows actually render. Skeleton
  * rows are the same height so the swap is layout-shift-free.
  */
-import { useMemo, type ReactNode } from 'react';
+import { useMemo } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { cn } from '@/lib/utils';
 import { type DeclarationRunItem } from '@/lib/api';
@@ -79,7 +79,14 @@ function buildBreakdown(finalCode: string | null, pathEn: string | null): BuildB
   ];
 }
 
-/** Code Breakdown cell — 4 hierarchy rows + optional pill + optional merchant→final diff. */
+/**
+ * Code Breakdown cell — JUST the 4 hierarchy rows.
+ *
+ * v3.1: dropped both pills (Valid pill removed entirely per operator
+ * feedback; Override pill relocated to the Merchant column) and
+ * dropped the merchant→final diff (the eye does the diff naturally
+ * now that Final Code and Merchant sit in adjacent columns).
+ */
 function CodeBreakdownCell({ item }: { item: Item }) {
   const breakdown = useMemo(
     () => buildBreakdown(item.final_code, item.catalog_path_en),
@@ -90,29 +97,8 @@ function CodeBreakdownCell({ item }: { item: Item }) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   }
 
-  // Only show diff when merchant code differs from final code.
-  const merchantCode = item.raw_merchant_code ?? null;
-  const showDiff = !!merchantCode && merchantCode !== item.final_code;
-
-  // Optional pill — codebook_state === 'active' → green; override_applied → blue; else nothing.
-  let pill: ReactNode = null;
-  if (item.override_applied) {
-    pill = (
-      <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full text-[9.5px] font-mono uppercase tracking-[0.06em] bg-[oklch(0.92_0.06_240)] text-[oklch(0.32_0.12_240)]">
-        Override applied
-      </span>
-    );
-  } else if (item.codebook_state === 'active') {
-    pill = (
-      <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full text-[9.5px] font-mono uppercase tracking-[0.06em] bg-[oklch(0.92_0.06_140)] text-[oklch(0.32_0.10_140)]">
-        Valid
-      </span>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-0.5 text-[12.5px] leading-[1.3]">
-      {pill && <div className="mb-0.5">{pill}</div>}
       {breakdown.map((b, i) => (
         <div key={i} className="flex items-baseline gap-2">
           <div className="font-mono text-[var(--ink)] tabular-nums whitespace-nowrap min-w-[88px]">
@@ -129,12 +115,31 @@ function CodeBreakdownCell({ item }: { item: Item }) {
           </div>
         </div>
       ))}
-      {showDiff && (
-        <div className="mt-1 pt-1 border-t border-[var(--line-2)] flex items-center gap-2 text-[11px] font-mono">
-          <span className="text-[var(--ink-3)]">{merchantCode}</span>
-          <span aria-hidden className="text-[var(--ink-3)]">↓</span>
-          <span className="text-[var(--accent)] font-medium">{item.final_code}</span>
-        </div>
+    </div>
+  );
+}
+
+/**
+ * Merchant column cell — what the merchant submitted.
+ *
+ * v3.1: NEW dedicated column. Renders raw_merchant_code (font-mono,
+ * ink-3) plus the "Override applied" pill inline when applicable.
+ * Falls to a second line if the column is too narrow for both.
+ */
+function MerchantCell({ item }: { item: Item }) {
+  const merchantCode = item.raw_merchant_code ?? null;
+  if (!merchantCode) {
+    return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="font-mono text-[12.5px] text-[var(--ink-3)] whitespace-nowrap">
+        {merchantCode}
+      </span>
+      {item.override_applied && (
+        <span className="inline-flex items-center px-1.5 py-[1px] rounded-full text-[9.5px] font-mono uppercase tracking-[0.06em] bg-[oklch(0.92_0.06_240)] text-[oklch(0.32_0.12_240)] whitespace-nowrap">
+          Override applied
+        </span>
       )}
     </div>
   );
@@ -152,8 +157,14 @@ export default function BatchResultsTable({
   items,
   className,
 }: BatchResultsTableProps) {
-  // Memoize columns so TanStack doesn't re-build internal state on
-  // every parent render (polling triggers this every 2s).
+  // v3.1 column order: Line | Final Code | Code Breakdown | Confidence | Submission (AR) | Merchant | Status
+  // Final Code sits second so the resolved answer is the first thing
+  // a reviewer scans. Merchant lives just before Status so the eye
+  // can compare it against the breakdown / final code without looking
+  // backwards across the row.
+  //
+  // Memoize so TanStack doesn't re-build internal state on every
+  // parent render (polling triggers this every 2s).
   const columns = useMemo<ColumnDef<Item, unknown>[]>(() => [
     {
       id: 'line',
@@ -166,9 +177,25 @@ export default function BatchResultsTable({
       ),
     },
     {
+      id: 'final_code',
+      header: 'Final Code',
+      size: 140,
+      enableSorting: true,
+      accessorFn: (row) => row.final_code ?? '',
+      cell: ({ row }) => {
+        const fc = row.original.final_code;
+        if (!fc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
+        return (
+          <span className="font-mono text-[14px] font-medium text-[var(--accent-ink)] whitespace-nowrap tabular-nums">
+            {fc}
+          </span>
+        );
+      },
+    },
+    {
       id: 'code_breakdown',
       header: 'Code Breakdown',
-      size: 360,
+      size: 340,
       enableSorting: false,
       // Filter on the final_code so the global-search hits the digits.
       accessorFn: (row) => row.final_code ?? '',
@@ -213,6 +240,14 @@ export default function BatchResultsTable({
       },
     },
     {
+      id: 'merchant',
+      header: 'Merchant',
+      size: 160,
+      enableSorting: false,
+      accessorFn: (row) => row.raw_merchant_code ?? '',
+      cell: ({ row }) => <MerchantCell item={row.original} />,
+    },
+    {
       id: 'status',
       header: 'Status',
       size: 110,
@@ -240,17 +275,21 @@ export default function BatchResultsTable({
   // Memoize rendered skeleton — the skeleton is structurally identical
   // every render, so re-creating it 7,400 times during fast polling
   // would torch the main thread.
+  //
+  // v3.1 grid: Line | Final Code | Code Breakdown | Confidence | Submission AR | Merchant | Status
   const renderSkeletonRow = useMemo(() => {
     return () => (
       <div
         className="grid items-center gap-3.5 px-3.5"
         style={{
           height: ROW_HEIGHT,
-          gridTemplateColumns: '56px 360px 110px 220px 110px',
+          gridTemplateColumns: '56px 140px 340px 110px 220px 160px 110px',
         }}
       >
         {/* Line */}
         <span className="h-3 w-6 bg-[var(--line-2)] animate-pulse rounded" />
+        {/* Final Code — slightly thicker pulse to mirror the 14px text. */}
+        <span className="h-3.5 w-[120px] bg-[var(--line-2)] animate-pulse rounded" />
         {/* Code Breakdown — 4 stacked skeleton lines mirroring the real cell rhythm. */}
         <div className="flex flex-col gap-1.5 py-1">
           {[0, 1, 2, 3].map((i) => (
@@ -264,6 +303,8 @@ export default function BatchResultsTable({
         <span className="h-4 w-16 bg-[var(--line-2)] animate-pulse rounded-full" />
         {/* Submission AR */}
         <span className="h-3 w-3/4 bg-[var(--line-2)] animate-pulse rounded" />
+        {/* Merchant — placeholder for the merchant code only (no override pill until known). */}
+        <span className="h-3 w-[100px] bg-[var(--line-2)] animate-pulse rounded" />
         {/* Status — render the actual pending badge so skeleton → real swap is layout-shift-free. */}
         <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em] w-fit', STATUS_BADGE.pending)}>
           pending

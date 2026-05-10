@@ -182,28 +182,44 @@ export default function ClassifyApp() {
           const summary = await api.getDeclarationRun(runId);
           setBatchState((s) => ({ ...s, summary }));
 
-          // Phase 1 done? Pull the items so the table can populate while
-          // Phase 2 may still be running.
-          if (
-            !classificationsFetched &&
-            (summary.classification_status === 'completed' ||
-              summary.status === 'completed' ||
-              summary.status === 'failed')
-          ) {
-            classificationsFetched = true;
-            try {
-              const cls = await api.getDeclarationRunClassifications(runId);
-              setBatchState((s) => ({ ...s, items: cls.items }));
-            } catch {
-              // Non-fatal: keep polling, items can be re-fetched after the run terminates.
-            }
+          // v3.1 + PR G: items now stream in as they complete. Re-fetch
+          // every tick during Phase 1 so the table live-fills row-by-
+          // row (instead of one big swap at the end). The endpoint
+          // returns a `classification_phase` flag at the top level
+          // which is the authoritative Phase 1 lifecycle signal —
+          // independent of the run-level status (which can flip to
+          // 'failed' because Phase 2 failed even when Phase 1 was fine).
+          let classificationPhase: 'pending' | 'running' | 'completed' | 'failed' | undefined;
+          try {
+            const cls = await api.getDeclarationRunClassifications(runId);
+            classificationPhase = cls.classification_phase;
+            setBatchState((s) => ({ ...s, items: cls.items }));
+          } catch {
+            // Non-fatal: keep polling. Next tick may succeed.
           }
 
-          if (
+          // Stop polling when EITHER signal goes terminal — whichever
+          // flips first wins. summary.status covers run-level success
+          // and Phase-2 failure; classification_phase covers Phase-1
+          // completion. Belt-and-braces.
+          const summaryTerminal =
             summary.status === 'completed' ||
             summary.status === 'failed' ||
-            summary.status === 'cancelled'
-          ) {
+            summary.status === 'cancelled';
+          const classificationTerminal =
+            classificationPhase === 'completed' || classificationPhase === 'failed';
+          if (summaryTerminal || classificationTerminal) {
+            // One final fetch to make sure the table reflects every
+            // last completion before we stop polling.
+            if (!classificationsFetched) {
+              classificationsFetched = true;
+              try {
+                const finalCls = await api.getDeclarationRunClassifications(runId);
+                setBatchState((s) => ({ ...s, items: finalCls.items }));
+              } catch {
+                /* swallow — best-effort final read */
+              }
+            }
             setBatchState((s) => ({ ...s, phase: 'done' }));
             return;
           }
