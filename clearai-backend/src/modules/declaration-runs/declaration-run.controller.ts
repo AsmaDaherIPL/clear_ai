@@ -163,9 +163,13 @@ export async function handleGetDeclarationRun(req: FastifyRequest<{ Params: { id
 
 export async function handleListClassifications(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
   const declarationRun = await getDeclarationRun(req.params.id);
-  if (declarationRun.classificationStatus === 'pending' || declarationRun.classificationStatus === 'running') {
-    return reply.code(425).send({ error: { code: 'phase_not_ready', message: 'classification phase still running' } });
-  }
+  // Returns whatever items are in flight RIGHT NOW so the SPA's
+  // BatchResultsTable can paint rows progressively as Phase 1 completes
+  // them. The original 425 'phase_not_ready' guard was lifted 2026-05-10
+  // when live polling went live — refusing service while items existed
+  // forced the table to do one big drop at the end. Frontend uses the
+  // top-level `classification_phase` flag below to know when to stop
+  // polling.
   // Single query joins display + submission_descriptions so the SPA
   // result table can render `path_en` and the LLM-generated Arabic
   // submission text per item without follow-up fetches.
@@ -210,6 +214,11 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
   );
   return reply.send({
     declaration_run_id: declarationRun.id,
+    // The SPA polls this endpoint while a run is in flight. classification_phase
+    // is the authoritative stop signal: keep polling while it's 'pending' or
+    // 'running', stop on 'completed' / 'failed'. Per-item `status` covers the
+    // individual row state (pending|classifying|succeeded|flagged|blocked|failed).
+    classification_phase: declarationRun.classificationStatus,
     items: r.rows.map((i) => ({
       id: i.id,
       row_index: i.row_index,
