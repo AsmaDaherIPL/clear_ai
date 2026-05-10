@@ -34,10 +34,21 @@ models/
 
 awesome-claude-code/
 
-# Tracker .docx files — binary, diff badly, bloat the repo.
-# Keep the .md companions (V1_PLAN.md, LESSONS_LEARNED.md, etc.) in git
-# so PR review still has narrative context.
+# Tracker docs — internal coordination notes (architecture decisions,
+# lessons learned, test cases, V1 plan). Useful locally but reference
+# deployment internals + WIP context that shouldn't live on the public
+# repo. The .docx exclusion below stays for the same reason — kept for
+# git-history grep; tracker/ supersedes it for new files.
+tracker/
 tracker/*.docx
+
+# Local developer scaffolding — Bruno API collection (per-developer setup,
+# OAuth2 client config tied to each user), the LOCAL-DEV.md walkthrough
+# document, and any other ad-hoc local-dev assets. Note: local-dev/scripts/
+# is intentionally NOT ignored — package.json's `db:seed`, `bench`, `eval`,
+# etc. depend on those files; ignoring them would break a fresh clone.
+local-dev/bruno/
+LOCAL-DEV.md
 
 # drawio auto-backups and editor scratch files
 .$*.drawio.bkp

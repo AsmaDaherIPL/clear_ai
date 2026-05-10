@@ -1,5 +1,0 @@
-# Per-developer secrets — bearerToken etc. Never commit.
-.env
-
-# Bruno's run history / generated state
-.bruno/
