@@ -210,22 +210,37 @@ export type ReconciliationSource = 'description_classifier' | 'code_resolver' | 
 export type VerdictDecision = 'accept' | 'escalate';
 
 /**
- * Deterministic conflict-type taxonomy emitted by reconciliation BEFORE any
- * LLM arbitration. Drives the per-conflict outcome map (confidence band +
- * audit_flag policy). PR 7 promotes this to a top-level column on
- * classification_events.
+ * V1 external classification status. Three values, surfaced to the UI / API
+ * consumers as the single answer to "did the two tracks agree on the code?":
  *
- * Outcome map (per memory rule feedback_pr6_conflict_type_outcomes):
- *   AGREEMENT          → accept, HIGH,    audit_flag: false
- *   DRIFT              → accept, MEDIUM,  audit_flag: true (mandatory)
- *   AMBIGUOUS_MATERIAL → accept, LOW,     audit_flag: true (sampled, default 15%)
- *   SPARSE_DESCRIPTION → accept, LOW,     audit_flag: true (sampled, default 15%)
- *   CONTRADICTION      → accept, MEDIUM,  audit_flag: true (mandatory).
- *                        Track A rank-1 wins; merchant code overridden.
- *   ZERO_SIGNAL        → escalate to HITL. Only conflict type that escalates.
+ *   AGREEMENT    — both tracks agree (or one carries the row uncontested)
+ *                  → accept, ship to ZATCA
+ *   DRIFT        — tracks disagree on the code but we have an answer
+ *                  → accept, ship to ZATCA (operator can review post-flight)
+ *   ZERO_SIGNAL  — neither track has a defensible code
+ *                  → escalate to HITL before any submission
  *
- * Defined here so both the classifier (conflict-type.ts) and the trace
- * bundlers (dispatch-v1, classification_events) speak the same vocabulary.
+ * Replaces the six-way internal conflict-type taxonomy at the external
+ * surface. The internal precedence (AGREEMENT > CONTRADICTION > DRIFT >
+ * AMBIGUOUS > SPARSE > ZERO_SIGNAL) is preserved by the classifier for
+ * accuracy reasons — the collapse to three values only happens at the
+ * VerdictResult boundary, so the right code still wins under each input
+ * shape.
+ *
+ * Defined here so both the classifier and the trace bundlers (dispatch-v1,
+ * classification_events) speak the same vocabulary.
+ */
+export type ClassificationStatus = 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL';
+
+/**
+ * @deprecated Use ClassificationStatus. Retained because:
+ *   - classification_events trace JSON in existing rows includes
+ *     `conflict_type`; controllers continue to surface it for forensic queries
+ *   - the per-operator gate in operator_declaration_config keys off
+ *     confidence_band (which still flows); ConflictType is no longer
+ *     consulted by the gate
+ * New callers should pattern-match on ClassificationStatus instead.
+ * Will be removed in a follow-up PR after the SPA migrates.
  */
 export type ConflictType =
   | 'AGREEMENT'
@@ -234,6 +249,22 @@ export type ConflictType =
   | 'SPARSE_DESCRIPTION'
   | 'CONTRADICTION'
   | 'ZERO_SIGNAL';
+
+/** Map V1 ClassificationStatus from the internal 6-way ConflictType. */
+export function classificationStatusFromConflictType(c: ConflictType): ClassificationStatus {
+  if (c === 'AGREEMENT') return 'AGREEMENT';
+  if (c === 'ZERO_SIGNAL') return 'ZERO_SIGNAL';
+  // DRIFT, AMBIGUOUS_MATERIAL, SPARSE_DESCRIPTION, CONTRADICTION → DRIFT
+  // Justification:
+  //   DRIFT (today)              — leaf dispute under shared heading, ship
+  //   AMBIGUOUS_MATERIAL         — description silent, merchant heading carries
+  //   SPARSE_DESCRIPTION         — picker gave up, merchant heading carries
+  //   CONTRADICTION              — Track A rank-1 overrides merchant heading
+  // From the operator's perspective these are all "we picked a code, but the
+  // tracks disagreed somewhere along the way." The forensic distinction stays
+  // in the trace JSON's conflict_type field for engineers debugging.
+  return 'DRIFT';
+}
 
 /**
  * Named confidence tier emitted by reconciliation.
@@ -250,15 +281,34 @@ export type ConfidenceBand = 'certain' | 'high' | 'medium' | 'low' | 'none';
 export interface VerdictResult {
   decision: 'accept';
   final_code: string;
+  /**
+   * Internal-only confidence tier. Routing-relevant: the per-operator gate in
+   * `operator_declaration_config.min_confidence_band` escalates rows below
+   * this floor regardless of `classification_status`. Not surfaced on the V1
+   * UI; kept here because the gate logic still consults it.
+   */
   confidence_band: ConfidenceBand;
   rationale: string;
   source: ReconciliationSource;
-  /** PR 6: conflict type that produced this verdict. */
+  /**
+   * V1 external surface. Three values: AGREEMENT, DRIFT, ZERO_SIGNAL.
+   * Derived deterministically from `conflict_type` via
+   * `classificationStatusFromConflictType()`. Always present on accept.
+   * ZERO_SIGNAL never appears here — that conflict type escalates instead
+   * (see VerdictEscalate.classification_status).
+   */
+  classification_status: ClassificationStatus;
+  /**
+   * @deprecated Internal-only forensic field. The V1 surface is
+   * `classification_status`. Retained so trace JSON / classification_events
+   * audit queries continue to work. Will be removed once the SPA migrates.
+   */
   conflict_type: ConflictType;
   /**
-   * PR 6: whether this row should be audited post-clearance. Mandatory for
-   * DRIFT and CONTRADICTION; sampled for AMBIGUOUS_MATERIAL and
-   * SPARSE_DESCRIPTION; always false for AGREEMENT.
+   * @deprecated V1 dropped the post-clearance audit surface. Field is left in
+   * place to avoid churning every test fixture and trace consumer in this
+   * commit; values are still emitted but no V1 UI surfaces them. Will be
+   * removed in a follow-up PR.
    */
   audit_flag: boolean;
 }
@@ -266,7 +316,9 @@ export interface VerdictResult {
 export interface VerdictEscalate {
   decision: 'escalate';
   disagreement_summary: string;
-  /** PR 6: only ZERO_SIGNAL escalates from reconciliation today. */
+  /** V1 external surface: always ZERO_SIGNAL on the escalate path. */
+  classification_status: 'ZERO_SIGNAL';
+  /** @deprecated Use classification_status. */
   conflict_type: 'ZERO_SIGNAL';
 }
 

@@ -141,6 +141,7 @@ async function callReconciliationLlmForDrift(params: {
         confidence_band: 'low' as ConfidenceBand,
         rationale: `DRIFT: reconciliation LLM unavailable (${outcome.kind}); accepting code_resolver code at low confidence`,
         source: 'code_resolver',
+        classification_status: 'DRIFT',
         conflict_type: 'DRIFT',
         audit_flag: true,
       };
@@ -173,6 +174,7 @@ async function callReconciliationLlmForDrift(params: {
       confidence_band: 'medium' as ConfidenceBand,
       rationale: typeof d.rationale === 'string' ? d.rationale : 'DRIFT: LLM picked among heading candidates',
       source,
+      classification_status: 'DRIFT',
       conflict_type: 'DRIFT',
       audit_flag: true,
     };
@@ -202,6 +204,7 @@ function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
         confidence_band: 'high',
         rationale: `AGREEMENT: code_resolver code is in description_classifier fits set — ${resolverVerdict.rationale}`,
         source: 'code_resolver',
+        classification_status: 'AGREEMENT',
         conflict_type: 'AGREEMENT',
         audit_flag: false,
       };
@@ -215,6 +218,7 @@ function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
       confidence_band: 'high',
       rationale: `AGREEMENT: description_classifier produced a clear fit (single track) — ${top.rationale}`,
       source: 'description_classifier',
+      classification_status: 'AGREEMENT',
       conflict_type: 'AGREEMENT',
       audit_flag: false,
     };
@@ -240,6 +244,7 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
       confidence_band: 'medium',
       rationale: `CONTRADICTION: description pulls to a different chapter than merchant code — Track A rank-1 wins (${top.rationale})`,
       source: 'description_classifier',
+      classification_status: 'DRIFT',
       conflict_type: 'CONTRADICTION',
       audit_flag: true,
     };
@@ -254,6 +259,7 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
       confidence_band: 'medium',
       rationale: `CONTRADICTION: description-side unanchored top-1 (${subtreeTop.rationale})`,
       source: 'description_classifier',
+      classification_status: 'DRIFT',
       conflict_type: 'CONTRADICTION',
       audit_flag: true,
     };
@@ -280,6 +286,7 @@ function handleAmbiguousMaterial(trackB: TrackBResult): VerdictResult {
     rationale:
       'AMBIGUOUS_MATERIAL: description silent on dimensions the heading constrains; accepting merchant code at low confidence with audit',
     source: 'code_resolver',
+    classification_status: 'DRIFT',
     conflict_type: 'AMBIGUOUS_MATERIAL',
     audit_flag: defaultAuditFlag('AMBIGUOUS_MATERIAL'),
   };
@@ -299,6 +306,7 @@ function handleSparseDescription(trackB: TrackBResult): VerdictResult {
     rationale:
       'SPARSE_DESCRIPTION: description too thin for description_classifier to contribute; accepting merchant code at low confidence with audit',
     source: 'code_resolver',
+    classification_status: 'DRIFT',
     conflict_type: 'SPARSE_DESCRIPTION',
     audit_flag: defaultAuditFlag('SPARSE_DESCRIPTION'),
   };
@@ -320,6 +328,7 @@ export async function runReconciliation(
       return {
         decision: 'escalate',
         disagreement_summary: 'ZERO_SIGNAL: both tracks returned no defensible candidate',
+        classification_status: 'ZERO_SIGNAL',
         conflict_type: 'ZERO_SIGNAL',
       };
 
@@ -347,6 +356,7 @@ export async function runReconciliation(
           // ZERO_SIGNAL is the only legal escalate conflict_type. DRIFT
           // escalations are operationally a degenerate DRIFT — surface as
           // ZERO_SIGNAL so the HITL queue handles it uniformly.
+          classification_status: 'ZERO_SIGNAL',
           conflict_type: 'ZERO_SIGNAL',
         };
       }

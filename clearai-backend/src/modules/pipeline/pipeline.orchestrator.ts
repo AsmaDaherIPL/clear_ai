@@ -202,6 +202,7 @@ export async function runPipeline(
       // PR 6 reconciliation outcomes. Tag as ZERO_SIGNAL so the HITL
       // queue uniformly handles every escalate-decision row; the
       // disagreement_summary above carries the real reason.
+      classification_status: 'ZERO_SIGNAL' as const,
       conflict_type: 'ZERO_SIGNAL' as const,
     };
     const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict: gateVerdict, sanity: null, stages: allStages });

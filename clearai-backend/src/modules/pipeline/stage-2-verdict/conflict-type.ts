@@ -56,7 +56,18 @@ function trackAHasSignal(trackA: TrackAResult): boolean {
  * in this order:
  *
  *   1. ZERO_SIGNAL          (both tracks empty)
- *   2. CONTRADICTION        (Track B says description disagrees at chapter level)
+ *   2. CONTRADICTION        (any of:
+ *                            2a. Track B's PR 5 subtree retrieval flagged
+ *                                an unanchored top-1 outside the merchant
+ *                                heading (consistency_verdict='contradicts');
+ *                            2b. Track A's top fit is in a different CHAPTER
+ *                                than the resolver code;
+ *                            2c. Track A's top fit is in a different HEADING
+ *                                than the resolver code AND the resolver
+ *                                code is NOT itself `fits` in Track A
+ *                                — asymmetric-confidence guard prevents
+ *                                false CONTRADICTION on AGREEMENT-shaped
+ *                                states)
  *   3. AGREEMENT            (resolver code is in Track A's fits set,
  *                            OR single_a top is fits)
  *   4. DRIFT                (heading-level agreement, leaf-level disagreement)
@@ -123,6 +134,38 @@ export function classifyConflict(trackA: TrackAResult, trackB: TrackBResult): Co
     const bCh = chapter(trackB.resolved_code);
     if (top?.fit === 'fits' && aCh && bCh && aCh !== bCh) {
       return 'CONTRADICTION';
+    }
+  }
+
+  // 2c. CONTRADICTION (heading-level cross-track, asymmetric-confidence) —
+  //     Track A's rank-1 fit is `fits` in a DIFFERENT HEADING than the
+  //     resolver code, AND the resolver code is NOT itself in Track A's fits
+  //     set. Two completely different product families inside the same
+  //     chapter (e.g. 8517 telephone equipment vs 8518 audio equipment)
+  //     should reconcile to CONTRADICTION, not collapse to AMBIGUOUS.
+  //
+  //     The asymmetric guard matters: if the resolver code is ALSO in Track
+  //     A's fits set, that's AGREEMENT (rule 3) and we'll catch it below.
+  //     If it's not, Track A is positively endorsing a different heading
+  //     AND not endorsing the merchant heading — that's a real
+  //     contradiction, just narrower than a chapter swap.
+  //
+  //     Effective on the headphones case (item 1 in run 019e11f2-...):
+  //       Track A rank-1 fit  = 851762900009  (heading 8517, fits)
+  //       Resolver code        = 851830900003  (heading 8518, partial in A)
+  //       Pre-fix verdict      = AMBIGUOUS_MATERIAL  (low confidence)
+  //       Post-fix verdict     = CONTRADICTION       (medium confidence, A wins)
+  if (aHas && bHas) {
+    const top = topFitOrPartial(trackA.annotated_candidates);
+    const aHd = heading(top?.code);
+    const bHd = heading(trackB.resolved_code);
+    if (top?.fit === 'fits' && aHd && bHd && aHd !== bHd) {
+      const resolverInA = trackA.annotated_candidates.find(
+        (c) => c.code === trackB.resolved_code,
+      );
+      if (resolverInA?.fit !== 'fits') {
+        return 'CONTRADICTION';
+      }
     }
   }
 

@@ -17,13 +17,14 @@
  * deterministic.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type {
-  TrackAResult,
-  TrackBResult,
-  AnnotatedCandidate,
-  CandidateFitVerdict,
-  ConsistencyVerdict,
-  VerdictResult,
+import {
+  classificationStatusFromConflictType,
+  type TrackAResult,
+  type TrackBResult,
+  type AnnotatedCandidate,
+  type CandidateFitVerdict,
+  type ConsistencyVerdict,
+  type VerdictResult,
 } from '../../src/modules/pipeline/shared/pipeline.types.js';
 
 const structuredLlmCallMock = vi.fn();
@@ -258,6 +259,126 @@ describe('runReconciliation — outcome map per conflict type', () => {
     if (v.decision === 'escalate') {
       expect(v.conflict_type).toBe('ZERO_SIGNAL');
       expect(v.disagreement_summary).toMatch(/not in the allowed set/);
+    }
+  });
+});
+
+/**
+ * V1 surface: classification_status (AGREEMENT | DRIFT | ZERO_SIGNAL).
+ *
+ * The internal 6-way conflict_type taxonomy is preserved for accuracy of
+ * the per-case dispatch (CONTRADICTION still routes to Track A rank-1,
+ * AMBIGUOUS_MATERIAL still falls through to merchant code, etc.) — see the
+ * tests above. These tests pin the EXTERNAL collapse:
+ *   AGREEMENT          → AGREEMENT
+ *   DRIFT              → DRIFT
+ *   CONTRADICTION      → DRIFT     (was its own bucket; rolled into DRIFT)
+ *   AMBIGUOUS_MATERIAL → DRIFT     (was its own bucket; rolled into DRIFT)
+ *   SPARSE_DESCRIPTION → DRIFT     (was its own bucket; rolled into DRIFT)
+ *   ZERO_SIGNAL        → ZERO_SIGNAL
+ *
+ * If any of these mappings drift, the V1 SPA breaks. Pin them loudly.
+ */
+describe('runReconciliation — V1 classification_status surface collapse', () => {
+  it('AGREEMENT (resolver in fits) → classification_status = AGREEMENT', async () => {
+    const a = trackA({ candidates: [ac('851830900003', 'fits')] });
+    const b = trackB({ resolved_code: '851830900003' });
+    const v = (await runReconciliation(a, b, 'wireless headphones')) as VerdictResult;
+    expect(v.classification_status).toBe('AGREEMENT');
+  });
+
+  it('AGREEMENT (single_a fits) → classification_status = AGREEMENT', async () => {
+    const a = trackA({ candidates: [ac('851830900003', 'fits')] });
+    const b = trackB({});
+    const v = (await runReconciliation(a, b, 'wireless headphones')) as VerdictResult;
+    expect(v.classification_status).toBe('AGREEMENT');
+  });
+
+  it('CONTRADICTION (PR 5 contradicts) → classification_status = DRIFT', async () => {
+    const a = trackA({ candidates: [ac('460200000000', 'fits')] });
+    const b = trackB({ resolved_code: '630790300000', consistency_verdict: 'contradicts' });
+    const v = (await runReconciliation(a, b, 'storage basket')) as VerdictResult;
+    expect(v.classification_status).toBe('DRIFT');
+    expect(v.conflict_type).toBe('CONTRADICTION'); // internal preserved
+  });
+
+  it('AMBIGUOUS_MATERIAL → classification_status = DRIFT', async () => {
+    const a = trackA({ candidates: [ac('851712000000', 'partial')] });
+    const b = trackB({ resolved_code: '851830900003' });
+    const v = (await runReconciliation(a, b, 'some audio device')) as VerdictResult;
+    expect(v.classification_status).toBe('DRIFT');
+    expect(v.conflict_type).toBe('AMBIGUOUS_MATERIAL');
+  });
+
+  it('SPARSE_DESCRIPTION (no_fit) → classification_status = DRIFT', async () => {
+    const a = trackA({ no_fit: true });
+    const b = trackB({ resolved_code: '851830900003' });
+    const v = (await runReconciliation(a, b, 'thin description')) as VerdictResult;
+    expect(v.classification_status).toBe('DRIFT');
+    expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
+  });
+
+  it('DRIFT (LLM picks) → classification_status = DRIFT', async () => {
+    structuredLlmCallMock.mockResolvedValueOnce({
+      kind: 'ok',
+      data: {
+        decision: 'accept',
+        final_code: '620463000004',
+        source: 'reconciled',
+        rationale: 'pick',
+      },
+      trace: {},
+    });
+    const a = trackA({ candidates: [ac('620463000004', 'partial')] });
+    const b = trackB({ resolved_code: '620463000000' });
+    const v = (await runReconciliation(a, b, 'bootcut legging')) as VerdictResult;
+    expect(v.classification_status).toBe('DRIFT');
+    expect(v.conflict_type).toBe('DRIFT');
+  });
+
+  it('DRIFT (LLM unavailable, resolver fallback) → classification_status = DRIFT', async () => {
+    structuredLlmCallMock.mockResolvedValueOnce({ kind: 'llm_failed', error: '503', trace: {} });
+    const a = trackA({ candidates: [ac('620463000004', 'partial')] });
+    const b = trackB({ resolved_code: '620463000000' });
+    const v = (await runReconciliation(a, b, 'bootcut legging')) as VerdictResult;
+    expect(v.classification_status).toBe('DRIFT');
+  });
+
+  it('ZERO_SIGNAL → classification_status = ZERO_SIGNAL on escalate', async () => {
+    const a = trackA({});
+    const b = trackB({});
+    const v = await runReconciliation(a, b, 'whatever');
+    expect(v.decision).toBe('escalate');
+    if (v.decision === 'escalate') {
+      expect(v.classification_status).toBe('ZERO_SIGNAL');
+    }
+  });
+
+  it('classificationStatusFromConflictType: pure mapping function pins V1 collapse', () => {
+    // This is the canonical mapping that the SQL fallback in
+    // declaration-run.controller.ts mirrors for legacy rows persisted
+    // before classification_status existed in the trace JSON. If these
+    // mappings drift, that SQL fallback's CASE statement drifts too.
+    expect(classificationStatusFromConflictType('AGREEMENT')).toBe('AGREEMENT');
+    expect(classificationStatusFromConflictType('ZERO_SIGNAL')).toBe('ZERO_SIGNAL');
+    expect(classificationStatusFromConflictType('DRIFT')).toBe('DRIFT');
+    expect(classificationStatusFromConflictType('CONTRADICTION')).toBe('DRIFT');
+    expect(classificationStatusFromConflictType('AMBIGUOUS_MATERIAL')).toBe('DRIFT');
+    expect(classificationStatusFromConflictType('SPARSE_DESCRIPTION')).toBe('DRIFT');
+  });
+
+  it('DRIFT LLM hallucination → escalates as ZERO_SIGNAL', async () => {
+    structuredLlmCallMock.mockResolvedValueOnce({
+      kind: 'ok',
+      data: { decision: 'accept', final_code: '999999999999', source: 'reconciled', rationale: 'bad' },
+      trace: {},
+    });
+    const a = trackA({ candidates: [ac('620463000004', 'partial')] });
+    const b = trackB({ resolved_code: '620463000000' });
+    const v = await runReconciliation(a, b, 'bootcut legging');
+    expect(v.decision).toBe('escalate');
+    if (v.decision === 'escalate') {
+      expect(v.classification_status).toBe('ZERO_SIGNAL');
     }
   });
 });

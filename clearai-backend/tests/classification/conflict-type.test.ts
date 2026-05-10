@@ -3,7 +3,9 @@
  *
  * Pins the order of conflict-type rules:
  *   1. ZERO_SIGNAL
- *   2. CONTRADICTION  (consistency_verdict='contradicts' OR cross-track chapter mismatch)
+ *   2. CONTRADICTION  (consistency_verdict='contradicts'
+ *                      OR cross-track chapter mismatch
+ *                      OR cross-track heading mismatch when A top is fits and resolver is not)
  *   3. AGREEMENT       (resolver in fits set, OR single_a top is fits)
  *   4. DRIFT           (heading match, leaf disagreement)
  *   5. SPARSE_DESCRIPTION (Track A no_fit/threshold_failed + Track B has code)
@@ -127,6 +129,71 @@ describe('classifyConflict — precedence tests', () => {
     // contradicts is still a real chapter mismatch worth surfacing.
     const a = trackA({ candidates: [ac('460200000000', 'partial')] });
     const b = trackB({ resolved_code: '630790300000', consistency_verdict: 'contradicts' });
+    expect(classifyConflict(a, b)).toBe('CONTRADICTION');
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // 2c. CONTRADICTION (heading-level cross-track, asymmetric-confidence)
+  //
+  // Track A's rank-1 fit is `fits` in a DIFFERENT HEADING than the resolver
+  // code, AND the resolver code is NOT in Track A's fits set. Two product
+  // families in the same chapter (e.g. 8517 telephone equipment vs 8518
+  // audio equipment) should reconcile to CONTRADICTION, not collapse to
+  // AMBIGUOUS_MATERIAL.
+  //
+  // Pinned scenario: run 019e11f2-... item 1 (wireless headphones).
+  //   Track A rank-1 fit  = 851762900009 (heading 8517, fits)
+  //   Resolver code        = 851830900003 (heading 8518, partial in A)
+  //   Pre-fix verdict      = AMBIGUOUS_MATERIAL (low confidence)
+  //   Post-fix verdict     = CONTRADICTION (medium confidence, Track A wins)
+  // ──────────────────────────────────────────────────────────
+  it('CONTRADICTION (2c): heading mismatch, A rank-1 fits, resolver NOT in fits set', () => {
+    const a = trackA({
+      candidates: [
+        ac('851830900004', 'does_not_fit', 0.019), // wired headphones, rank-1 by RRF but does_not_fit
+        ac('851762900009', 'fits', 0.0186),         // wireless headphones — top fits in A
+        ac('851830900003', 'partial', 0.0176),      // resolver target — partial in A
+      ],
+    });
+    const b = trackB({ resolved_code: '851830900003', consistency_verdict: 'ambiguous' });
+    expect(classifyConflict(a, b)).toBe('CONTRADICTION');
+  });
+
+  it('NOT CONTRADICTION (2c): heading mismatch BUT resolver is also in A fits set → AGREEMENT', () => {
+    // If Track A endorses both headings as `fits`, this isn't a contradiction —
+    // resolver code being in the fits set means AGREEMENT (rule 3) wins.
+    const a = trackA({
+      candidates: [
+        ac('851762900009', 'fits'),
+        ac('851830900003', 'fits'), // resolver also fits
+      ],
+    });
+    const b = trackB({ resolved_code: '851830900003' });
+    expect(classifyConflict(a, b)).toBe('AGREEMENT');
+  });
+
+  it('NOT CONTRADICTION (2c): heading mismatch but A top is partial (not fits) → falls through', () => {
+    // Asymmetric-confidence guard requires Track A's top to be `fits`,
+    // not just `partial`. With `partial`, signal isn't strong enough to
+    // override merchant code; falls through to AMBIGUOUS_MATERIAL.
+    const a = trackA({
+      candidates: [ac('851762900009', 'partial'), ac('851830900003', 'does_not_fit')],
+    });
+    const b = trackB({ resolved_code: '851830900003' });
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS_MATERIAL');
+  });
+
+  it('CONTRADICTION (2c): same chapter, different heading, resolver does_not_fit in A', () => {
+    // Chapter 62 vs 62 — 2b chapter-rule doesn't fire (same chapter).
+    // Heading 6204 vs 6203 — 2c heading rule should fire because A top is
+    // fits in 6204 and resolver in 6203 is does_not_fit in A.
+    const a = trackA({
+      candidates: [
+        ac('620442000000', 'fits'),
+        ac('620342000004', 'does_not_fit'), // resolver in A, marked does_not_fit
+      ],
+    });
+    const b = trackB({ resolved_code: '620342000004' });
     expect(classifyConflict(a, b)).toBe('CONTRADICTION');
   });
 

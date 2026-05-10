@@ -189,6 +189,7 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
     catalog_path_en: string | null;
     submission_description_ar: string | null;
     confidence_band: string | null;
+    classification_status: string | null;
     raw_merchant_code: string | null;
     codebook_state: string | null;
     override_applied: boolean | null;
@@ -204,7 +205,22 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
             i.error,
             d.path_en              AS catalog_path_en,
             i.goods_description_ar AS submission_description_ar,
-            (i.trace -> 'meta' -> 'verdict' ->> 'confidence_band')    AS confidence_band,
+            (i.trace -> 'meta' -> 'verdict' ->> 'confidence_band')      AS confidence_band,
+            -- V1 surface: AGREEMENT | DRIFT | ZERO_SIGNAL. Falls back to
+            -- the legacy conflict_type mapping for older rows persisted
+            -- before classification_status existed in the trace.
+            COALESCE(
+              i.trace -> 'meta' -> 'verdict' ->> 'classification_status',
+              CASE i.trace -> 'meta' -> 'verdict' ->> 'conflict_type'
+                WHEN 'AGREEMENT' THEN 'AGREEMENT'
+                WHEN 'ZERO_SIGNAL' THEN 'ZERO_SIGNAL'
+                WHEN 'DRIFT' THEN 'DRIFT'
+                WHEN 'CONTRADICTION' THEN 'DRIFT'
+                WHEN 'AMBIGUOUS_MATERIAL' THEN 'DRIFT'
+                WHEN 'SPARSE_DESCRIPTION' THEN 'DRIFT'
+                ELSE NULL
+              END
+            )                                                          AS classification_status,
             (i.trace -> 'meta' -> 'track_b' ->> 'raw_merchant_code')  AS raw_merchant_code,
             (i.trace -> 'meta' -> 'track_b' ->> 'codebook_state')     AS codebook_state,
             ((i.trace -> 'meta' -> 'track_b' ->> 'override_applied')::boolean) AS override_applied,
@@ -237,6 +253,7 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
       catalog_path_en: i.catalog_path_en,
       submission_description_ar: i.submission_description_ar,
       confidence_band: i.confidence_band,
+      classification_status: i.classification_status,
       raw_merchant_code: i.raw_merchant_code,
       codebook_state: i.codebook_state,
       override_applied: i.override_applied ?? false,
