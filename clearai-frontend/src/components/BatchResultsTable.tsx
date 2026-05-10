@@ -45,9 +45,11 @@ const CONFIDENCE_BADGE: Record<string, { cls: string; label: string }> = {
 
 /**
  * Verdict pill colours — keyed off the upstream `verdict` enum
- * surfaced in `item.classification_result.sanity.verdict`. PASS goes
- * green, FAIL goes red, WARN goes amber, anything else (SKIPPED /
- * unknown / null) renders neutral.
+ * surfaced in `item.classification_result`. The dispatch pipeline
+ * emits one of `PASS | FLAG | BLOCK`; older test rigs may also emit
+ * `WARN | FAIL | SKIPPED`. We normalise everything to a small palette
+ * (pass/fail/warn/skipped) inside `normaliseVerdict()` and look up
+ * the colour here.
  */
 const VERDICT_BADGE: Record<string, string> = {
   pass:    'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
@@ -73,18 +75,54 @@ function clampChars(text: string, max: number): string {
 
 /**
  * Read the sanity verdict off the item's classification_result blob.
- * The shape is `{ sanity: { verdict: 'PASS' | 'FAIL' | 'WARN' | 'SKIPPED' } }`
- * — defensive parse because classification_result is typed as
- * Record<string, unknown> (the backend can evolve this without
- * frontend coordination).
+ *
+ * The dispatch pipeline ships verdict at the top level as `sanity_verdict`
+ * (see `DispatchResponse` in api.ts: 'PASS' | 'FLAG' | 'BLOCK'), but we
+ * also accept a few alternative paths so future backend shapes don't
+ * silently break the column:
+ *
+ *   1. `classification_result.sanity_verdict`  (current dispatch shape)
+ *   2. `classification_result.verdict`          (flat alias)
+ *   3. `classification_result.sanity.verdict`   (nested form)
+ *
+ * Returns the raw upstream string (caller normalises). Defensive parse
+ * because classification_result is typed as Record<string, unknown>.
  */
 function readVerdict(item: DeclarationRunItem): string | null {
   const cr = item.classification_result;
   if (!cr || typeof cr !== 'object') return null;
+
+  // 1. Top-level sanity_verdict (dispatch-v1 shape).
+  const topSanity = (cr as { sanity_verdict?: unknown }).sanity_verdict;
+  if (typeof topSanity === 'string' && topSanity.length > 0) return topSanity;
+
+  // 2. Top-level verdict alias.
+  const topVerdict = (cr as { verdict?: unknown }).verdict;
+  if (typeof topVerdict === 'string' && topVerdict.length > 0) return topVerdict;
+
+  // 3. Nested sanity.verdict.
   const sanity = (cr as { sanity?: unknown }).sanity;
-  if (!sanity || typeof sanity !== 'object') return null;
-  const v = (sanity as { verdict?: unknown }).verdict;
-  return typeof v === 'string' && v.length > 0 ? v : null;
+  if (sanity && typeof sanity === 'object') {
+    const v = (sanity as { verdict?: unknown }).verdict;
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+
+  return null;
+}
+
+/**
+ * Map upstream verdict strings to the small {pass|fail|warn|skipped}
+ * palette the pill colour map keys off. The dispatch pipeline emits
+ * PASS | FLAG | BLOCK; we map FLAG→warn and BLOCK→fail so reviewers
+ * see meaningful colour signal without backend schema coordination.
+ */
+function normaliseVerdict(raw: string): 'pass' | 'fail' | 'warn' | 'skipped' | 'unknown' {
+  const lc = raw.toLowerCase();
+  if (lc === 'pass') return 'pass';
+  if (lc === 'fail' || lc === 'block') return 'fail';
+  if (lc === 'warn' || lc === 'flag') return 'warn';
+  if (lc === 'skipped' || lc === 'skip') return 'skipped';
+  return 'unknown';
 }
 
 interface BuildBreakdownRow {
@@ -306,29 +344,35 @@ export default function BatchResultsTable({
       id: 'value_plausibility_verdict',
       header: t('batch_col_value_plausibility_verdict' as TKey),
       enableSorting: true,
-      // accessorFn reads the lowercased verdict so chip values + sort
-      // stay consistent with how the cell renders.
-      accessorFn: (row) => (readVerdict(row) ?? '').toLowerCase(),
+      // accessorFn reads the normalised verdict bucket so chip values +
+      // sort stay consistent with how the cell renders. PASS/FAIL/WARN
+      // and FLAG/BLOCK all collapse into the same small palette.
+      accessorFn: (row) => {
+        const raw = readVerdict(row);
+        return raw ? normaliseVerdict(raw) : '';
+      },
       meta: { headerClassName: 'w-[150px]', cellClassName: 'w-[150px]' },
       // Custom filter so chip values land correctly: chip value is the
-      // lowercased verdict ('pass'/'fail'/'warn').
+      // normalised bucket ('pass'/'fail'/'warn').
       filterFn: (row, _id, value) => {
-        const v = (readVerdict(row.original) ?? '').toLowerCase();
-        return v === value;
+        const raw = readVerdict(row.original);
+        if (!raw) return false;
+        return normaliseVerdict(raw) === value;
       },
       cell: ({ row }) => {
         const raw = readVerdict(row.original);
         if (!raw) return <span className="text-[var(--ink-3)] text-[12px]">—</span>;
-        const lc = raw.toLowerCase();
-        const cls = VERDICT_BADGE[lc] ?? VERDICT_BADGE.unknown;
-        // i18n: PASS / FAIL / WARN / SKIPPED → localised label;
-        // anything else falls through to the upstream string verbatim.
+        const bucket = normaliseVerdict(raw);
+        const cls = VERDICT_BADGE[bucket] ?? VERDICT_BADGE.unknown;
+        // i18n: pass / fail / warn / skipped → localised label;
+        // unknown falls through to the upstream string verbatim so we
+        // never silently swallow a new verdict value.
         const label =
-          lc === 'pass'    ? t('batch_verdict_pass' as TKey) :
-          lc === 'fail'    ? t('batch_verdict_fail' as TKey) :
-          lc === 'warn'    ? t('batch_verdict_warn' as TKey) :
-          lc === 'skipped' ? t('batch_verdict_skipped' as TKey) :
-                             raw;
+          bucket === 'pass'    ? t('batch_verdict_pass' as TKey) :
+          bucket === 'fail'    ? t('batch_verdict_fail' as TKey) :
+          bucket === 'warn'    ? t('batch_verdict_warn' as TKey) :
+          bucket === 'skipped' ? t('batch_verdict_skipped' as TKey) :
+                                 raw;
         return (
           <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em]', cls)}>
             {label}

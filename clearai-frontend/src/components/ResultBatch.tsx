@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { api, ApiError, type DownloadLinks } from '@/lib/api';
@@ -25,9 +25,14 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
   // Per-file in-flight state. Lets us disable + spinner the right row when
   // the user clicks one file while another is still streaming.
   const [fileFetching, setFileFetching] = useState<Record<string, boolean>>({});
+  // Guards against re-fetching the file list every render once it's
+  // already been auto-loaded for the current run. We key on runId so a
+  // brand-new run resets the latch.
+  const autoFetchedRunRef = useRef<string | null>(null);
 
-  if (!visible) return null;
-
+  // Derived state — computed before any early return so the effect
+  // hook below can depend on them without violating React's rules of
+  // hooks (useEffect must run unconditionally on every render).
   const summary = state.summary;
   const items = state.items;
   const isPolling = state.phase === 'uploading' || state.phase === 'polling';
@@ -41,14 +46,12 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
   const partialOutput =
     (state.summary?.succeeded ?? 0) + (state.summary?.flagged ?? 0) > 0;
   const runDone = runFinished && partialOutput;
-  const downloadIsPartial = state.summary?.status === 'failed' && partialOutput;
 
-  const handleDownload = async () => {
-    if (!state.runId) return;
+  const fetchDownloadLinks = async (runId: string) => {
     setDownloadError(null);
     setDownloadLoading(true);
     try {
-      const links = await api.getDeclarationRunDownloadLinks(state.runId);
+      const links = await api.getDeclarationRunDownloadLinks(runId);
       setDownloadLinks(links);
     } catch (err) {
       const msg =
@@ -62,6 +65,20 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
       setDownloadLoading(false);
     }
   };
+
+  // Auto-fetch the file list once the run reaches a terminal state and
+  // there's at least one item to download. Replaces the old "Refresh
+  // file list" button — operators expected the list to just appear when
+  // processing finished, not have to click again.
+  useEffect(() => {
+    if (!state.runId || !runDone) return;
+    if (autoFetchedRunRef.current === state.runId) return;
+    autoFetchedRunRef.current = state.runId;
+    void fetchDownloadLinks(state.runId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.runId, runDone]);
+
+  if (!visible) return null;
 
   // Click handler for an individual file row. Fetches the bytes via the
   // backend stream route (Bearer-authed, no SAS expiry) and triggers a
@@ -209,6 +226,12 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
         </div>
       )}
 
+      {/*
+        Footer strip: latency on the left, optional file-list status
+        on the right. The "Refresh file list" button is gone — the
+        list now auto-fetches the moment the run reaches a terminal
+        state with at least one usable item (see useEffect above).
+      */}
       <div className="flex items-center justify-between gap-3 px-[22px] py-3.5 border-t border-[var(--line-2)] bg-[var(--line-2)]">
         <div className="text-[12.5px] text-[var(--ink-3)]">
           {summary?.completed_at && summary.started_at && (
@@ -223,28 +246,15 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
             </>
           )}
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={!runDone || downloadLoading}
-            onClick={handleDownload}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-4 py-2 rounded-full border-0',
-              'bg-[var(--accent)] text-white text-[13px] font-medium',
-              'shadow-[0_4px_10px_-3px_rgba(233,123,58,0.4)]',
-              'hover:bg-[var(--accent-ink)] transition-colors duration-150',
-              'disabled:opacity-50 disabled:pointer-events-none',
-            )}
-          >
-            {downloadLoading
-              ? 'Loading…'
-              : downloadLinks
-                ? 'Refresh file list'
-                : downloadIsPartial
-                  ? 'Download partial bundle'
-                  : t('act_xml_batch')}
-          </button>
-        </div>
+        {downloadLoading && (
+          <div className="flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
+            <span
+              className="w-3 h-3 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
+              aria-hidden
+            />
+            <span>Preparing files…</span>
+          </div>
+        )}
       </div>
 
       {downloadError && (
