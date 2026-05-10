@@ -103,13 +103,42 @@ export async function createDeclarationRun(input: CreateDeclarationRunInput): Pr
   return { declarationRun };
 }
 
+/**
+ * Phase tag attached to the run-level error string so the SPA's run-summary
+ * banner can render "Phase 2 — declaration build failed" instead of the
+ * generic "Run failed". Tracks which phase the throw came from.
+ */
+type ProcessingPhase = 'classification' | 'declaration' | 'unknown';
+
+/**
+ * Format the run-level error string with a structured prefix the SPA can
+ * parse. Shape: `[phase=<phase> code=<code>] <message>`. The code field is
+ * dropped when the underlying error doesn't expose one. Frontend grep-ability
+ * is the only contract — the human-readable message after the bracket stays
+ * the source of truth for display.
+ */
+export const __test__ = { formatRunError };
+
+function formatRunError(phase: ProcessingPhase, err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const codeAttr =
+    err && typeof err === 'object' && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+      ? ` code=${(err as { code: string }).code}`
+      : '';
+  const tagged = `[phase=${phase}${codeAttr}] ${msg}`;
+  return tagged.length > 1000 ? tagged.slice(0, 1000) + '…' : tagged;
+}
+
 /** Run Phase 1 (and Phase 2 if mode === 'classify_and_declare'). */
 export async function runProcessing(declarationRunId: string, dispatch: DispatchFn): Promise<void> {
   await setDeclarationRunStatus(declarationRunId, { status: 'processing', startedAt: new Date() });
+  let currentPhase: ProcessingPhase = 'unknown';
   try {
+    currentPhase = 'classification';
     await runClassificationPhase(declarationRunId, { dispatch });
 
     // Phase 2 — declaration. The service no-ops when mode === 'classify_only'.
+    currentPhase = 'declaration';
     const { runDeclarationPhaseIfNeeded } = await import('./filings/declaration.service.js');
     await runDeclarationPhaseIfNeeded(declarationRunId);
 
@@ -128,11 +157,10 @@ export async function runProcessing(declarationRunId: string, dispatch: Dispatch
 
     await setDeclarationRunStatus(declarationRunId, { status: 'completed', completedAt: new Date() });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     await setDeclarationRunStatus(declarationRunId, {
       status: 'failed',
       completedAt: new Date(),
-      error: msg.length > 1000 ? msg.slice(0, 1000) + '…' : msg,
+      error: formatRunError(currentPhase, err),
     });
     throw err;
   }

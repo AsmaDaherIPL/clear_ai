@@ -45,11 +45,38 @@ import type { DeclarationRunItemRow } from '../../../db/schema.js';
 import type { LookupValue } from '../../../modules/operators/operator-lookups.repository.js';
 import { buildDocRefNo } from './doc-id.js';
 
+/**
+ * Render-time error from the ZATCA declaration template. Carries a typed
+ * `code` and optional `details` so the run-summary error banner can show
+ * actionable text ("Phase 2 — declaration build: missing currency lookup
+ * for SAR") instead of a generic stack-trace fragment.
+ *
+ * Codes used today:
+ *   missing_lookup          — tabadul_codes / operator_lookups row absent
+ *   missing_consignee_address — neither canonical row nor operator default
+ *   empty_bundle            — render called with zero items
+ *   bad_bundle_strategy     — HV_STANDALONE bundle with !=1 items
+ *   render_error            — any other render-time invariant violation
+ */
+export type ZatcaRenderErrorCode =
+  | 'missing_lookup'
+  | 'missing_consignee_address'
+  | 'empty_bundle'
+  | 'bad_bundle_strategy'
+  | 'render_error';
+
 export class ZatcaRenderError extends Error {
-  readonly code = 'zatca_render_error';
-  constructor(message: string) {
+  readonly code: ZatcaRenderErrorCode;
+  readonly details: Record<string, string>;
+  constructor(
+    message: string,
+    code: ZatcaRenderErrorCode = 'render_error',
+    details: Record<string, string> = {},
+  ) {
     super(message);
     this.name = 'ZatcaRenderError';
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -82,6 +109,8 @@ function lookupOrThrow(input: RenderInput, type: string, sourceValue: string, ct
   if (!hit) {
     throw new ZatcaRenderError(
       `${ctx}: no tabadul_codes / operator_lookups row for operator='${input.operator.slug}' type='${type}' source='${sourceValue}'`,
+      'missing_lookup',
+      { operator: input.operator.slug, type, source: sourceValue, ctx },
     );
   }
   return hit;
@@ -341,6 +370,8 @@ function consigneeField(
   }
   throw new ZatcaRenderError(
     `consigneeAddress.${field} is null on canonical row and operator '${input.operator.slug}' has no consignee_default_${field} fallback in operator_declaration_config`,
+    'missing_consignee_address',
+    { operator: input.operator.slug, field },
   );
 }
 
@@ -398,10 +429,14 @@ function renderExpressMail(input: RenderInput): string {
 
 export function renderDeclarationXml(input: RenderInput): string {
   if (input.items.length === 0) {
-    throw new ZatcaRenderError('cannot render declaration with zero items');
+    throw new ZatcaRenderError('cannot render declaration with zero items', 'empty_bundle');
   }
   if (input.bundleStrategy === 'HV_STANDALONE' && input.items.length !== 1) {
-    throw new ZatcaRenderError('HV_STANDALONE bundles must contain exactly one item');
+    throw new ZatcaRenderError(
+      'HV_STANDALONE bundles must contain exactly one item',
+      'bad_bundle_strategy',
+      { strategy: 'HV_STANDALONE', actualItemCount: String(input.items.length) },
+    );
   }
 
   const docRefNo = buildDocRefNo({
