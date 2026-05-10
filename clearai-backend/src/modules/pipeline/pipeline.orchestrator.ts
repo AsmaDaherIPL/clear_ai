@@ -190,6 +190,13 @@ export async function runPipeline(
     const gateVerdict = {
       decision: 'escalate' as const,
       disagreement_summary: `confidence_band '${verdict.confidence_band}' is below operator minimum '${minBand}'`,
+      // The PR 4 gate's escalation is operationally distinct from a
+      // ZERO_SIGNAL escalation (we DID classify; the operator's policy
+      // overrode it), but the conflict_type field only models the six
+      // PR 6 reconciliation outcomes. Tag as ZERO_SIGNAL so the HITL
+      // queue uniformly handles every escalate-decision row; the
+      // disagreement_summary above carries the real reason.
+      conflict_type: 'ZERO_SIGNAL' as const,
     };
     const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict: gateVerdict, sanity: null, stages: allStages });
     return {

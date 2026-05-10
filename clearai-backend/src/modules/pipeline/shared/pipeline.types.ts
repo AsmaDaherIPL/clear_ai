@@ -210,6 +210,32 @@ export type ReconciliationSource = 'description_classifier' | 'code_resolver' | 
 export type VerdictDecision = 'accept' | 'escalate';
 
 /**
+ * Deterministic conflict-type taxonomy emitted by reconciliation BEFORE any
+ * LLM arbitration. Drives the per-conflict outcome map (confidence band +
+ * audit_flag policy). PR 7 promotes this to a top-level column on
+ * classification_events.
+ *
+ * Outcome map (per memory rule feedback_pr6_conflict_type_outcomes):
+ *   AGREEMENT          → accept, HIGH,    audit_flag: false
+ *   DRIFT              → accept, MEDIUM,  audit_flag: true (mandatory)
+ *   AMBIGUOUS_MATERIAL → accept, LOW,     audit_flag: true (sampled, default 15%)
+ *   SPARSE_DESCRIPTION → accept, LOW,     audit_flag: true (sampled, default 15%)
+ *   CONTRADICTION      → accept, MEDIUM,  audit_flag: true (mandatory).
+ *                        Track A rank-1 wins; merchant code overridden.
+ *   ZERO_SIGNAL        → escalate to HITL. Only conflict type that escalates.
+ *
+ * Defined here so both the classifier (conflict-type.ts) and the trace
+ * bundlers (dispatch-v1, classification_events) speak the same vocabulary.
+ */
+export type ConflictType =
+  | 'AGREEMENT'
+  | 'DRIFT'
+  | 'AMBIGUOUS_MATERIAL'
+  | 'SPARSE_DESCRIPTION'
+  | 'CONTRADICTION'
+  | 'ZERO_SIGNAL';
+
+/**
  * Named confidence tier emitted by reconciliation.
  *
  * certain  — both tracks independently agree (deterministic corroboration).
@@ -227,11 +253,21 @@ export interface VerdictResult {
   confidence_band: ConfidenceBand;
   rationale: string;
   source: ReconciliationSource;
+  /** PR 6: conflict type that produced this verdict. */
+  conflict_type: ConflictType;
+  /**
+   * PR 6: whether this row should be audited post-clearance. Mandatory for
+   * DRIFT and CONTRADICTION; sampled for AMBIGUOUS_MATERIAL and
+   * SPARSE_DESCRIPTION; always false for AGREEMENT.
+   */
+  audit_flag: boolean;
 }
 
 export interface VerdictEscalate {
   decision: 'escalate';
   disagreement_summary: string;
+  /** PR 6: only ZERO_SIGNAL escalates from reconciliation today. */
+  conflict_type: 'ZERO_SIGNAL';
 }
 
 export type StageVerdictOutput = VerdictResult | VerdictEscalate;
