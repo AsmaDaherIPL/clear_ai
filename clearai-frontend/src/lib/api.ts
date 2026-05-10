@@ -424,6 +424,23 @@ export interface DeclarationRunItem {
   classification_result: Record<string, unknown> | null;
   trace: Record<string, unknown> | null;
   error: string | null;
+  /**
+   * Merchant-supplied product description from the source CSV/XLSX.
+   * Backend is shipping this incrementally (PR pending). Optional now;
+   * frontend cell falls back to "—" when absent so older rows render
+   * cleanly. The "Merchant description" column reads this verbatim.
+   */
+  raw_description?: string | null;
+  /**
+   * Merchant-supplied HS-code prefix (the code on the input invoice
+   * before classification). Already shipped by some backend builds —
+   * surfaces in the "Merchant code" column. The "Override applied"
+   * pill renders inline when override_applied is true.
+   */
+  raw_merchant_code?: string | null;
+  override_applied?: boolean;
+  /** Confidence band for the classification picker. */
+  confidence_band?: 'certain' | 'high' | 'medium' | 'low' | 'none' | string | null;
 }
 
 /** GET /declaration-runs/:id/classifications */

@@ -224,22 +224,34 @@ export function DataTable<T extends object>({
       )}
 
       <div ref={scrollRef} className={cn('overflow-auto relative', maxHeight)}>
-        <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+        {/*
+          tableLayout: auto so cell width is governed by content +
+          Tailwind classes on the cells (min-w-/max-w-/truncate). The
+          fixed-layout was used previously because every column had a
+          `size:` number; we've moved column sizing into the cell's
+          className so we no longer need the table to enforce widths.
+        */}
+        <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10 bg-[var(--line-2)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((header) => {
                   const canSort = header.column.getCanSort();
                   const sortDir = header.column.getIsSorted();
+                  // headerClassName is an optional ColumnDef.meta hook the
+                  // consumer can use to size the header to match the cell
+                  // (Tailwind utilities only — no inline pixel widths).
+                  const headerCls = (header.column.columnDef.meta as { headerClassName?: string } | undefined)
+                    ?.headerClassName ?? '';
                   return (
                     <th
                       key={header.id}
                       onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                       className={cn(
-                        'text-start px-3.5 py-3 border-b border-[var(--line)] font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase select-none',
+                        'text-start px-3.5 py-3 border-b border-[var(--line)] font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase select-none align-middle',
                         canSort && 'cursor-pointer hover:text-[var(--ink-2)]',
+                        headerCls,
                       )}
-                      style={{ width: header.getSize() ? header.getSize() : undefined }}
                       aria-sort={
                         sortDir === 'asc' ? 'ascending' :
                         sortDir === 'desc' ? 'descending' : 'none'
@@ -294,15 +306,18 @@ export function DataTable<T extends object>({
                           extraCls,
                         )}
                       >
-                        {row.getVisibleCells().map((cell) => (
-                          <td
-                            key={cell.id}
-                            className="px-3.5 py-2.5"
-                            style={{ width: cell.column.getSize() ? cell.column.getSize() : undefined }}
-                          >
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        ))}
+                        {row.getVisibleCells().map((cell) => {
+                          // cellClassName lets the column author Tailwind-size
+                          // each cell (min-w-/max-w-/truncate) without a
+                          // hardcoded pixel size on the column def.
+                          const cellCls = (cell.column.columnDef.meta as { cellClassName?: string } | undefined)
+                            ?.cellClassName ?? '';
+                          return (
+                            <td key={cell.id} className={cn('px-3.5 py-2.5 align-top', cellCls)}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   }
