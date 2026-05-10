@@ -4,6 +4,16 @@
  * Extracts structured fields from a CanonicalLineItem and determines the
  * merchant code state. Hard-rejects when no description is present —
  * a code alone cannot be classified or sanity-checked.
+ *
+ * Merchant code length policy:
+ *   Trailing zeros in HS codes are SEMANTIC indicators of granularity, not
+ *   padding to be auto-filled. `851830000000` (HS12 leaf) and `851830` (HS6
+ *   heading) are different claims with different downstream consequences.
+ *   Valid lengths are exactly {6, 8, 10, 12}; anything else is `malformed`.
+ *   We do NOT pad 7/9/11-digit inputs — those almost certainly come from
+ *   data corruption upstream (e.g. xlsx scientific-notation truncation,
+ *   fixed in PR A 2026-05-10) and should surface as `malformed` rather
+ *   than be silently promoted to a confident wrong code.
  */
 import type { CanonicalLineItem } from '../../operators/operator-config.types.js';
 import type { MerchantCodeState, ParsedItem } from '../shared/pipeline.types.js';
@@ -15,30 +25,12 @@ const EAN_RE = /\b(\d{8}|\d{13})\b/g;
 // GTIN-14
 const GTIN_RE = /\b(\d{14})\b/g;
 
-interface MerchantCodeParse {
-  state: MerchantCodeState;
-  /** Digits as supplied (no padding). Null when absent/malformed. */
-  raw: string | null;
-  /** Padded to next valid HS boundary (6/8/10/12). Null when absent/malformed. */
-  normalized: string | null;
-}
-
-// Naqel zero-strips trailing zeros from canonical 12-digit codes. A 7-digit
-// "8518311" was originally "851831100000"; recover by padding to the next
-// valid boundary (HS8 here) so the codebook walk has a real prefix to expand.
-function classifyMerchantCode(raw: string | null | undefined): MerchantCodeParse {
-  if (!raw || raw.trim() === '') return { state: 'absent', raw: null, normalized: null };
+function classifyMerchantCode(raw: string | null | undefined): MerchantCodeState {
+  if (!raw || raw.trim() === '') return 'absent';
   const digits = raw.replace(/\D/g, '');
-  if (digits.length < 6 || digits.length > 12) {
-    return { state: 'malformed', raw: digits || null, normalized: null };
-  }
-  if (digits.length === 12) return { state: 'twelve_digit', raw: digits, normalized: digits };
-  if (digits.length === 11) return { state: 'twelve_digit', raw: digits, normalized: digits + '0' };
-  if (digits.length === 10) return { state: 'short_prefix', raw: digits, normalized: digits };
-  if (digits.length === 9) return { state: 'short_prefix', raw: digits, normalized: digits + '0' };
-  if (digits.length === 8) return { state: 'short_prefix', raw: digits, normalized: digits };
-  if (digits.length === 7) return { state: 'short_prefix', raw: digits, normalized: digits + '0' };
-  return { state: 'short_prefix', raw: digits, normalized: digits }; // length === 6
+  if (digits.length === 12) return 'twelve_digit';
+  if (digits.length === 6 || digits.length === 8 || digits.length === 10) return 'short_prefix';
+  return 'malformed';
 }
 
 export type ParseReject = { rejected: true; reason: 'no_description' };
@@ -53,7 +45,8 @@ export function parseItem(line: CanonicalLineItem): ParseOutcome {
   }
 
   const rawCode = typeof line.merchantHsCode === 'string' ? line.merchantHsCode : null;
-  const codeParse = classifyMerchantCode(rawCode);
+  const digitsOnly = rawCode ? rawCode.replace(/\D/g, '') : null;
+  const merchant_code_state = classifyMerchantCode(rawCode);
 
   const identifiers: ParsedItem['identifiers'] = [];
 
@@ -79,9 +72,8 @@ export function parseItem(line: CanonicalLineItem): ParseOutcome {
   return {
     rejected: false,
     item: {
-      raw_merchant_code: codeParse.raw,
-      normalized_merchant_code: codeParse.normalized,
-      merchant_code_state: codeParse.state,
+      raw_merchant_code: digitsOnly || null,
+      merchant_code_state,
       raw_description: desc,
       identifiers,
       currency_code: typeof line.currencyCode === 'string' ? line.currencyCode : null,

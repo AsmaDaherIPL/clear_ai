@@ -9,21 +9,19 @@
 
 export type MerchantCodeState =
   | 'twelve_digit'      // 12 numeric digits — may be active, deprecated, or unknown
-  | 'short_prefix'      // 6 or 8 or 10 digits (incl. 7/9 padded up to 8/10) — valid prefix, needs expansion
-  | 'malformed'         // non-numeric, < 6, or > 12 digits
+  | 'short_prefix'      // 6, 8, or 10 digits — valid prefix, needs expansion
+  | 'malformed'         // non-numeric, wrong length (anything not in {6,8,10,12})
   | 'absent';           // null / empty / whitespace only
 
 export interface ParsedItem {
-  /** Digits-only merchant code as originally supplied (stripped of non-digits). Null if absent or malformed. */
-  raw_merchant_code: string | null;
   /**
-   * Naqel feeds zero-strip 12-digit codes; we pad 7→8 / 9→10 / 11→12 so the
-   * codebook walk gets a code at a valid HS boundary. Equals raw_merchant_code
-   * when the input was already 6/8/10/12. Null if absent or malformed.
-   * Override-lookup uses raw_merchant_code (keyed on what merchants actually send);
-   * the codebook walk uses normalized_merchant_code.
+   * Digits-only merchant code (non-digits stripped). Null if absent or malformed.
+   * Trailing zeros are SEMANTIC and preserved verbatim — `851830000000` and
+   * `851830` are different claims with different downstream consequences. The
+   * parser does NOT pad to a longer boundary; non-{6,8,10,12} lengths are
+   * `malformed`.
    */
-  normalized_merchant_code: string | null;
+  raw_merchant_code: string | null;
   merchant_code_state: MerchantCodeState;
   /** Raw description as supplied. Null triggers immediate rejection. */
   raw_description: string | null;

@@ -60,7 +60,7 @@ beforeEach(() => {
 
 describe('runTrackB — PR 5 consistency_verdict', () => {
   it('returns not_applicable when merchant code is malformed', async () => {
-    const r = await runTrackB('123', '123', 'malformed', 'wireless headphones', 'naqel');
+    const r = await runTrackB('123', 'malformed', 'wireless headphones', 'naqel');
     expect(r.consistency_verdict).toBe('not_applicable');
     expect(r.valid_prefix).toBeNull();
     expect(r.subtree_candidates).toEqual([]);
@@ -69,7 +69,7 @@ describe('runTrackB — PR 5 consistency_verdict', () => {
   });
 
   it('returns not_applicable when merchant code is absent', async () => {
-    const r = await runTrackB(null, null, 'absent', 'anything', 'naqel');
+    const r = await runTrackB(null, 'absent', 'anything', 'naqel');
     expect(r.consistency_verdict).toBe('not_applicable');
     expect(r.valid_prefix).toBeNull();
     expect(retrieveMock).not.toHaveBeenCalled();
@@ -95,7 +95,7 @@ describe('runTrackB — PR 5 consistency_verdict', () => {
       rawText: '{}',
     });
 
-    const r = await runTrackB('851830', '851830', 'short_prefix', 'wireless headphones', 'naqel');
+    const r = await runTrackB('851830', 'short_prefix', 'wireless headphones', 'naqel');
     expect(r.consistency_verdict).toBe('consistent');
     expect(r.valid_prefix).toBe('851830');
     expect(r.subtree_candidates).toHaveLength(1);
@@ -119,7 +119,7 @@ describe('runTrackB — PR 5 consistency_verdict', () => {
       rawText: '{}',
     });
 
-    const r = await runTrackB('6109', '610910', 'short_prefix', 'T-shirt', 'naqel');
+    const r = await runTrackB('610910', 'short_prefix', 'T-shirt', 'naqel');
     expect(r.consistency_verdict).toBe('ambiguous');
     expect(r.valid_prefix).toBe('610910');
     expect(r.subtree_candidates[0]!.fit).toBe('partial');
@@ -142,7 +142,7 @@ describe('runTrackB — PR 5 consistency_verdict', () => {
       rawText: '{}',
     });
 
-    const r = await runTrackB('6307', '630710', 'short_prefix', 'storage basket', 'naqel');
+    const r = await runTrackB('630710', 'short_prefix', 'storage basket', 'naqel');
     // Prefix matches (no contradicts), but no positive fit → ambiguous.
     expect(r.consistency_verdict).toBe('ambiguous');
   });
@@ -165,7 +165,7 @@ describe('runTrackB — PR 5 consistency_verdict', () => {
       rawText: '{}',
     });
 
-    const r = await runTrackB('6307', '630791', 'short_prefix', 'storage basket', 'naqel');
+    const r = await runTrackB('630791', 'short_prefix', 'storage basket', 'naqel');
     expect(r.consistency_verdict).toBe('contradicts');
     expect(r.valid_prefix).toBe('630791');
     // Forced single entry from the unanchored top-1.
@@ -182,7 +182,7 @@ describe('runTrackB — PR 5 consistency_verdict', () => {
     retrieveMock
       .mockResolvedValueOnce([])                         // anchored: empty
       .mockResolvedValueOnce([candidate('851830000000')]); // unanchored
-    const r = await runTrackB('999999', '999999', 'short_prefix', 'whatever', 'naqel');
+    const r = await runTrackB('999999', 'short_prefix', 'whatever', 'naqel');
     expect(r.consistency_verdict).toBe('not_applicable');
     expect(r.subtree_candidates).toEqual([]);
   });
@@ -204,7 +204,7 @@ describe('runTrackB — PR 5 consistency_verdict', () => {
       rawText: '{}',
     });
 
-    const r = await runTrackB('851830000000', '851830000000', 'twelve_digit', 'headphones', 'naqel');
+    const r = await runTrackB('851830000000', 'twelve_digit', 'headphones', 'naqel');
     expect(r.resolved_code).toBe('851830000000');
     expect(r.resolution).toBe('passthrough');
     expect(r.consistency_verdict).toBe('consistent');
