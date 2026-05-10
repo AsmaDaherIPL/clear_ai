@@ -2,11 +2,17 @@
  * XLSX parser. Reads the first worksheet of the uploaded workbook into raw
  * Record<string,string>[] rows; no business logic.
  *
- * Uses XLSX.read({ type: 'buffer' }) so the caller can pass an in-memory
- * Buffer (multipart upload) without ever hitting disk. Cells are stringified
- * via {raw: false} so dates, formulas and numbers are formatted as the user
- * sees them in the spreadsheet — the canonicaliser handles numeric coercion
- * downstream.
+ * Cell value strategy:
+ *   - We read with raw:true so we receive the underlying JS values (numbers,
+ *     booleans, dates) rather than Excel's display strings. Display strings
+ *     are catastrophic for any column that holds a 12-digit-ish integer
+ *     (HS codes, waybills, GTINs): Excel formats `851830000000` as
+ *     `"8.5183E+11"`. With raw:false the parser would later strip non-digits
+ *     and produce `"8518311"` — a confidently-wrong 7-digit prefix.
+ *   - Numbers are stringified with `String(n)` for safe ints, or
+ *     `n.toFixed(0)` when the value is a large integer that would otherwise
+ *     be rendered with exponent notation.
+ *   - Dates and strings pass through. Booleans become "true"/"false".
  */
 import * as XLSX from 'xlsx';
 
@@ -21,6 +27,24 @@ export class XlsxParseError extends Error {
 interface ParsedXlsx {
   headers: string[];
   rows: Record<string, string>[];
+}
+
+function cellToString(v: unknown): string {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return '';
+    // Integer values must round-trip without exponent notation. JS `String(n)`
+    // already does this for integers up to 1e21 — but for safety, format
+    // explicitly when the value is a large integer (anything Excel would
+    // otherwise render in scientific notation in a numeric cell).
+    if (Number.isInteger(v) && Math.abs(v) >= 1e10) {
+      return v.toFixed(0);
+    }
+    return String(v);
+  }
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
 }
 
 export function parseXlsxBuffer(buf: Buffer): ParsedXlsx {
@@ -39,10 +63,13 @@ export function parseXlsxBuffer(buf: Buffer): ParsedXlsx {
     throw new XlsxParseError(`sheet '${firstSheetName}' is empty`);
   }
 
-  // raw:false -> formatted strings (matches what the user sees).
-  // defval:'' -> absent cells become '' rather than undefined, simplifies callers.
+  // raw:true -> underlying JS values (numbers, booleans, Dates) rather
+  //             than Excel's formatted display strings. Required so a
+  //             12-digit HS code stored as a number does not arrive as
+  //             "8.5183E+11" and get stripped to a 7-digit nonsense prefix.
+  // defval:'' -> absent cells become '' rather than undefined.
   const rowsAsObjects = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-    raw: false,
+    raw: true,
     defval: '',
   });
   if (rowsAsObjects.length === 0) {
@@ -61,8 +88,7 @@ export function parseXlsxBuffer(buf: Buffer): ParsedXlsx {
   const rows: Record<string, string>[] = rowsAsObjects.map((r) => {
     const out: Record<string, string> = {};
     for (const k of Object.keys(r)) {
-      const v = r[k];
-      out[k.trim()] = v === undefined || v === null ? '' : String(v);
+      out[k.trim()] = cellToString(r[k]);
     }
     return out;
   });

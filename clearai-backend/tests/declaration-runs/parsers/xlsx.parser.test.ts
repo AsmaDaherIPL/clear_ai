@@ -48,4 +48,33 @@ describe('parseXlsxBuffer', () => {
       expect(err).toBeInstanceOf(XlsxParseError);
     }
   });
+
+  it('preserves 12-digit integer cells (HS codes) without scientific-notation truncation', () => {
+    // Excel renders 851830000000 as "8.5183E+11" in display mode. Prior to
+    // 2026-05-10 we read with raw:false, then stripped non-digits downstream
+    // and ended up with "8518311" — a confidently wrong 7-digit prefix.
+    // raw:true gives us the underlying number; we round-trip via toFixed(0).
+    const buf = makeXlsx(['Description', 'CustomsCommodityCode'], [
+      ['Wireless headphones with bluetooth', 851830000000],
+      ['Clothes Storage Basket', 630791000000],
+    ]);
+    const { rows } = parseXlsxBuffer(buf);
+    expect(rows[0]!.CustomsCommodityCode).toBe('851830000000');
+    expect(rows[1]!.CustomsCommodityCode).toBe('630791000000');
+  });
+
+  it('preserves shorter HS codes (8 / 10 digits) as-is', () => {
+    const buf = makeXlsx(['HS6', 'HS8', 'HS10'], [[851830, 85183090, 8518309000]]);
+    const { rows } = parseXlsxBuffer(buf);
+    expect(rows[0]!.HS6).toBe('851830');
+    expect(rows[0]!.HS8).toBe('85183090');
+    expect(rows[0]!.HS10).toBe('8518309000');
+  });
+
+  it('keeps small numbers in regular notation', () => {
+    const buf = makeXlsx(['Quantity', 'Amount'], [[1, 49.33]]);
+    const { rows } = parseXlsxBuffer(buf);
+    expect(rows[0]!.Quantity).toBe('1');
+    expect(rows[0]!.Amount).toBe('49.33');
+  });
 });
