@@ -72,19 +72,6 @@ export function LoginCard() {
 
   return (
     <div className="w-full max-w-[420px] mx-auto flex flex-col gap-7">
-      {/* Eyebrow chip — matches landing-page hero language. */}
-      <span className="self-center inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--surface)] border border-[var(--line)] text-[12.5px] text-[var(--ink-2)]">
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]"
-          style={{
-            boxShadow: '0 0 0 3px color-mix(in oklab, var(--accent) 20%, transparent)',
-          }}
-        />
-        <span>
-          {t('login_eyebrow_prefix')} <b className="font-semibold text-[var(--ink)]">{t('login_eyebrow_provider')}</b>
-        </span>
-      </span>
-
       {/* Login card. */}
       <div
         className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] px-9 pt-9 pb-7 text-center"

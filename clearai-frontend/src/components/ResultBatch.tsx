@@ -3,6 +3,7 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { api, ApiError, type DownloadLinks } from '@/lib/api';
 import type { BatchState } from './ClassifyApp';
+import BatchResultsTable from './BatchResultsTable';
 
 function humanError(raw: string | null | undefined): string {
   if (!raw) return '';
@@ -16,28 +17,14 @@ interface ResultBatchProps {
   className?: string;
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  pending: 'bg-[var(--line-2)] text-[var(--ink-3)]',
-  classifying: 'bg-[var(--line-2)] text-[var(--ink-3)]',
-  succeeded: 'bg-[oklch(0.92_0.06_140)] text-[oklch(0.35_0.10_140)]',
-  flagged: 'bg-[oklch(0.93_0.10_60)] text-[oklch(0.40_0.15_60)]',
-  blocked: 'bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]',
-  failed: 'bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]',
-};
-
-const CONFIDENCE_BADGE: Record<string, { cls: string; label: string }> = {
-  certain: { cls: 'bg-[oklch(0.88_0.08_140)] text-[oklch(0.30_0.12_140)]', label: 'Certain' },
-  high:    { cls: 'bg-[oklch(0.90_0.06_160)] text-[oklch(0.32_0.10_160)]', label: 'High' },
-  medium:  { cls: 'bg-[oklch(0.93_0.08_220)] text-[oklch(0.35_0.12_220)]', label: 'Medium' },
-  low:     { cls: 'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',  label: 'Low' },
-  none:    { cls: 'bg-[var(--line-2)] text-[var(--ink-3)]',                 label: 'None' },
-};
-
 export default function ResultBatch({ visible, state, className }: ResultBatchProps) {
   const t = useT();
   const [downloadLinks, setDownloadLinks] = useState<DownloadLinks | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  // Per-file in-flight state. Lets us disable + spinner the right row when
+  // the user clicks one file while another is still streaming.
+  const [fileFetching, setFileFetching] = useState<Record<string, boolean>>({});
 
   if (!visible) return null;
 
@@ -63,6 +50,50 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
       setDownloadError(msg);
     } finally {
       setDownloadLoading(false);
+    }
+  };
+
+  // Click handler for an individual file row. Fetches the bytes via the
+  // backend stream route (Bearer-authed, no SAS expiry) and triggers a
+  // save dialog. Replaces the old <a href={sasUrl}> pattern that broke
+  // the moment a SAS URL crossed its 5-minute expiry — the backend stream
+  // works no matter how long the user takes to click.
+  const handleDownloadFile = async (fileName: string) => {
+    if (!state.runId) return;
+    if (fileFetching[fileName]) return;
+    setDownloadError(null);
+    setFileFetching((prev) => ({ ...prev, [fileName]: true }));
+    try {
+      const blob = await api.getDeclarationRunFile(state.runId, fileName);
+      // Object URL → anchor click → revoke. Standard "save as" trick that
+      // works without prompting in all major browsers.
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      // Strip path components from the suggested file name — the browser
+      // sometimes interprets a/b/c.xml as nested directories. The backend
+      // stream sets Content-Disposition with the basename already; this
+      // is belt-and-braces for browsers that don't honour it.
+      a.download = fileName.split('/').pop() ?? fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Browsers need a tick before they finish reading the URL.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? `${err.status}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : 'Failed to download file.';
+      setDownloadError(`${fileName} — ${msg}`);
+    } finally {
+      setFileFetching((prev) => {
+        const next = { ...prev };
+        delete next[fileName];
+        return next;
+      });
     }
   };
 
@@ -139,87 +170,34 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
         </div>
       )}
 
-      <div className="max-h-[480px] overflow-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="sticky top-0 bg-[var(--line-2)]">
-              {[
-                { key: 'line', label: 'Line' },
-                { key: 'path_en', label: 'Description (EN)' },
-                { key: 'code', label: 'HS code' },
-                { key: 'confidence', label: 'Confidence' },
-                { key: 'submission_ar', label: 'Submission (AR)' },
-                { key: 'status', label: 'Status' },
-                { key: 'error', label: 'Error' },
-              ].map((c) => (
-                <th
-                  key={c.key}
-                  className="text-start px-3.5 py-3 border-b border-[var(--line-2)] font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase"
-                >
-                  {c.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-3.5 py-6 text-[13px] text-[var(--ink-3)] italic text-center">
-                  {isPolling
-                    ? 'Items will appear once Phase 1 (classification) completes.'
-                    : summary?.status === 'failed' && summary.succeeded === 0
-                      ? 'No items processed.'
-                      : 'No items.'}
-                </td>
-              </tr>
-            ) : (
-              items.map((item) => (
-                <tr key={item.id} className="border-b border-[var(--line-2)]">
-                  <td className="px-3.5 py-2.5 font-mono text-[12px] text-[var(--ink-2)] align-top">
-                    {item.row_index}
-                  </td>
-                  <td className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[320px] align-top break-words">
-                    {item.catalog_path_en ?? '—'}
-                  </td>
-                  <td className="px-3.5 py-2.5 font-mono text-[12.5px] text-[var(--ink-2)] align-top whitespace-nowrap">
-                    {item.final_code ?? '—'}
-                  </td>
-                  <td className="px-3.5 py-2.5 text-[12px] align-top">
-                    {(() => {
-                      const band = (item as { confidence_band?: string | null }).confidence_band;
-                      const b = band ? CONFIDENCE_BADGE[band] : null;
-                      return b ? (
-                        <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono uppercase tracking-[0.04em]', b.cls)}>
-                          {b.label}
-                        </span>
-                      ) : <span className="text-[var(--ink-3)]">—</span>;
-                    })()}
-                  </td>
-                  <td
-                    className="px-3.5 py-2.5 text-[13px] text-[var(--ink-2)] max-w-[260px] align-top break-words"
-                    dir="rtl"
-                  >
-                    {item.submission_description_ar ?? '—'}
-                  </td>
-                  <td className="px-3.5 py-2.5 text-[12px] align-top">
-                    <span
-                      className={cn(
-                        'inline-block px-2 py-0.5 rounded-full font-mono uppercase tracking-[0.04em]',
-                        STATUS_BADGE[item.status] ?? STATUS_BADGE.pending,
-                      )}
-                    >
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="px-3.5 py-2.5 text-[12px] text-[var(--accent-ink)] max-w-[280px] align-top break-words">
-                    {humanError(item.error)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/*
+        Virtualized table — replaces the hand-rolled <table> block.
+        Skeleton-row tail kicks in while items are still classifying:
+        once `summary.row_count` is known (after the upload settles)
+        we know how many lines to expect, so the table can show a
+        same-shape skeleton row for every line not yet returned.
+      */}
+      <BatchResultsTable
+        items={items}
+        expectedRowCount={summary?.row_count}
+      />
+
+      {/*
+        Run-level error banner. Surfaces a single message below the
+        table when EITHER the run carries a top-level error, OR any
+        item carries an error. Per spec: per-row Error column is gone.
+      */}
+      {(state.summary?.error || items.some((i) => i.error)) && (
+        <div
+          className="px-[22px] py-3 border-t border-[var(--line-2)] bg-[oklch(0.95_0.07_25)] text-[13px] text-[oklch(0.32_0.12_25)]"
+          role="alert"
+        >
+          <div className="font-medium mb-1">Run-level error</div>
+          <div className="text-[12.5px]">
+            {humanError(state.summary?.error ?? items.find((i) => i.error)?.error)}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-3 px-[22px] py-3.5 border-t border-[var(--line-2)] bg-[var(--line-2)]">
         <div className="text-[12.5px] text-[var(--ink-3)]">
@@ -248,7 +226,7 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
               'disabled:opacity-50 disabled:pointer-events-none',
             )}
           >
-            {downloadLoading ? 'Loading…' : downloadLinks ? 'Refresh links' : t('act_xml_batch')}
+            {downloadLoading ? 'Loading…' : downloadLinks ? 'Refresh file list' : t('act_xml_batch')}
           </button>
         </div>
       </div>
@@ -261,27 +239,27 @@ export default function ResultBatch({ visible, state, className }: ResultBatchPr
 
       {downloadLinks && (
         <div className="px-[22px] py-3 border-t border-[var(--line-2)]">
-          <p className="text-[12px] text-[var(--ink-3)] m-0 mb-2">
-            Links expire at {new Date(downloadLinks.expiresAt).toLocaleTimeString()}.
-          </p>
           <ul className="m-0 p-0 list-none flex flex-col gap-1">
-            {downloadLinks.files.map((f) => (
-              <li key={f.name} className="flex items-center justify-between gap-3">
-                <a
-                  href={f.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[13px] font-mono text-[var(--accent-ink)] hover:underline truncate"
-                >
-                  {f.name}
-                </a>
-                {f.sizeBytes !== null && (
-                  <span className="text-[11.5px] text-[var(--ink-3)] font-mono whitespace-nowrap">
-                    {(f.sizeBytes / 1024).toFixed(1)} KB
-                  </span>
-                )}
-              </li>
-            ))}
+            {downloadLinks.files.map((f) => {
+              const fetching = !!fileFetching[f.name];
+              return (
+                <li key={f.name} className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadFile(f.name)}
+                    disabled={fetching}
+                    className="text-[13px] font-mono text-[var(--accent-ink)] hover:underline truncate disabled:opacity-60 disabled:cursor-progress text-left"
+                  >
+                    {fetching ? 'Downloading…' : f.name}
+                  </button>
+                  {f.sizeBytes !== null && (
+                    <span className="text-[11.5px] text-[var(--ink-3)] font-mono whitespace-nowrap">
+                      {(f.sizeBytes / 1024).toFixed(1)} KB
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

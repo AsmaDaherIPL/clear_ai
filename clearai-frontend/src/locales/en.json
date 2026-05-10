@@ -112,8 +112,6 @@
   "act_csv": "Export CSV",
   "f_copy": "© 2026 Clear AI · v1.0",
   "signout": "Sign out",
-  "login_eyebrow_prefix": "Single sign-on ·",
-  "login_eyebrow_provider": "Microsoft Entra ID",
   "login_title": "Sign in to Clear AI",
   "login_sub": "Use your work account to access the ZATCA classification workspace.",
   "login_cta": "Continue with Microsoft",

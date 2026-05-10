@@ -112,8 +112,6 @@
   "act_csv": "تصدير CSV",
   "f_copy": "© ٢٠٢٦ كلير AI · الإصدار ١٫٠",
   "signout": "تسجيل الخروج",
-  "login_eyebrow_prefix": "تسجيل دخول موحّد ·",
-  "login_eyebrow_provider": "Microsoft Entra ID",
   "login_title": "تسجيل الدخول إلى كلير AI",
   "login_sub": "استخدم حساب العمل للوصول إلى مساحة التصنيف الجمركي المتوافق مع زاتكا.",
   "login_cta": "المتابعة عبر Microsoft",
