@@ -498,6 +498,13 @@
       "when": 1747440400000,
       "tag": "0070_seed_naqel_countries",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1778500000000,
+      "tag": "0071_operator_overrides_enabled_flag",
+      "breakpoints": true
     }
   ]
 }

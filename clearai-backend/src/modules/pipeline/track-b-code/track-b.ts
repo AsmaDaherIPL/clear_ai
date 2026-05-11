@@ -349,12 +349,27 @@ function headingPrefix(code: string): string | null {
   return code.slice(0, 6);
 }
 
+export interface RunTrackBOptions {
+  /**
+   * When false, `lookupTenantOverride()` is skipped entirely and the
+   * merchant's raw code flows directly into the codebook walk. Used
+   * per-operator (see operator_declaration_config.overrides_enabled)
+   * to disable an untrusted override list without deleting the rows.
+   *
+   * Defaults to true to preserve historical behavior for callers that
+   * don't pass options.
+   */
+  overridesEnabled?: boolean;
+}
+
 export async function runTrackB(
   raw_merchant_code: string | null,
   merchant_code_state: MerchantCodeState,
   cleaned_description: string,
   operatorSlug: string,
+  options: RunTrackBOptions = {},
 ): Promise<TrackBResult> {
+  const { overridesEnabled = true } = options;
   if (!raw_merchant_code || merchant_code_state === 'absent' || merchant_code_state === 'malformed') {
     return {
       resolved_code: null,
@@ -369,7 +384,13 @@ export async function runTrackB(
     };
   }
 
-  const override = await lookupTenantOverride(raw_merchant_code, operatorSlug);
+  // Override lookup gated on per-operator flag. When disabled, the merchant's
+  // raw code flows into the codebook walk unchanged — this is the route used
+  // when an operator's override list is operationally untrusted (ZATCA-pass
+  // workarounds rather than codebook corrections).
+  const override = overridesEnabled
+    ? await lookupTenantOverride(raw_merchant_code, operatorSlug)
+    : null;
   const overrideApplied = override !== null;
   const overrideTarget = override?.targetCode ?? null;
 

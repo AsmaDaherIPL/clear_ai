@@ -5,7 +5,7 @@
  * zatca_declaration_defaults table and the per-operator zatca_* +
  * default_consignee_address columns dropped in 0063.
  */
-import { pgTable, uuid, varchar, smallint, text, timestamp, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, smallint, text, timestamp, pgEnum, boolean } from 'drizzle-orm/pg-core';
 import { operators } from './operators.js';
 
 export const confidenceBandEnum = pgEnum('confidence_band', ['certain', 'high', 'medium', 'low', 'none']);
@@ -51,6 +51,19 @@ export const operatorDeclarationConfig = pgTable('operator_declaration_config', 
    * Items whose confidence_band is below this threshold are escalated.
    */
   minConfidenceBand: confidenceBandEnum('min_confidence_band'),
+
+  /**
+   * Whether Track B should consult `operator_code_overrides` before walking
+   * the codebook. Defaults to `true` to preserve existing behavior.
+   *
+   * Set to `false` per-operator when the override list is operationally
+   * untrusted — e.g. when an operator's overrides are known to be
+   * ZATCA-pass workarounds rather than true codebook corrections. In that
+   * case, the merchant's raw code flows directly into the codebook walk
+   * and overrides do not participate in classification. See
+   * `lookupTenantOverride()` call site in track-b-code/track-b.ts.
+   */
+  overridesEnabled: boolean('overrides_enabled').notNull().default(true),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

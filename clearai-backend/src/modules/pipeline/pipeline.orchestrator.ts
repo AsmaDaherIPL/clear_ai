@@ -29,17 +29,31 @@ const BAND_RANK: Record<ConfidenceBand, number> = {
   none:    0,
 };
 
-async function loadMinConfidenceBand(operatorSlug: string): Promise<ConfidenceBand | null> {
+interface OperatorPipelineConfig {
+  minConfidenceBand: ConfidenceBand | null;
+  /** Defaults to true when no operator_declaration_config row exists yet. */
+  overridesEnabled: boolean;
+}
+
+async function loadOperatorPipelineConfig(operatorSlug: string): Promise<OperatorPipelineConfig> {
   const pool = getPool();
-  const r = await pool.query<{ min_confidence_band: string | null }>(
-    `SELECT c.min_confidence_band
+  const r = await pool.query<{
+    min_confidence_band: string | null;
+    overrides_enabled: boolean | null;
+  }>(
+    `SELECT c.min_confidence_band, c.overrides_enabled
        FROM operator_declaration_config c
        JOIN operators o ON o.id = c.operator_id
       WHERE o.slug = $1`,
     [operatorSlug],
   );
-  const raw = r.rows[0]?.min_confidence_band ?? null;
-  return raw as ConfidenceBand | null;
+  const row = r.rows[0];
+  return {
+    minConfidenceBand: (row?.min_confidence_band ?? null) as ConfidenceBand | null,
+    // Default to true when the column is null (older rows) or the row is
+    // missing entirely — preserves historical behavior.
+    overridesEnabled: row?.overrides_enabled ?? true,
+  };
 }
 
 function isBelowGate(verdict: VerdictResult, minBand: ConfidenceBand): boolean {
@@ -150,16 +164,27 @@ export async function runPipeline(
     };
   }
 
+  // ---- Load per-operator pipeline config (gate + overrides flag) ----
+  // Single query that returns both fields, fired in parallel with Tracks A+B
+  // so the orchestrator critical path doesn't wait sequentially. Track B
+  // needs `overridesEnabled` before it calls lookupTenantOverride().
+  const operatorConfigPromise = loadOperatorPipelineConfig(operatorSlug);
+
   // ---- Tracks A and B (concurrent) ----
+  // Track B awaits the operator config first; Track A is independent.
   const [trackAOut, trackBResult] = await Promise.all([
     runTrackA(cleanup, parsedItem.raw_description!),
-    runTrackB(
-      parsedItem.raw_merchant_code,
-      parsedItem.merchant_code_state,
-      cleanup.cleaned_description,
-      operatorSlug,
+    operatorConfigPromise.then((cfg) =>
+      runTrackB(
+        parsedItem.raw_merchant_code,
+        parsedItem.merchant_code_state,
+        cleanup.cleaned_description,
+        operatorSlug,
+        { overridesEnabled: cfg.overridesEnabled },
+      ),
     ),
   ]);
+  const operatorConfig = await operatorConfigPromise;
 
   allStages.push(...trackAOut.stages);
   const trackAResult = trackAOut.result;
@@ -191,7 +216,7 @@ export async function runPipeline(
   }
 
   // ---- Stage 2 gate: per-operator minimum confidence band ----
-  const minBand = await loadMinConfidenceBand(operatorSlug);
+  const minBand = operatorConfig.minConfidenceBand;
   if (minBand && isBelowGate(verdict, minBand)) {
     const gateVerdict = {
       decision: 'escalate' as const,
