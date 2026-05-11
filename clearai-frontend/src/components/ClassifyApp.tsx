@@ -111,6 +111,38 @@ const initialBatchState: BatchState = {
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min cap; backend can run longer but the UI won't watch indefinitely
+const PAGE_SIZE = 200; // page size when fetching classifications; max is 500 server-side
+const MAX_PAGES = 10;  // hard cap on auto-paging: 200 * 10 = 2000 items per run
+
+/**
+ * Fetch all classification items for a run, auto-paging until the
+ * server's `total` is satisfied or MAX_PAGES is hit. Returns the items
+ * concatenated in row_index order plus the top-level fields the poll
+ * loop needs (classification_phase). Bounded to prevent a runaway loop
+ * on a misbehaving server.
+ */
+async function fetchAllClassifications(runId: string): Promise<{
+  items: DeclarationRunItem[];
+  classification_phase?: 'pending' | 'running' | 'completed' | 'failed';
+}> {
+  const first = await api.getDeclarationRunClassifications(runId, { limit: PAGE_SIZE, offset: 0 });
+  const total = first.total ?? first.items.length;
+  const all = [...first.items];
+  let page = 1;
+  while (all.length < total && page < MAX_PAGES) {
+    const next = await api.getDeclarationRunClassifications(runId, {
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+    });
+    all.push(...next.items);
+    if (next.items.length === 0) break; // defensive: stop if a page came back empty
+    page += 1;
+  }
+  return {
+    items: all,
+    ...(first.classification_phase ? { classification_phase: first.classification_phase } : {}),
+  };
+}
 
 function getUrlRunId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -146,6 +178,10 @@ export default function ClassifyApp() {
   });
   const [batchState, setBatchState] = useState<BatchState>(initialBatchState);
   const pollTimerRef = useRef<number | null>(null);
+  // True once the URL-resume effect has already fired for the current
+  // session. Reset on sign-out so a fresh sign-in re-triggers resume,
+  // and reset on poll error so the user can retry by reloading.
+  const resumedRef = useRef(false);
   const cur = modeStates[mode];
   const phase = cur.phase;
   const activeStep = cur.activeStep;
@@ -214,7 +250,7 @@ export default function ClassifyApp() {
         // 'failed' because Phase 2 failed even when Phase 1 was fine).
         let classificationPhase: 'pending' | 'running' | 'completed' | 'failed' | undefined;
         try {
-          const cls = await api.getDeclarationRunClassifications(runId);
+          const cls = await fetchAllClassifications(runId);
           classificationPhase = cls.classification_phase;
           setBatchState((s) => ({ ...s, items: cls.items }));
         } catch {
@@ -237,7 +273,7 @@ export default function ClassifyApp() {
           if (!classificationsFetched) {
             classificationsFetched = true;
             try {
-              const finalCls = await api.getDeclarationRunClassifications(runId);
+              const finalCls = await fetchAllClassifications(runId);
               setBatchState((s) => ({ ...s, items: finalCls.items }));
             } catch {
               /* swallow — best-effort final read */
@@ -248,12 +284,27 @@ export default function ClassifyApp() {
         }
         pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
       } catch (err) {
-        const msg =
-          err instanceof ApiError
-            ? `${err.status}: ${err.message}`
-            : err instanceof Error
-              ? err.message
-              : 'Polling failed.';
+        // Specifically humanize the common URL-resume failures: 404
+        // (run doesn't exist or was deleted) and 401/403 (caller
+        // doesn't have access). Anything else falls back to the raw
+        // error so debugging stays possible.
+        let msg: string;
+        if (err instanceof ApiError) {
+          if (err.status === 404) {
+            msg = `Run ${runId} not found. It may have been deleted, or you may not have access.`;
+          } else if (err.status === 401 || err.status === 403) {
+            msg = `You don't have access to run ${runId}. Sign in with the account that created it.`;
+          } else {
+            msg = `${err.status}: ${err.message}`;
+          }
+        } else if (err instanceof Error) {
+          msg = err.message;
+        } else {
+          msg = 'Polling failed.';
+        }
+        // Reset the resume latch on error so the URL can re-trigger
+        // a fresh attempt if auth state changes or the user reloads.
+        resumedRef.current = false;
         setBatchState((s) => ({ ...s, phase: 'error', errorMessage: msg }));
       }
     };
@@ -297,10 +348,11 @@ export default function ClassifyApp() {
   // Stop polling on unmount.
   useEffect(() => () => stopPolling(), []);
 
-  // Resume a batch run from ?run=<id> in the URL. Runs once on mount
-  // (after auth resolves) so navigating back to the page or sharing
-  // the URL drops you right back into the live result panel.
-  const resumedRef = useRef(false);
+  // Resume a batch run from ?run=<id> in the URL. Runs once after auth
+  // resolves so navigating back to the page or sharing the URL drops
+  // you right back into the live result panel. The poll loop handles
+  // error surfacing — if the run doesn't exist or the user doesn't
+  // have access, phase flips to 'error' with a message.
   useEffect(() => {
     if (authState !== 'authenticated') return;
     if (resumedRef.current) return;
@@ -312,6 +364,17 @@ export default function ClassifyApp() {
     setBatchState({ ...initialBatchState, phase: 'polling', runId: urlRunId });
     startPollingRun(urlRunId);
   }, [authState, startPollingRun]);
+
+  // When auth flips from authenticated → unauthenticated (sign-out,
+  // token expiry), reset the resume latch so a subsequent sign-in
+  // re-runs the URL resume. Without this, sign-out + sign-in in the
+  // same tab leaves the resumedRef permanently set and the URL ?run=
+  // param stops triggering a resume.
+  useEffect(() => {
+    if (authState === 'unauthenticated') {
+      resumedRef.current = false;
+    }
+  }, [authState]);
 
   const stepTimers = useRef<Record<ClassifyMode, number[]>>({
     generate: [], expand: [], batch: [],

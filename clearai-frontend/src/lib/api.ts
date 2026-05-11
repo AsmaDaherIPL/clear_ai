@@ -472,6 +472,10 @@ export interface DeclarationRunClassifications {
    * live-poll loop. Optional for backward-compat with older trace rows.
    */
   classification_phase?: 'pending' | 'running' | 'completed' | 'failed';
+  /** Pagination envelope. `total` is the row count regardless of page size. */
+  total?: number;
+  limit?: number;
+  offset?: number;
 }
 
 /** GET /declaration-runs/:id/download-links */
@@ -630,11 +634,25 @@ export const api = {
   getDeclarationRun: (id: string) =>
     request<DeclarationRunSummary>(`/declaration-runs/${encodeURIComponent(id)}`),
 
-  /** GET /declaration-runs/{id}/classifications — per-item results once Phase 1 completes. */
-  getDeclarationRunClassifications: (id: string) =>
-    request<DeclarationRunClassifications>(
-      `/declaration-runs/${encodeURIComponent(id)}/classifications`,
-    ),
+  /**
+   * GET /declaration-runs/{id}/classifications — per-item results once
+   * Phase 1 completes. Server-side paginated: default page size is 100,
+   * max 500. For runs over 100 items the SPA must page through; the
+   * envelope returns `total`, `limit`, `offset` for navigation.
+   */
+  getDeclarationRunClassifications: (
+    id: string,
+    opts?: { limit?: number; offset?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    if (opts?.offset !== undefined) params.set('offset', String(opts.offset));
+    const qs = params.toString();
+    const suffix = qs ? `?${qs}` : '';
+    return request<DeclarationRunClassifications>(
+      `/declaration-runs/${encodeURIComponent(id)}/classifications${suffix}`,
+    );
+  },
 
   /**
    * GET /declaration-runs/{id}/download-links — short-lived SAS URLs.

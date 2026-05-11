@@ -161,8 +161,31 @@ export async function handleGetDeclarationRun(req: FastifyRequest<{ Params: { id
   return reply.send(summary);
 }
 
-export async function handleListClassifications(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
+export async function handleListClassifications(
+  req: FastifyRequest<{ Params: { id: string }; Querystring: { limit?: string; offset?: string } }>,
+  reply: FastifyReply,
+): Promise<unknown> {
   const declarationRun = await getDeclarationRun(req.params.id);
+
+  // Server-side pagination. Default page size is generous (100) so small
+  // batches don't have to deal with the pagination protocol; SPA can ask
+  // for up to 500 per page. Bounds enforced loudly via 400 — silent
+  // clamping would mask bugs in the caller.
+  const limitRaw = req.query.limit;
+  const offsetRaw = req.query.offset;
+  const limit = limitRaw === undefined ? 100 : Number(limitRaw);
+  const offset = offsetRaw === undefined ? 0 : Number(offsetRaw);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+    throw new DeclarationRunValidationError('limit must be an integer between 1 and 500', {
+      received: limitRaw,
+    });
+  }
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new DeclarationRunValidationError('offset must be a non-negative integer', {
+      received: offsetRaw,
+    });
+  }
+
   // Returns whatever items are in flight RIGHT NOW so the SPA's
   // BatchResultsTable can paint rows progressively as Phase 1 completes
   // them. The original 425 'phase_not_ready' guard was lifted 2026-05-10
@@ -233,9 +256,20 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
        FROM declaration_run_items i
        LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
       WHERE i.declaration_run_id = $1
-      ORDER BY i.row_index`,
+      ORDER BY i.row_index
+      LIMIT $2 OFFSET $3`,
+    [declarationRun.id, limit, offset],
+  );
+  // Run total in parallel for the response envelope. Re-running the
+  // count on every poll tick is wasteful but tiny (it's just a COUNT(*)
+  // on the indexed declaration_run_id); short-circuiting would require
+  // caching and complicate the freshness story during live ingestion.
+  const totalRes = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM declaration_run_items WHERE declaration_run_id = $1`,
     [declarationRun.id],
   );
+  const total = Number(totalRes.rows[0]?.count ?? 0);
+
   return reply.send({
     declaration_run_id: declarationRun.id,
     // The SPA polls this endpoint while a run is in flight. classification_phase
@@ -243,6 +277,9 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
     // 'running', stop on 'completed' / 'failed'. Per-item `status` covers the
     // individual row state (pending|classifying|succeeded|flagged|blocked|failed).
     classification_phase: declarationRun.classificationStatus,
+    total,
+    limit,
+    offset,
     items: r.rows.map((i) => ({
       id: i.id,
       row_index: i.row_index,

@@ -59,7 +59,10 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
     }
   });
 
-  app.get<{ Params: { id: string } }>('/declaration-runs/:id/classifications', async (req, reply) => {
+  app.get<{
+    Params: { id: string };
+    Querystring: { limit?: string; offset?: string };
+  }>('/declaration-runs/:id/classifications', async (req, reply) => {
     try {
       return await handleListClassifications(req, reply);
     } catch (err) {
