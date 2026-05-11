@@ -34,8 +34,6 @@ export type DecisionReason =
   /** The submitted parent prefix exactly matches a SABER-deleted code. */
   | 'code_deleted';
 
-export type ConfidenceBand = 'high' | 'medium' | 'low';
-
 /** What attribute the user would need to add for a confident leaf. */
 export type MissingAttribute =
   | 'material'

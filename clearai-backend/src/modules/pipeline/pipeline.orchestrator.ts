@@ -19,18 +19,9 @@ import { shouldEnqueue } from './hitl/hitl.js';
 import { buildTrace } from './trace/trace.js';
 import { getPool } from '../../db/client.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
-import type { PipelineResult, StageTrace, HitlIntent, ConfidenceBand, VerdictResult } from './shared/pipeline.types.js';
-
-const BAND_RANK: Record<ConfidenceBand, number> = {
-  certain: 4,
-  high:    3,
-  medium:  2,
-  low:     1,
-  none:    0,
-};
+import type { PipelineResult, StageTrace, HitlIntent } from './shared/pipeline.types.js';
 
 interface OperatorPipelineConfig {
-  minConfidenceBand: ConfidenceBand | null;
   /** Defaults to true when no operator_declaration_config row exists yet. */
   overridesEnabled: boolean;
 }
@@ -38,10 +29,9 @@ interface OperatorPipelineConfig {
 async function loadOperatorPipelineConfig(operatorSlug: string): Promise<OperatorPipelineConfig> {
   const pool = getPool();
   const r = await pool.query<{
-    min_confidence_band: string | null;
     overrides_enabled: boolean | null;
   }>(
-    `SELECT c.min_confidence_band, c.overrides_enabled
+    `SELECT c.overrides_enabled
        FROM operator_declaration_config c
        JOIN operators o ON o.id = c.operator_id
       WHERE o.slug = $1`,
@@ -49,15 +39,10 @@ async function loadOperatorPipelineConfig(operatorSlug: string): Promise<Operato
   );
   const row = r.rows[0];
   return {
-    minConfidenceBand: (row?.min_confidence_band ?? null) as ConfidenceBand | null,
     // Default to true when the column is null (older rows) or the row is
     // missing entirely — preserves historical behavior.
     overridesEnabled: row?.overrides_enabled ?? true,
   };
-}
-
-function isBelowGate(verdict: VerdictResult, minBand: ConfidenceBand): boolean {
-  return BAND_RANK[verdict.confidence_band] < BAND_RANK[minBand];
 }
 
 interface CatalogContext {
@@ -184,7 +169,6 @@ export async function runPipeline(
       ),
     ),
   ]);
-  const operatorConfig = await operatorConfigPromise;
 
   allStages.push(...trackAOut.stages);
   const trackAResult = trackAOut.result;
@@ -200,37 +184,12 @@ export async function runPipeline(
     detail: { decision: verdict.decision },
   });
 
-  // Escalate to HITL — item still progresses as 'flagged'.
+  // Escalate to HITL — item still progresses as 'flagged'. This is the ONLY
+  // escalation path now; the per-operator min_confidence_band gate was
+  // removed in 0072_drop_confidence_band. ZERO_SIGNAL and degenerate-DRIFT
+  // escalations both flow through verdict.decision === 'escalate'.
   if (verdict.decision === 'escalate') {
     const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity: null, stages: allStages });
-    return {
-      final_code: null,
-      goods_description_ar: null,
-      sanity_verdict: 'FLAG',
-      trace,
-      hitl: {
-        reason: 'verdict_escalate',
-        cleaned_description: cleanup.cleaned_description,
-      },
-    };
-  }
-
-  // ---- Stage 2 gate: per-operator minimum confidence band ----
-  const minBand = operatorConfig.minConfidenceBand;
-  if (minBand && isBelowGate(verdict, minBand)) {
-    const gateVerdict = {
-      decision: 'escalate' as const,
-      disagreement_summary: `confidence_band '${verdict.confidence_band}' is below operator minimum '${minBand}'`,
-      // The PR 4 gate's escalation is operationally distinct from a
-      // ZERO_SIGNAL escalation (we DID classify; the operator's policy
-      // overrode it), but the conflict_type field only models the six
-      // PR 6 reconciliation outcomes. Tag as ZERO_SIGNAL so the HITL
-      // queue uniformly handles every escalate-decision row; the
-      // disagreement_summary above carries the real reason.
-      classification_status: 'ZERO_SIGNAL' as const,
-      conflict_type: 'ZERO_SIGNAL' as const,
-    };
-    const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict: gateVerdict, sanity: null, stages: allStages });
     return {
       final_code: null,
       goods_description_ar: null,

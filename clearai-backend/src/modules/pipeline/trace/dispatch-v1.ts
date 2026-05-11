@@ -201,12 +201,9 @@ function buildReconciliationAction(
       ? {
           decision: verdict.decision,
           final_code: verdict.final_code,
-          // V1 surface: AGREEMENT | DRIFT | ZERO_SIGNAL. Primary status field
-          // the SPA renders. confidence_band is kept alongside for the
-          // per-operator gate context (operator_declaration_config consults it)
-          // and for trace-level debugging until the SPA fully migrates.
+          // V1 surface: AGREEMENT | DRIFT | ZERO_SIGNAL. The SPA reads this
+          // as the single answer to "did the tracks agree?".
           classification_status: verdict.classification_status,
-          confidence_band: verdict.confidence_band,
           source: sourceMap[verdict.source] ?? verdict.source,
           rationale: verdict.rationale,
         }

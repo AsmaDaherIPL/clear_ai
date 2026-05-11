@@ -3,7 +3,7 @@
 interface ExpandResponse {
   decision_status: string;
   decision_reason: string;
-  confidence_band?: string;
+  classification_status?: string;
   before?: { code: string };
   after?: {
     code: string;

@@ -3,29 +3,24 @@
  *
  * Architecture:
  *   1. classifyConflict() (deterministic, no LLM) categorizes the (Track A,
- *      Track B) state into one of six internal conflict types.
+ *      Track B) state into one of five internal conflict types.
  *   2. Per-conflict handler emits the verdict.
  *   3. The verdict carries `classification_status` (V1 external surface,
- *      3 values: AGREEMENT | DRIFT | ZERO_SIGNAL) plus the legacy
- *      `conflict_type` field for forensic queries.
+ *      3 values: AGREEMENT | DRIFT | ZERO_SIGNAL) plus the internal
+ *      `conflict_type` field for forensic trace queries.
  *
  * The LLM is called only for DRIFT (heading agrees, leaf disputes), where
  * picking between competing leaves under a shared heading benefits from
- * arbitration. Every other conflict type is purely deterministic at this
- * point — even AMBIGUOUS accepts the resolver code at LOW confidence
- * rather than calling the LLM, since the description-side signal is by
- * definition non-corroborating.
+ * arbitration. Every other conflict type is purely deterministic — even
+ * AMBIGUOUS accepts the resolver code rather than calling the LLM, since
+ * the description-side signal is by definition non-corroborating.
  *
  * V1 surface collapse (internal conflict_type -> external classification_status):
- *   AGREEMENT          -> AGREEMENT  (accept, HIGH confidence, source=B or A)
- *   DRIFT              -> DRIFT      (accept, MEDIUM, LLM-arbitrated leaf)
- *   AMBIGUOUS          -> DRIFT      (accept, LOW, resolver carries the row)
- *   CONTRADICTION      -> DRIFT      (accept, MEDIUM, Track A rank-1 wins)
+ *   AGREEMENT          -> AGREEMENT  (accept, source=B or A)
+ *   DRIFT              -> DRIFT      (accept, LLM-arbitrated leaf)
+ *   AMBIGUOUS          -> DRIFT      (accept, resolver carries the row)
+ *   CONTRADICTION      -> DRIFT      (accept, Track A rank-1 wins)
  *   ZERO_SIGNAL        -> ZERO_SIGNAL (escalate to HITL)
- *
- * audit_flag was removed in V1 (no post-clearance audit). The internal
- * conflict_type field still distinguishes the cases for forensic queries
- * via trace JSONB.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
@@ -38,7 +33,6 @@ import type {
   VerdictResult,
   ReconciliationSource,
   AnnotatedCandidate,
-  ConfidenceBand,
 } from '../shared/pipeline.types.js';
 
 function topFitCandidate(candidates: AnnotatedCandidate[]): AnnotatedCandidate | null {
@@ -113,8 +107,7 @@ async function callReconciliationLlmForDrift(params: {
       return {
         decision: 'accept',
         final_code: trackB.resolved_code,
-        confidence_band: 'low' as ConfidenceBand,
-        rationale: `DRIFT: reconciliation LLM unavailable (${outcome.kind}); accepting code_resolver code at low confidence`,
+        rationale: `DRIFT: reconciliation LLM unavailable (${outcome.kind}); accepting code_resolver code`,
         source: 'code_resolver',
         classification_status: 'DRIFT',
         conflict_type: 'DRIFT',
@@ -145,7 +138,6 @@ async function callReconciliationLlmForDrift(params: {
     return {
       decision: 'accept',
       final_code: d.final_code,
-      confidence_band: 'medium' as ConfidenceBand,
       rationale: typeof d.rationale === 'string' ? d.rationale : 'DRIFT: LLM picked among heading candidates',
       source,
       classification_status: 'DRIFT',
@@ -174,7 +166,6 @@ function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
       return {
         decision: 'accept',
         final_code: trackB.resolved_code,
-        confidence_band: 'high',
         rationale: `AGREEMENT: code_resolver code is in description_classifier fits set — ${resolverVerdict.rationale}`,
         source: 'code_resolver',
         classification_status: 'AGREEMENT',
@@ -187,7 +178,6 @@ function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
     return {
       decision: 'accept',
       final_code: top.code,
-      confidence_band: 'high',
       rationale: `AGREEMENT: description_classifier produced a clear fit (single track) — ${top.rationale}`,
       source: 'description_classifier',
       classification_status: 'AGREEMENT',
@@ -212,7 +202,6 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
     return {
       decision: 'accept',
       final_code: top.code,
-      confidence_band: 'medium',
       rationale: `CONTRADICTION: description pulls to a different chapter than merchant code — Track A rank-1 wins (${top.rationale})`,
       source: 'description_classifier',
       classification_status: 'DRIFT',
@@ -226,7 +215,6 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
     return {
       decision: 'accept',
       final_code: subtreeTop.code,
-      confidence_band: 'medium',
       rationale: `CONTRADICTION: description-side unanchored top-1 (${subtreeTop.rationale})`,
       source: 'description_classifier',
       classification_status: 'DRIFT',
@@ -240,27 +228,10 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
 }
 
 /**
- * AMBIGUOUS handler — replaces the legacy AMBIGUOUS_MATERIAL +
- * SPARSE_DESCRIPTION handlers (both had identical behavior; merchant code
- * wins at LOW confidence).
- *
- * Confidence-band bump rule: when Track A's rank-1 partial candidate is
- * the SAME CODE as Track B's resolved_code, both tracks are converging
- * on the same leaf despite Track A only labeling it `partial` (typically
- * because the description doesn't confirm one specialization dimension
- * the leaf constrains, like material or gender). That convergence is
- * stronger evidence than either signal alone — bump confidence_band from
- * low to medium. The legacy AMBIGUOUS handlers always returned `low`
- * regardless of whether the tracks converged.
- *
- * Pinned scenario: run 019e15e6-... item 4 (Bootcut Legging,
- * raw_merchant_code=62046300). Track A rank-1 partial = 620463000004;
- * Track B llm_pick_under_prefix also resolves to 620463000004. Both
- * tracks agree on the leaf; only material is unconfirmed. Pre-fix:
- * low. Post-fix: medium.
- *
- * The rationale string still distinguishes the sub-cases so the trace
- * remains readable to humans debugging a row.
+ * AMBIGUOUS handler — merchant code wins because the description-side
+ * signal is by definition non-corroborating. The rationale string
+ * distinguishes the sub-cases (Track A silent vs. partial-converging)
+ * so trace readers can still debug.
  */
 function handleAmbiguous(trackA: TrackAResult, trackB: TrackBResult): VerdictResult {
   if (!trackB.resolved_code) {
@@ -272,20 +243,18 @@ function handleAmbiguous(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
   // the same code would have routed to AGREEMENT in the classifier, not
   // here. `does_not_fit` candidates can't represent convergence.
   const topPartial = trackA.annotated_candidates.find((c) => c.fit === 'partial');
-  const converges =
-    topPartial != null && topPartial.code === trackB.resolved_code;
+  const converges = topPartial != null && topPartial.code === trackB.resolved_code;
 
   const trackASilent = trackA.threshold_failed || trackA.no_fit;
   const rationale = converges
-    ? `AMBIGUOUS (converging): Track A partial and code_resolver agree on ${trackB.resolved_code}; description silent on one leaf-specialization dimension. Medium confidence.`
+    ? `AMBIGUOUS (converging): Track A partial and code_resolver agree on ${trackB.resolved_code}; description silent on one leaf-specialization dimension.`
     : trackASilent
-      ? 'AMBIGUOUS: description too thin for description_classifier to contribute; accepting merchant code at low confidence'
-      : 'AMBIGUOUS: description silent on dimensions the heading constrains; accepting merchant code at low confidence';
+      ? 'AMBIGUOUS: description too thin for description_classifier to contribute; accepting merchant code'
+      : 'AMBIGUOUS: description silent on dimensions the heading constrains; accepting merchant code';
 
   return {
     decision: 'accept',
     final_code: trackB.resolved_code,
-    confidence_band: converges ? 'medium' : 'low',
     rationale,
     source: 'code_resolver',
     classification_status: 'DRIFT',

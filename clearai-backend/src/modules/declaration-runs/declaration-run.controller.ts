@@ -188,7 +188,6 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
     error: string | null;
     catalog_path_en: string | null;
     submission_description_ar: string | null;
-    confidence_band: string | null;
     classification_status: string | null;
     raw_merchant_code: string | null;
     codebook_state: string | null;
@@ -205,7 +204,6 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
             i.error,
             d.path_en              AS catalog_path_en,
             i.goods_description_ar AS submission_description_ar,
-            (i.trace -> 'meta' -> 'verdict' ->> 'confidence_band')      AS confidence_band,
             -- V1 surface: AGREEMENT | DRIFT | ZERO_SIGNAL. Falls back to
             -- the legacy conflict_type mapping for older rows persisted
             -- before classification_status existed in the trace.
@@ -252,7 +250,6 @@ export async function handleListClassifications(req: FastifyRequest<{ Params: { 
       final_code: i.final_code,
       catalog_path_en: i.catalog_path_en,
       submission_description_ar: i.submission_description_ar,
-      confidence_band: i.confidence_band,
       classification_status: i.classification_status,
       raw_merchant_code: i.raw_merchant_code,
       codebook_state: i.codebook_state,

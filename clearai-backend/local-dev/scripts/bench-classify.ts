@@ -10,7 +10,7 @@ interface ModelCallTrace {
 interface DescribeResponse {
   decision_status: string;
   decision_reason: string;
-  confidence_band?: string;
+  classification_status?: string;
   result?: { code: string };
   request_id?: string;
   model?: { embedder: string; llm: string | null };

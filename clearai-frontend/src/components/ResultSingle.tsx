@@ -640,10 +640,13 @@ export default function ResultSingle({
   // as a 6-column gradient grid — the typographic monument the spec
   // asks for. See `CodeMonument` above for the rendering rule.
 
-  // Strong-match pill: only when the picker accepted with high confidence.
+  // Strong-match pill: shown when reconciliation produced AGREEMENT
+  // (both tracks agreed) — or when classification_status isn't reported
+  // (single-shot dispatch path that hasn't yet wired the field through),
+  // and the picker accepted the result outright.
   const showStrongMatch =
     data.decision_status === 'accepted' &&
-    (data.confidence_band === 'high' || data.confidence_band == null);
+    (data.classification_status === 'AGREEMENT' || data.classification_status == null);
 
   // Visible alternatives: drop the chosen leaf so it doesn't show as
   // both the picked code (left column) and a sibling (right column).

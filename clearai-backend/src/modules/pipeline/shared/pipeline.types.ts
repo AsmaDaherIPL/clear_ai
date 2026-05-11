@@ -242,21 +242,15 @@ export type VerdictDecision = 'accept' | 'escalate';
 export type ClassificationStatus = 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL';
 
 /**
- * @deprecated Use ClassificationStatus. Retained because:
- *   - classification_events trace JSON in existing rows includes
- *     `conflict_type`; controllers continue to surface it for forensic queries
- *   - the per-operator gate in operator_declaration_config keys off
- *     confidence_band (which still flows); ConflictType is no longer
- *     consulted by the gate
- * New callers should pattern-match on ClassificationStatus instead.
- * Will be removed in a follow-up PR after the SPA migrates.
+ * Internal forensic field — kept in the verdict + classification_events
+ * trace JSON for debugging, but not surfaced on any API response. New
+ * callers should pattern-match on ClassificationStatus instead.
  *
  * `AMBIGUOUS_MATERIAL` and `SPARSE_DESCRIPTION` are themselves @deprecated
  * within ConflictType. The classifier now emits `AMBIGUOUS` in their stead
- * (both had identical handler behavior — merchant code wins at LOW
- * confidence). The two stale literals are kept in the union ONLY so that
- * historical trace JSON parsed back into TypeScript still typechecks.
- * New code should never emit them.
+ * (both had identical handler behavior). The two stale literals are kept
+ * in the union ONLY so historical trace JSON parsed back into TypeScript
+ * still typechecks. New code never emits them.
  */
 export type ConflictType =
   | 'AGREEMENT'
@@ -286,28 +280,9 @@ export function classificationStatusFromConflictType(c: ConflictType): Classific
   return 'DRIFT';
 }
 
-/**
- * Named confidence tier emitted by reconciliation.
- *
- * certain  — both tracks independently agree (deterministic corroboration).
- * high     — strong single signal: resolver in partial-fit set, or description
- *            classifier produced a fits-level candidate with no resolver dispute.
- * medium   — LLM arbitration on two-signal disagreement, or single_a partial only.
- * low      — override-curated code passed through after reconciliation LLM failure.
- * none     — pipeline escalated; no code accepted.
- */
-export type ConfidenceBand = 'certain' | 'high' | 'medium' | 'low' | 'none';
-
 export interface VerdictResult {
   decision: 'accept';
   final_code: string;
-  /**
-   * Internal-only confidence tier. Routing-relevant: the per-operator gate in
-   * `operator_declaration_config.min_confidence_band` escalates rows below
-   * this floor regardless of `classification_status`. Not surfaced on the V1
-   * UI; kept here because the gate logic still consults it.
-   */
-  confidence_band: ConfidenceBand;
   rationale: string;
   source: ReconciliationSource;
   /**
@@ -319,9 +294,9 @@ export interface VerdictResult {
    */
   classification_status: ClassificationStatus;
   /**
-   * @deprecated Internal-only forensic field. The V1 surface is
-   * `classification_status`. Retained so trace JSON / classification_events
-   * audit queries continue to work. Will be removed once the SPA migrates.
+   * Internal forensic field — surfaced only in trace JSON for debugging.
+   * The external surface is `classification_status`. Never appears on
+   * API responses.
    */
   conflict_type: ConflictType;
 }
@@ -331,7 +306,7 @@ export interface VerdictEscalate {
   disagreement_summary: string;
   /** V1 external surface: always ZERO_SIGNAL on the escalate path. */
   classification_status: 'ZERO_SIGNAL';
-  /** @deprecated Use classification_status. */
+  /** Internal forensic field, same as VerdictResult.conflict_type. */
   conflict_type: 'ZERO_SIGNAL';
 }
 

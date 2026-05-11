@@ -14,7 +14,7 @@ Three endpoints, all returning the **shared decision contract** envelope (status
 | `POST /classify/expand`   | Declared HS prefix + free-text → 12-digit leaf under that prefix | Claude Haiku (Foundry) |
 | `POST /boost`             | Declared 12-digit code → most-specific sibling under same `parent10` | (none — mechanical) |
 
-Every response carries `decision_status ∈ {accepted, needs_clarification, degraded}` plus a closed-enum `decision_reason` (e.g. `strong_match`, `weak_retrieval`, `guard_tripped`). Optional `confidence_band` will be populated post-launch from eval-set calibration.
+Every response carries `decision_status ∈ {accepted, needs_clarification, degraded}` plus a closed-enum `decision_reason` (e.g. `strong_match`, `weak_retrieval`, `guard_tripped`). Batch endpoints emit `classification_status ∈ {AGREEMENT, DRIFT, ZERO_SIGNAL}` derived from the two-track reconciliation outcome.
 
 ## Pre-requisites
 

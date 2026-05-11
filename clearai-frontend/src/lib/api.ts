@@ -68,7 +68,7 @@ export type DecisionReason =
   /** Cleanup detected multiple distinct products in one input. */
   | 'multi_product_input';
 
-export type ConfidenceBand = 'high' | 'medium' | 'low';
+export type ClassificationStatus = 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL';
 
 export type MissingAttribute =
   | 'material'
@@ -180,7 +180,8 @@ export interface DecisionEnvelopeBase {
   request_id?: string;
   decision_status: DecisionStatus;
   decision_reason: DecisionReason;
-  confidence_band?: ConfidenceBand;
+  /** V1 surface: AGREEMENT | DRIFT | ZERO_SIGNAL. Optional on single-shot. */
+  classification_status?: ClassificationStatus;
   alternatives: AlternativeLine[];
   rationale?: string;
   missing_attributes?: MissingAttribute[];
@@ -457,12 +458,6 @@ export interface DeclarationRunItem {
    * the run-level lifecycle ('pending'|'running'|'completed'|'failed').
    */
   classification_status?: 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL' | string | null;
-  /**
-   * @deprecated V1 surface uses `classification_status`. Field still
-   * shipped by the backend for forensic/trace UI; not surfaced in the
-   * primary batch results column anymore.
-   */
-  confidence_band?: 'certain' | 'high' | 'medium' | 'low' | 'none' | string | null;
 }
 
 /** GET /declaration-runs/:id/classifications */
@@ -766,7 +761,7 @@ export interface TraceEvent {
   language_detected: string | null;
   decision_status: string;
   decision_reason: string;
-  confidence_band: string | null;
+  classification_status: string | null;
   chosen_code: string | null;
   alternatives: unknown;
   top_retrieval_score: number | null;
