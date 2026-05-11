@@ -40,6 +40,11 @@
 @import '@fontsource/ibm-plex-mono/600.css';
 
 :root {
+  /* -------------------------------------------------------------------------
+   * Project design tokens — source of truth for all colours, geometry, type.
+   * Change a token here and every component (including shadcn aliases) updates.
+   * ------------------------------------------------------------------------- */
+
   /* Background & surface */
   --bg: oklch(0.985 0.004 75);
   --surface: #ffffff;
@@ -80,6 +85,35 @@
   /* Font stacks */
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* -------------------------------------------------------------------------
+   * shadcn/ui compatibility aliases.
+   * shadcn primitives (DropdownMenu, Checkbox, Button, etc.) reference these
+   * CSS variable names. We alias them to project tokens here so shadcn
+   * components inherit the palette automatically. Only add tokens that shadcn
+   * actually references — do not duplicate project tokens above.
+   *
+   * NOTE: shadcn's --accent is used as a hover background, but this project
+   * already owns --accent (brand orange). We define --ui-hover instead and
+   * patch the generated shadcn component files to reference --ui-hover.
+   * ------------------------------------------------------------------------- */
+  --background:           var(--bg);
+  --foreground:           var(--ink);
+  --muted:                var(--line-2);
+  --muted-foreground:     var(--ink-3);
+  --popover:              var(--surface);
+  --popover-foreground:   var(--ink);
+  --border:               var(--line);
+  --input:                var(--line);
+  --primary:              var(--ink);
+  --primary-foreground:   var(--bg);
+  --secondary:            var(--line-2);
+  --secondary-foreground: var(--ink);
+  --ui-hover:             var(--line-2);
+  --ui-hover-foreground:  var(--ink);
+  --destructive:          oklch(0.55 0.20 25);
+  --destructive-foreground: #ffffff;
+  --ring:                 var(--ink);
 }
 
 *, *::before, *::after {

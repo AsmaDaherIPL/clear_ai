@@ -1,30 +1,42 @@
 /**
- * Headless table primitive — TanStack Table + TanStack Virtual.
+ * Headless table primitive — TanStack Table v8 + TanStack Virtual v3.
  *
- * Reusable foundation for the batch results table (this PR) and a
- * future HITL review queue (separate PR, /hitl + /hitl/:itemId).
+ * Features:
+ *   - Row virtualisation (overscan 10) via @tanstack/react-virtual
+ *   - Sticky <thead> inside the scroll container
+ *   - Optional global search (setGlobalFilter)
+ *   - Optional per-column filter chips
+ *   - Column visibility toggle — shadcn DropdownMenuCheckboxItem menu
+ *   - Column resizing — TanStack onColumnSizingChange, drag handle on <th>
+ *   - Persistence — columnVisibility + columnSizing stored in localStorage
+ *     under the key `dt-prefs:<tableId>` so operator preferences survive
+ *     page reloads without any backend round-trip.
+ *   - Skeleton-row tail while expectedRowCount > data.length
+ *   - Empty state
+ *   - onRowClick + rowClassName hooks
  *
- * Owns:
- *   - useReactTable wiring (core, sorted, filtered row models)
- *   - Row virtualization via @tanstack/react-virtual (overscan: 10)
- *   - Sticky <thead> via position: sticky inside the scroll container
- *   - Optional global search input wired to table.setGlobalFilter
- *   - Optional filter chips wired to per-column setFilterValue
- *   - Skeleton-row tail when expectedRowCount > data.length
- *   - Empty state when data.length === 0 && !expectedRowCount
- *   - onRowClick + rowClassName hooks (HITL master-detail will use both)
+ * Width ownership:
+ *   Resizing requires inline style={{ width }} on every <th> and <td>.
+ *   Column widths are driven entirely by TanStack's columnSizing state
+ *   (initial values come from each column def's `size` / `minSize` /
+ *   `maxSize` fields). The old Tailwind width utilities on meta.cellClassName
+ *   are gone — those were a static-layout workaround incompatible with
+ *   user-resizable columns.
  *
- * Deliberately does NOT own:
- *   - Row expansion / inline detail
- *   - Row selection / checkboxes
- *   - Column resizing, reordering, visibility persistence
- *   - Bulk actions / pagination controls
- *   - Drawer state (HITL is master-detail across routes, not in-table)
- *
- * Performance target: at 7,400 rows the rendered DOM should hold
- * < 100 row nodes during scroll (windowed by the virtualizer).
+ * tableId stability:
+ *   The `tableId` prop must be stable for the component's lifetime (mount it
+ *   with `key={tableId}` if it can ever change). Changing tableId mid-mount
+ *   would merge the old prefs into the new table's key — use `key` on the
+ *   parent to force a full remount instead.
  */
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -34,19 +46,73 @@ import {
   type ColumnDef,
   type SortingState,
   type ColumnFiltersState,
+  type VisibilityState,
+  type ColumnSizingState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { Settings2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
+// ---------------------------------------------------------------------------
+// localStorage persistence helpers
+// ---------------------------------------------------------------------------
+
+interface TablePrefs {
+  columnVisibility: VisibilityState;
+  columnSizing: ColumnSizingState;
+}
+
+function loadPrefs(tableId: string): Partial<TablePrefs> {
+  try {
+    const raw = localStorage.getItem(`dt-prefs:${tableId}`);
+    if (!raw) return {};
+    return JSON.parse(raw) as Partial<TablePrefs>;
+  } catch {
+    return {};
+  }
+}
+
+function savePrefs(tableId: string, prefs: TablePrefs): void {
+  try {
+    localStorage.setItem(`dt-prefs:${tableId}`, JSON.stringify(prefs));
+  } catch {
+    // Quota exceeded or private browsing — silent no-op.
+  }
+}
+
+/**
+ * Debounce saves so rapid resize drags don't spam localStorage.
+ * The timer ref is stable across renders; its cleanup is implicit
+ * (the pending save fires after unmount which is harmless — it only
+ * writes to localStorage, never reads React state).
+ */
+function useDebouncedSave(tableId: string, delay = 400) {
+  const timerRef = useRef<number | null>(null);
+  return useCallback(
+    (prefs: TablePrefs) => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => savePrefs(tableId, prefs), delay);
+    },
+    [tableId, delay],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
 export interface FilterChipGroup {
-  /** id of the column to filter on (must match a ColumnDef.id). */
   columnId: string;
-  /** Group label rendered before the chips, e.g. "Status". */
   label: string;
-  /**
-   * Chip options. `value: undefined` (or omitted) clears the filter
-   * — used for the "All" chip.
-   */
   options: { label: string; value?: unknown }[];
 }
 
@@ -54,43 +120,75 @@ export interface DataTableProps<T> {
   data: T[];
   columns: ColumnDef<T, unknown>[];
 
-  /** Estimated row height for virtualizer (px). Real heights are measured via ResizeObserver. */
+  /**
+   * Stable identifier for this table instance. Used as the localStorage
+   * key suffix for persisting column visibility and sizing prefs.
+   * Must be stable for the component's lifetime — if it can change,
+   * mount the parent with `key={tableId}` to force a full remount.
+   * e.g. "batch-results-v1"
+   */
+  tableId: string;
+
   estimatedRowHeight: number;
 
-  /**
-   * When provided AND data.length < expectedRowCount, render skeleton
-   * rows for the missing tail. Used by BatchResultsTable while items
-   * are still classifying.
-   */
   expectedRowCount?: number;
   renderSkeletonRow?: (i: number) => ReactNode;
 
-  /** Global search across all string/number columns. */
   searchPlaceholder?: string;
   enableGlobalSearch?: boolean;
 
-  /** Filter chips above the table. */
   filterChips?: FilterChipGroup;
 
-  /** Row interaction hooks — used by future HITL master-detail navigation. */
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string;
 
-  /** Layout. */
   maxHeight?: string;
   emptyState?: ReactNode;
 
   className?: string;
 }
 
-/**
- * Generic-component generic functions need a `<T,>` (with the comma)
- * to disambiguate from JSX in TSX. The exported component below is a
- * wrapper that preserves the generic.
- */
+// ---------------------------------------------------------------------------
+// Column resizer — pure Tailwind, no bespoke component.
+// A thin drag handle at the inline-end edge of each resizable <th>.
+// Handler prop typed as (e: unknown) => void to match TanStack's actual
+// getResizeHandler() return type (DOM events, not React synthetic events).
+// ---------------------------------------------------------------------------
+
+interface ResizerProps {
+  onPointerDown: (e: unknown) => void;
+  isResizing: boolean;
+}
+
+function ColumnResizer({ onPointerDown, isResizing }: ResizerProps) {
+  return (
+    <div
+      onMouseDown={onPointerDown as React.MouseEventHandler}
+      onTouchStart={onPointerDown as React.TouchEventHandler}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize column"
+      className={cn(
+        'absolute end-0 top-0 h-full w-[5px] cursor-col-resize touch-none select-none',
+        'flex items-center justify-center',
+        'after:block after:h-4 after:w-px after:rounded-full',
+        isResizing
+          ? 'after:bg-[var(--ink-2)] opacity-100'
+          : 'after:bg-[var(--line)] opacity-0 hover:opacity-100',
+        'transition-opacity duration-100',
+      )}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DataTable
+// ---------------------------------------------------------------------------
+
 export function DataTable<T extends object>({
   data,
   columns,
+  tableId,
   estimatedRowHeight,
   expectedRowCount,
   renderSkeletonRow,
@@ -103,29 +201,60 @@ export function DataTable<T extends object>({
   emptyState,
   className,
 }: DataTableProps<T>) {
+  // -------------------------------------------------------------------------
+  // State — load persisted prefs on first render only.
+  // -------------------------------------------------------------------------
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
 
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => {
+    return loadPrefs(tableId).columnVisibility ?? {};
+  });
+
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() => {
+    return loadPrefs(tableId).columnSizing ?? {};
+  });
+
+  // -------------------------------------------------------------------------
+  // Persist on user-driven changes (debounced).
+  // Guard: skip the first effect run on mount to avoid clobbering prefs that
+  // were loaded above with an immediate re-save of the initial empty state.
+  // -------------------------------------------------------------------------
+  const debouncedSave = useDebouncedSave(tableId);
+  const didMountRef = useRef(false);
+
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    debouncedSave({ columnVisibility, columnSizing });
+  }, [columnVisibility, columnSizing, debouncedSave]);
+
+  // -------------------------------------------------------------------------
+  // TanStack Table instance.
+  // -------------------------------------------------------------------------
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnFilters, globalFilter },
+    state: { sorting, columnFilters, globalFilter, columnVisibility, columnSizing },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
+    onColumnVisibilityChange: setColumnVisibility,
+    onColumnSizingChange: setColumnSizing,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    enableColumnResizing: true,
+    // onChange gives live feedback during drag. Switch to 'onEnd' if
+    // drag performance degrades on very large datasets.
+    columnResizeMode: 'onChange',
   });
 
   const realRows = table.getRowModel().rows;
 
-  // Skeleton tail count — only render when no global filter / no
-  // column filter is active (filtering against a partial dataset is
-  // confusing; skeletons should disappear once the user starts
-  // searching). When all rows have arrived (or none expected),
-  // skeletonCount is 0 and the tail block disappears entirely.
   const filtersActive = globalFilter.length > 0 || columnFilters.length > 0;
   const skeletonCount =
     expectedRowCount && !filtersActive && data.length < expectedRowCount
@@ -134,9 +263,9 @@ export function DataTable<T extends object>({
 
   const totalRows = realRows.length + skeletonCount;
 
-  // Virtualizer — measures real row heights via the ref callback so
-  // tall rows (Code Breakdown is ~90px, others ~40px) don't jitter on
-  // scroll. overscan: 10 keeps a buffer so fast-scroll doesn't flash.
+  // -------------------------------------------------------------------------
+  // Virtualiser.
+  // -------------------------------------------------------------------------
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: totalRows,
@@ -148,10 +277,14 @@ export function DataTable<T extends object>({
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
   const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
-  const paddingBottom = virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
+  const paddingBottom =
+    virtualItems.length > 0
+      ? totalSize - virtualItems[virtualItems.length - 1].end
+      : 0;
 
-  // Filter-chip helpers. The "All" chip clears the column filter; any
-  // other chip sets it to the option's value.
+  // -------------------------------------------------------------------------
+  // Filter-chip helpers.
+  // -------------------------------------------------------------------------
   const activeChipValue = useMemo(() => {
     if (!filterChips) return undefined;
     const f = columnFilters.find((cf) => cf.id === filterChips.columnId);
@@ -170,11 +303,23 @@ export function DataTable<T extends object>({
     }
   };
 
+  // -------------------------------------------------------------------------
+  // Columns toggle list — only columns with a string header can be listed
+  // meaningfully (function headers have no display name for the menu).
+  // -------------------------------------------------------------------------
+  const toggleableColumns = table
+    .getAllColumns()
+    .filter((col) => col.getCanHide() && typeof col.columnDef.header === 'string');
+
   const showEmptyState = data.length === 0 && !expectedRowCount;
 
+  // -------------------------------------------------------------------------
+  // Render.
+  // -------------------------------------------------------------------------
   return (
     <div className={cn('flex flex-col', className)}>
-      {(enableGlobalSearch || filterChips) && (
+      {/* Toolbar: search + filter chips + columns toggle */}
+      {(enableGlobalSearch || filterChips || toggleableColumns.length > 0) && (
         <div className="px-[22px] py-3 flex items-center gap-3 flex-wrap border-b border-[var(--line-2)]">
           {enableGlobalSearch && (
             <input
@@ -192,14 +337,16 @@ export function DataTable<T extends object>({
               aria-label={searchPlaceholder}
             />
           )}
+
           {filterChips && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase me-1">
                 {filterChips.label}
               </span>
               {filterChips.options.map((opt) => {
-                const active = opt.value === activeChipValue
-                  || (opt.value === undefined && activeChipValue === undefined);
+                const active =
+                  opt.value === activeChipValue ||
+                  (opt.value === undefined && activeChipValue === undefined);
                 return (
                   <button
                     key={opt.label}
@@ -220,51 +367,117 @@ export function DataTable<T extends object>({
               })}
             </div>
           )}
+
+          {/* Columns visibility toggle — shadcn DropdownMenu */}
+          {toggleableColumns.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    'ms-auto h-8 gap-1.5 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
+                    'hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+                    'font-mono text-[11px] uppercase tracking-[0.06em]',
+                    '[&_svg]:size-3',
+                  )}
+                >
+                  <Settings2 aria-hidden />
+                  Columns
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className={cn(
+                  'min-w-[180px] border-[var(--line)] bg-[var(--surface)]',
+                  'text-[var(--ink)] text-[13px]',
+                )}
+              >
+                <DropdownMenuLabel className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase px-2 py-1.5">
+                  Show / hide columns
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-[var(--line-2)]" />
+                {toggleableColumns.map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={col.getIsVisible()}
+                    // Radix CheckedState is boolean | "indeterminate".
+                    // toggleVisibility expects boolean — coerce explicitly.
+                    onCheckedChange={(checked) => col.toggleVisibility(checked === true)}
+                    className="text-[13px]"
+                  >
+                    {String(col.columnDef.header)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       )}
 
+      {/* Table scroll container */}
       <div ref={scrollRef} className={cn('overflow-auto relative', maxHeight)}>
         {/*
-          tableLayout: auto so cell width is governed by content +
-          Tailwind classes on the cells (min-w-/max-w-/truncate). The
-          fixed-layout was used previously because every column had a
-          `size:` number; we've moved column sizing into the cell's
-          className so we no longer need the table to enforce widths.
+          tableLayout: fixed + width driven by getTotalSize() — required for
+          TanStack column resizing. Individual column widths are set via
+          style={{ width: header.getSize() }} on each <th>/<td>.
+          Note: position:relative on <th> inside border-collapse is supported
+          in modern browsers. If Safari shows a collapsed bottom border during
+          scroll, switch to border-separate / border-spacing: 0.
         */}
-        <table className="w-full border-collapse">
+        <table
+          className="w-full border-collapse"
+          style={{ tableLayout: 'fixed', width: table.getTotalSize() }}
+        >
           <thead className="sticky top-0 z-10 bg-[var(--line-2)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((header) => {
                   const canSort = header.column.getCanSort();
                   const sortDir = header.column.getIsSorted();
-                  // headerClassName is an optional ColumnDef.meta hook the
-                  // consumer can use to size the header to match the cell
-                  // (Tailwind utilities only — no inline pixel widths).
-                  const headerCls = (header.column.columnDef.meta as { headerClassName?: string } | undefined)
-                    ?.headerClassName ?? '';
+                  const isResizing = header.column.getIsResizing();
+                  // Bind resize handler once per header to avoid duplicate
+                  // allocations and to ensure both mouse/touch get the same ref.
+                  const resizeHandler = header.getResizeHandler();
                   return (
                     <th
                       key={header.id}
-                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                      style={{ width: header.getSize(), position: 'relative' }}
                       className={cn(
                         'text-start px-3.5 py-3 border-b border-[var(--line)] font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase select-none align-middle',
-                        canSort && 'cursor-pointer hover:text-[var(--ink-2)]',
-                        headerCls,
                       )}
                       aria-sort={
-                        sortDir === 'asc' ? 'ascending' :
-                        sortDir === 'desc' ? 'descending' : 'none'
+                        sortDir === 'asc'
+                          ? 'ascending'
+                          : sortDir === 'desc'
+                            ? 'descending'
+                            : 'none'
                       }
                     >
-                      <span className="inline-flex items-center gap-1">
+                      {/* Sort trigger wraps only the label span, not the resizer */}
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1 overflow-hidden',
+                          canSort && 'cursor-pointer hover:text-[var(--ink-2)]',
+                        )}
+                        onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                        // Prevent a zero-distance drag from firing a sort click
+                        onMouseDown={(e) => isResizing && e.preventDefault()}
+                      >
                         {flexRender(header.column.columnDef.header, header.getContext())}
                         {canSort && (
-                          <span className="text-[var(--ink-3)]" aria-hidden>
+                          <span className="text-[var(--ink-3)] shrink-0" aria-hidden>
                             {sortDir === 'asc' ? '▲' : sortDir === 'desc' ? '▼' : '·'}
                           </span>
                         )}
                       </span>
+                      {/* Resize handle — only on resizable columns */}
+                      {header.column.getCanResize() && (
+                        <ColumnResizer
+                          isResizing={isResizing}
+                          onPointerDown={resizeHandler}
+                        />
+                      )}
                     </th>
                   );
                 })}
@@ -306,22 +519,19 @@ export function DataTable<T extends object>({
                           extraCls,
                         )}
                       >
-                        {row.getVisibleCells().map((cell) => {
-                          // cellClassName lets the column author Tailwind-size
-                          // each cell (min-w-/max-w-/truncate) without a
-                          // hardcoded pixel size on the column def.
-                          const cellCls = (cell.column.columnDef.meta as { cellClassName?: string } | undefined)
-                            ?.cellClassName ?? '';
-                          return (
-                            <td key={cell.id} className={cn('px-3.5 py-2.5 align-top', cellCls)}>
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </td>
-                          );
-                        })}
+                        {row.getVisibleCells().map((cell) => (
+                          <td
+                            key={cell.id}
+                            style={{ width: cell.column.getSize() }}
+                            className="px-3.5 py-2.5 align-top overflow-hidden"
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        ))}
                       </tr>
                     );
                   }
-                  // Skeleton row (tail of expected count not yet arrived).
+                  // Skeleton row — spans full colSpan, independent of sizing
                   const skeletonIndex = vi.index - realRows.length;
                   return (
                     <tr
@@ -331,7 +541,9 @@ export function DataTable<T extends object>({
                       className="border-b border-[var(--line-2)] align-top"
                     >
                       <td colSpan={table.getVisibleLeafColumns().length} className="p-0">
-                        {renderSkeletonRow ? renderSkeletonRow(skeletonIndex) : (
+                        {renderSkeletonRow ? (
+                          renderSkeletonRow(skeletonIndex)
+                        ) : (
                           <div className="px-3.5 py-2.5 h-[40px] flex items-center">
                             <span className="h-3 w-1/2 bg-[var(--line-2)] animate-pulse rounded" />
                           </div>
