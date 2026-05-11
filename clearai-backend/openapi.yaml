@@ -752,21 +752,42 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  # NOTE on routing: APIM operation `urlTemplate`s match a SINGLE path
+  # segment per `{param}` placeholder. A blob path like `lv/<filingId>.xml`
+  # contains a slash, so it cannot match a single template parameter and
+  # the original `/files/{path}` operation 404'd at the gateway before
+  # ever hitting the backend.
+  #
+  # Backend (Fastify) uses a `*` wildcard route — `/declaration-runs/:id/files/*` —
+  # which accepts any sub-path. To keep APIM and Fastify in agreement we
+  # split into THREE explicit operations: one flat (input.csv,
+  # manifest.json, classifications.json) and one each for the `hv/` and
+  # `lv/` nested files. All three forward to the same backend route.
+  #
+  # If you add a new sub-folder (e.g. `errors/`, `logs/`) under a run
+  # prefix, you must add a matching APIM operation here AND re-import,
+  # or callers will get a gateway-level 404. RFC-6570 `{+path}` reserved-
+  # string expansion is NOT supported by APIM Consumption — verified
+  # 2026-05-11 via direct PATCH against the operation urlTemplate.
+
   /declaration-runs/{id}/files/{path}:
     parameters:
       - $ref: '#/components/parameters/DeclarationRunId'
       - name: path
         in: path
         required: true
-        description: Path inside the run prefix, e.g. `hv/filing-001.xml`.
-        schema: { type: string, example: hv/filing-001.xml }
+        description: |
+          Flat file name (no slashes), one of `input.csv`, `input.xlsx`,
+          `manifest.json`, `classifications.json`. For nested files
+          under `hv/` or `lv/`, use the dedicated operations below.
+        schema: { type: string, example: manifest.json }
 
     get:
       operationId: get-declaration-runs-id-files
       tags: [declaration-runs]
-      summary: Stream a single file from a declaration run through the backend
+      summary: Stream a flat file (manifest/classifications/input) from a run
       description: |
-        Convenience endpoint for previewing a single XML/JSON file.
+        Convenience endpoint for previewing a single top-level run file.
         Streams bytes through the backend rather than handing out a SAS;
         prefer /download-links for bulk fetches.
       security:
@@ -779,6 +800,68 @@ paths:
             '*/*': {}
         '404':
           description: No run with that id, or no file at that path.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /declaration-runs/{id}/files/hv/{filing}:
+    parameters:
+      - $ref: '#/components/parameters/DeclarationRunId'
+      - name: filing
+        in: path
+        required: true
+        description: File name under `hv/` — typically `<filingId>.xml`.
+        schema: { type: string, example: 019e15e7-3e97-764f-845e-8848d7753193.xml }
+
+    get:
+      operationId: get-declaration-runs-id-files-hv
+      tags: [declaration-runs]
+      summary: Stream an HV (high-value) declaration XML from a run
+      description: |
+        High-value declarations are bundled one-per-item under `hv/`.
+        Same backend handler as the flat-file operation above — the split
+        exists only to satisfy APIM's single-segment template-param rule.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: XML bytes.
+          content:
+            application/xml: {}
+        '404':
+          description: No run with that id, or no HV file at that filing id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /declaration-runs/{id}/files/lv/{filing}:
+    parameters:
+      - $ref: '#/components/parameters/DeclarationRunId'
+      - name: filing
+        in: path
+        required: true
+        description: File name under `lv/` — typically `<filingId>.xml`.
+        schema: { type: string, example: 019e15e7-3e97-764f-845e-8848d7753193.xml }
+
+    get:
+      operationId: get-declaration-runs-id-files-lv
+      tags: [declaration-runs]
+      summary: Stream an LV (low-value) declaration XML from a run
+      description: |
+        Low-value declarations are bundled one-per-item under `lv/`.
+        Same backend handler as the flat-file operation above — the split
+        exists only to satisfy APIM's single-segment template-param rule.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: XML bytes.
+          content:
+            application/xml: {}
+        '404':
+          description: No run with that id, or no LV file at that filing id.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
