@@ -439,7 +439,29 @@ export interface DeclarationRunItem {
    */
   raw_merchant_code?: string | null;
   override_applied?: boolean;
-  /** Confidence band for the classification picker. */
+  /**
+   * V1 reconciliation status — the primary user-facing answer to
+   * "did Track A and Track B agree on the code?".
+   *
+   *   AGREEMENT    — both tracks agree, high confidence
+   *   DRIFT        — tracks disagreed at some level; final code still
+   *                  picked (this absorbs the legacy AMBIGUOUS_MATERIAL,
+   *                  SPARSE_DESCRIPTION, and CONTRADICTION buckets)
+   *   ZERO_SIGNAL  — neither track had a defensible code; row escalates
+   *
+   * Optional for backward-compat with rows persisted before the field
+   * existed in trace JSON. The backend's SQL falls back to a mapping
+   * from legacy conflict_type when the new field is absent.
+   *
+   * Distinct from DeclarationRunSummary.classification_status, which is
+   * the run-level lifecycle ('pending'|'running'|'completed'|'failed').
+   */
+  classification_status?: 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL' | string | null;
+  /**
+   * @deprecated V1 surface uses `classification_status`. Field still
+   * shipped by the backend for forensic/trace UI; not surfaced in the
+   * primary batch results column anymore.
+   */
   confidence_band?: 'certain' | 'high' | 'medium' | 'low' | 'none' | string | null;
 }
 

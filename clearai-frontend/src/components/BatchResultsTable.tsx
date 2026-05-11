@@ -35,12 +35,18 @@ import { DataTable } from './DataTable';
 
 const ROW_HEIGHT = 90;
 
-const CONFIDENCE_BADGE: Record<string, { cls: string; label: string }> = {
-  certain: { cls: 'bg-[oklch(0.88_0.08_140)] text-[oklch(0.30_0.12_140)]', label: 'Certain' },
-  high:    { cls: 'bg-[oklch(0.90_0.06_160)] text-[oklch(0.32_0.10_160)]', label: 'High' },
-  medium:  { cls: 'bg-[oklch(0.93_0.08_220)] text-[oklch(0.35_0.12_220)]', label: 'Medium' },
-  low:     { cls: 'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',  label: 'Low' },
-  none:    { cls: 'bg-[var(--line-2)] text-[var(--ink-3)]',                 label: 'None' },
+/**
+ * V1 classification_status badges — AGREEMENT / DRIFT / ZERO_SIGNAL.
+ * Replaces the legacy CONFIDENCE_BADGE map (which surfaced raw
+ * confidence_band values). AGREEMENT = green (tracks agreed), DRIFT =
+ * amber (tracks disagreed somewhere but we have an answer), ZERO_SIGNAL
+ * = grey-on-red (escalates to HITL before shipping). The labels resolve
+ * through i18n so Arabic users get translated chip text.
+ */
+const CLASSIFICATION_BADGE: Record<string, { cls: string; key: TKey }> = {
+  AGREEMENT:   { cls: 'bg-[oklch(0.90_0.06_160)] text-[oklch(0.32_0.10_160)]', key: 'classification_status_agreement' as TKey },
+  DRIFT:       { cls: 'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',  key: 'classification_status_drift' as TKey },
+  ZERO_SIGNAL: { cls: 'bg-[oklch(0.92_0.07_25)]  text-[oklch(0.40_0.12_25)]',  key: 'classification_status_zero_signal' as TKey },
 };
 
 /**
@@ -303,17 +309,22 @@ export default function BatchResultsTable({
       cell: ({ row }) => <CodeBreakdownCell item={row.original} />,
     },
     {
-      id: 'confidence',
-      header: t('batch_col_confidence' as TKey),
+      // V1 surface column. The legacy "Confidence" column rendered
+      // row.confidence_band; that internal-only field is still on the
+      // payload for trace/debug consumers but no longer the primary
+      // user-facing answer. Reads classification_status now and
+      // collapses the 6-way conflict taxonomy to 3 chips.
+      id: 'classification_status',
+      header: t('batch_col_classification_status' as TKey),
       enableSorting: true,
-      accessorFn: (row) => row.confidence_band ?? '',
-      meta: { headerClassName: 'w-[110px]', cellClassName: 'w-[110px]' },
+      accessorFn: (row) => row.classification_status ?? '',
+      meta: { headerClassName: 'w-[140px]', cellClassName: 'w-[140px]' },
       cell: ({ row }) => {
-        const band = row.original.confidence_band;
-        const b = band ? CONFIDENCE_BADGE[String(band)] : null;
+        const status = row.original.classification_status;
+        const b = status ? CLASSIFICATION_BADGE[String(status)] : null;
         return b ? (
           <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em]', b.cls)}>
-            {b.label}
+            {t(b.key)}
           </span>
         ) : (
           <span className="text-[var(--ink-3)] text-[12px]">—</span>
