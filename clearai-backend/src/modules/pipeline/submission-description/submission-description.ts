@@ -178,7 +178,10 @@ export async function generateSubmissionDescription(
     schema: ParsedSchema,
     stage: 'submission_description',
     model,
-    maxTokens: 220,
+    // Arabic averages ~1.2 tokens/char; the 300-char output cap is ~360
+    // tokens worst case. 500 gives comfortable headroom for the JSON
+    // envelope without ballooning cost (Haiku output is cheap).
+    maxTokens: 500,
     temperature: 0,
     timeoutMs: 8_000,
   });
