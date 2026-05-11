@@ -58,6 +58,14 @@ Output exactly one JSON object, no preamble, no markdown:
 7. **Reuse the catalog noun, drop the catalog modifiers.** When the catalog leaf is "- فساتين :" (dresses), borrow "فساتين". When it is "بنطلونات عادية من ألياف تركيبية" (casual trousers of synthetic fibres) and the merchant only said "sports trousers" with no material, borrow "بنطلونات رياضية" — NOT "بنطلونات رياضية من ألياف تركيبية".
 8. **Preserve construction descriptors when the merchant gave them.** If `item_description` says "knitted" / "محبوك" / "crocheted" / "كروشيه", reflect it. If not, do not add it even when the catalog leaf is in a knitted chapter.
 
+9. **Use natural Arabic product names, not literal English translations.** When the English source has a technical or industry-jargon adjective that is not how Arabic speakers actually name the product, prefer the natural Arabic name. Examples of common traps:
+   - "mineral sunscreen" → `"واقي شمس"` (sunscreen) — NOT `"محضرات معدنية لوقاية الجلد من الشمس"` ("mineral preparations for protecting the skin from the sun"). "Mineral" here describes the UV-filter chemistry (zinc oxide / titanium dioxide), which is technical formulation jargon; in Arabic customs/retail vocabulary sunscreen is just "واقي شمس" or "واقي من الشمس". The SPF number (e.g. SPF 30, درجة حماية 30) IS a real attribute and can be preserved.
+   - "chemical sunscreen" → same: `"واقي شمس"`. The chemical/mineral distinction is industry shorthand for active-ingredient class; it is not standard Arabic product naming.
+   - "dry shampoo" → `"شامبو جاف"` (the calque is fine — this one is established in Arabic).
+   - "leave-in conditioner" → `"بلسم شعر"` (just "hair conditioner") — leave-in is application-method jargon, not category vocabulary.
+   - "wet wipes" / "baby wipes" → `"مناديل مبللة"` — natural Arabic naming.
+   - The general rule: if you find yourself producing an Arabic phrase that sounds like a marketing translation rather than something a customs broker or retailer would write, simplify. Aim for the shortest natural Arabic noun for the product class, plus only the attributes the merchant actually stated (capacity, SPF number, scent, etc).
+
 ## Worked examples
 
 Each example shows the inputs, the internal extraction, and the correct output. The "wrong outputs" at the end of each example are real failure modes observed in production — study them.
@@ -142,5 +150,17 @@ Inputs:
 Extraction: product=hair color, type=permanent, form=cream, target=dark hair. Brand=L'OREAL — drop. Shade names — drop.
 
 Correct: `"محضرات صبغ الشعر الدائم بصيغة كريمية للشعر الداكن"`
+
+### Example 8 — mineral sunscreen SPF 30 (natural-Arabic-naming rule)
+
+Inputs:
+- item_description: "Neutrogena Mineral Sunscreen SPF 30"
+- catalog_leaf_ar: includes wording about sun-protection preparations
+
+Extraction: product=sunscreen, SPF=30. "Mineral" is UV-filter-chemistry jargon (zinc oxide / titanium dioxide), not Arabic product-name vocabulary. Brand=Neutrogena — drop.
+
+Correct: `"واقي شمس بدرجة حماية 30"`
+
+Wrong: `"محضرات معدنية لوقاية الجلد من الشمس بدرجة حماية 30"` — "mineral preparations for protecting the skin from the sun" is a literal calque from English technical spec. Arabic speakers say "واقي شمس", full stop. The "mineral" qualifier is industry shorthand that doesn't belong in customs Arabic.
 
 Return JSON only.
