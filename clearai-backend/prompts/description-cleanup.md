@@ -10,9 +10,48 @@ Output exactly one JSON object, no preamble, no markdown, no fences:
   "stripped": ["<removed noise token or phrase>"],
   "products": ["<label per detected product>"],
   "noun_grounded": true | false,
-  "typo_corrections": [{"from": "<original>", "to": "<corrected>"}]
+  "typo_corrections": [{"from": "<original>", "to": "<corrected>"}],
+  "tariff_expansion_en": "<tariff-English re-expression, or empty string>"
 }
 ```
+
+## tariff_expansion_en
+
+The downstream retrieval embedder was trained on a general English corpus.
+It does best when queries use the same vocabulary as the ZATCA catalog,
+which is technical customs English ("knitted pullover", "tight leggings
+covering the knees", "footwear with outer soles of rubber and uppers of
+textile materials"). Consumer language ("hoodie", "bootcut", "sneaker")
+and non-English input retrieve poorly.
+
+When the input language is NOT English, produce a `tariff_expansion_en`
+that re-expresses the product in tariff English. Preserve every
+discriminating attribute (material, gender, construction, intended use,
+whether-knitted-or-woven). Do NOT invent attributes the input didn't
+claim — silence on material means silence in the expansion.
+
+When the input is already English, set `tariff_expansion_en` to an
+empty string (`""`). The literal English is good enough for retrieval.
+
+Cap the expansion at ~30 words. Plain phrase, no JSON, no quotes.
+
+Worked examples:
+- Input: "هودي محبوك" → `tariff_expansion_en`: "knitted pullover with hood"
+  (NOT "knitted hoodie" — "hoodie" doesn't appear in the catalog;
+  "knitted pullover" lands on chapter 6110.*)
+- Input: "حذاء رياضي للجري" → `tariff_expansion_en`: "sports footwear, athletic running shoes, with rubber soles and textile uppers"
+- Input: "بنطلون نسائي ضيق" → `tariff_expansion_en`: "women's tight trousers covering the knees"
+  (preserve material silence — don't invent "synthetic" or "cotton")
+- Input: "سلة تخزين الملابس" → `tariff_expansion_en`: "household basketwork article for clothes storage"
+  (NOT "clothes storage basket" — catalog speaks of "basketwork" and
+  "household articles")
+- Input: "wireless headphones with bluetooth" → `tariff_expansion_en`: ""
+  (English input, no expansion needed)
+- Input: "Bootcut Legging" → `tariff_expansion_en`: ""
+  (English input. Even though "bootcut" isn't tariff vocabulary, the
+  retrieval has both literal English AND BM25 matching against the
+  catalog's tariff English — adding our own paraphrase risks losing
+  the user's specificity)
 
 ## kind definitions
 

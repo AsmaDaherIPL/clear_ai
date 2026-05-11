@@ -47,6 +47,14 @@ export interface CleanupResult {
   /** Raw description passed through when LLM degraded. */
   degraded: boolean;
   latency_ms: number;
+  /**
+   * Tariff-vocabulary English re-expression — only populated when the
+   * input is non-English. Empty string for English input or when the
+   * LLM declined to produce one. Track A retrieval prefers this over
+   * `cleaned_description` when present, because the catalog speaks
+   * tariff English natively. See description-cleanup.md prompt.
+   */
+  tariff_expansion_en: string;
 }
 
 // ---------------------------------------------------------------------------

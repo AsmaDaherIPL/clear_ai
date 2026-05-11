@@ -56,6 +56,7 @@ export async function runCleanup(
     clarity_verdict,
     degraded,
     latency_ms: degraded ? result.latencyMs : result.latencyMs,
+    tariff_expansion_en: result.tariffExpansionEn,
   };
 }
 

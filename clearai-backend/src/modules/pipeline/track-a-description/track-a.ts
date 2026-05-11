@@ -34,6 +34,14 @@ export async function runTrackA(
   const thresholds = opts.thresholds ?? DEFAULT_THRESHOLDS;
 
   let effective_description = cleanup.cleaned_description;
+  // Retrieval query is the tariff-vocabulary English expansion when cleanup
+  // produced one (non-English input case). The catalog embedder was trained
+  // on a general English corpus; querying it in tariff English yields better
+  // candidates than querying in the merchant's native language. The
+  // picker continues to see the original `effective_description` (not the
+  // expansion), so its fit/partial/does_not_fit verdicts and rationales
+  // judge candidates against the merchant's actual words.
+  let retrieval_query = cleanup.tariff_expansion_en || cleanup.cleaned_description;
   let interpretation_stage: TrackAResult['interpretation_stage'] = 'cleaned';
   let researchDetail: TrackAResearchDetail | null = null;
   let webResearchDetail: TrackAResearchDetail | null = null;
@@ -42,6 +50,10 @@ export async function runTrackA(
     const t0 = Date.now();
     const research = await runResearcher(cleanup.cleaned_description, raw_description);
     effective_description = research.enriched_description;
+    // Research output supersedes the tariff_expansion_en for the retrieval
+    // query — the researcher saw the raw description AND optionally web
+    // results, so its enriched output is the strongest available query.
+    retrieval_query = research.enriched_description;
     interpretation_stage = 'researched';
     researchDetail = toResearchDetail(research);
     stages.push({
@@ -61,13 +73,20 @@ export async function runTrackA(
   }
 
   const t1 = Date.now();
-  let retrieval = await runRetrieval(effective_description);
+  let retrieval = await runRetrieval(retrieval_query);
   stages.push({
     name: 'track-a/retrieval',
     started_at: new Date(t1).toISOString(),
     duration_ms: retrieval.latency_ms,
     outcome: 'ok',
-    detail: { candidate_count: retrieval.candidates.length, effective_description },
+    detail: {
+      candidate_count: retrieval.candidates.length,
+      effective_description,
+      // retrieval_query differs from effective_description only when
+      // cleanup emitted a tariff_expansion_en (non-English input case).
+      // Surfaced so debugging can verify which query embedded.
+      retrieval_query,
+    },
   });
 
   let t2 = Date.now();
@@ -108,16 +127,24 @@ export async function runTrackA(
 
     if (web.recognised && web.enriched_description) {
       effective_description = web.enriched_description;
+      // Web research output supersedes the tariff_expansion_en for retrieval
+      // (the web researcher resolved a real product identity, which beats
+      // any cleanup-time paraphrase).
+      retrieval_query = web.enriched_description;
       interpretation_stage = 'researched';
 
       const tr2 = Date.now();
-      retrieval = await runRetrieval(effective_description);
+      retrieval = await runRetrieval(retrieval_query);
       stages.push({
         name: 'track-a/retrieval-after-web',
         started_at: new Date(tr2).toISOString(),
         duration_ms: retrieval.latency_ms,
         outcome: 'ok',
-        detail: { candidate_count: retrieval.candidates.length, effective_description },
+        detail: {
+          candidate_count: retrieval.candidates.length,
+          effective_description,
+          retrieval_query,
+        },
       });
 
       t2 = Date.now();

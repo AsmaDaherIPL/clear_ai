@@ -48,6 +48,17 @@ export interface DescriptionCleanupResult {
   nounGrounded: boolean;
   /** Single-word typo fixes applied to clean_description, if any. */
   typoCorrections: TypoCorrection[];
+  /**
+   * Tariff-vocabulary English re-expression of the input — only emitted by
+   * the LLM when the source input is non-English. Engineered to land closer
+   * to ZATCA catalog phrasings than a literal translation would (e.g.
+   * "هودي محبوك" → "knitted pullover with hood, of cotton or synthetic
+   * fibres" rather than "knitted hoodie"). Track A retrieval prefers this
+   * over `effective` when present, because the catalog itself speaks tariff
+   * English. Empty string for English input or when the LLM declined to
+   * produce one.
+   */
+  tariffExpansionEn: string;
   latencyMs: number;
   model?: string | undefined;
 }
@@ -145,6 +156,7 @@ const ParsedCleanupSchema = z
     products: z.unknown().optional(),
     noun_grounded: z.unknown().optional(),
     typo_corrections: z.unknown().optional(),
+    tariff_expansion_en: z.unknown().optional(),
   })
   .passthrough();
 
@@ -215,6 +227,7 @@ export async function cleanDescription(
       products: [],
       nounGrounded: true,
       typoCorrections: [],
+      tariffExpansionEn: '',
       latencyMs: 0,
     };
   }
@@ -243,6 +256,7 @@ export async function cleanDescription(
       products: [],
       nounGrounded: false,
       typoCorrections: [],
+      tariffExpansionEn: '',
       latencyMs: outcome.trace.latency_ms,
       model,
     };
@@ -257,6 +271,7 @@ export async function cleanDescription(
       products: [],
       nounGrounded: false,
       typoCorrections: [],
+      tariffExpansionEn: '',
       latencyMs: outcome.trace.latency_ms,
       model,
     };
@@ -290,6 +305,17 @@ export async function cleanDescription(
 
   const typoCorrections = coerceTypoCorrections(parsed.typo_corrections);
 
+  // tariff_expansion_en — optional LLM-emitted English re-expression of the
+  // input using tariff vocabulary. The LLM is instructed to only produce it
+  // when the input is non-English; for English input the field is absent or
+  // empty. Defensive: cap length, trim, drop anything non-string. Empty
+  // string means "no expansion available" — Track A retrieval falls back
+  // to `effective`.
+  const tariffExpansionRaw =
+    typeof parsed.tariff_expansion_en === 'string' ? parsed.tariff_expansion_en.trim() : '';
+  const tariffExpansionEn =
+    tariffExpansionRaw.length > 0 && tariffExpansionRaw.length < 400 ? tariffExpansionRaw : '';
+
   return {
     invoked: 'llm',
     kind,
@@ -299,6 +325,7 @@ export async function cleanDescription(
     products,
     nounGrounded,
     typoCorrections,
+    tariffExpansionEn,
     latencyMs: llmTrace.latency_ms,
     model,
   };
