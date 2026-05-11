@@ -42,15 +42,17 @@ import {
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
+  getPaginationRowModel,
   flexRender,
   type ColumnDef,
   type SortingState,
   type ColumnFiltersState,
   type VisibilityState,
   type ColumnSizingState,
+  type PaginationState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Settings2 } from 'lucide-react';
+import { Settings2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -59,8 +61,24 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+
+// ---------------------------------------------------------------------------
+// Pagination — sentinel for "show all rows" (disables pagination row model).
+// We pick a deliberately huge number so TanStack does not slice the data.
+// ---------------------------------------------------------------------------
+const PAGE_SIZE_ALL = Number.MAX_SAFE_INTEGER;
+const PAGE_SIZE_OPTIONS: { label: string; value: number }[] = [
+  { label: '15', value: 15 },
+  { label: '25', value: 25 },
+  { label: '50', value: 50 },
+  { label: '100', value: 100 },
+  { label: 'All', value: PAGE_SIZE_ALL },
+];
+const DEFAULT_PAGE_SIZE = 50;
 
 // ---------------------------------------------------------------------------
 // localStorage persistence helpers
@@ -216,6 +234,13 @@ export function DataTable<T extends object>({
     return loadPrefs(tableId).columnSizing ?? {};
   });
 
+  // Pagination state — page size is user-controlled; pageIndex resets to 0
+  // whenever data length changes (e.g. a new batch run begins polling).
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: DEFAULT_PAGE_SIZE,
+  });
+
   // -------------------------------------------------------------------------
   // Persist on user-driven changes (debounced).
   // Guard: skip the first effect run on mount to avoid clobbering prefs that
@@ -232,21 +257,45 @@ export function DataTable<T extends object>({
     debouncedSave({ columnVisibility, columnSizing });
   }, [columnVisibility, columnSizing, debouncedSave]);
 
+  // Clamp pageIndex when the underlying data shrinks (e.g. filters narrow the
+  // result set below the current page boundary, or a new batch run resets
+  // items to []). Without this guard, the footer can show "Page 5 of 2"
+  // briefly until the user clicks a nav button.
+  useEffect(() => {
+    if (pagination.pageSize >= PAGE_SIZE_ALL) return;
+    const maxPageIndex = Math.max(
+      0,
+      Math.ceil(data.length / pagination.pageSize) - 1,
+    );
+    if (pagination.pageIndex > maxPageIndex) {
+      setPagination((p) => ({ ...p, pageIndex: maxPageIndex }));
+    }
+  }, [data.length, pagination.pageIndex, pagination.pageSize]);
+
   // -------------------------------------------------------------------------
   // TanStack Table instance.
   // -------------------------------------------------------------------------
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnFilters, globalFilter, columnVisibility, columnSizing },
+    state: {
+      sorting,
+      columnFilters,
+      globalFilter,
+      columnVisibility,
+      columnSizing,
+      pagination,
+    },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: setColumnVisibility,
     onColumnSizingChange: setColumnSizing,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
     enableColumnResizing: true,
     // onChange gives live feedback during drag. Switch to 'onEnd' if
     // drag performance degrades on very large datasets.
@@ -255,9 +304,16 @@ export function DataTable<T extends object>({
 
   const realRows = table.getRowModel().rows;
 
+  // Skeleton tail logic. The tail is rendered ONLY on the last page (or in
+  // "All" mode) so it represents not-yet-arrived rows from the backend.
+  // On non-last pages there's no missing tail to show — the full page is
+  // already populated.
   const filtersActive = globalFilter.length > 0 || columnFilters.length > 0;
+  const isAllPage = pagination.pageSize >= PAGE_SIZE_ALL;
+  const pageCount = table.getPageCount();
+  const onLastPage = isAllPage || pagination.pageIndex >= pageCount - 1;
   const skeletonCount =
-    expectedRowCount && !filtersActive && data.length < expectedRowCount
+    expectedRowCount && !filtersActive && onLastPage && data.length < expectedRowCount
       ? expectedRowCount - data.length
       : 0;
 
@@ -569,6 +625,162 @@ export function DataTable<T extends object>({
           </tbody>
         </table>
       </div>
+
+      {/*
+        Pagination footer.
+        - Only renders when there are real rows (skeleton-only state hides it).
+        - "Showing X-Y of Z" reads from the filtered + paginated row models so
+          the count is honest when filters are active (e.g. "Showing 1-15 of
+          24 — 276 filtered out").
+        - Page size "All" sets pageSize to MAX_SAFE_INTEGER which makes
+          TanStack put every row on a single page (one page total).
+      */}
+      {realRows.length > 0 && (() => {
+        const filteredCount = table.getFilteredRowModel().rows.length;
+        const totalCount = data.length;
+        const filteredOut = totalCount - filteredCount;
+        const pageIndex = table.getState().pagination.pageIndex;
+        const pageSize = table.getState().pagination.pageSize;
+        const pageCount = table.getPageCount();
+        const isAll = pageSize >= PAGE_SIZE_ALL;
+        const fromRow = filteredCount === 0 ? 0 : pageIndex * pageSize + 1;
+        const toRow = Math.min((pageIndex + 1) * pageSize, filteredCount);
+        const currentSizeLabel =
+          PAGE_SIZE_OPTIONS.find((o) => o.value === pageSize)?.label ?? String(pageSize);
+        return (
+          <div className="flex items-center justify-between gap-3 px-[22px] py-3 border-t border-[var(--line-2)] bg-[var(--line-2)] flex-wrap">
+            {/* Row count summary */}
+            <div className="text-[12.5px] text-[var(--ink-2)] tabular-nums">
+              {isAll ? (
+                <>
+                  Showing{' '}
+                  <span className="text-[var(--ink)] font-medium">{filteredCount}</span>
+                  {' '}of{' '}
+                  <span className="text-[var(--ink)] font-medium">{totalCount}</span>
+                  {filteredOut > 0 && (
+                    <span className="text-[var(--ink-3)] ms-1.5">
+                      ({filteredOut} filtered out)
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  Showing{' '}
+                  <span className="text-[var(--ink)] font-medium">
+                    {fromRow}-{toRow}
+                  </span>
+                  {' '}of{' '}
+                  <span className="text-[var(--ink)] font-medium">{filteredCount}</span>
+                  {filteredOut > 0 && (
+                    <span className="text-[var(--ink-3)] ms-1.5">
+                      ({filteredOut} filtered out)
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Page nav + size picker */}
+            <div className="flex items-center gap-3">
+              {/* Page size picker — shadcn DropdownMenu radio group */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      'h-8 gap-1.5 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
+                      'hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+                      'font-mono text-[11px] uppercase tracking-[0.06em]',
+                    )}
+                  >
+                    Show {currentSizeLabel}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="min-w-[140px] border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] text-[13px]"
+                >
+                  <DropdownMenuLabel className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase px-2 py-1.5">
+                    Rows per page
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator className="bg-[var(--line-2)]" />
+                  <DropdownMenuRadioGroup
+                    value={String(pageSize)}
+                    onValueChange={(value) => {
+                      const next = Number(value);
+                      table.setPageSize(next);
+                      table.setPageIndex(0);
+                    }}
+                  >
+                    {PAGE_SIZE_OPTIONS.map((opt) => (
+                      <DropdownMenuRadioItem
+                        key={opt.value}
+                        value={String(opt.value)}
+                        className="text-[13px]"
+                      >
+                        {opt.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Page nav — hidden when on a single page (e.g. "All") */}
+              {pageCount > 1 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[12px] text-[var(--ink-3)] tabular-nums me-2">
+                    Page{' '}
+                    <span className="text-[var(--ink-2)] font-medium">{pageIndex + 1}</span>
+                    {' '}of{' '}
+                    <span className="text-[var(--ink-2)] font-medium">{pageCount}</span>
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] disabled:opacity-40"
+                    onClick={() => table.setPageIndex(0)}
+                    disabled={!table.getCanPreviousPage()}
+                    aria-label="First page"
+                  >
+                    <ChevronsLeft aria-hidden className="rtl:rotate-180" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] disabled:opacity-40"
+                    onClick={() => table.previousPage()}
+                    disabled={!table.getCanPreviousPage()}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft aria-hidden className="rtl:rotate-180" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] disabled:opacity-40"
+                    onClick={() => table.nextPage()}
+                    disabled={!table.getCanNextPage()}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight aria-hidden className="rtl:rotate-180" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] disabled:opacity-40"
+                    onClick={() => table.setPageIndex(pageCount - 1)}
+                    disabled={!table.getCanNextPage()}
+                    aria-label="Last page"
+                  >
+                    <ChevronsRight aria-hidden className="rtl:rotate-180" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
