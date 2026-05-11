@@ -73,6 +73,22 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
     }
   };
 
+  // Reset all per-run local state the moment we see a new runId (or
+  // the run gets cleared back to null). Without this, the previous
+  // run's `downloadLinks` survives in component state across runs —
+  // when the next run starts, the file list from run #1 stays on screen,
+  // and clicking a file fires `getDeclarationRunFile(state.runId, fileName)`
+  // where state.runId is run #2 but fileName comes from run #1's listing.
+  // Backend returns 404 "declaration_run not found" or "file not found"
+  // depending on path shape. Surfaces as the "lv/<uuid>.xml — 404"
+  // error banner observed in the field.
+  useEffect(() => {
+    setDownloadLinks(null);
+    setDownloadError(null);
+    setFileFetching({});
+    autoFetchedRunRef.current = null;
+  }, [state.runId]);
+
   // Auto-fetch the file list once the run reaches a terminal state and
   // there's at least one item to download. Replaces the old "Refresh
   // file list" button — operators expected the list to just appear when
