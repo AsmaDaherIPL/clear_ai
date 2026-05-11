@@ -344,6 +344,33 @@ describe('runReconciliation — V1 classification_status surface collapse', () =
     }
   });
 
+  it('AMBIGUOUS (converging): Track A partial code == Track B resolved → MEDIUM, not LOW', async () => {
+    // Pinned scenario: run 019e15e6-... item 4 (Bootcut Legging).
+    // Track A rank-1 partial = 620463000004 (description silent on material).
+    // Track B's llm_pick_under_prefix also resolves to 620463000004.
+    // Both tracks converge on the same leaf despite the partial label.
+    // The legacy AMBIGUOUS handlers always returned LOW; new rule bumps to MEDIUM
+    // when the codes converge.
+    const a = trackA({ candidates: [ac('620463000004', 'partial')] });
+    const b = trackB({ resolved_code: '620463000004' });
+    const v = (await runReconciliation(a, b, 'bootcut legging')) as VerdictResult;
+    expect(v.conflict_type).toBe('AMBIGUOUS');
+    expect(v.confidence_band).toBe('medium');
+    expect(v.final_code).toBe('620463000004');
+    expect(v.rationale).toMatch(/converging/i);
+  });
+
+  it('AMBIGUOUS (non-converging): Track A partial in DIFFERENT code from Track B resolved → LOW', async () => {
+    // Track A's top partial is in a different leaf than Track B's resolved code.
+    // No convergence — old LOW behavior applies.
+    const a = trackA({ candidates: [ac('851712000000', 'partial')] });
+    const b = trackB({ resolved_code: '851830900003' });
+    const v = (await runReconciliation(a, b, 'some audio device')) as VerdictResult;
+    expect(v.conflict_type).toBe('AMBIGUOUS');
+    expect(v.confidence_band).toBe('low');
+    expect(v.rationale).not.toMatch(/converging/i);
+  });
+
   it('classificationStatusFromConflictType: pure mapping function pins V1 collapse', () => {
     // This is the canonical mapping that the SQL fallback in
     // declaration-run.controller.ts mirrors for legacy rows persisted

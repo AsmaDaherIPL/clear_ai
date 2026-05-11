@@ -244,24 +244,48 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
  * SPARSE_DESCRIPTION handlers (both had identical behavior; merchant code
  * wins at LOW confidence).
  *
- * The rationale string still distinguishes the two sub-cases so the trace
- * remains readable to humans debugging a row:
- *   - threshold_failed / no_fit  → "description too thin"
- *   - otherwise                  → "description silent on heading-constrained
- *                                   dimensions"
+ * Confidence-band bump rule: when Track A's rank-1 partial candidate is
+ * the SAME CODE as Track B's resolved_code, both tracks are converging
+ * on the same leaf despite Track A only labeling it `partial` (typically
+ * because the description doesn't confirm one specialization dimension
+ * the leaf constrains, like material or gender). That convergence is
+ * stronger evidence than either signal alone — bump confidence_band from
+ * low to medium. The legacy AMBIGUOUS handlers always returned `low`
+ * regardless of whether the tracks converged.
+ *
+ * Pinned scenario: run 019e15e6-... item 4 (Bootcut Legging,
+ * raw_merchant_code=62046300). Track A rank-1 partial = 620463000004;
+ * Track B llm_pick_under_prefix also resolves to 620463000004. Both
+ * tracks agree on the leaf; only material is unconfirmed. Pre-fix:
+ * low. Post-fix: medium.
+ *
+ * The rationale string still distinguishes the sub-cases so the trace
+ * remains readable to humans debugging a row.
  */
 function handleAmbiguous(trackA: TrackAResult, trackB: TrackBResult): VerdictResult {
   if (!trackB.resolved_code) {
     throw new Error('reconciliation: AMBIGUOUS classified but trackB has no resolved_code');
   }
+
+  // Detect convergence: Track A's top partial candidate is the same code
+  // as Track B's resolved leaf. Only `partial` matters here — a `fits` at
+  // the same code would have routed to AGREEMENT in the classifier, not
+  // here. `does_not_fit` candidates can't represent convergence.
+  const topPartial = trackA.annotated_candidates.find((c) => c.fit === 'partial');
+  const converges =
+    topPartial != null && topPartial.code === trackB.resolved_code;
+
   const trackASilent = trackA.threshold_failed || trackA.no_fit;
-  const rationale = trackASilent
-    ? 'AMBIGUOUS: description too thin for description_classifier to contribute; accepting merchant code at low confidence'
-    : 'AMBIGUOUS: description silent on dimensions the heading constrains; accepting merchant code at low confidence';
+  const rationale = converges
+    ? `AMBIGUOUS (converging): Track A partial and code_resolver agree on ${trackB.resolved_code}; description silent on one leaf-specialization dimension. Medium confidence.`
+    : trackASilent
+      ? 'AMBIGUOUS: description too thin for description_classifier to contribute; accepting merchant code at low confidence'
+      : 'AMBIGUOUS: description silent on dimensions the heading constrains; accepting merchant code at low confidence';
+
   return {
     decision: 'accept',
     final_code: trackB.resolved_code,
-    confidence_band: 'low',
+    confidence_band: converges ? 'medium' : 'low',
     rationale,
     source: 'code_resolver',
     classification_status: 'DRIFT',
