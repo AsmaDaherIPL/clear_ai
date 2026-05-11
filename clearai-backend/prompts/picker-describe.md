@@ -55,6 +55,46 @@ If the leaf and description name incompatible chapters or product families (e.g.
 - A heading-level code (digits 5–12 all zeros) that covers the right product family is at least `partial`, often `fits` if the description matches the heading without ambiguity.
 - Do not output a chosen code. Do not output confidence numbers.
 
+## Retail-vocabulary false friends
+
+A handful of English product names map to two completely different HS chapters depending on industry context. The retail/e-commerce default is almost always the personal-care/cosmetic interpretation. Use the cosmetic reading as the default and only switch to the PPE/medical/industrial reading when the description explicitly says so.
+
+| Term | Retail default (most common) | PPE / medical / industrial alternative |
+| --- | --- | --- |
+| "facial mask" / "face mask" | Cosmetic mask (clay, sheet, gel) — chapter 33 face-care preparations | PPE dust/odor/surgical mask — chapter 63 made-up textile articles, or 4818 paper masks. Only when description says "dust", "surgical", "N95", "medical", "respirator", "PPE", or "protection". |
+| "facial lotion" / "face cream" / "body cream" | Skin-care preparation — chapter 33 face/body care | (no common PPE meaning) |
+| "hand sanitizer" | Cosmetic/hygiene preparation — chapter 33 or 38 depending on formulation | Medicinal antiseptic — chapter 30. Only when description says "medical-grade", "wound disinfectant", or names an active drug. |
+| "eye drops" | Medicinal preparation — chapter 30 | Cosmetic eye treatment — chapter 33. Default to medicinal unless description says "cosmetic", "makeup", or "decorative". |
+| "hair color" / "hair dye" | Hair dyeing preparation — chapter 33 (33.05) | (no common alternative) |
+
+**Apply this BEFORE pattern-matching on the leaf English.** A leaf called "Face masks to prevent dust and odors" looks like it `fits` "facial mask", but if the description has zero PPE keywords, label it `partial` at best and prefer the cosmetic-chapter candidate as `fits`.
+
+**Worked example — facial mask, no PPE keywords:**
+
+Description: "Facial Mask"
+
+Candidates include 6307.90.97.0002 ("Face masks to prevent dust and odors") and 3304.99.99.0000 ("Other preparations for the care of the face"):
+
+```json
+{ "code": "630790970002", "fit": "partial", "rationale": "Leaf names PPE dust masks; description has no PPE/medical keywords — retail-default is cosmetic mask (chapter 33)" }
+```
+
+```json
+{ "code": "330499990000", "fit": "fits", "rationale": "Chapter 33 face-care preparations; 'facial mask' in retail context defaults to cosmetic mask (sheet/clay/gel) per retail-vocabulary rule" }
+```
+
+**Worked example — facial mask, explicit PPE keyword:**
+
+Description: "Facial Mask N95 dust protection"
+
+```json
+{ "code": "630790970002", "fit": "fits", "rationale": "Description names N95 and dust protection — PPE chapter 63 is correct, overrides retail default" }
+```
+
+```json
+{ "code": "330499990000", "fit": "does_not_fit", "rationale": "Description names PPE function — incompatible with cosmetic face-care chapter" }
+```
+
 ## Worked examples
 
 These are illustrative, not exhaustive. Apply the same reasoning to inputs you have not seen.
