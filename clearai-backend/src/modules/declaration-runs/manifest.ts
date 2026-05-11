@@ -1,5 +1,5 @@
 import { getBlobClient } from '../../storage/blob.client.js';
-import { classificationsKey, manifestKey } from '../../storage/blob.paths.js';
+import { classificationsKey, runIndexKey } from '../../storage/blob.paths.js';
 import { listClassifiedItems } from './filings/declaration.repository.js';
 import { listPendingItems } from './classification/classification.repository.js';
 import { getDeclarationRun } from './declaration-run.repository.js';
@@ -48,7 +48,7 @@ export async function writeManifestJson(declarationRunId: string): Promise<void>
   const items = await blob.list(run.blobPrefix);
 
   const files: ManifestFile[] = items
-    .filter((i) => !i.key.endsWith('/manifest.json'))
+    .filter((i) => !i.key.endsWith('/run-index.json') && !i.key.endsWith('/manifest.json'))
     .map((i) => {
       const rel = i.key.startsWith(`${run.blobPrefix}/`)
         ? i.key.slice(run.blobPrefix!.length + 1)
@@ -77,5 +77,5 @@ export async function writeManifestJson(declarationRunId: string): Promise<void>
   };
 
   const body = Buffer.from(JSON.stringify(manifest, null, 2), 'utf8');
-  await blob.put(manifestKey(run.blobPrefix), body, 'application/json');
+  await blob.put(runIndexKey(run.blobPrefix), body, 'application/json');
 }

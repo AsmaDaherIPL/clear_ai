@@ -191,8 +191,8 @@ export function looksClean(input: string): boolean {
   // Only applies to short phrases — longer descriptions already carry enough
   // specificity for retrieval to work without the researcher.
   if (contentTokens.length <= 4 && contentTokens.length >= 2) {
-    const headNoun = contentTokens[contentTokens.length - 1];
-    if (AMBIGUOUS_HEAD_NOUNS.has(headNoun)) {
+    const headNoun = contentTokens.at(-1);
+    if (headNoun && AMBIGUOUS_HEAD_NOUNS.has(headNoun)) {
       return false;
     }
   }
