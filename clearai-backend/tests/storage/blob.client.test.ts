@@ -134,13 +134,17 @@ describe('blob.paths', () => {
   });
 
   it('builds keys under the prefix', async () => {
-    const { inputKey, classificationsKey, manifestKey, filingKey } = await import(
+    const { inputKey, classificationsKey, runIndexKey, legacyRunIndexKey, filingKey } = await import(
       '../../src/storage/blob.paths.js'
     );
     expect(inputKey(PREFIX, 'csv')).toBe(`${PREFIX}/input.csv`);
     expect(inputKey(PREFIX, 'xlsx')).toBe(`${PREFIX}/input.xlsx`);
     expect(classificationsKey(PREFIX)).toBe(`${PREFIX}/classifications.json`);
-    expect(manifestKey(PREFIX)).toBe(`${PREFIX}/manifest.json`);
+    expect(runIndexKey(PREFIX)).toBe(`${PREFIX}/run-index.json`);
+    // Legacy filename for pre-rename batches still resolves via the
+    // legacyRunIndexKey helper — read paths fall back to this when
+    // run-index.json is absent.
+    expect(legacyRunIndexKey(PREFIX)).toBe(`${PREFIX}/manifest.json`);
     expect(filingKey({ prefix: PREFIX, strategy: 'HV_STANDALONE', filingId: 'f1' })).toBe(
       `${PREFIX}/hv/f1.xml`,
     );

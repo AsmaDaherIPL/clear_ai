@@ -663,7 +663,7 @@ export const api = {
    * Blob; the caller wraps it in an object URL and triggers a save.
    *
    * `relPath` is the file name relative to the run prefix
-   * (e.g. "input.csv", "manifest.json", "hv/{filing_id}.xml"). The
+   * (e.g. "input.csv", "run-index.json", "hv/{filing_id}.xml"). The
    * backend rejects paths containing '..', '\\', or a leading '/'
    * before resolving the blob.
    */

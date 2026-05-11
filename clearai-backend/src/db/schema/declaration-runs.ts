@@ -76,7 +76,7 @@ export const declarationRuns = pgTable(
     resultBlobKey: text('result_blob_key'),
 
     /**
-     * Tree-layout prefix for the rendered HV/LV XMLs + manifest.json,
+     * Tree-layout prefix for the rendered HV/LV XMLs + run-index.json,
      * e.g. "naqel/2026/05/08/<run_id>". Locked in at run creation time
      * so the read path doesn't have to recompute date partitions from
      * created_at (timezone-safe). NULL on legacy rows that pre-date

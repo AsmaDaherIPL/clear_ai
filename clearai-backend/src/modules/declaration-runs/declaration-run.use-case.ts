@@ -142,17 +142,17 @@ export async function runProcessing(declarationRunId: string, dispatch: Dispatch
     const { runDeclarationPhaseIfNeeded } = await import('./filings/declaration.service.js');
     await runDeclarationPhaseIfNeeded(declarationRunId);
 
-    // Phase 3 — manifest. Best-effort: classifications.json + manifest.json
+    // Phase 3 — run index. Best-effort: classifications.json + run-index.json
     // land under the run's blob_prefix so a single
     // GET /declaration-runs/:id/download-links returns everything.
     // A failure here doesn't fail the run — the DB rows are authoritative.
-    const { writeClassificationsJson, writeManifestJson } = await import('./manifest.js');
+    const { writeClassificationsJson, writeRunIndexJson } = await import('./run-index.js');
     try {
       await writeClassificationsJson(declarationRunId);
-      await writeManifestJson(declarationRunId);
+      await writeRunIndexJson(declarationRunId);
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('[manifest] write failed for run', declarationRunId, err);
+      console.error('[run-index] write failed for run', declarationRunId, err);
     }
 
     await setDeclarationRunStatus(declarationRunId, { status: 'completed', completedAt: new Date() });

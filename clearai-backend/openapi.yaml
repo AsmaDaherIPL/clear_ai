@@ -761,8 +761,11 @@ paths:
   # Backend (Fastify) uses a `*` wildcard route — `/declaration-runs/:id/files/*` —
   # which accepts any sub-path. To keep APIM and Fastify in agreement we
   # split into THREE explicit operations: one flat (input.csv,
-  # manifest.json, classifications.json) and one each for the `hv/` and
+  # run-index.json, classifications.json) and one each for the `hv/` and
   # `lv/` nested files. All three forward to the same backend route.
+  # Historical pre-rename batches have `manifest.json` instead of
+  # `run-index.json` at the same path — both names resolve via the
+  # backend's read-side fallback.
   #
   # If you add a new sub-folder (e.g. `errors/`, `logs/`) under a run
   # prefix, you must add a matching APIM operation here AND re-import,
@@ -778,14 +781,16 @@ paths:
         required: true
         description: |
           Flat file name (no slashes), one of `input.csv`, `input.xlsx`,
-          `manifest.json`, `classifications.json`. For nested files
+          `run-index.json`, `classifications.json`. For nested files
           under `hv/` or `lv/`, use the dedicated operations below.
-        schema: { type: string, example: manifest.json }
+          Historical (pre-rename) batches accept `manifest.json` in place
+          of `run-index.json`.
+        schema: { type: string, example: run-index.json }
 
     get:
       operationId: get-declaration-runs-id-files
       tags: [declaration-runs]
-      summary: Stream a flat file (manifest/classifications/input) from a run
+      summary: Stream a flat file (run-index/classifications/input) from a run
       description: |
         Convenience endpoint for previewing a single top-level run file.
         Streams bytes through the backend rather than handing out a SAS;
