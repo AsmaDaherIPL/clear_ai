@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
+    "fix-pg-ip": "bash local-dev/scripts/fix-pg-ip.sh",
     "db:migrate": "tsx src/scripts/migrate.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
