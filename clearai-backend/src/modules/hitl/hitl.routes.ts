@@ -53,7 +53,7 @@ interface QueueRow {
   classification_event_id: string;
   item_id: string;
   operator_slug: string;
-  reason: 'verdict_escalate' | 'sanity_flag';
+  reason: 'verdict_escalate' | 'sanity_flag' | 'low_information';
   status: 'pending' | 'in_review' | 'resolved' | 'dismissed';
   reviewed_at: string | null;
   reviewed_by: string | null;

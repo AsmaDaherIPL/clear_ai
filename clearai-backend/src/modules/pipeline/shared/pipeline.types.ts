@@ -370,8 +370,22 @@ export interface PipelineTrace {
  * route handler does, after the classification_events row is persisted,
  * so the FK is always satisfied. Null when the item does not need review.
  */
+/**
+ * Why a row is in the HITL queue:
+ *
+ *   verdict_escalate  — reconciliation could not pick a defensible code
+ *                       (ZERO_SIGNAL, or degenerate DRIFT).
+ *   sanity_flag       — code was chosen but Stage 3 sanity flagged the
+ *                       declared value as implausible.
+ *   low_information   — researcher could not identify the product AND the
+ *                       description is too thin to retrieve against. The
+ *                       pipeline refuses to guess; the reviewer must
+ *                       supply context (often by contacting the merchant).
+ *                       Distinct from verdict_escalate because the
+ *                       refusal happens BEFORE reconciliation, not after.
+ */
 export interface HitlIntent {
-  reason: 'verdict_escalate' | 'sanity_flag';
+  reason: 'verdict_escalate' | 'sanity_flag' | 'low_information';
   cleaned_description: string;
 }
 

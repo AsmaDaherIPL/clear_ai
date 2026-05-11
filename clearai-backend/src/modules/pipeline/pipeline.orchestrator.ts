@@ -19,7 +19,48 @@ import { shouldEnqueue } from './hitl/hitl.js';
 import { buildTrace } from './trace/trace.js';
 import { getPool } from '../../db/client.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
-import type { PipelineResult, StageTrace, HitlIntent } from './shared/pipeline.types.js';
+import type {
+  PipelineResult,
+  StageTrace,
+  HitlIntent,
+  StageVerdictOutput,
+  TrackAResult,
+} from './shared/pipeline.types.js';
+
+/** Token count for the low-info gate. ≤ this many → too thin to retrieve. */
+const LOW_INFO_TOKEN_THRESHOLD = 4;
+
+/**
+ * True when Track A had to call the researcher and the researcher gave
+ * up, AND the cleaned description has too few content tokens for
+ * retrieval to be defensible. In this state Track A's candidates are
+ * pattern-matched noise; pushing them into reconciliation produces a
+ * confident-looking wrong answer. Better to escalate early.
+ *
+ * The conjunction matters — short descriptions ARE fine when the
+ * researcher recognized them ("wireless headphones" works at 2 tokens
+ * because the researcher fills in tariff context). The failure mode is
+ * specifically: researcher tried and couldn't, AND we're left with raw
+ * thin text.
+ */
+export function shouldEscalateLowInformation(trackA: TrackAResult, cleanedDescription: string): boolean {
+  // Researcher must have actually run. If clarity_verdict was 'clear'
+  // upstream, research is null and we don't apply this gate.
+  if (!trackA.research) return false;
+  // Researcher must have failed to identify the product. Recognized
+  // products mean the enriched_description is the LLM's tariff-vocab
+  // rewrite, which retrieval can work with even if short.
+  if (trackA.research.recognised) return false;
+  // If a web research pass succeeded, trust its output and continue.
+  if (trackA.web_research && trackA.web_research.recognised) return false;
+  // Description must be too thin. Count content tokens (≥ 2 chars after
+  // stripping punctuation) so noise like "+", ",", "-" doesn't inflate.
+  const contentTokens = cleanedDescription
+    .split(/\s+/)
+    .map((t) => t.replace(/[^A-Za-z0-9؀-ۿ]/g, ''))
+    .filter((t) => t.length >= 2);
+  return contentTokens.length <= LOW_INFO_TOKEN_THRESHOLD;
+}
 
 interface OperatorPipelineConfig {
   /** Defaults to true when no operator_declaration_config row exists yet. */
@@ -172,6 +213,50 @@ export async function runPipeline(
 
   allStages.push(...trackAOut.stages);
   const trackAResult = trackAOut.result;
+
+  // ---- Low-information escalation gate ----
+  // When the researcher ran AND gave up (recognised=false from the cheap
+  // LLM, no successful web research), AND the cleaned description is too
+  // thin for retrieval to be reliable, refuse to classify. Track A's
+  // candidates in this state are pure pattern-match noise (see
+  // 'B6(Black)+Blue case' → 'Smart secure bags with GPS' run for the
+  // canonical failure). Reconciliation would force a guess based on that
+  // noise; sanity FLAG would catch *price* but not the wrong code. Better
+  // to escalate to HITL early with the raw input intact.
+  if (shouldEscalateLowInformation(trackAResult, cleanup.cleaned_description)) {
+    const escalateVerdict: StageVerdictOutput = {
+      decision: 'escalate',
+      disagreement_summary:
+        'LOW_INFORMATION: researcher could not identify the product and the description is too thin for retrieval. ' +
+        'Reconciliation would be guessing; routing to HITL.',
+      classification_status: 'ZERO_SIGNAL',
+      conflict_type: 'ZERO_SIGNAL',
+    };
+    allStages.push({
+      name: 'stage-2/reconciliation',
+      started_at: new Date().toISOString(),
+      duration_ms: 0,
+      outcome: 'skipped',
+      detail: { decision: 'escalate', reason: 'low_information' },
+    });
+    const trace = buildTrace({
+      trackA: trackAResult,
+      trackB: trackBResult,
+      verdict: escalateVerdict,
+      sanity: null,
+      stages: allStages,
+    });
+    return {
+      final_code: null,
+      goods_description_ar: null,
+      sanity_verdict: 'FLAG',
+      trace,
+      hitl: {
+        reason: 'low_information',
+        cleaned_description: cleanup.cleaned_description,
+      },
+    };
+  }
 
   // ---- Stage 2: Reconciliation ----
   const t2 = Date.now();

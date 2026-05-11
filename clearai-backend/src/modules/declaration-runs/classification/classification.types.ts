@@ -40,7 +40,10 @@ export interface DispatchResult {
   goodsDescriptionAr: string | null;
   sanityVerdict: SanityVerdict;
   /** HITL intent surfaced by the orchestrator. Null when no review is needed. */
-  hitl: { reason: 'verdict_escalate' | 'sanity_flag'; cleaned_description: string } | null;
+  hitl: {
+    reason: 'verdict_escalate' | 'sanity_flag' | 'low_information';
+    cleaned_description: string;
+  } | null;
   /** dispatch-v1 wire response, pre-assembled so callers can record/enqueue. */
   v1: DispatchV1Response;
   trace: ItemTrace;

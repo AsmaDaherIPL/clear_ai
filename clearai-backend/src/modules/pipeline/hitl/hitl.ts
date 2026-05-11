@@ -15,7 +15,7 @@ export interface HitlPayload {
   classification_event_id: string;
   item_id: string;
   operator_slug: string;
-  reason: 'verdict_escalate' | 'sanity_flag';
+  reason: 'verdict_escalate' | 'sanity_flag' | 'low_information';
   cleaned_description: string;
   verdict_output: StageVerdictOutput | null;
   sanity_result: SanityResult | null;

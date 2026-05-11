@@ -7,6 +7,7 @@ import BatchResultsTable from './BatchResultsTable';
 
 function humanError(raw: string | null | undefined): string {
   if (!raw) return '';
+  if (raw.includes('LOW_INFORMATION')) return 'Description too vague to classify — sent to manual review (HITL queue)';
   if (raw.includes('escalated to HITL')) return 'Sent to manual review (HITL queue)';
   return raw;
 }
