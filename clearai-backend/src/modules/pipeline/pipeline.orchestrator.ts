@@ -207,6 +207,7 @@ export async function runPipeline(
   const catalog = await lookupCatalogContext(verdict.final_code);
   const submission = await generateSubmissionDescription({
     cleanedDescription: cleanup.cleaned_description,
+    rawDescription: parsedItem.raw_description!,
     chosenCode: verdict.final_code,
     catalogLeafAr: catalog.leafAr,
     catalogLeafEn: catalog.leafEn,

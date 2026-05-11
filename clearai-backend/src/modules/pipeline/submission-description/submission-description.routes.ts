@@ -47,8 +47,12 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
     }
     const cat = catRes.rows[0]!;
 
+    // Standalone endpoint: the caller supplies a single `description`
+    // (no separate raw/cleaned forms). Pass it as both — the LLM treats
+    // them as the same source.
     const result = await generateSubmissionDescription({
       cleanedDescription: description,
+      rawDescription: description,
       chosenCode: code,
       catalogLeafAr: cat.description_ar,
       catalogLeafEn: cat.description_en,

@@ -96,6 +96,14 @@ function buildFallback(cleanedDescription: string, leafAr: string | null, pathAr
 export interface GenerateSubmissionParams {
   /** The cleaned item description from Stage 1. */
   cleanedDescription: string;
+  /**
+   * The merchant's verbatim input (post Stage-0a parse, before Stage-0b
+   * cleanup stripping). Often carries real product attributes (material,
+   * capacity, color) that cleanup strips as noise but are valid in a
+   * ZATCA description. The LLM uses this as the primary signal; the
+   * cleaned form is supporting context.
+   */
+  rawDescription: string;
   /** The 12-digit HS code accepted by Stage 2 (Reconciliation). */
   chosenCode: string;
   /** zatca_hs_codes.description_ar for the chosen code. */
@@ -115,6 +123,7 @@ export async function generateSubmissionDescription(
 ): Promise<SubmissionDescriptionResult> {
   const {
     cleanedDescription,
+    rawDescription,
     chosenCode,
     catalogLeafAr,
     catalogLeafEn,
@@ -124,15 +133,17 @@ export async function generateSubmissionDescription(
 
   const start = Date.now();
 
-  // Cache lookup. The lookup key is (catalog_path_ar, normalized cleaned
-  // description). path_ar is the actual semantic context the LLM
-  // conditions on; normalising the description means casing / whitespace
-  // / NBSP / Arabic-comma variations all hit the same row.
+  // Cache lookup. The lookup key is (catalog_path_ar, normalized
+  // raw+cleaned descriptions). path_ar is the semantic context the LLM
+  // conditions on; the key includes BOTH the raw merchant input and the
+  // cleaned form so two different raw descriptions that happen to clean
+  // to the same string still get distinct cache rows (different
+  // merchant attributes → different ZATCA description).
   //
   // Cache misses (DB hiccup, missing path_ar, never-seen input) silently
   // fall through to the LLM call. Cache hits skip the LLM entirely and
   // bump hit_count fire-and-forget.
-  const cleanedNorm = normalizeForCache(cleanedDescription);
+  const cleanedNorm = normalizeForCache(`${rawDescription}\u0001${cleanedDescription}`);
   if (catalogPathAr && cleanedNorm) {
     const hit = await findCached(catalogPathAr, cleanedNorm);
     if (hit) {
@@ -151,7 +162,8 @@ export async function generateSubmissionDescription(
   const model = params.model ?? env().LLM_MODEL;
 
   const user = JSON.stringify({
-    item_description: cleanedDescription,
+    item_description: rawDescription,
+    cleaned_description: cleanedDescription,
     hs_code: chosenCode,
     catalog_leaf_ar: catalogLeafAr,
     catalog_leaf_en: catalogLeafEn,

@@ -36,6 +36,7 @@ const mockedCall = vi.mocked(structuredLlmCall);
 
 const baseCtx = {
   cleanedDescription: 'wireless headphones',
+  rawDescription: 'wireless headphones',
   chosenCode: '851830000000',
   catalogLeafAr: 'سماعات لاسلكية',
   catalogLeafEn: 'wireless headphones',
@@ -202,16 +203,18 @@ describe('submission_descriptions cache', () => {
     expect(r.invoked).toBe('llm');
     expect(mockedCall).toHaveBeenCalledTimes(1);
     expect(upsertCachedMock).toHaveBeenCalledTimes(1);
-    expect(upsertCachedMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pathAr: baseCtx.catalogPathAr,
-        cleanedDescriptionNorm: 'wireless headphones',
-        cleanedDescriptionRaw: 'wireless headphones',
-        descriptionAr: 'سماعات لاسلكية بتقنية البلوتوث',
-        source: 'llm',
-        model: 'mock-haiku',
-      }),
-    );
+    // Cache key normalises raw+cleaned concatenated (both 'wireless
+    // headphones' in baseCtx → 'wireless headphoneswireless headphones').
+    // The raw form lives in cleanedDescriptionRaw for human debugging.
+    const upsertCall = upsertCachedMock.mock.calls[0]![0];
+    expect(upsertCall).toMatchObject({
+      pathAr: baseCtx.catalogPathAr,
+      cleanedDescriptionNorm: 'wireless headphoneswireless headphones',
+      cleanedDescriptionRaw: 'wireless headphones',
+      descriptionAr: 'سماعات لاسلكية بتقنية البلوتوث',
+      source: 'llm',
+      model: 'mock-haiku',
+    });
   });
 
   it('does NOT write the cache when LLM returns fallback (collision with leaf)', async () => {
