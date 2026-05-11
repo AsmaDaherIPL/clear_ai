@@ -173,12 +173,16 @@ export function classifyConflict(trackA: TrackAResult, trackB: TrackBResult): Co
       return 'AGREEMENT';
     }
   }
-  // 3b. AGREEMENT — single_a path with a fits candidate (no resolver to dispute)
+  // 3b. AGREEMENT — single_a path with any positive candidate (no resolver
+  //     to dispute). Both `fits` and `partial` count: Track A is the only
+  //     signal we have, and the alternative is AMBIGUOUS which requires a
+  //     resolver to fall back on. With no resolver, AMBIGUOUS has no answer
+  //     to give — so when Track A has ANY positive signal, treat it as
+  //     AGREEMENT and let the handler pick the top candidate as the result.
+  //     (The handler distinguishes `fits` vs `partial` in its rationale
+  //     string, so trace readers can still tell the two cases apart.)
   if (aHas && !bHas) {
-    const top = topFitOrPartial(trackA.annotated_candidates);
-    if (top?.fit === 'fits') {
-      return 'AGREEMENT';
-    }
+    return 'AGREEMENT';
   }
 
   // 4. DRIFT — both tracks have a code, headings match, but leaves disagree

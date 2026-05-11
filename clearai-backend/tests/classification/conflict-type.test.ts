@@ -214,6 +214,23 @@ describe('classifyConflict — precedence tests', () => {
     expect(classifyConflict(a, b)).toBe('AGREEMENT');
   });
 
+  it('AGREEMENT: single_a path with ONLY partial candidates (no resolver, no fits)', () => {
+    // Regression: previously fell through to AMBIGUOUS, which threw because
+    // the handler requires trackB.resolved_code. Now AGREEMENT — Track A's
+    // top partial is the only signal we have; better to accept it than
+    // crash. Pinned scenario: "Jackets" input, no merchant code, picker
+    // labeled every candidate `partial` because every leaf constrains
+    // gender/material which the description does not state.
+    const a = trackA({
+      candidates: [
+        ac('610330000000', 'partial', 0.039),
+        ac('620100000000', 'partial', 0.038),
+      ],
+    });
+    const b = trackB({}); // no resolved_code
+    expect(classifyConflict(a, b)).toBe('AGREEMENT');
+  });
+
   it('NOT AGREEMENT: resolver code is in fits set BUT chapter mismatch (caught by CONTRADICTION 2b)', () => {
     // Same chapter 85 vs 63 — Track A top fit is 85, resolver is 63.
     // Resolver IS in Track A but as does_not_fit, so AGREEMENT rule 3 doesn't fire.

@@ -111,6 +111,27 @@ describe('runReconciliation — outcome map per conflict type', () => {
     expect(v.source).toBe('description_classifier');
   });
 
+  it('AGREEMENT (single_a partial-only, no resolver): accept top partial, rationale notes "partial fit"', async () => {
+    // Regression for "Jackets" with no merchant code where the picker
+    // labels every candidate `partial` (every leaf constrains
+    // gender/material). Pre-fix: fell through to AMBIGUOUS handler which
+    // threw because there was no resolved_code. Post-fix: accept the top
+    // partial as the answer.
+    const a = trackA({
+      candidates: [
+        ac('610330000000', 'partial', 0.039, 'jackets without material confirmation'),
+        ac('620100000000', 'partial', 0.038, 'outer jackets without confirmation'),
+      ],
+    });
+    const b = trackB({}); // no resolved_code
+    const v = (await runReconciliation(a, b, 'Jackets')) as VerdictResult;
+    expect(v.decision).toBe('accept');
+    expect(v.conflict_type).toBe('AGREEMENT');
+    expect(v.source).toBe('description_classifier');
+    expect(v.final_code).toBe('610330000000');
+    expect(v.rationale).toMatch(/partial fit/i);
+  });
+
   // ──────────────────────────────────────────────────────────
   // CONTRADICTION — Track A rank-1 wins
   // ──────────────────────────────────────────────────────────

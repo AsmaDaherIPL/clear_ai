@@ -159,7 +159,8 @@ async function callReconciliationLlmForDrift(params: {
 /* ------------------------------------------------------------------ */
 
 function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictResult {
-  // Resolver code in Track A's fits set, OR single_a top is fits.
+  // Path 1: resolver code is in Track A's fits set — strongest signal,
+  // both tracks endorse the same leaf.
   if (trackB.resolved_code) {
     const resolverVerdict = trackA.annotated_candidates.find((c) => c.code === trackB.resolved_code);
     if (resolverVerdict?.fit === 'fits') {
@@ -173,22 +174,32 @@ function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
       };
     }
   }
+  // Path 2: single_a path. Track A has positive signal but no resolver to
+  // corroborate (or the resolver isn't in the fits set). Take Track A's
+  // top positive candidate — `fits` preferred, but `partial` is accepted
+  // when that's all Track A produced. This handles the "merchant supplied
+  // no code, picker only labels partial" case (e.g. generic 'Jackets'
+  // input where the picker labels every candidate partial because every
+  // leaf constrains gender/material — none of which the description
+  // confirms). With no resolver, AMBIGUOUS has no fallback, so AGREEMENT
+  // on the top candidate is the right call.
   const top = topFitCandidate(trackA.annotated_candidates);
-  if (top?.fit === 'fits') {
+  if (top) {
+    const note = top.fit === 'fits' ? 'a clear fit' : 'a partial fit (no resolver to corroborate)';
     return {
       decision: 'accept',
       final_code: top.code,
-      rationale: `AGREEMENT: description_classifier produced a clear fit (single track) — ${top.rationale}`,
+      rationale: `AGREEMENT: description_classifier produced ${note} (single track) — ${top.rationale}`,
       source: 'description_classifier',
       classification_status: 'AGREEMENT',
       conflict_type: 'AGREEMENT',
     };
   }
   // Defensive: classifier should not return AGREEMENT without a candidate.
-  // If we get here, something upstream is inconsistent — fall back to
-  // escalation rather than a silent wrong answer.
+  // If we get here, something upstream is inconsistent — throw rather than
+  // ship a silent wrong answer.
   throw new Error(
-    'reconciliation: AGREEMENT classified but no fits candidate found — upstream inconsistency',
+    'reconciliation: AGREEMENT classified but no positive candidate found — upstream inconsistency',
   );
 }
 
