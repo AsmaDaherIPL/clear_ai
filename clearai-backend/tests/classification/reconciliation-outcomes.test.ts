@@ -138,7 +138,7 @@ describe('runReconciliation — outcome map per conflict type', () => {
       subtree_top_code: '460200000000',
     });
     const v = (await runReconciliation(a, b, 'storage basket')) as VerdictResult;
-    expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
+    expect(v.conflict_type).toBe('AMBIGUOUS');
     expect(v.final_code).toBe('630790300000'); // resolver code, not the hallucinated unanchored top
     expect(v.confidence_band).toBe('low');
   });
@@ -153,7 +153,7 @@ describe('runReconciliation — outcome map per conflict type', () => {
     const a = trackA({ candidates: [ac('851712000000', 'partial')] });
     const b = trackB({ resolved_code: '851830900003' });
     const v = (await runReconciliation(a, b, 'some audio device')) as VerdictResult;
-    expect(v.conflict_type).toBe('AMBIGUOUS_MATERIAL');
+    expect(v.conflict_type).toBe('AMBIGUOUS');
     expect(v.confidence_band).toBe('low');
     expect(v.source).toBe('code_resolver');
     expect(v.final_code).toBe('851830900003');
@@ -166,7 +166,7 @@ describe('runReconciliation — outcome map per conflict type', () => {
     const a = trackA({ no_fit: true });
     const b = trackB({ resolved_code: '851830900003' });
     const v = (await runReconciliation(a, b, 'thin description')) as VerdictResult;
-    expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
+    expect(v.conflict_type).toBe('AMBIGUOUS');
     expect(v.confidence_band).toBe('low');
     expect(v.source).toBe('code_resolver');
   });
@@ -175,7 +175,7 @@ describe('runReconciliation — outcome map per conflict type', () => {
     const a = trackA({ threshold_failed: true });
     const b = trackB({ resolved_code: '851830900003' });
     const v = (await runReconciliation(a, b, 'thin description')) as VerdictResult;
-    expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
+    expect(v.conflict_type).toBe('AMBIGUOUS');
     expect(v.confidence_band).toBe('low');
   });
 
@@ -297,7 +297,7 @@ describe('runReconciliation — V1 classification_status surface collapse', () =
     const b = trackB({ resolved_code: '851830900003' });
     const v = (await runReconciliation(a, b, 'some audio device')) as VerdictResult;
     expect(v.classification_status).toBe('DRIFT');
-    expect(v.conflict_type).toBe('AMBIGUOUS_MATERIAL');
+    expect(v.conflict_type).toBe('AMBIGUOUS');
   });
 
   it('SPARSE_DESCRIPTION (no_fit) → classification_status = DRIFT', async () => {
@@ -305,7 +305,7 @@ describe('runReconciliation — V1 classification_status surface collapse', () =
     const b = trackB({ resolved_code: '851830900003' });
     const v = (await runReconciliation(a, b, 'thin description')) as VerdictResult;
     expect(v.classification_status).toBe('DRIFT');
-    expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
+    expect(v.conflict_type).toBe('AMBIGUOUS');
   });
 
   it('DRIFT (LLM picks) → classification_status = DRIFT', async () => {

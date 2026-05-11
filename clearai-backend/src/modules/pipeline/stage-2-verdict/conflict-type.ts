@@ -1,18 +1,18 @@
 /**
- * Deterministic conflict-type classifier (PR 6).
+ * Deterministic conflict-type classifier.
  *
- * Runs BEFORE the reconciliation LLM and determines which of six conflict
- * types describes the (Track A annotated_candidates, Track B resolved_code +
+ * Runs BEFORE the reconciliation LLM and determines which conflict
+ * type describes the (Track A annotated_candidates, Track B resolved_code +
  * subtree consistency_verdict) state. The classification drives the rest of
  * reconciliation:
  *
- *   ZERO_SIGNAL          → escalate to HITL (only escalation path)
- *   AGREEMENT            → accept, HIGH confidence, no audit
- *   DRIFT                → LLM picks within shared heading; mandatory audit
- *   AMBIGUOUS_MATERIAL   → accept code_resolver at LOW; sampled audit
- *   SPARSE_DESCRIPTION   → accept code_resolver at LOW; sampled audit
- *   CONTRADICTION        → override merchant code; Track A rank-1 wins;
- *                          mandatory audit
+ *   ZERO_SIGNAL    → escalate to HITL (only escalation path)
+ *   AGREEMENT      → accept, HIGH confidence
+ *   DRIFT          → LLM picks within shared heading
+ *   AMBIGUOUS      → accept code_resolver at LOW (collapses the legacy
+ *                    AMBIGUOUS_MATERIAL + SPARSE_DESCRIPTION cases — both
+ *                    had identical handler behavior)
+ *   CONTRADICTION  → override merchant code; Track A rank-1 wins
  *
  * No LLM. No DB. Pure function over the upstream pipeline state.
  */
@@ -71,9 +71,10 @@ function trackAHasSignal(trackA: TrackAResult): boolean {
  *   3. AGREEMENT            (resolver code is in Track A's fits set,
  *                            OR single_a top is fits)
  *   4. DRIFT                (heading-level agreement, leaf-level disagreement)
- *   5. SPARSE_DESCRIPTION   (Track A no_fit / threshold_failed, Track B has code)
- *   6. AMBIGUOUS_MATERIAL   (default fall-through: signals exist but no positive
- *                            corroboration)
+ *   5. AMBIGUOUS            (default fall-through: either Track A retrieval
+ *                            uninformative, OR signals exist on both sides
+ *                            but no positive corroboration. Resolver code
+ *                            wins at LOW confidence either way.)
  *
  * Each rule is exclusive — a state can satisfy multiple, but earlier rules
  * win. Rationale per type:
@@ -89,12 +90,8 @@ function trackAHasSignal(trackA: TrackAResult): boolean {
  *   AGREEMENT beats DRIFT because if the resolver's exact code is in the
  *   fits set, there's no leaf dispute to resolve.
  *
- *   DRIFT beats SPARSE/AMBIGUOUS because heading-level agreement is a
+ *   DRIFT beats AMBIGUOUS because heading-level agreement is a
  *   stronger signal than absence of signal.
- *
- *   SPARSE beats AMBIGUOUS because "Track A retrieval was uninformative"
- *   is a different (operationally cleaner) story than "Track A produced
- *   candidates but none corroborated".
  */
 export function classifyConflict(trackA: TrackAResult, trackB: TrackBResult): ConflictType {
   const aHas = trackAHasSignal(trackA);
@@ -116,7 +113,7 @@ export function classifyConflict(trackA: TrackAResult, trackB: TrackBResult): Co
   //    overrides merchant code" is worse than yesterday's
   //    override-passthrough behavior.
   //
-  //    Demote to SPARSE_DESCRIPTION (resolver carries the row) or
+  //    Demote to AMBIGUOUS (resolver carries the row) or
   //    ZERO_SIGNAL (nothing to act on) when Track A is empty of positive
   //    signal. Only trust CONTRADICTION when Track A has at least one
   //    positive candidate AND PR 5's subtree retrieval flagged a
@@ -153,7 +150,7 @@ export function classifyConflict(trackA: TrackAResult, trackB: TrackBResult): Co
   //     Effective on the headphones case (item 1 in run 019e11f2-...):
   //       Track A rank-1 fit  = 851762900009  (heading 8517, fits)
   //       Resolver code        = 851830900003  (heading 8518, partial in A)
-  //       Pre-fix verdict      = AMBIGUOUS_MATERIAL  (low confidence)
+  //       Pre-fix verdict      = AMBIGUOUS  (low confidence)
   //       Post-fix verdict     = CONTRADICTION       (medium confidence, A wins)
   if (aHas && bHas) {
     const top = topFitOrPartial(trackA.annotated_candidates);
@@ -194,15 +191,14 @@ export function classifyConflict(trackA: TrackAResult, trackB: TrackBResult): Co
     }
   }
 
-  // 5. SPARSE_DESCRIPTION — Track A retrieval was uninformative; Track B
-  //    is carrying the row alone
-  if (bHas && (trackA.threshold_failed || trackA.no_fit)) {
-    return 'SPARSE_DESCRIPTION';
-  }
-
-  // 6. AMBIGUOUS_MATERIAL — default fall-through. Signals exist on both
-  //    sides (or just B) but no positive corroboration. The merchant code
-  //    is plausible but unconfirmed. Per the canonical outcome map, this
-  //    is the "merchant wins by default at LOW + sampled audit" path.
-  return 'AMBIGUOUS_MATERIAL';
+  // 5+6. AMBIGUOUS — either Track A retrieval was uninformative (used to be
+  //      SPARSE_DESCRIPTION) OR signals exist on both sides but no positive
+  //      corroboration (used to be AMBIGUOUS_MATERIAL). Both had identical
+  //      handler behaviour — merchant code wins at LOW — so they collapse
+  //      into one type with one handler.
+  //
+  //      Externally this is classification_status=DRIFT in V1; the rationale
+  //      string still distinguishes the two sub-cases (description thin vs
+  //      heading-constrained-attribute-missing) for forensic readability.
+  return 'AMBIGUOUS';
 }

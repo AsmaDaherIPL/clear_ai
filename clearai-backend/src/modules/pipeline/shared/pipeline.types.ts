@@ -242,25 +242,36 @@ export type ClassificationStatus = 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL';
  *     consulted by the gate
  * New callers should pattern-match on ClassificationStatus instead.
  * Will be removed in a follow-up PR after the SPA migrates.
+ *
+ * `AMBIGUOUS_MATERIAL` and `SPARSE_DESCRIPTION` are themselves @deprecated
+ * within ConflictType. The classifier now emits `AMBIGUOUS` in their stead
+ * (both had identical handler behavior — merchant code wins at LOW
+ * confidence). The two stale literals are kept in the union ONLY so that
+ * historical trace JSON parsed back into TypeScript still typechecks.
+ * New code should never emit them.
  */
 export type ConflictType =
   | 'AGREEMENT'
   | 'DRIFT'
-  | 'AMBIGUOUS_MATERIAL'
-  | 'SPARSE_DESCRIPTION'
+  | 'AMBIGUOUS'
   | 'CONTRADICTION'
-  | 'ZERO_SIGNAL';
+  | 'ZERO_SIGNAL'
+  /** @deprecated Collapsed into AMBIGUOUS. Kept for historical trace JSON typechecking. */
+  | 'AMBIGUOUS_MATERIAL'
+  /** @deprecated Collapsed into AMBIGUOUS. Kept for historical trace JSON typechecking. */
+  | 'SPARSE_DESCRIPTION';
 
-/** Map V1 ClassificationStatus from the internal 6-way ConflictType. */
+/** Map V1 ClassificationStatus from the internal ConflictType. */
 export function classificationStatusFromConflictType(c: ConflictType): ClassificationStatus {
   if (c === 'AGREEMENT') return 'AGREEMENT';
   if (c === 'ZERO_SIGNAL') return 'ZERO_SIGNAL';
-  // DRIFT, AMBIGUOUS_MATERIAL, SPARSE_DESCRIPTION, CONTRADICTION → DRIFT
+  // DRIFT, AMBIGUOUS, CONTRADICTION (+ deprecated AMBIGUOUS_MATERIAL /
+  // SPARSE_DESCRIPTION for legacy trace JSON) → DRIFT
   // Justification:
-  //   DRIFT (today)              — leaf dispute under shared heading, ship
-  //   AMBIGUOUS_MATERIAL         — description silent, merchant heading carries
-  //   SPARSE_DESCRIPTION         — picker gave up, merchant heading carries
-  //   CONTRADICTION              — Track A rank-1 overrides merchant heading
+  //   DRIFT          — leaf dispute under shared heading, ship
+  //   AMBIGUOUS      — description silent or thin; merchant heading carries
+  //                    (collapses the legacy AMBIGUOUS_MATERIAL + SPARSE_DESCRIPTION)
+  //   CONTRADICTION  — Track A rank-1 overrides merchant heading
   // From the operator's perspective these are all "we picked a code, but the
   // tracks disagreed somewhere along the way." The forensic distinction stays
   // in the trace JSON's conflict_type field for engineers debugging.

@@ -12,15 +12,14 @@
  * The LLM is called only for DRIFT (heading agrees, leaf disputes), where
  * picking between competing leaves under a shared heading benefits from
  * arbitration. Every other conflict type is purely deterministic at this
- * point — even AMBIGUOUS_MATERIAL accepts the resolver code at LOW
- * confidence rather than calling the LLM, since the description-side signal
- * is by definition non-corroborating.
+ * point — even AMBIGUOUS accepts the resolver code at LOW confidence
+ * rather than calling the LLM, since the description-side signal is by
+ * definition non-corroborating.
  *
  * V1 surface collapse (internal conflict_type -> external classification_status):
  *   AGREEMENT          -> AGREEMENT  (accept, HIGH confidence, source=B or A)
  *   DRIFT              -> DRIFT      (accept, MEDIUM, LLM-arbitrated leaf)
- *   AMBIGUOUS_MATERIAL -> DRIFT      (accept, LOW, resolver carries the row)
- *   SPARSE_DESCRIPTION -> DRIFT      (accept, LOW, resolver carries the row)
+ *   AMBIGUOUS          -> DRIFT      (accept, LOW, resolver carries the row)
  *   CONTRADICTION      -> DRIFT      (accept, MEDIUM, Track A rank-1 wins)
  *   ZERO_SIGNAL        -> ZERO_SIGNAL (escalate to HITL)
  *
@@ -240,43 +239,33 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
   );
 }
 
-function handleAmbiguousMaterial(trackB: TrackBResult): VerdictResult {
-  // Merchant heading is plausible but unconfirmed. Accept the resolver code
-  // at LOW confidence; V1 surface = DRIFT.
+/**
+ * AMBIGUOUS handler — replaces the legacy AMBIGUOUS_MATERIAL +
+ * SPARSE_DESCRIPTION handlers (both had identical behavior; merchant code
+ * wins at LOW confidence).
+ *
+ * The rationale string still distinguishes the two sub-cases so the trace
+ * remains readable to humans debugging a row:
+ *   - threshold_failed / no_fit  → "description too thin"
+ *   - otherwise                  → "description silent on heading-constrained
+ *                                   dimensions"
+ */
+function handleAmbiguous(trackA: TrackAResult, trackB: TrackBResult): VerdictResult {
   if (!trackB.resolved_code) {
-    // Defensive: AMBIGUOUS_MATERIAL only fires when we have something on B.
-    throw new Error(
-      'reconciliation: AMBIGUOUS_MATERIAL classified but trackB has no resolved_code',
-    );
+    throw new Error('reconciliation: AMBIGUOUS classified but trackB has no resolved_code');
   }
+  const trackASilent = trackA.threshold_failed || trackA.no_fit;
+  const rationale = trackASilent
+    ? 'AMBIGUOUS: description too thin for description_classifier to contribute; accepting merchant code at low confidence'
+    : 'AMBIGUOUS: description silent on dimensions the heading constrains; accepting merchant code at low confidence';
   return {
     decision: 'accept',
     final_code: trackB.resolved_code,
     confidence_band: 'low',
-    rationale:
-      'AMBIGUOUS_MATERIAL: description silent on dimensions the heading constrains; accepting merchant code at low confidence',
+    rationale,
     source: 'code_resolver',
     classification_status: 'DRIFT',
-    conflict_type: 'AMBIGUOUS_MATERIAL',
-  };
-}
-
-function handleSparseDescription(trackB: TrackBResult): VerdictResult {
-  // Track A retrieval was uninformative; merchant code carries the row.
-  if (!trackB.resolved_code) {
-    throw new Error(
-      'reconciliation: SPARSE_DESCRIPTION classified but trackB has no resolved_code',
-    );
-  }
-  return {
-    decision: 'accept',
-    final_code: trackB.resolved_code,
-    confidence_band: 'low',
-    rationale:
-      'SPARSE_DESCRIPTION: description too thin for description_classifier to contribute; accepting merchant code at low confidence',
-    source: 'code_resolver',
-    classification_status: 'DRIFT',
-    conflict_type: 'SPARSE_DESCRIPTION',
+    conflict_type: 'AMBIGUOUS',
   };
 }
 
@@ -306,11 +295,16 @@ export async function runReconciliation(
     case 'CONTRADICTION':
       return handleContradiction(trackA, trackB);
 
-    case 'AMBIGUOUS_MATERIAL':
-      return handleAmbiguousMaterial(trackB);
+    case 'AMBIGUOUS':
+      return handleAmbiguous(trackA, trackB);
 
+    // Legacy conflict types — kept in switch ONLY to satisfy exhaustive
+    // type checking against the deprecated literals still present in
+    // the ConflictType union for historical trace JSON. The classifier
+    // never emits these; they route through the same handler.
+    case 'AMBIGUOUS_MATERIAL':
     case 'SPARSE_DESCRIPTION':
-      return handleSparseDescription(trackB);
+      return handleAmbiguous(trackA, trackB);
 
     case 'DRIFT': {
       const result = await callReconciliationLlmForDrift({ cleaned_description, trackA, trackB });

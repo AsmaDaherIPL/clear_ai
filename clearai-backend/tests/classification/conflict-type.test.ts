@@ -114,7 +114,7 @@ describe('classifyConflict — precedence tests', () => {
     const b = trackB({ resolved_code: '620442000000', consistency_verdict: 'contradicts' });
     // With the guard: Track A has no fits/partial → don't trust Track A's rank-1.
     // Track B has resolved_code → SPARSE_DESCRIPTION (resolver carries the row at low confidence).
-    expect(classifyConflict(a, b)).toBe('SPARSE_DESCRIPTION');
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
   });
 
   it('PR 6.1 guard: consistency_verdict=contradicts AND Track A empty AND Track B empty → ZERO_SIGNAL', () => {
@@ -180,7 +180,7 @@ describe('classifyConflict — precedence tests', () => {
       candidates: [ac('851762900009', 'partial'), ac('851830900003', 'does_not_fit')],
     });
     const b = trackB({ resolved_code: '851830900003' });
-    expect(classifyConflict(a, b)).toBe('AMBIGUOUS_MATERIAL');
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
   });
 
   it('CONTRADICTION (2c): same chapter, different heading, resolver does_not_fit in A', () => {
@@ -252,13 +252,13 @@ describe('classifyConflict — precedence tests', () => {
   it('SPARSE_DESCRIPTION: trackA.no_fit=true and trackB has resolved_code', () => {
     const a = trackA({ no_fit: true });
     const b = trackB({ resolved_code: '851830900003' });
-    expect(classifyConflict(a, b)).toBe('SPARSE_DESCRIPTION');
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
   });
 
   it('SPARSE_DESCRIPTION: trackA.threshold_failed=true and trackB has resolved_code', () => {
     const a = trackA({ threshold_failed: true });
     const b = trackB({ resolved_code: '851830900003' });
-    expect(classifyConflict(a, b)).toBe('SPARSE_DESCRIPTION');
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
   });
 
   it('NOT SPARSE: track A has no_fit but track B has no resolved code → ZERO_SIGNAL', () => {
@@ -276,7 +276,7 @@ describe('classifyConflict — precedence tests', () => {
     // not in fits set), no DRIFT (headings differ — 8517 vs 8518), not SPARSE (Track A has signal).
     const a = trackA({ candidates: [ac('851712000000', 'partial')] });
     const b = trackB({ resolved_code: '851830900003' });
-    expect(classifyConflict(a, b)).toBe('AMBIGUOUS_MATERIAL');
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
   });
 
   it('AMBIGUOUS_MATERIAL: trackA top is partial in same chapter; trackB resolver also matches that chapter at a different heading', () => {
@@ -284,13 +284,13 @@ describe('classifyConflict — precedence tests', () => {
     const b = trackB({ resolved_code: '620510000000' }); // 6205.10 → heading 6205
     // Same chapter 62, different heading — no CONTRADICTION (top is partial not fits, so 2b
     // doesn't fire), no AGREEMENT, no DRIFT (headings differ), not SPARSE.
-    expect(classifyConflict(a, b)).toBe('AMBIGUOUS_MATERIAL');
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
   });
 
   it('AMBIGUOUS_MATERIAL: when consistency_verdict=ambiguous and resolver is in partial set', () => {
     const a = trackA({ candidates: [ac('851712000000', 'partial')] });
     const b = trackB({ resolved_code: '851830900003', consistency_verdict: 'ambiguous' });
-    expect(classifyConflict(a, b)).toBe('AMBIGUOUS_MATERIAL');
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
   });
 
   // ──────────────────────────────────────────────────────────
@@ -312,7 +312,7 @@ describe('classifyConflict — precedence tests', () => {
     const a = trackA({});
     const b = trackB({ resolved_code: '851830900003' });
     // single_b path: no Track A signal, B has code — SPARSE since no_fit=true.
-    expect(classifyConflict(a, b)).toBe('SPARSE_DESCRIPTION');
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
   });
 
   it('handles 6-digit (heading-only) resolved_code without crashing', () => {
