@@ -1,20 +1,19 @@
 /**
- * PR 6: reconciliation outcome map.
+ * Reconciliation outcome map.
  *
- * Each conflict type maps to a specific (decision, confidence_band, source,
- * audit_flag) tuple per the canonical outcome map. These tests pin those
- * tuples explicitly so a future regression is loud.
+ * Each internal conflict type maps to a specific (decision, confidence_band,
+ * source) tuple. These tests pin those tuples so a future regression is loud.
  *
- *   AGREEMENT          → accept, HIGH,    audit_flag: false
- *   DRIFT              → accept, MEDIUM,  audit_flag: true (mandatory)
- *   AMBIGUOUS_MATERIAL → accept, LOW,     audit_flag: true (sampled in PR 7)
- *   SPARSE_DESCRIPTION → accept, LOW,     audit_flag: true (sampled in PR 7)
- *   CONTRADICTION      → accept, MEDIUM,  audit_flag: true (mandatory).
- *                        Track A rank-1 wins; merchant code overridden.
- *   ZERO_SIGNAL        → escalate.
+ *   AGREEMENT          → accept, HIGH,    classification_status=AGREEMENT
+ *   DRIFT              → accept, MEDIUM,  classification_status=DRIFT
+ *   AMBIGUOUS_MATERIAL → accept, LOW,     classification_status=DRIFT
+ *   SPARSE_DESCRIPTION → accept, LOW,     classification_status=DRIFT
+ *   CONTRADICTION      → accept, MEDIUM,  classification_status=DRIFT
+ *                        (Track A rank-1 wins; merchant code overridden)
+ *   ZERO_SIGNAL        → escalate
  *
- * The DRIFT path involves the LLM, which we mock. Other paths are
- * deterministic.
+ * audit_flag was removed in V1 (no post-clearance audit). The DRIFT path
+ * involves the LLM, which we mock. Other paths are deterministic.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
@@ -91,40 +90,37 @@ beforeEach(() => {
 
 describe('runReconciliation — outcome map per conflict type', () => {
   // ──────────────────────────────────────────────────────────
-  // AGREEMENT → HIGH, audit_flag: false
+  // AGREEMENT → HIGH
   // ──────────────────────────────────────────────────────────
-  it('AGREEMENT (resolver in fits): accept, HIGH, audit_flag=false, source=code_resolver', async () => {
+  it('AGREEMENT (resolver in fits): accept, HIGH, source=code_resolver', async () => {
     const a = trackA({ candidates: [ac('851830900003', 'fits')] });
     const b = trackB({ resolved_code: '851830900003' });
     const v = (await runReconciliation(a, b, 'wireless headphones')) as VerdictResult;
     expect(v.decision).toBe('accept');
     expect(v.conflict_type).toBe('AGREEMENT');
     expect(v.confidence_band).toBe('high');
-    expect(v.audit_flag).toBe(false);
     expect(v.source).toBe('code_resolver');
     expect(v.final_code).toBe('851830900003');
   });
 
-  it('AGREEMENT (single_a fits): accept, HIGH, audit_flag=false, source=description_classifier', async () => {
+  it('AGREEMENT (single_a fits): accept, HIGH, source=description_classifier', async () => {
     const a = trackA({ candidates: [ac('851830900003', 'fits')] });
     const b = trackB({}); // no resolved_code
     const v = (await runReconciliation(a, b, 'wireless headphones')) as VerdictResult;
     expect(v.conflict_type).toBe('AGREEMENT');
     expect(v.confidence_band).toBe('high');
-    expect(v.audit_flag).toBe(false);
     expect(v.source).toBe('description_classifier');
   });
 
   // ──────────────────────────────────────────────────────────
-  // CONTRADICTION → MEDIUM, audit_flag: true, Track A rank-1 wins
+  // CONTRADICTION → MEDIUM, Track A rank-1 wins
   // ──────────────────────────────────────────────────────────
-  it('CONTRADICTION (consistency_verdict=contradicts): accept, MEDIUM, audit_flag=true, Track A rank-1 wins', async () => {
+  it('CONTRADICTION (consistency_verdict=contradicts): accept, MEDIUM, Track A rank-1 wins', async () => {
     const a = trackA({ candidates: [ac('460200000000', 'fits')] });
     const b = trackB({ resolved_code: '630790300000', consistency_verdict: 'contradicts' });
     const v = (await runReconciliation(a, b, 'storage basket')) as VerdictResult;
     expect(v.conflict_type).toBe('CONTRADICTION');
     expect(v.confidence_band).toBe('medium');
-    expect(v.audit_flag).toBe(true);
     expect(v.final_code).toBe('460200000000');
     expect(v.source).toBe('description_classifier');
   });
@@ -145,13 +141,12 @@ describe('runReconciliation — outcome map per conflict type', () => {
     expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
     expect(v.final_code).toBe('630790300000'); // resolver code, not the hallucinated unanchored top
     expect(v.confidence_band).toBe('low');
-    expect(v.audit_flag).toBe(true);
   });
 
   // ──────────────────────────────────────────────────────────
-  // AMBIGUOUS_MATERIAL → LOW, audit_flag: true, source=code_resolver
+  // AMBIGUOUS_MATERIAL → LOW, source=code_resolver
   // ──────────────────────────────────────────────────────────
-  it('AMBIGUOUS_MATERIAL: accept, LOW, audit_flag=true, source=code_resolver', async () => {
+  it('AMBIGUOUS_MATERIAL: accept, LOW, source=code_resolver', async () => {
     // Track A produces a partial in a different heading; Track B has
     // a resolved code. No fits, no chapter mismatch on a fits, no DRIFT
     // (headings differ), not SPARSE.
@@ -160,31 +155,28 @@ describe('runReconciliation — outcome map per conflict type', () => {
     const v = (await runReconciliation(a, b, 'some audio device')) as VerdictResult;
     expect(v.conflict_type).toBe('AMBIGUOUS_MATERIAL');
     expect(v.confidence_band).toBe('low');
-    expect(v.audit_flag).toBe(true);
     expect(v.source).toBe('code_resolver');
     expect(v.final_code).toBe('851830900003');
   });
 
   // ──────────────────────────────────────────────────────────
-  // SPARSE_DESCRIPTION → LOW, audit_flag: true
+  // SPARSE_DESCRIPTION → LOW
   // ──────────────────────────────────────────────────────────
-  it('SPARSE_DESCRIPTION (no_fit): accept, LOW, audit_flag=true', async () => {
+  it('SPARSE_DESCRIPTION (no_fit): accept, LOW', async () => {
     const a = trackA({ no_fit: true });
     const b = trackB({ resolved_code: '851830900003' });
     const v = (await runReconciliation(a, b, 'thin description')) as VerdictResult;
     expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
     expect(v.confidence_band).toBe('low');
-    expect(v.audit_flag).toBe(true);
     expect(v.source).toBe('code_resolver');
   });
 
-  it('SPARSE_DESCRIPTION (threshold_failed): accept, LOW, audit_flag=true', async () => {
+  it('SPARSE_DESCRIPTION (threshold_failed): accept, LOW', async () => {
     const a = trackA({ threshold_failed: true });
     const b = trackB({ resolved_code: '851830900003' });
     const v = (await runReconciliation(a, b, 'thin description')) as VerdictResult;
     expect(v.conflict_type).toBe('SPARSE_DESCRIPTION');
     expect(v.confidence_band).toBe('low');
-    expect(v.audit_flag).toBe(true);
   });
 
   // ──────────────────────────────────────────────────────────
@@ -205,7 +197,7 @@ describe('runReconciliation — outcome map per conflict type', () => {
   // DRIFT → LLM call. Verify the outcome map for both LLM success
   // and LLM failure paths.
   // ──────────────────────────────────────────────────────────
-  it('DRIFT (LLM picks a leaf): accept, MEDIUM, audit_flag=true (mandatory)', async () => {
+  it('DRIFT (LLM picks a leaf): accept, MEDIUM', async () => {
     structuredLlmCallMock.mockResolvedValueOnce({
       kind: 'ok',
       data: {
@@ -221,7 +213,6 @@ describe('runReconciliation — outcome map per conflict type', () => {
     const v = (await runReconciliation(a, b, 'bootcut legging')) as VerdictResult;
     expect(v.conflict_type).toBe('DRIFT');
     expect(v.confidence_band).toBe('medium');
-    expect(v.audit_flag).toBe(true);
     expect(v.final_code).toBe('620463000004');
   });
 
@@ -237,7 +228,6 @@ describe('runReconciliation — outcome map per conflict type', () => {
     // LLM-failure-during-DRIFT specifically falls back to resolver at LOW + audit.
     expect(v.conflict_type).toBe('DRIFT');
     expect(v.confidence_band).toBe('low');
-    expect(v.audit_flag).toBe(true);
     expect(v.final_code).toBe('620463000000');
   });
 

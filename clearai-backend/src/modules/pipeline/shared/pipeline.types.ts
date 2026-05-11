@@ -140,8 +140,9 @@ export interface TrackBLlmContext {
  * contradicts     — top reranker candidate's prefix does NOT start with
  *                   valid_prefix. Hard violation: the description pulls
  *                   strongly toward a different chapter. Reconciliation
- *                   resolves as CONTRADICTION conflict; merchant code
- *                   overridden, audit_flag mandatory.
+ *                   resolves as CONTRADICTION (collapsed to classification
+ *                   _status=DRIFT in the V1 external surface); merchant
+ *                   code overridden.
  * not_applicable  — no valid prefix to anchor to (merchant code absent or
  *                   malformed, or codebook walk produced no resolvable input).
  *                   Subtree retrieval did not run.
@@ -304,13 +305,6 @@ export interface VerdictResult {
    * audit queries continue to work. Will be removed once the SPA migrates.
    */
   conflict_type: ConflictType;
-  /**
-   * @deprecated V1 dropped the post-clearance audit surface. Field is left in
-   * place to avoid churning every test fixture and trace consumer in this
-   * commit; values are still emitted but no V1 UI surfaces them. Will be
-   * removed in a follow-up PR.
-   */
-  audit_flag: boolean;
 }
 
 export interface VerdictEscalate {

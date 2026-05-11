@@ -1,11 +1,13 @@
 /**
- * Stage 2 — Reconciliation. PR 6 reshape.
+ * Stage 2 — Reconciliation.
  *
  * Architecture:
  *   1. classifyConflict() (deterministic, no LLM) categorizes the (Track A,
- *      Track B) state into one of six conflict types.
- *   2. Per-conflict handler emits the verdict per the canonical outcome map
- *      (see memory: feedback_pr6_conflict_type_outcomes).
+ *      Track B) state into one of six internal conflict types.
+ *   2. Per-conflict handler emits the verdict.
+ *   3. The verdict carries `classification_status` (V1 external surface,
+ *      3 values: AGREEMENT | DRIFT | ZERO_SIGNAL) plus the legacy
+ *      `conflict_type` field for forensic queries.
  *
  * The LLM is called only for DRIFT (heading agrees, leaf disputes), where
  * picking between competing leaves under a shared heading benefits from
@@ -14,19 +16,17 @@
  * confidence rather than calling the LLM, since the description-side signal
  * is by definition non-corroborating.
  *
- * Outcome map (canonical):
- *   AGREEMENT          → accept, HIGH,    audit_flag: false
- *   DRIFT              → accept, MEDIUM,  audit_flag: true (mandatory)
- *   AMBIGUOUS_MATERIAL → accept, LOW,     audit_flag: true (sampled — see PR 7)
- *   SPARSE_DESCRIPTION → accept, LOW,     audit_flag: true (sampled — see PR 7)
- *   CONTRADICTION      → accept, MEDIUM,  audit_flag: true (mandatory).
- *                        Track A rank-1 wins; merchant code overridden.
- *   ZERO_SIGNAL        → escalate to HITL. Only conflict type that escalates.
+ * V1 surface collapse (internal conflict_type -> external classification_status):
+ *   AGREEMENT          -> AGREEMENT  (accept, HIGH confidence, source=B or A)
+ *   DRIFT              -> DRIFT      (accept, MEDIUM, LLM-arbitrated leaf)
+ *   AMBIGUOUS_MATERIAL -> DRIFT      (accept, LOW, resolver carries the row)
+ *   SPARSE_DESCRIPTION -> DRIFT      (accept, LOW, resolver carries the row)
+ *   CONTRADICTION      -> DRIFT      (accept, MEDIUM, Track A rank-1 wins)
+ *   ZERO_SIGNAL        -> ZERO_SIGNAL (escalate to HITL)
  *
- * PR 6 emits all VerdictResult fields including conflict_type and a SIMPLE
- * audit_flag (true/false based on the conflict type). PR 7 adds the
- * sampling logic for AMBIGUOUS_MATERIAL / SPARSE_DESCRIPTION; until then
- * those types set audit_flag=true unconditionally (over-audit, not under-).
+ * audit_flag was removed in V1 (no post-clearance audit). The internal
+ * conflict_type field still distinguishes the cases for forensic queries
+ * via trace JSONB.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
@@ -40,7 +40,6 @@ import type {
   ReconciliationSource,
   AnnotatedCandidate,
   ConfidenceBand,
-  ConflictType,
 } from '../shared/pipeline.types.js';
 
 function topFitCandidate(candidates: AnnotatedCandidate[]): AnnotatedCandidate | null {
@@ -49,29 +48,6 @@ function topFitCandidate(candidates: AnnotatedCandidate[]): AnnotatedCandidate |
     candidates.find((c) => c.fit === 'partial') ??
     null
   );
-}
-
-/**
- * Given a conflict type, return whether the row should be audited
- * post-clearance. PR 6 uses simple binary rules; PR 7 layers in sampling
- * for AMBIGUOUS / SPARSE.
- */
-function defaultAuditFlag(conflictType: ConflictType): boolean {
-  switch (conflictType) {
-    case 'AGREEMENT':
-      return false;
-    case 'DRIFT':
-    case 'CONTRADICTION':
-      return true;
-    case 'AMBIGUOUS_MATERIAL':
-    case 'SPARSE_DESCRIPTION':
-      // PR 6: over-audit (conservative). PR 7 layers in sampling.
-      return true;
-    case 'ZERO_SIGNAL':
-      // Escalates — audit_flag is meaningless on the escalate path; never
-      // reaches the verdict result anyway.
-      return false;
-  }
 }
 
 const ReconciliationSchema = z
@@ -143,7 +119,6 @@ async function callReconciliationLlmForDrift(params: {
         source: 'code_resolver',
         classification_status: 'DRIFT',
         conflict_type: 'DRIFT',
-        audit_flag: true,
       };
     }
     return { kind: 'escalate', reason: `DRIFT reconciliation LLM unavailable: ${outcome.kind}` };
@@ -176,7 +151,6 @@ async function callReconciliationLlmForDrift(params: {
       source,
       classification_status: 'DRIFT',
       conflict_type: 'DRIFT',
-      audit_flag: true,
     };
   }
 
@@ -206,7 +180,6 @@ function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
         source: 'code_resolver',
         classification_status: 'AGREEMENT',
         conflict_type: 'AGREEMENT',
-        audit_flag: false,
       };
     }
   }
@@ -220,7 +193,6 @@ function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
       source: 'description_classifier',
       classification_status: 'AGREEMENT',
       conflict_type: 'AGREEMENT',
-      audit_flag: false,
     };
   }
   // Defensive: classifier should not return AGREEMENT without a candidate.
@@ -246,7 +218,6 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
       source: 'description_classifier',
       classification_status: 'DRIFT',
       conflict_type: 'CONTRADICTION',
-      audit_flag: true,
     };
   }
   // Fall back to the forced subtree candidate from PR 5 (trackB.subtree_candidates[0]
@@ -261,7 +232,6 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
       source: 'description_classifier',
       classification_status: 'DRIFT',
       conflict_type: 'CONTRADICTION',
-      audit_flag: true,
     };
   }
   // Defensive: classifier should not return CONTRADICTION without any rank-1 source.
@@ -272,7 +242,7 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
 
 function handleAmbiguousMaterial(trackB: TrackBResult): VerdictResult {
   // Merchant heading is plausible but unconfirmed. Accept the resolver code
-  // at LOW confidence with audit_flag (sampled in PR 7).
+  // at LOW confidence; V1 surface = DRIFT.
   if (!trackB.resolved_code) {
     // Defensive: AMBIGUOUS_MATERIAL only fires when we have something on B.
     throw new Error(
@@ -284,11 +254,10 @@ function handleAmbiguousMaterial(trackB: TrackBResult): VerdictResult {
     final_code: trackB.resolved_code,
     confidence_band: 'low',
     rationale:
-      'AMBIGUOUS_MATERIAL: description silent on dimensions the heading constrains; accepting merchant code at low confidence with audit',
+      'AMBIGUOUS_MATERIAL: description silent on dimensions the heading constrains; accepting merchant code at low confidence',
     source: 'code_resolver',
     classification_status: 'DRIFT',
     conflict_type: 'AMBIGUOUS_MATERIAL',
-    audit_flag: defaultAuditFlag('AMBIGUOUS_MATERIAL'),
   };
 }
 
@@ -304,11 +273,10 @@ function handleSparseDescription(trackB: TrackBResult): VerdictResult {
     final_code: trackB.resolved_code,
     confidence_band: 'low',
     rationale:
-      'SPARSE_DESCRIPTION: description too thin for description_classifier to contribute; accepting merchant code at low confidence with audit',
+      'SPARSE_DESCRIPTION: description too thin for description_classifier to contribute; accepting merchant code at low confidence',
     source: 'code_resolver',
     classification_status: 'DRIFT',
     conflict_type: 'SPARSE_DESCRIPTION',
-    audit_flag: defaultAuditFlag('SPARSE_DESCRIPTION'),
   };
 }
 

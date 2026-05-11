@@ -4,6 +4,10 @@
  * (`pnpm db:seed:overrides:naqel`). Integration-flavoured but the pool is
  * reused across the suite so cost is minimal.
  *
+ * Gated on RUN_DB_TESTS=1: CI and unit runs skip this suite by default.
+ * To run locally:
+ *   RUN_DB_TESTS=1 pnpm vitest run tests/classification/operator-overrides.test.ts
+ *
  * What we pin:
  *   - exact-match lookup returns the operator's target
  *   - dotted/spaced inputs are normalised before matching
@@ -17,7 +21,7 @@ import { describe, expect, it, afterAll } from 'vitest';
 import { lookupTenantOverride } from '../../src/modules/pipeline/track-b-code/codebook-override.js';
 import { closeDb } from '../../src/db/client.js';
 
-describe('lookupTenantOverride (live DB)', () => {
+describe.skipIf(!process.env.RUN_DB_TESTS)('lookupTenantOverride (live DB)', () => {
   afterAll(async () => {
     await closeDb();
   });

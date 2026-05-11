@@ -3,6 +3,12 @@
  * introduced in PR #1 of the post-event-rebuild sequence. Hits the live
  * DB; pool is reused across the suite.
  *
+ * Gated on RUN_DB_TESTS=1: this suite requires a Postgres instance
+ * reachable via DATABASE_URL with the Naqel xlsx ingested
+ * (`pnpm db:seed:overrides:naqel`). CI and unit runs skip these by
+ * default. To run locally:
+ *   RUN_DB_TESTS=1 pnpm vitest run tests/classification/track-b.test.ts
+ *
  * Key invariant: a tenant override is no longer terminal. Whatever it
  * maps to is fed back into the codebook walk so stale overrides
  * (mapping to a now-deprecated leaf, an unknown code, or a prefix)
@@ -19,7 +25,7 @@ import { describe, expect, it, afterAll } from 'vitest';
 import { runTrackB } from '../../src/modules/pipeline/track-b-code/track-b.js';
 import { closeDb } from '../../src/db/client.js';
 
-describe('runTrackB — override feeds codebook walk', () => {
+describe.skipIf(!process.env.RUN_DB_TESTS)('runTrackB — override feeds codebook walk', () => {
   afterAll(async () => {
     await closeDb();
   });

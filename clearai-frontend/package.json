@@ -35,7 +35,9 @@
     "@astrojs/check": "^0.9.8",
     "typescript": "^5.9.3"
   },
+  "//overrides_notes": "fast-uri >= 3.1.2 — host confusion (percent-encoded authority) + path traversal. Dev-only transitive via @astrojs/check -> yaml-language-server -> ajv@8 -> fast-uri. Override sweeps the lockfile.",
   "overrides": {
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "fast-uri": ">=3.1.2"
   }
 }
