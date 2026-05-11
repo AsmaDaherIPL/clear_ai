@@ -187,14 +187,20 @@ export default function BatchResultsTable({
   const t = useT();
 
   const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
+    // Column sizes are proportional hints (the table fills container width
+    // via tableLayout:fixed, so what matters is the ratio between sizes,
+    // not their absolute pixel values). Approximate ratios at default:
+    //   line: 4%, merchant_code: 10%, merchant_description: 16%,
+    //   classified_code: 11%, breakdown: 25%, classification: 11%,
+    //   submission_ar: 16%, verdict: 11%   (sum ≈ 100%, ~1100px equivalent)
     {
       id: 'line',
       accessorKey: 'row_index',
       header: t('batch_col_line' as TKey),
       enableSorting: true,
-      size: 56,
-      minSize: 48,
-      maxSize: 80,
+      size: 48,
+      minSize: 40,
+      maxSize: 72,
       cell: ({ getValue }) => (
         <span className="font-mono text-[12px] text-[var(--ink-2)]">{String(getValue())}</span>
       ),
@@ -204,9 +210,9 @@ export default function BatchResultsTable({
       header: t('batch_col_merchant_code' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.raw_merchant_code ?? '',
-      size: 160,
-      minSize: 120,
-      maxSize: 240,
+      size: 110,
+      minSize: 90,
+      maxSize: 200,
       cell: ({ row }) => (
         <MerchantCodeCell
           item={row.original}
@@ -219,9 +225,9 @@ export default function BatchResultsTable({
       header: t('batch_col_merchant_description' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.raw_description ?? '',
-      size: 220,
-      minSize: 160,
-      maxSize: 400,
+      size: 180,
+      minSize: 140,
+      maxSize: 360,
       cell: ({ row }) => <MerchantDescriptionCell item={row.original} />,
     },
     {
@@ -229,9 +235,9 @@ export default function BatchResultsTable({
       header: t('batch_col_classified_code' as TKey),
       enableSorting: true,
       accessorFn: (row) => row.final_code ?? '',
-      size: 150,
-      minSize: 120,
-      maxSize: 200,
+      size: 120,
+      minSize: 100,
+      maxSize: 180,
       cell: ({ row }) => {
         const fc = row.original.final_code;
         if (!fc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
@@ -247,9 +253,9 @@ export default function BatchResultsTable({
       header: t('batch_col_classified_code_breakdown' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.final_code ?? '',
-      size: 320,
-      minSize: 260,
-      maxSize: 480,
+      size: 280,
+      minSize: 220,
+      maxSize: 440,
       cell: ({ row }) => <CodeBreakdownCell item={row.original} />,
     },
     {
@@ -257,9 +263,9 @@ export default function BatchResultsTable({
       header: t('batch_col_classification_status' as TKey),
       enableSorting: true,
       accessorFn: (row) => row.classification_status ?? '',
-      size: 140,
-      minSize: 110,
-      maxSize: 200,
+      size: 120,
+      minSize: 100,
+      maxSize: 180,
       cell: ({ row }) => {
         const status = row.original.classification_status;
         const b = status ? CLASSIFICATION_BADGE[String(status)] : null;
@@ -277,9 +283,9 @@ export default function BatchResultsTable({
       header: t('batch_col_zatca_submission' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.submission_description_ar ?? '',
-      size: 220,
-      minSize: 160,
-      maxSize: 360,
+      size: 180,
+      minSize: 140,
+      maxSize: 320,
       cell: ({ row }) => {
         const ar = row.original.submission_description_ar;
         return (
@@ -302,9 +308,9 @@ export default function BatchResultsTable({
         const raw = readVerdict(row);
         return raw ? normaliseVerdict(raw) : '';
       },
-      size: 160,
-      minSize: 120,
-      maxSize: 220,
+      size: 130,
+      minSize: 100,
+      maxSize: 200,
       filterFn: (row, _id, value) => {
         const raw = readVerdict(row.original);
         if (!raw) return false;

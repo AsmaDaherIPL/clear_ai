@@ -418,16 +418,22 @@ export function DataTable<T extends object>({
       {/* Table scroll container */}
       <div ref={scrollRef} className={cn('overflow-auto relative', maxHeight)}>
         {/*
-          tableLayout: fixed + width driven by getTotalSize() — required for
-          TanStack column resizing. Individual column widths are set via
-          style={{ width: header.getSize() }} on each <th>/<td>.
-          Note: position:relative on <th> inside border-collapse is supported
-          in modern browsers. If Safari shows a collapsed bottom border during
-          scroll, switch to border-separate / border-spacing: 0.
+          Responsive width strategy:
+            - width: 100% — the table always fills its container.
+            - tableLayout: fixed — column widths from <th> style={{ width }}
+              are treated as proportional hints; the browser distributes
+              container width across columns in the same ratio as those hints.
+              When the user drags a resize handle, TanStack updates the per-
+              column `size`; the ratios change, the total stays at 100%.
+            - No minWidth — that would force a horizontal scrollbar whenever
+              the sum of column sizes exceeds container width. We want the
+              table to fill width with normal padding, not scroll.
+          Individual column widths are set via style={{ width }} on each <th>
+          only; <td> cells inherit via tableLayout: fixed.
         */}
         <table
-          className="w-full border-collapse"
-          style={{ tableLayout: 'fixed', width: table.getTotalSize() }}
+          className="border-collapse"
+          style={{ tableLayout: 'fixed', width: '100%' }}
         >
           <thead className="sticky top-0 z-10 bg-[var(--line-2)]">
             {table.getHeaderGroups().map((hg) => (
@@ -520,9 +526,10 @@ export function DataTable<T extends object>({
                         )}
                       >
                         {row.getVisibleCells().map((cell) => (
+                          // tableLayout: fixed makes <td> inherit width
+                          // from the matching <th>, so no inline width here.
                           <td
                             key={cell.id}
-                            style={{ width: cell.column.getSize() }}
                             className="px-3.5 py-2.5 align-top overflow-hidden"
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
