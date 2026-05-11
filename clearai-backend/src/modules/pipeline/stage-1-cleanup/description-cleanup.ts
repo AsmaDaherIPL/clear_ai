@@ -90,6 +90,54 @@ const GENERIC_SHIPPING_NOUNS = new Set([
   'document', 'documents',
   'letter', 'letters',
   'envelope', 'envelopes',
+  // Single-word containers — still ambiguous even alone
+  'bag', 'bags',
+  'case', 'cases',
+  'cover', 'covers',
+  'sleeve', 'sleeves',
+  'holder', 'holders',
+  'pouch', 'pouches',
+  'wallet', 'wallets',
+  'stand', 'stands',
+  'kit', 'kits',
+  'set', 'sets',
+  'pad', 'pads',
+]);
+
+/**
+ * Head nouns that are ambiguous containers when used as the final content
+ * word of a short (≤4 token) phrase. A modifier tells you the product
+ * category but retrieval needs tariff vocabulary to search effectively:
+ *
+ *   "diaper bag"  → "nursery bag, textile carrying bag for infant care items"
+ *   "phone case"  → "case for mobile telephones, of plastic or leather"
+ *   "laptop sleeve" → "protective cover for portable computers"
+ *   "gift box"    → "presentation box, of paperboard" (already in shipping nouns,
+ *                    but repeated here for readability)
+ *
+ * When the head noun is in this set AND the phrase is ≤4 tokens, force
+ * looksClean=false so the LLM runs and the Researcher can produce a
+ * tariff-vocabulary description before retrieval. The phrase can still
+ * land as `product` if the LLM concludes it's clear enough — this only
+ * ensures the LLM has a chance to evaluate it.
+ */
+const AMBIGUOUS_HEAD_NOUNS = new Set([
+  'bag', 'bags',
+  'case', 'cases',
+  'cover', 'covers',
+  'sleeve', 'sleeves',
+  'holder', 'holders',
+  'pouch', 'pouches',
+  'wallet', 'wallets',
+  'stand', 'stands',
+  'rack', 'racks',
+  'hook', 'hooks',
+  'mount', 'mounts',
+  'kit', 'kits',
+  'set', 'sets',
+  'bundle', 'bundles',
+  'pad', 'pads',
+  'strip', 'strips',
 ]);
 
 /**
@@ -133,6 +181,20 @@ export function looksClean(input: string): boolean {
     contentTokens.every((t) => GENERIC_SHIPPING_NOUNS.has(t))
   ) {
     return false;
+  }
+
+  // Ambiguous-head-noun gate: short phrases (≤4 tokens) whose final content
+  // word is a generic container noun need tariff-vocabulary expansion before
+  // retrieval can find the right candidates. "Diaper bag" retrieves chapter 48
+  // packaging without this; "phone case" retrieves generic containers.
+  // Force LLM cleanup so the Researcher can produce a richer query.
+  // Only applies to short phrases — longer descriptions already carry enough
+  // specificity for retrieval to work without the researcher.
+  if (contentTokens.length <= 4 && contentTokens.length >= 2) {
+    const headNoun = contentTokens[contentTokens.length - 1];
+    if (AMBIGUOUS_HEAD_NOUNS.has(headNoun)) {
+      return false;
+    }
   }
 
   for (const tok of tokens) {

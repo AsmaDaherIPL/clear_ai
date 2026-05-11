@@ -90,7 +90,7 @@ async function attemptClassify(params: {
     system: params.system,
     user: params.user,
     ...(params.model ? { model: params.model } : {}),
-    maxTokens: 768,
+    maxTokens: 1500,
     temperature: 0,
   });
 
