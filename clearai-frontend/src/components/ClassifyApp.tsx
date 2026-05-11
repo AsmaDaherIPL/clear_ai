@@ -1,6 +1,6 @@
 /** Root React island. Owns mode, phase, request state, drives the page layout. */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import TopBar from './TopBar';
 import Hero from './Hero';
 import ModeTabs, { type ClassifyMode } from './ModeTabs';
@@ -112,6 +112,24 @@ const initialBatchState: BatchState = {
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min cap; backend can run longer but the UI won't watch indefinitely
 
+function getUrlRunId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('run');
+}
+
+function syncRunIdToUrl(runId: string | null): void {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search);
+  if (runId) {
+    params.set('run', runId);
+  } else {
+    params.delete('run');
+  }
+  const qs = params.toString();
+  const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+  window.history.replaceState(null, '', next);
+}
+
 export default function ClassifyApp() {
   const t = useT();
   // Auth state drives the composer/login swap. The page chrome
@@ -146,6 +164,12 @@ export default function ClassifyApp() {
     }
   };
 
+  // Keep ?run=<id> in the URL in sync with batchState.runId so the user
+  // can bookmark or share a batch run and return to it later.
+  useEffect(() => {
+    syncRunIdToUrl(batchState.runId);
+  }, [batchState.runId]);
+
   /**
    * Reset batch mode to its initial state. Called from the
    * "Start a new batch" button in the result panel footer; also
@@ -154,8 +178,90 @@ export default function ClassifyApp() {
    */
   const handleResetBatch = () => {
     stopPolling();
+    syncRunIdToUrl(null);
     setBatchState({ ...initialBatchState });
   };
+
+  /**
+   * Core poll loop for a known runId. Fires immediately (no initial delay
+   * when resuming a run from a URL param) and keeps polling until the run
+   * reaches a terminal state. Extracted so both handleBatchUpload and the
+   * URL-resume effect can share it without duplicating the logic.
+   */
+  const startPollingRun = useCallback((runId: string) => {
+    const startedAt = Date.now();
+    let classificationsFetched = false;
+
+    const poll = async (): Promise<void> => {
+      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+        setBatchState((s) => ({
+          ...s,
+          phase: 'error',
+          errorMessage: 'Run still in progress after 5 minutes — check the run page later.',
+        }));
+        return;
+      }
+      try {
+        const summary = await api.getDeclarationRun(runId);
+        setBatchState((s) => ({ ...s, summary }));
+
+        // v3.1 + PR G: items now stream in as they complete. Re-fetch
+        // every tick during Phase 1 so the table live-fills row-by-
+        // row (instead of one big swap at the end). The endpoint
+        // returns a `classification_phase` flag at the top level
+        // which is the authoritative Phase 1 lifecycle signal —
+        // independent of the run-level status (which can flip to
+        // 'failed' because Phase 2 failed even when Phase 1 was fine).
+        let classificationPhase: 'pending' | 'running' | 'completed' | 'failed' | undefined;
+        try {
+          const cls = await api.getDeclarationRunClassifications(runId);
+          classificationPhase = cls.classification_phase;
+          setBatchState((s) => ({ ...s, items: cls.items }));
+        } catch {
+          // Non-fatal: keep polling. Next tick may succeed.
+        }
+
+        // Stop polling when EITHER signal goes terminal — whichever
+        // flips first wins. summary.status covers run-level success
+        // and Phase-2 failure; classification_phase covers Phase-1
+        // completion. Belt-and-braces.
+        const summaryTerminal =
+          summary.status === 'completed' ||
+          summary.status === 'failed' ||
+          summary.status === 'cancelled';
+        const classificationTerminal =
+          classificationPhase === 'completed' || classificationPhase === 'failed';
+        if (summaryTerminal || classificationTerminal) {
+          // One final fetch to make sure the table reflects every
+          // last completion before we stop polling.
+          if (!classificationsFetched) {
+            classificationsFetched = true;
+            try {
+              const finalCls = await api.getDeclarationRunClassifications(runId);
+              setBatchState((s) => ({ ...s, items: finalCls.items }));
+            } catch {
+              /* swallow — best-effort final read */
+            }
+          }
+          setBatchState((s) => ({ ...s, phase: 'done' }));
+          return;
+        }
+        pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
+      } catch (err) {
+        const msg =
+          err instanceof ApiError
+            ? `${err.status}: ${err.message}`
+            : err instanceof Error
+              ? err.message
+              : 'Polling failed.';
+        setBatchState((s) => ({ ...s, phase: 'error', errorMessage: msg }));
+      }
+    };
+
+    // Fire the first tick immediately so a URL-resumed run shows data
+    // without a 2-second blank gap.
+    void poll();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Batch-mode entry point. Fired by Composer when the user picks a file.
@@ -176,76 +282,7 @@ export default function ClassifyApp() {
       });
       const runId = created.declaration_run_id;
       setBatchState((s) => ({ ...s, phase: 'polling', runId }));
-
-      const startedAt = Date.now();
-      let classificationsFetched = false;
-
-      const poll = async (): Promise<void> => {
-        if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-          setBatchState((s) => ({
-            ...s,
-            phase: 'error',
-            errorMessage: 'Run still in progress after 5 minutes — check the run page later.',
-          }));
-          return;
-        }
-        try {
-          const summary = await api.getDeclarationRun(runId);
-          setBatchState((s) => ({ ...s, summary }));
-
-          // v3.1 + PR G: items now stream in as they complete. Re-fetch
-          // every tick during Phase 1 so the table live-fills row-by-
-          // row (instead of one big swap at the end). The endpoint
-          // returns a `classification_phase` flag at the top level
-          // which is the authoritative Phase 1 lifecycle signal —
-          // independent of the run-level status (which can flip to
-          // 'failed' because Phase 2 failed even when Phase 1 was fine).
-          let classificationPhase: 'pending' | 'running' | 'completed' | 'failed' | undefined;
-          try {
-            const cls = await api.getDeclarationRunClassifications(runId);
-            classificationPhase = cls.classification_phase;
-            setBatchState((s) => ({ ...s, items: cls.items }));
-          } catch {
-            // Non-fatal: keep polling. Next tick may succeed.
-          }
-
-          // Stop polling when EITHER signal goes terminal — whichever
-          // flips first wins. summary.status covers run-level success
-          // and Phase-2 failure; classification_phase covers Phase-1
-          // completion. Belt-and-braces.
-          const summaryTerminal =
-            summary.status === 'completed' ||
-            summary.status === 'failed' ||
-            summary.status === 'cancelled';
-          const classificationTerminal =
-            classificationPhase === 'completed' || classificationPhase === 'failed';
-          if (summaryTerminal || classificationTerminal) {
-            // One final fetch to make sure the table reflects every
-            // last completion before we stop polling.
-            if (!classificationsFetched) {
-              classificationsFetched = true;
-              try {
-                const finalCls = await api.getDeclarationRunClassifications(runId);
-                setBatchState((s) => ({ ...s, items: finalCls.items }));
-              } catch {
-                /* swallow — best-effort final read */
-              }
-            }
-            setBatchState((s) => ({ ...s, phase: 'done' }));
-            return;
-          }
-          pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
-        } catch (err) {
-          const msg =
-            err instanceof ApiError
-              ? `${err.status}: ${err.message}`
-              : err instanceof Error
-                ? err.message
-                : 'Polling failed.';
-          setBatchState((s) => ({ ...s, phase: 'error', errorMessage: msg }));
-        }
-      };
-      pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
+      startPollingRun(runId);
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -259,6 +296,22 @@ export default function ClassifyApp() {
 
   // Stop polling on unmount.
   useEffect(() => () => stopPolling(), []);
+
+  // Resume a batch run from ?run=<id> in the URL. Runs once on mount
+  // (after auth resolves) so navigating back to the page or sharing
+  // the URL drops you right back into the live result panel.
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (authState !== 'authenticated') return;
+    if (resumedRef.current) return;
+    const urlRunId = getUrlRunId();
+    if (!urlRunId) return;
+    resumedRef.current = true;
+    stopPolling();
+    setMode('batch');
+    setBatchState({ ...initialBatchState, phase: 'polling', runId: urlRunId });
+    startPollingRun(urlRunId);
+  }, [authState, startPollingRun]);
 
   const stepTimers = useRef<Record<ClassifyMode, number[]>>({
     generate: [], expand: [], batch: [],
