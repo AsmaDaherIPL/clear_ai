@@ -215,7 +215,7 @@ export function DataTable<T extends object>({
   filterChips,
   onRowClick,
   rowClassName,
-  maxHeight = 'max-h-[640px]',
+  maxHeight,
   emptyState,
   className,
 }: DataTableProps<T>) {

@@ -423,7 +423,6 @@ export default function BatchResultsTable({
           { label: t('batch_filter_verdict_warn' as TKey), value: 'warn' },
         ],
       }}
-      maxHeight="max-h-[640px]"
       emptyState={t('batch_empty_state' as TKey)}
       className={className}
     />
