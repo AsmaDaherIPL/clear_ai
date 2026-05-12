@@ -68,6 +68,63 @@ export async function runTrackA(
         enriched_description: research.enriched_description,
       },
     });
+
+    // Early web escalation. If the cheap researcher gave up
+    // (recognised=false), running retrieval on the unenriched
+    // passthrough text is just burning a vector query — it can only
+    // pattern-match on noise. Jump straight to web research, then let
+    // the rest of the flow continue with web's enriched query (or exit
+    // at threshold_failed if web also failed).
+    //
+    // Pre-2026-05-12 the code did retrieval+threshold first, then
+    // escalated to web ONLY if threshold failed — meaning every
+    // failed-researcher case paid for one wasted retrieval+threshold
+    // pass. This branch skips that.
+    if (!research.recognised) {
+      const tw = Date.now();
+      const web = await runWebResearcher(raw_description);
+      webResearchDetail = toResearchDetail(web);
+      stages.push({
+        name: 'track-a/web-researcher',
+        started_at: new Date(tw).toISOString(),
+        duration_ms: web.latency_ms,
+        outcome: 'ok',
+        detail: {
+          source: web.source,
+          recognised: web.recognised,
+          evidence_quote: web.evidence_quote,
+          model: web.model,
+          enriched_description: web.enriched_description,
+        },
+      });
+
+      if (web.recognised && web.enriched_description) {
+        // Web rescued it. Use the web-derived description for both
+        // retrieval and the picker's effective_description, then
+        // fall through to the normal retrieval+threshold+picker
+        // happy path below.
+        effective_description = web.enriched_description;
+        retrieval_query = web.enriched_description;
+      } else {
+        // Both researcher AND web gave up. Returning early with
+        // threshold_failed=true matches the shape Reconciliation
+        // already handles for "Track A had nothing useful"; the
+        // low-information gate downstream catches it and routes to
+        // HITL with reason=low_information.
+        return {
+          result: {
+            annotated_candidates: [],
+            threshold_failed: true,
+            no_fit: false,
+            interpretation_stage,
+            effective_description,
+            research: researchDetail,
+            web_research: webResearchDetail,
+          },
+          stages,
+        };
+      }
+    }
   } else {
     interpretation_stage = cleanup.degraded ? 'passthrough' : 'cleaned';
   }
