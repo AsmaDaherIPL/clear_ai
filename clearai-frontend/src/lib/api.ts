@@ -355,17 +355,23 @@ export interface ModelCallMeta {
   status: 'ok' | 'error' | 'timeout' | string;
 }
 
-// --- declaration-runs (bulk batch) ---------------------------------------
+// --- batches (bulk classification) ---------------------------------------
+// Renamed from declaration-runs in the 2026-05-12 API cutover. The
+// internal backend code/DB still uses declaration_runs naming.
 
-export type DeclarationRunMode = 'classify_only' | 'classify_and_declare';
+export type BatchMode = 'classify_only' | 'classify_and_declare';
+/** @deprecated Use BatchMode. */
+export type DeclarationRunMode = BatchMode;
 
-export type DeclarationRunStatus =
+export type BatchStatus =
   | 'pending'
   | 'ingesting'
   | 'processing'
   | 'completed'
   | 'failed'
   | 'cancelled';
+/** @deprecated Use BatchStatus. */
+export type DeclarationRunStatus = BatchStatus;
 
 export type ClassificationPhaseStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -377,29 +383,30 @@ export type DeclarationPhaseStatus =
   | 'skipped'
   | null;
 
-export type DeclarationRunItemStatus =
+export type BatchItemStatus =
   | 'pending'
   | 'classifying'
   | 'succeeded'
   | 'flagged'
   | 'blocked'
   | 'failed';
+/** @deprecated Use BatchItemStatus. */
+export type DeclarationRunItemStatus = BatchItemStatus;
 
-/** Response from POST /declaration-runs (HTTP 202). */
-export interface DeclarationRunCreated {
-  declaration_run_id: string;
-  mode: DeclarationRunMode;
-  poll_url: string;
-  classifications_url: string;
-  declarations_url?: string;
+/** Response from POST /batches (HTTP 202). */
+export interface BatchCreated {
+  batch_id: string;
+  mode: BatchMode;
 }
+/** @deprecated Use BatchCreated. */
+export type DeclarationRunCreated = BatchCreated;
 
-/** GET /declaration-runs/:id — used for polling. */
-export interface DeclarationRunSummary {
+/** GET /batches/:id — used for polling. */
+export interface BatchSummary {
   id: string;
   operator_slug: string;
-  mode: DeclarationRunMode;
-  status: DeclarationRunStatus;
+  mode: BatchMode;
+  status: BatchStatus;
   classification_status: ClassificationPhaseStatus;
   declaration_status: DeclarationPhaseStatus;
   row_count: number;
@@ -412,11 +419,13 @@ export interface DeclarationRunSummary {
   completed_at: string | null;
   error: string | null;
 }
+/** @deprecated Use BatchSummary. */
+export type DeclarationRunSummary = BatchSummary;
 
-export interface DeclarationRunItem {
+export interface BatchItem {
   id: string;
   row_index: number;
-  status: DeclarationRunItemStatus;
+  status: BatchItemStatus;
   final_code: string | null;
   /** ZATCA breadcrumb in English (zatca_hs_code_display.path_en). Null when no final_code. */
   catalog_path_en: string | null;
@@ -459,37 +468,41 @@ export interface DeclarationRunItem {
    */
   classification_status?: 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL' | string | null;
 }
+/** @deprecated Use BatchItem. */
+export type DeclarationRunItem = BatchItem;
 
-/** GET /declaration-runs/:id/classifications */
-export interface DeclarationRunClassifications {
-  declaration_run_id: string;
-  items: DeclarationRunItem[];
+/** GET /batches/:id/items */
+export interface BatchItemsPage {
+  batch_id: string;
+  items: BatchItem[];
   /**
    * Phase-1 (classification) lifecycle, separate from the run-level
-   * status. The run-level summary.status can be 'failed' because Phase
-   * 2 (declaration assembly) failed, even though Phase 1 finished
-   * normally — so this field is the authoritative stop signal for the
-   * live-poll loop. Optional for backward-compat with older trace rows.
+   * status. Authoritative stop signal for the live-poll loop.
    */
   classification_phase?: 'pending' | 'running' | 'completed' | 'failed';
-  /** Pagination envelope. `total` is the row count regardless of page size. */
-  total?: number;
-  limit?: number;
-  offset?: number;
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  next_offset: number | null;
 }
+/** @deprecated Use BatchItemsPage. */
+export type DeclarationRunClassifications = BatchItemsPage;
 
-/** GET /declaration-runs/:id/download-links */
-export interface DownloadLinkFile {
+/** GET /batches/:id/files */
+export interface BatchFile {
   name: string;
-  url: string;
-  sizeBytes: number | null;
-  contentType: string | null;
+  size_bytes: number | null;
+  content_type: string | null;
 }
-export interface DownloadLinks {
-  runId: string;
-  expiresAt: string;
-  files: DownloadLinkFile[];
+export interface BatchFilesList {
+  batch_id: string;
+  files: BatchFile[];
 }
+/** @deprecated Use BatchFile. */
+export type DownloadLinkFile = BatchFile;
+/** @deprecated Use BatchFilesList. */
+export type DownloadLinks = BatchFilesList;
 
 // --- Client ---------------------------------------------------------------
 
@@ -573,11 +586,20 @@ export const api = {
     }),
 
   /**
-   * POST /pipeline/dispatch — new two-track pipeline (description classifier +
-   * code resolver + reconciliation + sanity). Returns the full trace inline.
+   * POST /classifications/dispatch — single-item classification through
+   * the two-track pipeline (description classifier + code resolver +
+   * reconciliation + sanity). Returns the full trace inline.
+   * Renamed from /pipeline/dispatch in the 2026-05-12 API cutover.
    */
+  dispatchClassification: (b: DispatchRequest) =>
+    request<DispatchResponse>('/classifications/dispatch', {
+      method: 'POST',
+      body: JSON.stringify(b),
+    }),
+
+  /** @deprecated Use dispatchClassification. */
   dispatch: (b: DispatchRequest) =>
-    request<DispatchResponse>('/pipeline/dispatch', {
+    request<DispatchResponse>('/classifications/dispatch', {
       method: 'POST',
       body: JSON.stringify(b),
     }),
@@ -615,31 +637,59 @@ export const api = {
     ),
 
   /**
-   * POST /declaration-runs — multipart upload of a CSV/XLSX invoice.
-   * Returns 202 with a poll URL; the run processes asynchronously.
+   * POST /batches — multipart upload of a CSV/XLSX invoice. Returns 202
+   * with a batch id; the run processes asynchronously. Renamed from
+   * /declaration-runs in the 2026-05-12 API cutover.
+   *
+   * operator_slug and metadata fields were dropped from the request
+   * body; the V1 deployment is single-operator (naqel) and metadata
+   * wasn't being read anywhere.
    */
-  createDeclarationRun: (params: {
-    file: File;
-    operatorSlug: string;
-    mode: DeclarationRunMode;
-  }) => {
+  createBatch: (params: { file: File; mode: BatchMode }) => {
     const form = new FormData();
     form.append('file', params.file);
-    form.append('operator_slug', params.operatorSlug);
     form.append('mode', params.mode);
-    return requestMultipart<DeclarationRunCreated>('/declaration-runs', form);
+    return requestMultipart<BatchCreated>('/batches', form);
+  },
+  /** @deprecated Use createBatch. */
+  createDeclarationRun: (params: {
+    file: File;
+    operatorSlug?: string;
+    mode: BatchMode;
+  }) => {
+    void params.operatorSlug; // legacy param, no longer sent
+    const form = new FormData();
+    form.append('file', params.file);
+    form.append('mode', params.mode);
+    return requestMultipart<BatchCreated>('/batches', form);
   },
 
-  /** GET /declaration-runs/{id} — poll for status. */
+  /** GET /batches/{id} — poll for status. */
+  getBatch: (id: string) =>
+    request<BatchSummary>(`/batches/${encodeURIComponent(id)}`),
+  /** @deprecated Use getBatch. */
   getDeclarationRun: (id: string) =>
-    request<DeclarationRunSummary>(`/declaration-runs/${encodeURIComponent(id)}`),
+    request<BatchSummary>(`/batches/${encodeURIComponent(id)}`),
 
   /**
-   * GET /declaration-runs/{id}/classifications — per-item results once
-   * Phase 1 completes. Server-side paginated: default page size is 100,
-   * max 500. For runs over 100 items the SPA must page through; the
-   * envelope returns `total`, `limit`, `offset` for navigation.
+   * GET /batches/{id}/items — per-item results. Server-side paginated:
+   * default page size is 100, max 500. Envelope returns total + limit +
+   * offset + has_more + next_offset for ergonomic paging.
    */
+  getBatchItems: (
+    id: string,
+    opts?: { limit?: number; offset?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
+    if (opts?.offset !== undefined) params.set('offset', String(opts.offset));
+    const qs = params.toString();
+    const suffix = qs ? `?${qs}` : '';
+    return request<BatchItemsPage>(
+      `/batches/${encodeURIComponent(id)}/items${suffix}`,
+    );
+  },
+  /** @deprecated Use getBatchItems. */
   getDeclarationRunClassifications: (
     id: string,
     opts?: { limit?: number; offset?: number },
@@ -649,40 +699,63 @@ export const api = {
     if (opts?.offset !== undefined) params.set('offset', String(opts.offset));
     const qs = params.toString();
     const suffix = qs ? `?${qs}` : '';
-    return request<DeclarationRunClassifications>(
-      `/declaration-runs/${encodeURIComponent(id)}/classifications${suffix}`,
+    return request<BatchItemsPage>(
+      `/batches/${encodeURIComponent(id)}/items${suffix}`,
     );
   },
 
-  /**
-   * GET /declaration-runs/{id}/download-links — short-lived SAS URLs.
-   *
-   * Used by the SPA only to enumerate the file list (names, sizes,
-   * content-types). The browser does NOT click the SAS URLs directly
-   * any more — clicking a file goes through `getDeclarationRunFile`
-   * which streams via the backend (no expiry). The SAS pattern is
-   * retained for non-browser clients (CLI, future mobile app) that
-   * benefit from the direct-to-storage download path.
-   */
-  getDeclarationRunDownloadLinks: (id: string) =>
-    request<DownloadLinks>(
-      `/declaration-runs/${encodeURIComponent(id)}/download-links`,
-    ),
+  /** POST /batches/{id}/cancel — cancel a running batch. */
+  cancelBatch: (id: string) =>
+    request<BatchSummary>(`/batches/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+    }),
 
   /**
-   * GET /declaration-runs/{id}/files/{path} — stream a single file
-   * through the backend (Bearer-authed). No SAS, no expiry — works
-   * however long the user takes to click. Returns the raw bytes as a
-   * Blob; the caller wraps it in an object URL and triggers a save.
-   *
-   * `relPath` is the file name relative to the run prefix
-   * (e.g. "input.csv", "run-index.json", "hv/{filing_id}.xml"). The
-   * backend rejects paths containing '..', '\\', or a leading '/'
-   * before resolving the blob.
+   * GET /batches/{id}/files — list files under the batch's blob prefix.
+   * No SAS URLs (the SPA streams via getBatchFile). Replaces the
+   * /download-links endpoint.
    */
+  getBatchFiles: (id: string) =>
+    request<BatchFilesList>(`/batches/${encodeURIComponent(id)}/files`),
+  /** @deprecated Use getBatchFiles. */
+  getDeclarationRunDownloadLinks: (id: string) =>
+    request<BatchFilesList>(`/batches/${encodeURIComponent(id)}/files`),
+
+  /**
+   * GET /batches/{id}/files/{path} — stream a single file through the
+   * backend (Bearer-authed). No SAS, no expiry. `relPath` is the file
+   * name relative to the batch prefix (e.g. "input.csv",
+   * "hv/{filing_id}.xml"). The backend rejects paths with '..', '\\',
+   * or a leading '/'.
+   */
+  getBatchFile: async (id: string, relPath: string): Promise<Blob> => {
+    const token = await getAccessToken();
+    const url = `${getApimBase()}/batches/${encodeURIComponent(id)}/files/${relPath
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/')}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      let detail: string = res.statusText;
+      try {
+        const body = await res.json();
+        detail =
+          (body as { error?: { message?: string } | string } | null)?.error
+            ? typeof (body as { error: unknown }).error === 'string'
+              ? (body as { error: string }).error
+              : (body as { error: { message?: string } }).error.message ?? res.statusText
+            : detail;
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(res.status, detail, null);
+    }
+    return res.blob();
+  },
+  /** @deprecated Use getBatchFile. */
   getDeclarationRunFile: async (id: string, relPath: string): Promise<Blob> => {
     const token = await getAccessToken();
-    const url = `${getApimBase()}/declaration-runs/${encodeURIComponent(id)}/files/${relPath
+    const url = `${getApimBase()}/batches/${encodeURIComponent(id)}/files/${relPath
       .split('/')
       .map(encodeURIComponent)
       .join('/')}`;

@@ -429,12 +429,11 @@ export default function ClassifyApp() {
     stopPolling();
     setBatchState({ ...initialBatchState, phase: 'uploading' });
     try {
-      const created = await api.createDeclarationRun({
+      const created = await api.createBatch({
         file,
-        operatorSlug: 'naqel',
         mode: 'classify_and_declare',
       });
-      const runId = created.declaration_run_id;
+      const runId = created.batch_id;
       setBatchState((s) => ({ ...s, phase: 'polling', runId }));
       startPollingRun(runId);
     } catch (err) {

@@ -291,7 +291,16 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
       {downloadLinks && (
         <div className="px-[22px] py-3 border-t border-[var(--line-2)]">
           <ul className="m-0 p-0 list-none flex flex-col gap-1">
-            {downloadLinks.files.map((f) => {
+            {downloadLinks.files
+              // Hide the internal JSON artefacts (run-index.json,
+              // classifications.json) from the operator-facing file
+              // list. They're useful for debugging via direct GET but
+              // not for the broker downloading invoice declarations.
+              .filter((f) => {
+                const base = f.name.split('/').pop() ?? f.name;
+                return base !== 'run-index.json' && base !== 'classifications.json';
+              })
+              .map((f) => {
               const fetching = !!fileFetching[f.name];
               return (
                 <li key={f.name} className="flex items-center justify-between gap-3">
@@ -303,9 +312,9 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                   >
                     {fetching ? 'Downloading…' : f.name}
                   </button>
-                  {f.sizeBytes !== null && (
+                  {f.size_bytes !== null && (
                     <span className="text-[11.5px] text-[var(--ink-3)] font-mono whitespace-nowrap">
-                      {(f.sizeBytes / 1024).toFixed(1)} KB
+                      {(f.size_bytes / 1024).toFixed(1)} KB
                     </span>
                   )}
                 </li>
