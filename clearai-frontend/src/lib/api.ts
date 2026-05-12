@@ -448,6 +448,14 @@ export interface BatchItem {
   raw_merchant_code?: string | null;
   override_applied?: boolean;
   /**
+   * Per-line declared value + ISO-4217 currency code from the input CSV.
+   * Surfaces in the "Value" column. Optional so older payloads (and
+   * runs from before the backend started shipping these fields) render
+   * cleanly as "—".
+   */
+  value_amount?: number | null;
+  currency_code?: string | null;
+  /**
    * V1 reconciliation status — the primary user-facing answer to
    * "did Track A and Track B agree on the code?".
    *

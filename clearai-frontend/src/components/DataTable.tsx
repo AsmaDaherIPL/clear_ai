@@ -52,7 +52,7 @@ import {
   type PaginationState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Settings2 } from 'lucide-react';
+import { Settings2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -179,6 +179,10 @@ interface ResizerProps {
 }
 
 function ColumnResizer({ onPointerDown, isResizing }: ResizerProps) {
+  // Discoverability: idle state shows a faint divider hairline (always
+  // visible) so users see resizing is possible. Hover bumps it darker
+  // and to a 2px-wide column. Active drag goes accent. Hit zone is 8px
+  // wide so the cursor doesn't have to land on a 1px line.
   return (
     <div
       onMouseDown={onPointerDown as React.MouseEventHandler}
@@ -187,13 +191,12 @@ function ColumnResizer({ onPointerDown, isResizing }: ResizerProps) {
       aria-orientation="vertical"
       aria-label="Resize column"
       className={cn(
-        'absolute end-0 top-0 h-full w-[5px] cursor-col-resize touch-none select-none',
+        'group absolute end-0 top-0 h-full w-[8px] cursor-col-resize touch-none select-none',
         'flex items-center justify-center',
-        'after:block after:h-4 after:w-px after:rounded-full',
+        'after:block after:h-[60%] after:rounded-full after:transition-all after:duration-100',
         isResizing
-          ? 'after:bg-[var(--ink-2)] opacity-100'
-          : 'after:bg-[var(--line)] opacity-0 hover:opacity-100',
-        'transition-opacity duration-100',
+          ? 'after:w-[2px] after:bg-[var(--accent)] after:h-full'
+          : 'after:w-px after:bg-[var(--line)] hover:after:w-[2px] hover:after:bg-[var(--ink-3)]',
       )}
     />
   );
@@ -424,50 +427,13 @@ export function DataTable<T extends object>({
             </div>
           )}
 
-          {/* Columns visibility toggle — shadcn DropdownMenu */}
-          {toggleableColumns.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    'ms-auto h-8 gap-1.5 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
-                    'hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
-                    'font-mono text-[11px] uppercase tracking-[0.06em]',
-                    '[&_svg]:size-3',
-                  )}
-                >
-                  <Settings2 aria-hidden />
-                  Columns
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className={cn(
-                  'min-w-[180px] border-[var(--line)] bg-[var(--surface)]',
-                  'text-[var(--ink)] text-[13px]',
-                )}
-              >
-                <DropdownMenuLabel className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase px-2 py-1.5">
-                  Show / hide columns
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-[var(--line-2)]" />
-                {toggleableColumns.map((col) => (
-                  <DropdownMenuCheckboxItem
-                    key={col.id}
-                    checked={col.getIsVisible()}
-                    // Radix CheckedState is boolean | "indeterminate".
-                    // toggleVisibility expects boolean — coerce explicitly.
-                    onCheckedChange={(checked) => col.toggleVisibility(checked === true)}
-                    className="text-[13px]"
-                  >
-                    {String(col.columnDef.header)}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          {/*
+            Columns visibility toggle MOVED to the footer next to the
+            page-size picker — see the footer block below. Toolbar here
+            keeps only the search input and verdict filter chips so the
+            top of the table reads as filtering controls and the bottom
+            reads as view controls. Less visual noise either way.
+          */}
         </div>
       )}
 
@@ -685,49 +651,98 @@ export function DataTable<T extends object>({
               )}
             </div>
 
-            {/* Page size picker — shadcn DropdownMenu radio group */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    'h-8 gap-1.5 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
-                    'hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
-                    'font-mono text-[11px] uppercase tracking-[0.06em]',
-                  )}
+            {/*
+              View controls cluster — page size picker + columns visibility.
+              Both buttons are deliberately small and subdued (ghost-style,
+              sentence case, no uppercase shouting) so they read as "view
+              options" rather than primary actions. The actual primary
+              action (Start a new batch) lives in the panel header.
+            */}
+            <div className="flex items-center gap-1">
+              {/* Page size picker */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      'h-7 px-2.5 gap-1.5 text-[12px] font-normal',
+                      'text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--line-2)]',
+                      '[&_svg]:size-3',
+                    )}
+                  >
+                    Show {currentSizeLabel}
+                    <ChevronDown aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="min-w-[140px] border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] text-[13px]"
                 >
-                  Show {currentSizeLabel}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="min-w-[140px] border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] text-[13px]"
-              >
-                <DropdownMenuLabel className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase px-2 py-1.5">
-                  Rows per page
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-[var(--line-2)]" />
-                <DropdownMenuRadioGroup
-                  value={String(pageSize)}
-                  onValueChange={(value) => {
-                    const next = Number(value);
-                    table.setPageSize(next);
-                    table.setPageIndex(0);
-                  }}
-                >
-                  {PAGE_SIZE_OPTIONS.map((opt) => (
-                    <DropdownMenuRadioItem
-                      key={opt.value}
-                      value={String(opt.value)}
-                      className="text-[13px]"
+                  <DropdownMenuLabel className="text-[11.5px] text-[var(--ink-3)] px-2 py-1.5 font-normal">
+                    Rows per page
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator className="bg-[var(--line-2)]" />
+                  <DropdownMenuRadioGroup
+                    value={String(pageSize)}
+                    onValueChange={(value) => {
+                      const next = Number(value);
+                      table.setPageSize(next);
+                      table.setPageIndex(0);
+                    }}
+                  >
+                    {PAGE_SIZE_OPTIONS.map((opt) => (
+                      <DropdownMenuRadioItem
+                        key={opt.value}
+                        value={String(opt.value)}
+                        className="text-[13px]"
+                      >
+                        {opt.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Columns visibility — moved from top toolbar */}
+              {toggleableColumns.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        'h-7 px-2.5 gap-1.5 text-[12px] font-normal',
+                        'text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--line-2)]',
+                        '[&_svg]:size-3',
+                      )}
                     >
-                      {opt.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      <Settings2 aria-hidden />
+                      Columns
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="min-w-[200px] border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] text-[13px]"
+                  >
+                    <DropdownMenuLabel className="text-[11.5px] text-[var(--ink-3)] px-2 py-1.5 font-normal">
+                      Show / hide columns
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator className="bg-[var(--line-2)]" />
+                    {toggleableColumns.map((col) => (
+                      <DropdownMenuCheckboxItem
+                        key={col.id}
+                        checked={col.getIsVisible()}
+                        onCheckedChange={(checked) => col.toggleVisibility(checked === true)}
+                        className="text-[13px]"
+                      >
+                        {String(col.columnDef.header)}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           </div>
         );
       })()}

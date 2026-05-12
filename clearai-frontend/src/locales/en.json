@@ -109,6 +109,7 @@
   "batch_col_line": "Line",
   "batch_col_merchant_code": "Merchant code",
   "batch_col_merchant_description": "Merchant description",
+  "batch_col_value": "Value",
   "batch_col_classified_code": "Classified code",
   "batch_col_classified_code_breakdown": "Classified code breakdown",
   "batch_col_classification_status": "Classification status",

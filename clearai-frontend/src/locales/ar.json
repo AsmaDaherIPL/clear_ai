@@ -109,6 +109,7 @@
   "batch_col_line": "رقم",
   "batch_col_merchant_code": "كود التاجر",
   "batch_col_merchant_description": "وصف الصنف لدى التاجر",
+  "batch_col_value": "القيمة",
   "batch_col_classified_code": "كود التصنيف",
   "batch_col_classified_code_breakdown": "تفاصيل التصنيف",
   "batch_col_classification_status": "حالة التصنيف",

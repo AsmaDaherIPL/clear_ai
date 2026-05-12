@@ -195,17 +195,51 @@ function MerchantCodeCell({
   );
 }
 
-const MERCHANT_DESC_MAX = 80;
-
+/**
+ * Merchant description cell — verbatim raw_description from the input
+ * CSV, shown in full. Wraps freely; the row grows to fit. No clamp, no
+ * line-clamp-3 — operators need to read the whole thing to verify the
+ * classification is sensible, and the table is already virtualised so
+ * variable row heights are cheap.
+ */
 function MerchantDescriptionCell({ item }: { item: DeclarationRunItem }) {
   const desc = item.raw_description ?? null;
   if (!desc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   return (
-    <div
-      className="text-[12.5px] text-[var(--ink-2)] line-clamp-3 break-words"
-      title={desc}
-    >
-      {clampChars(desc, MERCHANT_DESC_MAX)}
+    <div className="text-[13px] text-[var(--ink-2)] leading-[1.5] break-words whitespace-pre-wrap">
+      {desc}
+    </div>
+  );
+}
+
+/**
+ * Value cell — declared per-line value + ISO-4217 currency.
+ * Renders as `<amount> <currency>` with the amount in monospace tabular
+ * digits (so amounts align vertically across rows) and the currency in
+ * muted small-caps mono. Falls back to "—" when either field is missing.
+ */
+function ValueCell({ item }: { item: DeclarationRunItem }) {
+  const amount = item.value_amount;
+  const currency = item.currency_code;
+  if (amount === null || amount === undefined || !Number.isFinite(amount)) {
+    return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
+  }
+  // 2-decimal display with thousands separators, e.g. 106.96 → "106.96",
+  // 1234.5 → "1,234.50". Reads as money even when the input had no decimal.
+  const formatted = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className="font-mono text-[13px] tabular-nums text-[var(--ink)] whitespace-nowrap">
+        {formatted}
+      </span>
+      {currency && (
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.10em] text-[var(--ink-3)]">
+          {currency}
+        </span>
+      )}
     </div>
   );
 }
@@ -264,10 +298,23 @@ export default function BatchResultsTable({
       header: t('batch_col_merchant_description' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.raw_description ?? '',
-      size: 180,
-      minSize: 140,
-      maxSize: 360,
+      // Wider default so the full description fits without wrapping in the
+      // common case. Cell wraps freely when content exceeds width — row
+      // grows to fit (no truncation).
+      size: 260,
+      minSize: 160,
+      maxSize: 520,
       cell: ({ row }) => <MerchantDescriptionCell item={row.original} />,
+    },
+    {
+      id: 'value',
+      header: t('batch_col_value' as TKey),
+      enableSorting: true,
+      accessorFn: (row) => row.value_amount ?? 0,
+      size: 130,
+      minSize: 100,
+      maxSize: 200,
+      cell: ({ row }) => <ValueCell item={row.original} />,
     },
     {
       id: 'classified_code',
@@ -384,10 +431,17 @@ export default function BatchResultsTable({
   const renderSkeletonRow = useMemo(() => {
     return (_i: number) => (
       <div className="flex items-center gap-3.5 px-3.5" style={{ height: ROW_HEIGHT }}>
+        {/* Line */}
         <span className="h-3 w-8 bg-[var(--line-2)] animate-pulse rounded shrink-0" />
+        {/* Merchant code */}
         <span className="h-3 w-[100px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
+        {/* Merchant description */}
         <span className="h-3 w-[160px] bg-[var(--line-2)] animate-pulse rounded" />
+        {/* Value */}
+        <span className="h-3 w-[80px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
+        {/* Classified code */}
         <span className="h-3.5 w-[120px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
+        {/* Code breakdown — 4 stacked rows */}
         <div className="flex flex-col gap-1.5 py-1 flex-1">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-2">
@@ -396,8 +450,11 @@ export default function BatchResultsTable({
             </div>
           ))}
         </div>
+        {/* Classification status pill */}
         <span className="h-4 w-16 bg-[var(--line-2)] animate-pulse rounded-full shrink-0" />
+        {/* ZATCA submission */}
         <span className="h-3 w-[120px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
+        {/* Verdict pill */}
         <span className="h-4 w-14 bg-[var(--line-2)] animate-pulse rounded-full shrink-0" />
       </div>
     );
