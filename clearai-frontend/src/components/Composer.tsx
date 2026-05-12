@@ -26,22 +26,35 @@ const BATCH_MAX_BYTES = 10 * 1024 * 1024; // 10 MiB — backend caps row count s
 
 /** Mirrors backend zod cap; keep in lock-step with `describeBody` / `expandBody`. */
 const DESCRIPTION_MAX = 250;
-const DESCRIPTION_WARN_AT = Math.floor(DESCRIPTION_MAX * 0.9);
 
-const CURRENCIES = ['SAR', 'USD', 'EUR', 'AED', 'GBP', 'CNY', 'JPY', 'INR'] as const;
+/**
+ * Currency options. Each row's `display` is the styled trigger label
+ * (code · symbol) — matches the Landing Page reference where the pill
+ * shows "SAR · ﷼" / "USD · $" / etc.
+ */
+const CURRENCIES = [
+  { code: 'SAR', display: 'SAR · ﷼' },
+  { code: 'USD', display: 'USD · $' },
+  { code: 'EUR', display: 'EUR · €' },
+  { code: 'AED', display: 'AED · د.إ' },
+  { code: 'GBP', display: 'GBP · £' },
+  { code: 'CNY', display: 'CNY · ¥' },
+  { code: 'JPY', display: 'JPY · ¥' },
+  { code: 'INR', display: 'INR · ₹' },
+] as const;
+type CurrencyCode = (typeof CURRENCIES)[number]['code'];
 
 export default function Composer({ mode, onSubmit, onPickFile, loading, className }: ComposerProps) {
   const t = useT();
   const [description, setDescription] = useState('');
   const [parentCode, setParentCode] = useState('');
   const [valueAmount, setValueAmount] = useState('');
-  const [currencyCode, setCurrencyCode] = useState<typeof CURRENCIES[number]>('SAR');
+  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>('SAR');
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const charCount = description.length;
-  const nearCap = charCount >= DESCRIPTION_WARN_AT;
   const atCap = charCount >= DESCRIPTION_MAX;
   const PARENT_CODE_MIN = 4;
   const parentCodeValid = mode !== 'expand' || parentCode.length >= PARENT_CODE_MIN;
@@ -121,34 +134,26 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
             />
           </div>
 
-          {/* Expand-only parent code row. */}
-          {mode === 'expand' && (
-            <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
-              <label className="font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase shrink-0">
-                {t('parent_label')}
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={parentCode}
-                onChange={(e) => setParentCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                placeholder="e.g. 010121 / 3304993 / 01012110"
-                className="flex-1 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
-              />
-            </div>
-          )}
+          {/*
+            Value + currency row — visible in both Generate and Expand modes.
+            Optional commercial context fed to /pipeline/dispatch. The backend
+            Stage-3 sanity check uses this to flag declared values that look
+            implausible for the chosen HS code (e.g. $0.50 watch).
 
-          {/* Value + currency row — visible in both Generate and Expand modes. */}
-          {/* Optional commercial context fed to /pipeline/dispatch. The backend */}
-          {/* Stage 3 sanity check uses this to flag declared values that look */}
-          {/* implausible for the chosen HS code (e.g. $0.50 watch). */}
+            Layout matches the Landing Page reference:
+              VALUE · [0.00 input] ················· [SAR · ﷼ ▾]   unit price, customs value
+            The currency control is a styled native <select> (not a shadcn
+            Select): keeps RTL keyboard nav free, semantic for assistive tech,
+            and matches the reference exactly via appearance-none + custom
+            background chevron.
+          */}
           {(mode === 'generate' || mode === 'expand') && (
             <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
               <label
                 htmlFor="composer-value"
                 className="font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase shrink-0"
               >
-                Value
+                {t('value_label')}
               </label>
               <input
                 id="composer-value"
@@ -163,39 +168,70 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                     : cleaned;
                   setValueAmount(next.slice(0, 12));
                 }}
-                placeholder="optional, e.g. 199.50"
-                className="flex-1 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
+                placeholder="0.00"
+                className="flex-1 min-w-0 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
               />
               <select
-                aria-label="Currency"
+                aria-label={t('value_label')}
                 value={currencyCode}
-                onChange={(e) => setCurrencyCode(e.target.value as typeof CURRENCIES[number])}
-                className="border-0 outline-none bg-transparent font-mono text-[13px] text-[var(--ink-2)] tracking-[0.02em] cursor-pointer"
+                onChange={(e) => setCurrencyCode(e.target.value as CurrencyCode)}
+                className={cn(
+                  'appearance-none cursor-pointer shrink-0',
+                  'bg-[var(--line-2)] border border-[var(--line)] rounded-md',
+                  'ps-2.5 pe-7 py-[7px]',
+                  'font-mono text-[12px] text-[var(--ink)] tracking-[0.02em]',
+                  'focus:outline-2 focus:outline-[var(--accent)] focus:outline-offset-1',
+                  // Chevron — inline SVG via data URL, mirrored in RTL.
+                  "bg-no-repeat bg-[right_10px_center] rtl:bg-[left_10px_center]",
+                  "bg-[url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l4 4 4-4'/></svg>\")]",
+                )}
               >
                 {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c.code} value={c.code}>{c.display}</option>
                 ))}
               </select>
+              <span className="hidden sm:inline text-[12px] text-[var(--ink-3)] shrink-0">
+                {t('value_hint')}
+              </span>
             </div>
           )}
 
-          {/* Meta bar — char counter + submit. */}
-          <div className="flex items-center justify-between gap-2 px-3.5 pb-3.5 pt-2">
-            <div className="flex items-center gap-1.5">
-              <span
-                className={cn(
-                  'font-mono text-[12px] tabular-nums transition-colors duration-150',
-                  atCap
-                    ? 'text-[oklch(0.55_0.18_25)] font-medium'
-                    : nearCap
-                      ? 'text-[oklch(0.62_0.16_60)]'
-                      : 'text-[var(--ink-3)]',
-                )}
-                aria-live="polite"
+          {/* Expand-only HS-code row — sits BELOW value per the reference design. */}
+          {mode === 'expand' && (
+            <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
+              <label
+                htmlFor="composer-parent"
+                className="font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase shrink-0"
               >
-                {charCount} / {DESCRIPTION_MAX}
+                {t('parent_label')}
+              </label>
+              <input
+                id="composer-parent"
+                type="text"
+                inputMode="numeric"
+                value={parentCode}
+                onChange={(e) => setParentCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                placeholder="e.g. 010121 / 3304993 / 01012110"
+                className="flex-1 min-w-0 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
+              />
+              <span className="hidden sm:inline text-[12px] text-[var(--ink-3)] shrink-0">
+                {t('parent_hint')}
               </span>
             </div>
+          )}
+
+          {/*
+            Meta bar — "EN or AR" hint + submit button.
+            Char counter was removed per the new Landing Page reference; users
+            don't need a live 250-char gauge when the textarea visibly maxes
+            out at ~250 chars and most descriptions are well under that.
+          */}
+          <div className="flex items-center justify-end gap-2 px-3.5 pb-3.5 pt-2">
+            <span className="text-[12px] text-[var(--ink-3)]" aria-live="polite">
+              {atCap
+                ? `${charCount} / ${DESCRIPTION_MAX}`
+                : t('lang_hint')}
+            </span>
             <div className="flex items-center gap-1.5">
               <button
                 type="submit"
