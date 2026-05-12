@@ -7,7 +7,7 @@ import { env } from '../config/env.js';
 import { declarationRunsRoutes } from '../modules/declaration-runs/declaration-runs.routes.js';
 import { submissionDescriptionRoute } from '../modules/pipeline/submission-description/submission-description.routes.js';
 import { pipelineRoutes } from '../modules/pipeline/pipeline.routes.js';
-import { hitlRoutes } from '../modules/hitl/hitl.routes.js';
+import { reviewRoutes } from '../modules/review/review.routes.js';
 import { registerReferenceDataRoutes } from '../modules/reference-data/reference-data.routes.js';
 import { getPool, closeDb } from '../db/client.js';
 import { registerErrorHandler } from './error-handler.js';
@@ -106,7 +106,7 @@ app.get('/ready', async (_req, reply) => {
 await app.register(declarationRunsRoutes);
 await app.register(submissionDescriptionRoute);
 await app.register(pipelineRoutes);
-await app.register(hitlRoutes);
+await app.register(reviewRoutes);
 await app.register(registerReferenceDataRoutes);
 
 const start = async (): Promise<void> => {

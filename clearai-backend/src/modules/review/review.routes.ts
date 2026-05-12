@@ -101,7 +101,7 @@ interface QueueRowWithPayload extends QueueRow {
 // Routes
 // ---------------------------------------------------------------------------
 
-export async function hitlRoutes(app: FastifyInstance): Promise<void> {
+export async function reviewRoutes(app: FastifyInstance): Promise<void> {
   // GET /classifications/review — list with filters
   app.get('/classifications/review', async (req, reply) => {
     const parsed = ListQuery.safeParse(req.query);

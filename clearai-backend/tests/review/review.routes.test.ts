@@ -7,7 +7,7 @@
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { hitlRoutes } from '../../src/modules/hitl/hitl.routes.js';
+import { reviewRoutes } from '../../src/modules/review/review.routes.js';
 import { getPool, closeDb } from '../../src/db/client.js';
 import { newId } from '../../src/common/utils/uuid.js';
 
@@ -71,7 +71,7 @@ beforeAll(async () => {
   }
 
   app = Fastify({ logger: false });
-  await app.register(hitlRoutes);
+  await app.register(reviewRoutes);
   await app.ready();
 });
 
