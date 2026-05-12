@@ -519,6 +519,20 @@
       "when": 1778700000000,
       "tag": "0073_uom_kit",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1778800000000,
+      "tag": "0074_final_code_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1778800100000,
+      "tag": "0075_hitl_batch_id_fks",
+      "breakpoints": true
     }
   ]
 }

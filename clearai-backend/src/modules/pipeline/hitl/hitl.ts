@@ -14,6 +14,11 @@ interface PipelineEventLogger {
 export interface HitlPayload {
   classification_event_id: string;
   item_id: string;
+  /**
+   * Parent batch id. NULL for single-shot dispatches (no batch context).
+   * Set for batch-sourced reviews. Added in migration 0075.
+   */
+  batch_id: string | null;
   operator_slug: string;
   reason: 'verdict_escalate' | 'sanity_flag' | 'low_information';
   cleaned_description: string;
@@ -36,15 +41,17 @@ export async function enqueueHitl(
         enqueued_at,
         classification_event_id,
         item_id,
+        batch_id,
         operator_slug,
         reason,
         payload
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         newId(),
         payload.enqueued_at,
         payload.classification_event_id,
         payload.item_id,
+        payload.batch_id,
         payload.operator_slug,
         payload.reason,
         JSON.stringify({

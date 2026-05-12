@@ -72,7 +72,14 @@ export async function runClassificationPhase(
   await Promise.all(
     pending.map((row) =>
       run(async () => {
-        const item = row.canonical as unknown as CanonicalLineItem;
+        // Stamp the batch id on the in-flight item so dispatch can
+        // propagate it to enqueueHitl as hitl_queue.batch_id (added in
+        // migration 0075). The canonical jsonb on disk doesn't carry
+        // this field; we attach it transiently here.
+        const item: CanonicalLineItem = {
+          ...(row.canonical as unknown as CanonicalLineItem),
+          declarationRunId,
+        };
         // Fast-fail: if the breaker is already tripped (this batch started
         // healthy but later items hit a degraded Foundry, OR the breaker
         // tripped on item N's call and items N+1..K are still queued), skip

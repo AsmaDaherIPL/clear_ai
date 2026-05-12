@@ -67,6 +67,26 @@ export const declarationRunItems = pgTable(
     finalCode: char('final_code', { length: 12 }),
 
     /**
+     * Source of `final_code`. Defaults to 'pipeline' for auto-classified
+     * rows; updated to 'reviewer_override' when a human reviewer overrides
+     * the code via PATCH /classifications/review/:id.
+     * See migration 0074.
+     */
+    finalCodeSource: varchar('final_code_source', { length: 32 })
+      .notNull()
+      .default('pipeline')
+      .$type<'pipeline' | 'reviewer_override'>(),
+
+    /**
+     * Captures the pipeline's original `final_code` when a reviewer
+     * overrides it. NULL until override happens — at that point we copy
+     * the current final_code here, then write the reviewer's code to
+     * final_code. Used to audit pipeline-vs-reviewer disagreement rates.
+     * See migration 0074.
+     */
+    pipelineFinalCode: char('pipeline_final_code', { length: 12 }),
+
+    /**
      * Arabic goods description from dispatch().goodsDescriptionAr — feeds
      * `<deccm:goodsDescription>` in the rendered ZATCA Declaration envelope.
      * NULL until the item reaches 'succeeded' or 'flagged' — enforced by

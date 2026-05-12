@@ -80,6 +80,10 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     await enqueueHitl({
       classification_event_id: itemId,
       item_id: itemId,
+      // From the batch context when the item belongs to one; null
+      // otherwise. The single-shot /classifications/dispatch route
+      // builds CanonicalLineItem without declarationRunId.
+      batch_id: item.declarationRunId ?? null,
       operator_slug: operatorSlug,
       reason: result.hitl.reason,
       cleaned_description: result.hitl.cleaned_description,

@@ -176,6 +176,8 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
           {
             classification_event_id: response.item_id,
             item_id: response.item_id,
+            // Single-shot dispatch has no parent batch.
+            batch_id: null,
             operator_slug: body.operator_slug,
             reason: result.hitl.reason,
             cleaned_description: result.hitl.cleaned_description,

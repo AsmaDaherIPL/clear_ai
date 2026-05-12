@@ -135,6 +135,14 @@ export interface ConsigneeAddress {
 export interface CanonicalLineItem {
   /** Stable per-batch identifier; matches declaration_run_items.id once persisted. */
   itemId: string;
+  /**
+   * Parent batch id when the item is being processed under a batch
+   * (declaration_runs.id). Undefined for single-shot dispatches called via
+   * /classifications/dispatch. Used downstream to populate
+   * hitl_queue.batch_id so review rows can be grouped by their
+   * originating batch.
+   */
+  declarationRunId?: string | undefined;
   /** 1-based row position from the source file (post-header). */
   rowIndex: number;
 
