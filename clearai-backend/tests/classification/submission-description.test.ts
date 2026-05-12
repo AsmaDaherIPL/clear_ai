@@ -5,11 +5,21 @@
  * fallback on empty LLM output, fallback on word-for-word collision with
  * the catalog leaf Arabic.
  */
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../src/inference/llm/structured-call.js', () => ({
   structuredLlmCall: vi.fn(),
   loadPrompt: vi.fn().mockResolvedValue('mock-prompt'),
+}));
+
+// Mutable env mock — cache suite flips SUBMISSION_DESCRIPTION_CACHE on; the
+// rest of the file inherits the production default (off).
+const envState: { SUBMISSION_DESCRIPTION_CACHE: boolean; LLM_MODEL: string } = {
+  SUBMISSION_DESCRIPTION_CACHE: false,
+  LLM_MODEL: 'mock-haiku',
+};
+vi.mock('../../src/config/env.js', () => ({
+  env: () => envState,
 }));
 
 // Mock the cache repository so unit tests don't need a live DB. Each test
@@ -157,13 +167,20 @@ describe('generateSubmissionDescription', () => {
 });
 
 describe('submission_descriptions cache', () => {
+  // Cache is opt-in (env SUBMISSION_DESCRIPTION_CACHE=false by default after
+  // 2026-05-13). Flip the env mock for this suite so the cache code path
+  // is exercised; other suites keep the default-off behaviour.
   beforeEach(() => {
+    envState.SUBMISSION_DESCRIPTION_CACHE = true;
     mockedCall.mockReset();
     findCachedMock.mockReset();
     upsertCachedMock.mockReset();
     bumpHitMock.mockReset();
     upsertCachedMock.mockResolvedValue(undefined);
     bumpHitMock.mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    envState.SUBMISSION_DESCRIPTION_CACHE = false;
   });
 
   it('cache hit short-circuits the LLM call and returns invoked=cache', async () => {

@@ -49,6 +49,18 @@ const EnvSchema = z
     LLM_MODEL_STRONG: z.string().min(1).default('claude-sonnet-4-6-clearai-dev'),
     LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
 
+    /**
+     * Submission-description cache toggle. Off by default — the (path_ar,
+     * cleaned_norm) key collapsed too aggressively (two distinct products
+     * sharing a chapter/leaf path got the same cached Arabic line). Re-enable
+     * once the key includes a per-item attribute fingerprint, or remove
+     * the cache layer entirely.
+     */
+    SUBMISSION_DESCRIPTION_CACHE: z
+      .union([z.literal('true'), z.literal('false'), z.boolean()])
+      .transform((v) => v === true || v === 'true')
+      .default('false'),
+
     // ── Foundry-hosted embedder (Plan B) ─────────────────────────────────
     /**
      * Foundry resource base or the full embeddings URL. The client appends

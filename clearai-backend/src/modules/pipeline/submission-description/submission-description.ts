@@ -144,11 +144,10 @@ export async function generateSubmissionDescription(
   // fall through to the LLM call. Cache hits skip the LLM entirely and
   // bump hit_count fire-and-forget.
   const cleanedNorm = normalizeForCache(`${rawDescription}\u0001${cleanedDescription}`);
-  if (catalogPathAr && cleanedNorm) {
+  const cacheEnabled = env().SUBMISSION_DESCRIPTION_CACHE;
+  if (cacheEnabled && catalogPathAr && cleanedNorm) {
     const hit = await findCached(catalogPathAr, cleanedNorm);
     if (hit) {
-      // Fire-and-forget hit-count bump. Don't await — the read result is
-      // already what the caller needs; the counter is an analytics signal.
       void bumpHit(hit.id);
       return {
         invoked: 'cache',
@@ -217,11 +216,7 @@ export async function generateSubmissionDescription(
     };
   }
 
-  // Memoize. Only LLM-success rows go in — fallbacks are deterministic
-  // and cheap to recompute, and putting them in the lookup would
-  // pollute the table with low-quality strings. Fire-and-forget; a
-  // write failure is benign (next call recomputes the same value).
-  if (catalogPathAr && cleanedNorm) {
+  if (cacheEnabled && catalogPathAr && cleanedNorm) {
     void upsertCached({
       pathAr: catalogPathAr,
       cleanedDescriptionNorm: cleanedNorm,
