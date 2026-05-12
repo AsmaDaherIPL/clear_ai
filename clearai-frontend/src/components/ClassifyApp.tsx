@@ -109,10 +109,25 @@ const initialBatchState: BatchState = {
   errorMessage: null,
 };
 
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min cap; backend can run longer but the UI won't watch indefinitely
 const PAGE_SIZE = 200; // page size when fetching classifications; max is 500 server-side
 const MAX_PAGES = 10;  // hard cap on auto-paging: 200 * 10 = 2000 items per run
+
+/**
+ * Parse "Rate limit exceeded, retry in 18 seconds" (APIM 429 message
+ * format) into a millisecond delay. Returns null if the message doesn't
+ * match. Used to back off honourably when APIM throttles us rather than
+ * hammering and tripping the rate-limit cooldown indefinitely.
+ */
+function parseRetryAfterMs(message: string | null | undefined): number | null {
+  if (!message) return null;
+  const m = message.match(/retry in (\d+) seconds?/i);
+  if (!m) return null;
+  const seconds = Number(m[1]);
+  if (!Number.isFinite(seconds) || seconds < 0 || seconds > 600) return null;
+  return seconds * 1000;
+}
 
 /**
  * Fetch all classification items for a run, auto-paging until the
@@ -221,12 +236,23 @@ export default function ClassifyApp() {
   /**
    * Core poll loop for a known runId. Fires immediately (no initial delay
    * when resuming a run from a URL param) and keeps polling until the run
-   * reaches a terminal state. Extracted so both handleBatchUpload and the
-   * URL-resume effect can share it without duplicating the logic.
+   * reaches a terminal state.
+   *
+   * Call-volume notes:
+   *   - One API call per tick (classifications endpoint only). It returns
+   *     `classification_phase` + items + pagination, which is everything
+   *     needed during active classification.
+   *   - The run-summary endpoint is hit ONCE at the start (for row_count
+   *     so the skeleton table knows how many lines to draw) and ONCE at
+   *     terminal (for final per-status counts). This keeps APIM happy —
+   *     polling both endpoints every 2 seconds tripped a rate limit.
+   *   - On 429, parses the APIM "retry in N seconds" message and waits
+   *     that long instead of hammering through.
    */
   const startPollingRun = useCallback((runId: string) => {
     const startedAt = Date.now();
-    let classificationsFetched = false;
+    let summaryFetched = false;
+    let finalSummaryFetched = false;
 
     const poll = async (): Promise<void> => {
       if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
@@ -238,45 +264,41 @@ export default function ClassifyApp() {
         return;
       }
       try {
-        const summary = await api.getDeclarationRun(runId);
-        setBatchState((s) => ({ ...s, summary }));
-
-        // v3.1 + PR G: items now stream in as they complete. Re-fetch
-        // every tick during Phase 1 so the table live-fills row-by-
-        // row (instead of one big swap at the end). The endpoint
-        // returns a `classification_phase` flag at the top level
-        // which is the authoritative Phase 1 lifecycle signal —
-        // independent of the run-level status (which can flip to
-        // 'failed' because Phase 2 failed even when Phase 1 was fine).
-        let classificationPhase: 'pending' | 'running' | 'completed' | 'failed' | undefined;
-        try {
-          const cls = await fetchAllClassifications(runId);
-          classificationPhase = cls.classification_phase;
-          setBatchState((s) => ({ ...s, items: cls.items }));
-        } catch {
-          // Non-fatal: keep polling. Next tick may succeed.
+        // One-time summary fetch on first tick so the table can render
+        // skeleton rows for the expected count. After this, the per-item
+        // table draws itself from the classifications response only.
+        if (!summaryFetched) {
+          summaryFetched = true;
+          try {
+            const summary = await api.getDeclarationRun(runId);
+            setBatchState((s) => ({ ...s, summary }));
+          } catch {
+            // Non-fatal: skeleton-count won't render, but the items
+            // table still works. Don't trip the outer catch.
+          }
         }
 
-        // Stop polling when EITHER signal goes terminal — whichever
-        // flips first wins. summary.status covers run-level success
-        // and Phase-2 failure; classification_phase covers Phase-1
-        // completion. Belt-and-braces.
-        const summaryTerminal =
-          summary.status === 'completed' ||
-          summary.status === 'failed' ||
-          summary.status === 'cancelled';
-        const classificationTerminal =
-          classificationPhase === 'completed' || classificationPhase === 'failed';
-        if (summaryTerminal || classificationTerminal) {
-          // One final fetch to make sure the table reflects every
-          // last completion before we stop polling.
-          if (!classificationsFetched) {
-            classificationsFetched = true;
+        // Items + classification_phase in a single endpoint hit.
+        let classificationPhase: 'pending' | 'running' | 'completed' | 'failed' | undefined;
+        const cls = await fetchAllClassifications(runId);
+        classificationPhase = cls.classification_phase;
+        setBatchState((s) => ({ ...s, items: cls.items }));
+
+        // Stop polling when classification_phase goes terminal. The
+        // run-level summary.status can flip to 'failed' for Phase-2
+        // reasons but that's surfaced by the final summary fetch
+        // below, not by the polling loop itself.
+        if (classificationPhase === 'completed' || classificationPhase === 'failed') {
+          // Final summary fetch so the per-status counts are accurate
+          // at terminal. The poll loop never reads `summary.status`
+          // again after this point.
+          if (!finalSummaryFetched) {
+            finalSummaryFetched = true;
             try {
-              const finalCls = await fetchAllClassifications(runId);
-              setBatchState((s) => ({ ...s, items: finalCls.items }));
+              const finalSummary = await api.getDeclarationRun(runId);
+              setBatchState((s) => ({ ...s, summary: finalSummary }));
             } catch {
-              /* swallow — best-effort final read */
+              /* swallow — best-effort */
             }
           }
           setBatchState((s) => ({ ...s, phase: 'done' }));
@@ -284,16 +306,27 @@ export default function ClassifyApp() {
         }
         pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
       } catch (err) {
-        // Specifically humanize the common URL-resume failures: 404
-        // (run doesn't exist or was deleted) and 401/403 (caller
-        // doesn't have access). Anything else falls back to the raw
-        // error so debugging stays possible.
+        // 429 from APIM: honour the retry-after rather than retrying
+        // on the standard interval. This applies to ANY poll-tick
+        // failure that returns a retry-in-N-seconds message.
+        if (err instanceof ApiError && err.status === 429) {
+          const retryMs = parseRetryAfterMs(err.message) ?? 30_000;
+          pollTimerRef.current = window.setTimeout(poll, retryMs);
+          return;
+        }
+        // Humanize the common URL-resume failures.
         let msg: string;
         if (err instanceof ApiError) {
           if (err.status === 404) {
             msg = `Run ${runId} not found. It may have been deleted, or you may not have access.`;
           } else if (err.status === 401 || err.status === 403) {
             msg = `You don't have access to run ${runId}. Sign in with the account that created it.`;
+          } else if (err.status === 503) {
+            // 503 is transient (APIM circuit-breaker, backend warming
+            // up). Retry on the standard interval rather than failing
+            // hard — but only up to POLL_TIMEOUT_MS overall.
+            pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS * 2);
+            return;
           } else {
             msg = `${err.status}: ${err.message}`;
           }
@@ -310,7 +343,7 @@ export default function ClassifyApp() {
     };
 
     // Fire the first tick immediately so a URL-resumed run shows data
-    // without a 2-second blank gap.
+    // without a 3-second blank gap.
     void poll();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
