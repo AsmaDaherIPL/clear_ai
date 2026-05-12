@@ -4,8 +4,8 @@
  * Returns up to RERANK_K (12) ranked candidates with RRF scores.
  * Delegates entirely to inference/retrieval/retrieve.ts.
  */
-import { retrieveCandidates } from '../../../../inference/retrieval/retrieve.js';
-import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
+import { retrieveCandidates } from '../../../../../inference/retrieval/retrieve.js';
+import type { Candidate } from '../../../../../inference/retrieval/retrieve.js';
 
 export type { Candidate };
 

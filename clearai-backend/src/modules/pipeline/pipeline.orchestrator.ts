@@ -8,14 +8,14 @@
  *   2.5   Submission description             (lightweight LLM, ≤300 char Arabic)
  *   3     Sanity                             (standard LLM, always)
  */
-import { parseItem } from './stage-0-parse/parse.js';
-import { runCleanup } from './stage-1-cleanup/cleanup.js';
-import { runTrackA } from './track-a-description/track-a.js';
-import { runTrackB } from './track-b-code/track-b.js';
-import { runReconciliation } from './stage-2-verdict/reconciliation.js';
+import { parseItem } from './parse/parse.js';
+import { runCleanup } from './cleanup/cleanup.js';
+import { runDescriptionClassifier } from './classify/description-classifier/description-classifier.js';
+import { runCodeResolver } from './classify/code-resolver/code-resolver.js';
+import { runReconciliation } from './classify/reconciliation/reconciliation.js';
 import { generateSubmissionDescription } from './submission-description/submission-description.js';
-import { runSanity } from './stage-3-sanity/sanity.js';
-import { shouldEnqueue } from './hitl/hitl.js';
+import { runSanity } from './sanity/sanity.js';
+import { shouldEnqueue } from './review/review.js';
 import { buildTrace } from './trace/trace.js';
 import { getPool } from '../../db/client.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
@@ -24,7 +24,7 @@ import type {
   StageTrace,
   HitlIntent,
   StageVerdictOutput,
-  TrackAResult,
+  DescriptionClassifierResult,
 } from './shared/pipeline.types.js';
 
 /** Token count for the low-info gate. ≤ this many → too thin to retrieve. */
@@ -43,7 +43,7 @@ const LOW_INFO_TOKEN_THRESHOLD = 4;
  * specifically: researcher tried and couldn't, AND we're left with raw
  * thin text.
  */
-export function shouldEscalateLowInformation(trackA: TrackAResult, cleanedDescription: string): boolean {
+export function shouldEscalateLowInformation(trackA: DescriptionClassifierResult, cleanedDescription: string): boolean {
   // Researcher must have actually run. If clarity_verdict was 'clear'
   // upstream, research is null and we don't apply this gate.
   if (!trackA.research) return false;
@@ -199,9 +199,9 @@ export async function runPipeline(
   // ---- Tracks A and B (concurrent) ----
   // Track B awaits the operator config first; Track A is independent.
   const [trackAOut, trackBResult] = await Promise.all([
-    runTrackA(cleanup, parsedItem.raw_description!),
+    runDescriptionClassifier(cleanup, parsedItem.raw_description!),
     operatorConfigPromise.then((cfg) =>
-      runTrackB(
+      runCodeResolver(
         parsedItem.raw_merchant_code,
         parsedItem.merchant_code_state,
         cleanup.cleaned_description,

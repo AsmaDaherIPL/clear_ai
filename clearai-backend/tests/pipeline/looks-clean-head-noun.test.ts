@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { looksClean } from '../../src/modules/pipeline/stage-1-cleanup/description-cleanup.js';
+import { looksClean } from '../../src/modules/pipeline/cleanup/description-cleanup.js';
 
 describe('looksClean — ambiguous head noun guard', () => {
   it('returns false for "diaper bag"', () => expect(looksClean('diaper bag')).toBe(false));

@@ -23,17 +23,17 @@
  *   ZERO_SIGNAL        -> ZERO_SIGNAL (escalate to HITL)
  */
 import { z } from 'zod';
-import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
-import { env } from '../../../config/env.js';
+import { structuredLlmCall } from '../../../../inference/llm/structured-call.js';
+import { env } from '../../../../config/env.js';
 import { classifyConflict } from './conflict-type.js';
 import type {
-  TrackAResult,
-  TrackBResult,
+  DescriptionClassifierResult,
+  CodeResolverResult,
   StageVerdictOutput,
   VerdictResult,
   ReconciliationSource,
   AnnotatedCandidate,
-} from '../shared/pipeline.types.js';
+} from '../../shared/pipeline.types.js';
 
 function topFitCandidate(candidates: AnnotatedCandidate[]): AnnotatedCandidate | null {
   return (
@@ -64,8 +64,8 @@ const ReconciliationSchema = z
  */
 async function callReconciliationLlmForDrift(params: {
   cleaned_description: string;
-  trackA: TrackAResult;
-  trackB: TrackBResult;
+  trackA: DescriptionClassifierResult;
+  trackB: CodeResolverResult;
 }): Promise<VerdictResult | { kind: 'escalate'; reason: string }> {
   const { cleaned_description, trackA, trackB } = params;
   const model = env().LLM_MODEL_STRONG;
@@ -158,7 +158,7 @@ async function callReconciliationLlmForDrift(params: {
 /*  Per-conflict handlers                                              */
 /* ------------------------------------------------------------------ */
 
-function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictResult {
+function handleAgreement(trackA: DescriptionClassifierResult, trackB: CodeResolverResult): VerdictResult {
   // Path 1: resolver code is in Track A's fits set — strongest signal,
   // both tracks endorse the same leaf.
   if (trackB.resolved_code) {
@@ -203,7 +203,7 @@ function handleAgreement(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
   );
 }
 
-function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): VerdictResult {
+function handleContradiction(trackA: DescriptionClassifierResult, trackB: CodeResolverResult): VerdictResult {
   // Description disagrees with merchant heading. Track A rank-1 wins; merchant code overridden.
   // Two sources can produce the rank-1: trackA.annotated_candidates (top fits/partial),
   // or trackB.subtree_candidates[0] when consistency_verdict='contradicts' (the unanchored top
@@ -244,7 +244,7 @@ function handleContradiction(trackA: TrackAResult, trackB: TrackBResult): Verdic
  * distinguishes the sub-cases (Track A silent vs. partial-converging)
  * so trace readers can still debug.
  */
-function handleAmbiguous(trackA: TrackAResult, trackB: TrackBResult): VerdictResult {
+function handleAmbiguous(trackA: DescriptionClassifierResult, trackB: CodeResolverResult): VerdictResult {
   if (!trackB.resolved_code) {
     throw new Error('reconciliation: AMBIGUOUS classified but trackB has no resolved_code');
   }
@@ -278,8 +278,8 @@ function handleAmbiguous(trackA: TrackAResult, trackB: TrackBResult): VerdictRes
 /* ------------------------------------------------------------------ */
 
 export async function runReconciliation(
-  trackA: TrackAResult,
-  trackB: TrackBResult,
+  trackA: DescriptionClassifierResult,
+  trackB: CodeResolverResult,
   cleaned_description: string,
 ): Promise<StageVerdictOutput> {
   const conflictType = classifyConflict(trackA, trackB);

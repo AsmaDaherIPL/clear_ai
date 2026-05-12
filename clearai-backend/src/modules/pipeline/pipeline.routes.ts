@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { runPipeline } from './pipeline.orchestrator.js';
 import { assembleDispatchV1 } from './trace/dispatch-v1.js';
 import { recordClassificationEvent } from './events/recorder.js';
-import { enqueueHitl } from './hitl/hitl.js';
+import { enqueueHitl } from './review/review.js';
 import { getPool } from '../../db/client.js';
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { OperatorNotFoundError } from '../operators/operator.errors.js';

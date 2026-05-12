@@ -12,14 +12,14 @@
 import { describe, it, expect } from 'vitest';
 import { shouldEscalateLowInformation } from '../../src/modules/pipeline/pipeline.orchestrator.js';
 import type {
-  TrackAResult,
-  TrackAResearchDetail,
+  DescriptionClassifierResult,
+  DescriptionClassifierResearchDetail,
 } from '../../src/modules/pipeline/shared/pipeline.types.js';
 
 function trackA(opts: {
-  research?: TrackAResearchDetail | null;
-  web_research?: TrackAResearchDetail | null;
-}): TrackAResult {
+  research?: DescriptionClassifierResearchDetail | null;
+  web_research?: DescriptionClassifierResearchDetail | null;
+}): DescriptionClassifierResult {
   return {
     annotated_candidates: [],
     threshold_failed: false,
@@ -31,7 +31,7 @@ function trackA(opts: {
   };
 }
 
-const failedPassthrough: TrackAResearchDetail = {
+const failedPassthrough: DescriptionClassifierResearchDetail = {
   source: 'failed_passthrough',
   recognised: false,
   enriched_description: 'B6(Black)+Blue case',
@@ -41,7 +41,7 @@ const failedPassthrough: TrackAResearchDetail = {
   latency_ms: 1500,
 };
 
-const recognised: TrackAResearchDetail = {
+const recognised: DescriptionClassifierResearchDetail = {
   source: 'cheap_llm',
   recognised: true,
   enriched_description: 'protective case for mobile telephones, of plastic',

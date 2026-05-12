@@ -3,16 +3,16 @@
  */
 import type {
   PipelineTrace,
-  TrackAResult,
-  TrackBResult,
+  DescriptionClassifierResult,
+  CodeResolverResult,
   StageVerdictOutput,
   SanityResult,
   StageTrace,
 } from '../shared/pipeline.types.js';
 
 export function buildTrace(params: {
-  trackA: TrackAResult | null;
-  trackB: TrackBResult | null;
+  trackA: DescriptionClassifierResult | null;
+  trackB: CodeResolverResult | null;
   verdict: StageVerdictOutput | null;
   sanity: SanityResult | null;
   stages: StageTrace[];

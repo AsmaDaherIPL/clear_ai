@@ -13,12 +13,12 @@ vi.mock('../../src/inference/retrieval/retrieve.js', () => ({
 }));
 
 const llmClassifyMock = vi.fn();
-vi.mock('../../src/modules/pipeline/classify/description-classifier/picker/llm-pick.js', () => ({
+vi.mock('../../src/modules/pipeline/track-a-description/picker/llm-pick.js', () => ({
   llmClassify: (...args: unknown[]) => llmClassifyMock(...args),
 }));
 
 const lookupOverrideMock = vi.fn();
-vi.mock('../../src/modules/pipeline/classify/code-resolver/codebook-override.js', () => ({
+vi.mock('../../src/modules/pipeline/track-b-code/codebook-override.js', () => ({
   lookupTenantOverride: (...args: unknown[]) => lookupOverrideMock(...args),
 }));
 

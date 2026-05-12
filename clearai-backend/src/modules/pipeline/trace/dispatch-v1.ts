@@ -25,8 +25,8 @@ import type {
   PipelineResult,
   PipelineTrace,
   StageTrace,
-  TrackAResult,
-  TrackBResult,
+  DescriptionClassifierResult,
+  CodeResolverResult,
 } from '../shared/pipeline.types.js';
 
 // Legacy stage name → new step name. Track A's substages all start with
@@ -113,7 +113,7 @@ function buildNormalizeStage(stages: StageTrace[]): DispatchV1Stage {
 
 function buildDescriptionClassifierAction(
   stages: StageTrace[],
-  trackA: TrackAResult | null,
+  trackA: DescriptionClassifierResult | null,
 ): DispatchV1Action | null {
   // Pull all track-a/* stages in original order.
   const trackAStages = stages.filter((s) => s.name.startsWith('track-a/'));
@@ -154,7 +154,7 @@ function buildDescriptionClassifierAction(
 }
 
 function buildCodeResolverAction(
-  trackB: TrackBResult | null,
+  trackB: CodeResolverResult | null,
 ): DispatchV1Action | null {
   if (!trackB) return null;
   return {

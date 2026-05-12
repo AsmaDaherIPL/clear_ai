@@ -4,16 +4,16 @@ import { runThreshold, DEFAULT_THRESHOLDS } from './threshold/threshold.js';
 import { runPicker } from './picker/picker.js';
 import type {
   CleanupResult,
-  TrackAResult,
-  TrackAResearchDetail,
+  DescriptionClassifierResult,
+  DescriptionClassifierResearchDetail,
   StageTrace,
-} from '../shared/pipeline.types.js';
+} from '../../shared/pipeline.types.js';
 
 export interface TrackAOptions {
   thresholds?: { minScore: number; minGap: number };
 }
 
-function toResearchDetail(r: ResearcherOutput): TrackAResearchDetail {
+function toResearchDetail(r: ResearcherOutput): DescriptionClassifierResearchDetail {
   return {
     source: r.source,
     recognised: r.recognised,
@@ -25,11 +25,11 @@ function toResearchDetail(r: ResearcherOutput): TrackAResearchDetail {
   };
 }
 
-export async function runTrackA(
+export async function runDescriptionClassifier(
   cleanup: CleanupResult,
   raw_description: string,
   opts: TrackAOptions = {},
-): Promise<{ result: TrackAResult; stages: StageTrace[] }> {
+): Promise<{ result: DescriptionClassifierResult; stages: StageTrace[] }> {
   const stages: StageTrace[] = [];
   const thresholds = opts.thresholds ?? DEFAULT_THRESHOLDS;
 
@@ -42,9 +42,9 @@ export async function runTrackA(
   // expansion), so its fit/partial/does_not_fit verdicts and rationales
   // judge candidates against the merchant's actual words.
   let retrieval_query = cleanup.tariff_expansion_en || cleanup.cleaned_description;
-  let interpretation_stage: TrackAResult['interpretation_stage'] = 'cleaned';
-  let researchDetail: TrackAResearchDetail | null = null;
-  let webResearchDetail: TrackAResearchDetail | null = null;
+  let interpretation_stage: DescriptionClassifierResult['interpretation_stage'] = 'cleaned';
+  let researchDetail: DescriptionClassifierResearchDetail | null = null;
+  let webResearchDetail: DescriptionClassifierResearchDetail | null = null;
 
   if (cleanup.clarity_verdict === 'needs_research') {
     const t0 = Date.now();

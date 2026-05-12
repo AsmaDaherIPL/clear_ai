@@ -7,20 +7,20 @@
  * distinguish "no override" from "override fired, codebook then
  * resolved" from "override fired, target is stale".
  */
-import { getPool } from '../../../db/client.js';
-import { lookupTenantOverride } from '../../pipeline/track-b-code/codebook-override.js';
-import { llmClassify } from '../../pipeline/track-a-description/picker/llm-pick.js';
-import { retrieveCandidates } from '../../../inference/retrieval/retrieve.js';
+import { getPool } from '../../../../db/client.js';
+import { lookupTenantOverride } from './codebook-override.js';
+import { llmClassify } from '../description-classifier/picker/llm-pick.js';
+import { retrieveCandidates } from '../../../../inference/retrieval/retrieve.js';
 import type {
-  TrackBResult,
+  CodeResolverResult,
   TrackBResolution,
   CodebookState,
   TrackBLlmContext,
   MerchantCodeState,
   ConsistencyVerdict,
   SubtreeAnnotatedCandidate,
-} from '../shared/pipeline.types.js';
-import type { Candidate } from '../../../inference/retrieval/retrieve.js';
+} from '../../shared/pipeline.types.js';
+import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
 
 interface HsCodeRecord {
   code: string;
@@ -362,13 +362,13 @@ export interface RunTrackBOptions {
   overridesEnabled?: boolean;
 }
 
-export async function runTrackB(
+export async function runCodeResolver(
   raw_merchant_code: string | null,
   merchant_code_state: MerchantCodeState,
   cleaned_description: string,
   operatorSlug: string,
   options: RunTrackBOptions = {},
-): Promise<TrackBResult> {
+): Promise<CodeResolverResult> {
   const { overridesEnabled = true } = options;
   if (!raw_merchant_code || merchant_code_state === 'absent' || merchant_code_state === 'malformed') {
     return {

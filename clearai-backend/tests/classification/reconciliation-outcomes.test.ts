@@ -19,8 +19,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   classificationStatusFromConflictType,
-  type TrackAResult,
-  type TrackBResult,
+  type DescriptionClassifierResult,
+  type CodeResolverResult,
   type AnnotatedCandidate,
   type CandidateFitVerdict,
   type ConsistencyVerdict,
@@ -33,7 +33,7 @@ vi.mock('../../src/inference/llm/structured-call.js', () => ({
   loadPrompt: vi.fn().mockResolvedValue('mock-prompt'),
 }));
 
-import { runReconciliation } from '../../src/modules/pipeline/stage-2-verdict/reconciliation.js';
+import { runReconciliation } from '../../src/modules/pipeline/classify/reconciliation/reconciliation.js';
 
 function ac(code: string, fit: CandidateFitVerdict, rrf = 0.05, rationale = 'test'): AnnotatedCandidate {
   return { code, description_en: code, description_ar: null, rrf_score: rrf, fit, rationale };
@@ -43,7 +43,7 @@ function trackA(opts: {
   candidates?: AnnotatedCandidate[];
   no_fit?: boolean;
   threshold_failed?: boolean;
-}): TrackAResult {
+}): DescriptionClassifierResult {
   return {
     annotated_candidates: opts.candidates ?? [],
     threshold_failed: opts.threshold_failed ?? false,
@@ -60,7 +60,7 @@ function trackB(opts: {
   consistency_verdict?: ConsistencyVerdict;
   override_applied?: boolean;
   subtree_top_code?: string;
-}): TrackBResult {
+}): CodeResolverResult {
   return {
     resolved_code: opts.resolved_code ?? null,
     resolution: opts.resolved_code ? 'passthrough' : 'null_resolution',

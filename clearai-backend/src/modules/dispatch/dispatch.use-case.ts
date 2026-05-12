@@ -16,7 +16,7 @@
 import { runPipeline } from '../pipeline/pipeline.orchestrator.js';
 import { assembleDispatchV1 } from '../pipeline/trace/dispatch-v1.js';
 import { recordClassificationEvent } from '../pipeline/events/recorder.js';
-import { enqueueHitl } from '../pipeline/hitl/hitl.js';
+import { enqueueHitl } from '../pipeline/review/review.js';
 import { isBreakerTripped, breakerStatus } from '../../inference/llm/breaker.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import type { DispatchResult } from './dispatch.contract.js';

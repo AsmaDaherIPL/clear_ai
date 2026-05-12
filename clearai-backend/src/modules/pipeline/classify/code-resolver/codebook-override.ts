@@ -7,7 +7,7 @@
  * broker_code_mapping to operator_code_overrides and the lookup is now
  * operator-scoped (today only 'naqel'; multi-operator in the future).
  */
-import { getPool } from '../../../db/client.js';
+import { getPool } from '../../../../db/client.js';
 
 export interface TenantOverrideHit {
   targetCode: string;

@@ -1,6 +1,6 @@
-import { llmClassify } from '../../../pipeline/track-a-description/picker/llm-pick.js';
-import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
-import type { AnnotatedCandidate } from '../../shared/pipeline.types.js';
+import { llmClassify } from './llm-pick.js';
+import type { Candidate } from '../../../../../inference/retrieval/retrieve.js';
+import type { AnnotatedCandidate } from '../../../shared/pipeline.types.js';
 
 export interface PickerOutput {
   annotated_candidates: AnnotatedCandidate[];

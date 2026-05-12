@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateGate } from '../../src/modules/pipeline/track-a-description/threshold/evidence-gate.js';
+import { evaluateGate } from '../../src/modules/pipeline/classify/description-classifier/threshold/evidence-gate.js';
 import type { Candidate } from '../../src/inference/retrieval/retrieve.js';
 
 function cand(code: string, score: number): Candidate {

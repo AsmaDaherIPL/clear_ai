@@ -3,7 +3,7 @@
  * cross-chapter rows unless they're close to the top score. Excludes the
  * chosen code (it ships at result.code).
  */
-import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
+import type { Candidate } from '../../../../../inference/retrieval/retrieve.js';
 
 export interface FilterAlternativesOpts {
   /** Always excluded from the output; ships at result.code instead. */

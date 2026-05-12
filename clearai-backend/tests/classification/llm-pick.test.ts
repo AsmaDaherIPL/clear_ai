@@ -26,7 +26,7 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue('mock-prompt'),
 }));
 
-import { llmClassify } from '../../src/modules/pipeline/track-a-description/picker/llm-pick.js';
+import { llmClassify } from '../../src/modules/pipeline/classify/description-classifier/picker/llm-pick.js';
 import { callLlmWithRetry } from '../../src/inference/llm/client.js';
 import type { Candidate } from '../../src/inference/retrieval/retrieve.js';
 

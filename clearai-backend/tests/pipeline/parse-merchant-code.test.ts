@@ -15,7 +15,7 @@
  * subtree search to whatever length is supplied.
  */
 import { describe, it, expect } from 'vitest';
-import { parseItem } from '../../src/modules/pipeline/stage-0-parse/parse.js';
+import { parseItem } from '../../src/modules/pipeline/parse/parse.js';
 import type { CanonicalLineItem } from '../../src/modules/operators/operator-config.types.js';
 
 function line(merchantHsCode: string | null): CanonicalLineItem {

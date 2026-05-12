@@ -2,7 +2,7 @@
  * Understanding signal (ADR-0020). Combines chapter coherence and noun-family
  * alignment to decide whether to run the researcher.
  */
-import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
+import type { Candidate } from '../../../../../inference/retrieval/retrieve.js';
 
 export type UnderstandingReason =
   | 'incoherent_top_set'

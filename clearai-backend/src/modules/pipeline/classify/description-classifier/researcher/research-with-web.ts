@@ -3,8 +3,8 @@
  * Uses Anthropic's hosted web_search tool with a hard cap on uses.
  */
 import { z } from 'zod';
-import { structuredLlmCall } from '../../../../inference/llm/structured-call.js';
-import { env } from '../../../../config/env.js';
+import { structuredLlmCall } from '../../../../../inference/llm/structured-call.js';
+import { env } from '../../../../../config/env.js';
 
 export type ResearchWithWebKind = 'recognised' | 'unknown';
 

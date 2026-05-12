@@ -11,7 +11,7 @@
  * inputs. The picker has `no_fit` as its own refusal mechanism — let it
  * make the call.
  */
-import type { Candidate } from '../../../../inference/retrieval/retrieve.js';
+import type { Candidate } from '../../../../../inference/retrieval/retrieve.js';
 
 const THIN_INPUT_TOPK = 5;
 const THIN_INPUT_MIN_CHAPTER_SPREAD = 3;

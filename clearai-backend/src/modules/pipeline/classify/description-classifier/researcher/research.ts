@@ -2,9 +2,9 @@
  * LLM researcher (stage B). Resolves jargon / brand inputs that retrieval
  * scattered across tariff chapters. Returns RECOGNISED, UNKNOWN, or failed.
  */
-import { callLlmWithRetry } from '../../../../inference/llm/client.js';
-import { loadPrompt } from '../../../../inference/llm/structured-call.js';
-import { env } from '../../../../config/env.js';
+import { callLlmWithRetry } from '../../../../../inference/llm/client.js';
+import { loadPrompt } from '../../../../../inference/llm/structured-call.js';
+import { env } from '../../../../../config/env.js';
 
 export type ResearchOutcome =
   | { kind: 'recognised'; canonical: string; latencyMs: number; model: string }

@@ -12,10 +12,10 @@
  *   6. AMBIGUOUS_MATERIAL (default fall-through)
  */
 import { describe, it, expect } from 'vitest';
-import { classifyConflict } from '../../src/modules/pipeline/stage-2-verdict/conflict-type.js';
+import { classifyConflict } from '../../src/modules/pipeline/classify/reconciliation/conflict-type.js';
 import type {
-  TrackAResult,
-  TrackBResult,
+  DescriptionClassifierResult,
+  CodeResolverResult,
   AnnotatedCandidate,
   CandidateFitVerdict,
   ConsistencyVerdict,
@@ -29,7 +29,7 @@ function trackA(opts: {
   candidates?: AnnotatedCandidate[];
   no_fit?: boolean;
   threshold_failed?: boolean;
-}): TrackAResult {
+}): DescriptionClassifierResult {
   return {
     annotated_candidates: opts.candidates ?? [],
     threshold_failed: opts.threshold_failed ?? false,
@@ -45,7 +45,7 @@ function trackB(opts: {
   resolved_code?: string | null;
   consistency_verdict?: ConsistencyVerdict;
   override_applied?: boolean;
-}): TrackBResult {
+}): CodeResolverResult {
   return {
     resolved_code: opts.resolved_code ?? null,
     resolution: opts.resolved_code ? 'passthrough' : 'null_resolution',

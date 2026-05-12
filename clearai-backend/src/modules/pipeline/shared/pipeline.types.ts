@@ -75,7 +75,7 @@ export interface AnnotatedCandidate {
 }
 
 /** Researcher detail surfaced in the trace. */
-export interface TrackAResearchDetail {
+export interface DescriptionClassifierResearchDetail {
   source: 'cheap_llm' | 'web_search' | 'failed_passthrough';
   recognised: boolean;
   enriched_description: string;
@@ -85,7 +85,7 @@ export interface TrackAResearchDetail {
   latency_ms: number;
 }
 
-export interface TrackAResult {
+export interface DescriptionClassifierResult {
   /**
    * Retrieval candidates annotated with fit verdicts by the description classifier.
    * Ordered by retrieval score. Empty when threshold failed or retrieval returned nothing.
@@ -98,8 +98,8 @@ export interface TrackAResult {
   no_fit: boolean;
   interpretation_stage: 'passthrough' | 'cleaned' | 'researched';
   effective_description: string;
-  research: TrackAResearchDetail | null;
-  web_research: TrackAResearchDetail | null;
+  research: DescriptionClassifierResearchDetail | null;
+  web_research: DescriptionClassifierResearchDetail | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ export interface TrackAResult {
  * How the codebook resolved the input that was actually walked. When a
  * tenant override fired, the input to this walk is the override's target
  * code, not the raw merchant code — `override_applied` and
- * `override_target_code` on TrackBResult tell you whether and to what
+ * `override_target_code` on CodeResolverResult tell you whether and to what
  * the override translated. There is no `tenant_override` enum value
  * because override is no longer a terminal stop.
  */
@@ -167,7 +167,7 @@ export interface SubtreeAnnotatedCandidate {
   rationale: string;
 }
 
-export interface TrackBResult {
+export interface CodeResolverResult {
   /** Resolved 12-digit code. Null when resolution='null_resolution'. */
   resolved_code: string | null;
   resolution: TrackBResolution;
@@ -353,8 +353,8 @@ export interface StageTrace {
 }
 
 export interface PipelineTrace {
-  track_a: TrackAResult | null;
-  track_b: TrackBResult | null;
+  track_a: DescriptionClassifierResult | null;
+  track_b: CodeResolverResult | null;
   verdict: StageVerdictOutput | null;
   sanity: SanityResult | null;
   stages: StageTrace[];

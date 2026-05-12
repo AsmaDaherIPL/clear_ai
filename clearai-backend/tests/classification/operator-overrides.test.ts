@@ -18,7 +18,7 @@
  *     when looked up under another (regression guard for multi-operator)
  */
 import { describe, expect, it, afterAll } from 'vitest';
-import { lookupTenantOverride } from '../../src/modules/pipeline/track-b-code/codebook-override.js';
+import { lookupTenantOverride } from '../../src/modules/pipeline/classify/code-resolver/codebook-override.js';
 import { closeDb } from '../../src/db/client.js';
 
 describe.skipIf(!process.env.RUN_DB_TESTS)('lookupTenantOverride (live DB)', () => {

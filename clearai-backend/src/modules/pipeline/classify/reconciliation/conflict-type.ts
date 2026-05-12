@@ -17,11 +17,11 @@
  * No LLM. No DB. Pure function over the upstream pipeline state.
  */
 import type {
-  TrackAResult,
-  TrackBResult,
+  DescriptionClassifierResult,
+  CodeResolverResult,
   ConflictType,
   AnnotatedCandidate,
-} from '../shared/pipeline.types.js';
+} from '../../shared/pipeline.types.js';
 
 /** First two digits of an HS code; the chapter level. */
 function chapter(code: string | null | undefined): string | null {
@@ -45,7 +45,7 @@ function topFitOrPartial(candidates: AnnotatedCandidate[]): AnnotatedCandidate |
 }
 
 /** Has Track A produced any candidate with a positive fit? */
-function trackAHasSignal(trackA: TrackAResult): boolean {
+function trackAHasSignal(trackA: DescriptionClassifierResult): boolean {
   return trackA.annotated_candidates.some((c) => c.fit === 'fits' || c.fit === 'partial');
 }
 
@@ -93,7 +93,7 @@ function trackAHasSignal(trackA: TrackAResult): boolean {
  *   DRIFT beats AMBIGUOUS because heading-level agreement is a
  *   stronger signal than absence of signal.
  */
-export function classifyConflict(trackA: TrackAResult, trackB: TrackBResult): ConflictType {
+export function classifyConflict(trackA: DescriptionClassifierResult, trackB: CodeResolverResult): ConflictType {
   const aHas = trackAHasSignal(trackA);
   const bHas = !!trackB.resolved_code;
 
