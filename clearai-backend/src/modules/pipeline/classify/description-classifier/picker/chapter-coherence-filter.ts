@@ -45,6 +45,26 @@ const KEYWORD_CHAPTERS: Array<{ pattern: RegExp; chapters: ReadonlyArray<string>
   { pattern: /\b(thermos|vacuum\s+flask|insulated\s+(bottle|flask|mug))\b/i, chapters: ['96'] },
   { pattern: /قارورة\s+حرارية/i, chapters: ['96'] },
   { pattern: /\b(incense|agarbatti|bakhoor|بخور|عود\s+بخور)\b/i, chapters: ['33'] },
+
+  // Toys / games / construction sets (chapter 95). Critical: these can be
+  // mis-classified as magnets (85), models (90), or other chapters when the
+  // description literalises the construction material instead of the toy
+  // function. "Building blocks" alone is ambiguous; pair it with toy signals.
+  { pattern: /\b(lego|magicube|geomag|playmobil|brio|meccano)\b/i, chapters: ['95'] },
+  { pattern: /\b(building\s+(blocks?|set|kit|toy))\b/i, chapters: ['95'] },
+  { pattern: /\b(construction\s+(set|kit|toy))\b/i, chapters: ['95'] },
+  { pattern: /\b(toy|toys|playset|action\s+figure|board\s+game|jigsaw\s+puzzle)\b/i, chapters: ['95'] },
+  { pattern: /\b(stuffed\s+(animal|toy)|plush\s+toy|soft\s+toy|teddy\s+bear)\b/i, chapters: ['95'] },
+  { pattern: /\b(doll|dolls|dollhouse)\b/i, chapters: ['95'] },
+  { pattern: /\b(model\s+(car|train|airplane|kit)\b|die[\s-]?cast\s+model)/i, chapters: ['95'] },
+  { pattern: /\b(skateboard|roller\s+skates?|scooter\s+(for\s+kids?|toy)|kick\s+scooter)\b/i, chapters: ['95'] },
+  { pattern: /ألعاب|لعبة|دمى|دمية/i, chapters: ['95'] },
+
+  // Hair accessories (chapter 61 knitted, 65 textile). "Headband" in
+  // English means a hair accessory; the catalogue's literal Arabic match
+  // ('uqul / عقل) is a Saudi traditional cord — wrong chapter for a
+  // generic hair headband. Scope to 61/65 to keep both viable.
+  { pattern: /\b(headband|hair\s+band|sweat\s+band)\b/i, chapters: ['61', '65'] },
 ];
 
 export function filterByChapterCoherence(

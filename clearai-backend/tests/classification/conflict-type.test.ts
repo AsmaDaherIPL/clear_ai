@@ -123,11 +123,30 @@ describe('classifyConflict — precedence tests', () => {
     expect(classifyConflict(a, b)).toBe('ZERO_SIGNAL');
   });
 
-  it('PR 6.1 guard: CONTRADICTION still fires when Track A has a partial (not just fits)', () => {
-    // The guard only blocks CONTRADICTION when Track A has NEITHER fits NOR
-    // partial. A partial-only Track A combined with consistency_verdict=
-    // contradicts is still a real chapter mismatch worth surfacing.
+  it('2026-05-13 policy: partial-only Track A demotes CONTRADICTION to AMBIGUOUS', () => {
+    // Reversed from PR 6.1. The picker's `partial` verdict means it
+    // couldn't disambiguate against the leaf's constraints — usually
+    // "description silent on material/form-factor". That hedging signal
+    // is NOT strong enough to override the merchant code, even when
+    // Track B's subtree retrieval contradicts.
+    //
+    // Concrete miss this rule fixes: "magnetic building blocks 55pcs"
+    // (Geomag/Magicube). Track A's rank-1 was a `partial` on
+    // 850511100000 (metal magnetic beads) with rationale "description
+    // silent on material and form factor". Merchant code 9503 (toys)
+    // was correct. Pre-fix verdict was CONTRADICTION → Track A wins
+    // → wrong code shipped. Post-fix verdict is AMBIGUOUS → resolver
+    // (9503) carries the row at low confidence.
     const a = trackA({ candidates: [ac('460200000000', 'partial')] });
+    const b = trackB({ resolved_code: '630790300000', consistency_verdict: 'contradicts' });
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
+  });
+
+  it('CONTRADICTION still fires when Track A has a `fits` candidate', () => {
+    // The confidence guard only demotes partial-only. A `fits` in Track
+    // A combined with consistency_verdict=contradicts remains a real
+    // chapter mismatch worth surfacing.
+    const a = trackA({ candidates: [ac('460200000000', 'fits')] });
     const b = trackB({ resolved_code: '630790300000', consistency_verdict: 'contradicts' });
     expect(classifyConflict(a, b)).toBe('CONTRADICTION');
   });

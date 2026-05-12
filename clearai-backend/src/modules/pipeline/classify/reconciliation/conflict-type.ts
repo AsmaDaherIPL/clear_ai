@@ -105,21 +105,23 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
   // 2. CONTRADICTION — Track B subtree retrieval says the description
   //    pulled toward a different chapter than the merchant claimed.
   //
-  //    GUARD (PR 6.1): when Track A has NO fits AND NO partial candidates,
-  //    the description-side signal is unreliable — the picker rejected
-  //    every retrieved candidate, OR retrieval itself produced garbage
-  //    (common on Arabic apparel, weak descriptions, etc). Promoting
-  //    that hallucinated signal to "CONTRADICTION wins, Track A rank-1
-  //    overrides merchant code" is worse than yesterday's
-  //    override-passthrough behavior.
+  //    Confidence guard (2026-05-13): Track A must have at least one
+  //    rank-1 `fits` candidate. A `partial`-only set means the picker is
+  //    hedging on material/form-factor that the description doesn't
+  //    constrain — not strong enough to override a merchant-supplied code.
+  //    The classic miss: "magnetic building blocks" partial-fits chapter
+  //    85 (magnets), merchant said 9503 (toys); promoting Track A's
+  //    partial-8505 over the merchant's 9503 produced wrong codes.
   //
-  //    Demote to AMBIGUOUS (resolver carries the row) or
-  //    ZERO_SIGNAL (nothing to act on) when Track A is empty of positive
-  //    signal. Only trust CONTRADICTION when Track A has at least one
-  //    positive candidate AND PR 5's subtree retrieval flagged a
-  //    cross-chapter mismatch — both signals together.
+  //    Demote partial-only CONTRADICTION to AMBIGUOUS so the resolver
+  //    carries the row at low confidence (the merchant's code stays
+  //    visible in HITL for human review).
   if (trackB.consistency_verdict === 'contradicts' && aHas) {
-    return 'CONTRADICTION';
+    const topPositive = topFitOrPartial(trackA.annotated_candidates);
+    if (topPositive?.fit === 'fits') {
+      return 'CONTRADICTION';
+    }
+    // fall through to AMBIGUOUS via the default
   }
 
   // 2b. CONTRADICTION (chapter-level cross-track) — Track A's strongest

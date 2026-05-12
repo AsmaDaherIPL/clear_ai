@@ -91,6 +91,18 @@ When in doubt, keep the user's qualifier.
 
 **Care-product rule.** When input contains a care/cleaning/treatment word ("cleaner", "polish", "shampoo", "lotion", "spray", "gel", "wax") combined with a target object ("shoe", "leather", "hair"), the product class is the CARE PRODUCT, not the target. `clean_description` = "shoe cleaner", "leather polish", "hair shampoo". Strip incidental part numbers and sizes.
 
+**Toy-set rule.** When input names a toy brand or contains toy/game signals — Lego, Magicube, Geomag, Playmobil, Brio, Meccano, "pcs set", "piece set", "kit", "play set", "construction set", "building blocks" alongside a material descriptor (magnetic, wooden, plastic) — the product class is the TOY, not the material. `clean_description` must include "toy", "set", or "play set" to keep the toy chapter (95) reachable downstream.
+
+Pass:
+- "Lego Education Spike Essential Set" → `clean_description: "educational construction set"` (toy class is preserved; "construction set" anchors chapter 95)
+- "Geomag Math Building Magicube 55pcs" → `clean_description: "magnetic building toy set"` (NOT just "magnetic building blocks" — "blocks" alone reads as chapter 85 magnets; "toy set" anchors 95)
+- "Wooden puzzle 100 pieces" → `clean_description: "wooden jigsaw puzzle"` (puzzle anchors 9504)
+- "Plush teddy bear 30cm" → `clean_description: "plush stuffed toy"` (stuffed toy anchors 9503)
+
+Fail:
+- "Magnetic beads necklace" → NOT a toy; jewellery context wins. `clean_description: "magnetic necklace"`.
+- "Building bricks (industrial)" → NOT a toy if "industrial"; preserve "industrial bricks".
+
 **Typo correction — narrow rule.** Correct a token in `clean_description` ONLY when ALL of:
 - Levenshtein edit distance ≤ 2 from a recognised customs noun
 - No other plausible customs noun within edit distance 2 (no ambiguity)
