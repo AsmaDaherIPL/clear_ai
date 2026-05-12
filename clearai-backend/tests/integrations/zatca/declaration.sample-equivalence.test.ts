@@ -31,7 +31,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderDeclarationXml } from '../../../src/integrations/zatca/declaration/declaration.template.js';
 import type { RenderInput } from '../../../src/integrations/zatca/declaration/declaration.types.js';
-import type { DeclarationRunItemRow } from '../../../src/db/schema.js';
+import type { BatchItemRow } from '../../../src/db/schema.js';
 import type { LookupValue } from '../../../src/modules/operators/operator-lookups.repository.js';
 
 const SAMPLES_DIR = join(
@@ -135,7 +135,7 @@ function naqelLookups(): Map<string, Map<string, LookupValue>> {
   return m;
 }
 
-/** Build a synthetic DeclarationRunItemRow from raw inputs. */
+/** Build a synthetic BatchItemRow from raw inputs. */
 function syntheticRow(c: {
   description: string;
   goodsDescriptionAr: string;
@@ -152,7 +152,7 @@ function syntheticRow(c: {
   consigneeNationalId: string;
   consigneePhone: string;
   invoiceDate: string;
-}): DeclarationRunItemRow {
+}): BatchItemRow {
   return {
     id: 'item',
     declarationRunId: 'set',
@@ -189,11 +189,11 @@ function syntheticRow(c: {
     goodsDescriptionAr: c.goodsDescriptionAr,
     createdAt: new Date(),
     updatedAt: new Date(),
-  } as unknown as DeclarationRunItemRow;
+  } as unknown as BatchItemRow;
 }
 
 function baseInputFor(opts: {
-  items: DeclarationRunItemRow[];
+  items: BatchItemRow[];
   strategy: 'HV_STANDALONE' | 'LV_BUNDLED';
   docRefSuffix: string;
   constants: Record<string, string>;

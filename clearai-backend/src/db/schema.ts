@@ -65,17 +65,17 @@ export { declarationRuns } from './schema/declaration-runs.js';
 export type {
   DeclarationRunRow,
   NewDeclarationRunRow,
-  DeclarationRunMode,
-  DeclarationRunStatus,
+  BatchMode,
+  BatchStatus,
   ClassificationStatus,
   DeclarationStatus,
 } from './schema/declaration-runs.js';
 
 export { declarationRunItems } from './schema/declaration-run-items.js';
 export type {
-  DeclarationRunItemRow,
+  BatchItemRow,
   NewDeclarationRunItemRow,
-  DeclarationRunItemStatus,
+  BatchItemStatus,
 } from './schema/declaration-run-items.js';
 
 export { declarationRunFilings } from './schema/declaration-run-filings.js';

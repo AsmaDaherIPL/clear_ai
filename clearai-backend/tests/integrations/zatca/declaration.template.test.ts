@@ -22,7 +22,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderDeclarationXml, ZatcaRenderError } from '../../../src/integrations/zatca/declaration/declaration.template.js';
-import type { DeclarationRunItemRow } from '../../../src/db/schema.js';
+import type { BatchItemRow } from '../../../src/db/schema.js';
 import type { LookupValue } from '../../../src/modules/operators/operator-lookups.repository.js';
 
 function row(overrides: Partial<{
@@ -41,7 +41,7 @@ function row(overrides: Partial<{
   consigneeNationalId: string;
   consigneePhone: string;
   invoiceDate: string | null;
-}> = {}): DeclarationRunItemRow {
+}> = {}): BatchItemRow {
   return {
     id: 'item-1',
     declarationRunId: 'set-1',
@@ -79,7 +79,7 @@ function row(overrides: Partial<{
     goodsDescriptionAr: 'بنطلونات',
     createdAt: new Date(),
     updatedAt: new Date(),
-  } as unknown as DeclarationRunItemRow;
+  } as unknown as BatchItemRow;
 }
 
 function lookups(): Map<string, Map<string, LookupValue>> {
@@ -156,7 +156,7 @@ function zatcaDefaults(): Record<string, string> {
   };
 }
 
-function baseInput(items: DeclarationRunItemRow[], strategy: 'HV_STANDALONE' | 'LV_BUNDLED' = 'HV_STANDALONE') {
+function baseInput(items: BatchItemRow[], strategy: 'HV_STANDALONE' | 'LV_BUNDLED' = 'HV_STANDALONE') {
   return {
     operator: {
       slug: 'naqel',

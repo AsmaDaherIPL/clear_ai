@@ -21,7 +21,7 @@ import {
   declarationRuns,
   declarationRunFilings,
 } from '../../src/db/schema.js';
-import { runProcessing, createDeclarationRun } from '../../src/modules/declaration-runs/declaration-run.use-case.js';
+import { runProcessing, createBatch } from '../../src/modules/declaration-runs/declaration-run.use-case.js';
 import { clearCache } from '../../src/modules/operators/operator-config.registry.js';
 import { clearZatcaDefaultsCache } from '../../src/modules/reference-data/zatca-defaults.repository.js';
 import type { DispatchFn } from '../../src/modules/dispatch/dispatch.contract.ts';
@@ -181,7 +181,7 @@ const CSV = Buffer.from(
 
 describe('runProcessing', () => {
   it('classify_only: runs Phase 1, skips Phase 2 (no declarations rows; declaration_status stays NULL)', async () => {
-    const { declarationRun } = await createDeclarationRun({
+    const { declarationRun } = await createBatch({
       operatorSlug: TEST_OPERATOR_SLUG,
       mode: 'classify_only',
       uploadKind: 'csv',
@@ -204,7 +204,7 @@ describe('runProcessing', () => {
   });
 
   it('classify_and_declare: runs both phases; declaration rows are produced', async () => {
-    const { declarationRun } = await createDeclarationRun({
+    const { declarationRun } = await createBatch({
       operatorSlug: TEST_OPERATOR_SLUG,
       mode: 'classify_and_declare',
       uploadKind: 'csv',

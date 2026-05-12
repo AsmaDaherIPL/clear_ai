@@ -13,7 +13,7 @@ import { db } from '../../../db/client.js';
 import {
   declarationRunItems,
   declarationRuns,
-  type DeclarationRunItemRow,
+  type BatchItemRow,
   type ClassificationStatus,
 } from '../../../db/schema.js';
 import type {
@@ -21,7 +21,7 @@ import type {
   ItemTrace,
 } from './classification.types.js';
 
-export async function listPendingItems(declarationRunId: string): Promise<DeclarationRunItemRow[]> {
+export async function listPendingItems(declarationRunId: string): Promise<BatchItemRow[]> {
   return db()
     .select()
     .from(declarationRunItems)

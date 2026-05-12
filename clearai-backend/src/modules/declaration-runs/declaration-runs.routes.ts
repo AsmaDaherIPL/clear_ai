@@ -15,10 +15,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   attachDeclarationRunPlugins,
-  handleCreateDeclarationRun,
-  handleGetDeclarationRun,
+  handleCreateBatch,
+  handleGetBatch,
   handleListClassifications,
-  handlePatchDeclarationRun,
+  handlePatchBatch,
   mapDeclarationRunError,
 } from './declaration-run.controller.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
@@ -42,7 +42,7 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
 
   app.post('/batches', async (req, reply) => {
     try {
-      return await handleCreateDeclarationRun(req, reply, dispatch);
+      return await handleCreateBatch(req, reply, dispatch);
     } catch (err) {
       const mapped = mapDeclarationRunError(err);
       if (mapped) return reply.code(mapped.statusCode).send(mapped.body);
@@ -52,7 +52,7 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
 
   app.get<{ Params: { id: string } }>('/batches/:id', async (req, reply) => {
     try {
-      return await handleGetDeclarationRun(req, reply);
+      return await handleGetBatch(req, reply);
     } catch (err) {
       const mapped = mapDeclarationRunError(err);
       if (mapped) return reply.code(mapped.statusCode).send(mapped.body);
@@ -83,7 +83,7 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
       // handler keeps working without a rename.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (req as any).body = { status: 'cancelled' };
-      return await handlePatchDeclarationRun(req as never, reply);
+      return await handlePatchBatch(req as never, reply);
     } catch (err) {
       const mapped = mapDeclarationRunError(err);
       if (mapped) return reply.code(mapped.statusCode).send(mapped.body);

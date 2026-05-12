@@ -15,14 +15,14 @@ import { z } from 'zod';
 
 export const DeclarationRunModeSchema = z.enum(['classify_only', 'classify_and_declare']);
 
-export const CreateDeclarationRunFieldsSchema = z.object({
+export const CreateBatchFieldsSchema = z.object({
   mode: DeclarationRunModeSchema.optional().default('classify_and_declare'),
 });
 
-export type CreateDeclarationRunFields = z.infer<typeof CreateDeclarationRunFieldsSchema>;
+export type CreateDeclarationRunFields = z.infer<typeof CreateBatchFieldsSchema>;
 
-export const PatchDeclarationRunSchema = z.object({
+export const PatchBatchSchema = z.object({
   status: z.literal('cancelled'),
 });
 
-export type PatchDeclarationRunBody = z.infer<typeof PatchDeclarationRunSchema>;
+export type PatchDeclarationRunBody = z.infer<typeof PatchBatchSchema>;

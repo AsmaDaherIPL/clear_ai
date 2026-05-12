@@ -27,7 +27,7 @@ import { hsCodes } from './zatca-hs-codes.js';
 import type { CanonicalLineItem, RawRow } from '../../modules/operators/operator-config.types.js';
 
 /** Mirror of declaration_run_items_status_chk. */
-export type DeclarationRunItemStatus =
+export type BatchItemStatus =
   | 'pending'
   | 'classifying'
   | 'succeeded'
@@ -56,7 +56,7 @@ export const declarationRunItems = pgTable(
     rawRow: jsonb('raw_row').notNull().$type<RawRow>(),
 
     /** Phase 1 lifecycle; CHECK-locked. */
-    status: varchar('status', { length: 32 }).notNull().default('pending').$type<DeclarationRunItemStatus>(),
+    status: varchar('status', { length: 32 }).notNull().default('pending').$type<BatchItemStatus>(),
 
     /**
      * Final 12-digit ZATCA HS code from dispatch().finalCode. NULL until the
@@ -131,5 +131,5 @@ export const declarationRunItems = pgTable(
   }),
 );
 
-export type DeclarationRunItemRow = typeof declarationRunItems.$inferSelect;
+export type BatchItemRow = typeof declarationRunItems.$inferSelect;
 export type NewDeclarationRunItemRow = typeof declarationRunItems.$inferInsert;

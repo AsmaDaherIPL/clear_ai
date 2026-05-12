@@ -21,10 +21,10 @@ import { sql } from 'drizzle-orm';
 import { operators } from './operators.js';
 
 /** Mirror of declaration_runs_mode_chk. */
-export type DeclarationRunMode = 'classify_only' | 'classify_and_declare';
+export type BatchMode = 'classify_only' | 'classify_and_declare';
 
 /** Mirror of declaration_runs_status_chk. */
-export type DeclarationRunStatus =
+export type BatchStatus =
   | 'pending'
   | 'ingesting'
   | 'processing'
@@ -52,10 +52,10 @@ export const declarationRuns = pgTable(
     operatorId: uuid('operator_id').notNull(),
 
     /** Two-phase mode; CHECK-locked. */
-    mode: varchar('mode', { length: 32 }).notNull().default('classify_and_declare').$type<DeclarationRunMode>(),
+    mode: varchar('mode', { length: 32 }).notNull().default('classify_and_declare').$type<BatchMode>(),
 
     /** Derived overall lifecycle; CHECK-locked. Materialised for cheap polling. */
-    status: varchar('status', { length: 32 }).notNull().default('pending').$type<DeclarationRunStatus>(),
+    status: varchar('status', { length: 32 }).notNull().default('pending').$type<BatchStatus>(),
 
     /** Phase 1 lifecycle; CHECK-locked. Always non-null. */
     classificationStatus: varchar('classification_status', { length: 32 })

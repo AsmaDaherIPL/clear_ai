@@ -9,11 +9,11 @@ import {
   declarationRuns,
   declarationRunFilings,
   type DeclarationStatus,
-  type DeclarationRunItemRow,
+  type BatchItemRow,
 } from '../../../db/schema.js';
 import type { BundleStrategy } from './declaration.types.js';
 
-export async function listClassifiedItems(declarationRunId: string): Promise<DeclarationRunItemRow[]> {
+export async function listClassifiedItems(declarationRunId: string): Promise<BatchItemRow[]> {
   return db()
     .select()
     .from(declarationRunItems)

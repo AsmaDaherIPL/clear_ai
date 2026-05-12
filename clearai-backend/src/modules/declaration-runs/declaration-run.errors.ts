@@ -23,10 +23,10 @@ class DeclarationRunError extends Error {
   }
 }
 
-export class DeclarationRunValidationError extends DeclarationRunError {
+export class BatchValidationError extends DeclarationRunError {
   constructor(message: string, details?: Record<string, unknown>) {
     super({ code: 'declaration_run_validation_failed', message, statusCode: 400, details });
-    this.name = 'DeclarationRunValidationError';
+    this.name = 'BatchValidationError';
   }
 }
 
@@ -37,7 +37,7 @@ export class DeclarationRunProcessingError extends DeclarationRunError {
   }
 }
 
-export class DeclarationRunNotFoundError extends DeclarationRunError {
+export class BatchNotFoundError extends DeclarationRunError {
   constructor(id: string) {
     super({
       code: 'declaration_run_not_found',
@@ -45,11 +45,11 @@ export class DeclarationRunNotFoundError extends DeclarationRunError {
       statusCode: 404,
       details: { id },
     });
-    this.name = 'DeclarationRunNotFoundError';
+    this.name = 'BatchNotFoundError';
   }
 }
 
-export class DeclarationRunTooLargeError extends DeclarationRunError {
+export class BatchTooLargeError extends DeclarationRunError {
   constructor(rowCount: number, maxRows: number) {
     super({
       code: 'declaration_run_too_large',
@@ -57,6 +57,6 @@ export class DeclarationRunTooLargeError extends DeclarationRunError {
       statusCode: 413,
       details: { rowCount, maxRows },
     });
-    this.name = 'DeclarationRunTooLargeError';
+    this.name = 'BatchTooLargeError';
   }
 }

@@ -33,7 +33,7 @@ describe('enrichCodes', () => {
     mockQuery.mockResolvedValueOnce({ rows: [] }); // hs_codes
     await enrichCodes(['851830000000', '851830000000', '851830000000']);
     expect(mockQuery).toHaveBeenCalledTimes(1);
-    expect(mockQuery.mock.calls[0][1]).toEqual([['851830000000']]);
+    expect(mockQuery.mock.calls[0]?.[1]).toEqual([['851830000000']]);
   });
 
   it('shapes duty_info from rate row', async () => {

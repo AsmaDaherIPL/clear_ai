@@ -14,7 +14,7 @@
  * Pure function — no I/O, no DB. Input is the rows already classified
  * (status ∈ {succeeded, flagged}); the renderer turns each bundle into XML.
  */
-import type { DeclarationRunItemRow } from '../../../db/schema.js';
+import type { BatchItemRow } from '../../../db/schema.js';
 import type { BundleInput } from './declaration.types.js';
 import { toSar } from './fx.js';
 
@@ -24,7 +24,7 @@ export interface PartitionOpts {
 }
 
 export function partitionHvLv(
-  items: ReadonlyArray<DeclarationRunItemRow>,
+  items: ReadonlyArray<BatchItemRow>,
   opts: PartitionOpts,
 ): BundleInput[] {
   if (!Number.isFinite(opts.hvThresholdSar) || opts.hvThresholdSar < 0) {
@@ -34,8 +34,8 @@ export function partitionHvLv(
     throw new RangeError(`bundleSize must be a positive integer, got ${opts.bundleSize}`);
   }
 
-  const hv: DeclarationRunItemRow[] = [];
-  const lv: DeclarationRunItemRow[] = [];
+  const hv: BatchItemRow[] = [];
+  const lv: BatchItemRow[] = [];
   for (const item of items) {
     const sarAmount = readSarAmount(item);
     if (sarAmount >= opts.hvThresholdSar) hv.push(item);
@@ -57,7 +57,7 @@ export function partitionHvLv(
   return bundles;
 }
 
-function readSarAmount(row: DeclarationRunItemRow): number {
+function readSarAmount(row: BatchItemRow): number {
   const c = row.canonical;
   const amount = c.valueAmount;
   const code = c.currencyCode;

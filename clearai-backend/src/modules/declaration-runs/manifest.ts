@@ -2,7 +2,7 @@ import { getBlobClient } from '../../storage/blob.client.js';
 import { classificationsKey, runIndexKey } from '../../storage/blob.paths.js';
 import { listClassifiedItems } from './filings/declaration.repository.js';
 import { listPendingItems } from './classification/classification.repository.js';
-import { getDeclarationRun } from './declaration-run.repository.js';
+import { getBatch } from './declaration-run.repository.js';
 import { getOperatorById } from '../operators/operator.repository.js';
 
 export interface ManifestFile {
@@ -22,7 +22,7 @@ export interface RunManifest {
 }
 
 export async function writeClassificationsJson(declarationRunId: string): Promise<void> {
-  const run = await getDeclarationRun(declarationRunId);
+  const run = await getBatch(declarationRunId);
   if (!run.blobPrefix) return;
 
   // Union both lists: listClassifiedItems is post-Phase-1 only
@@ -40,7 +40,7 @@ export async function writeClassificationsJson(declarationRunId: string): Promis
 }
 
 export async function writeManifestJson(declarationRunId: string): Promise<void> {
-  const run = await getDeclarationRun(declarationRunId);
+  const run = await getBatch(declarationRunId);
   if (!run.blobPrefix) return;
   const operatorRow = await getOperatorById(run.operatorId);
 

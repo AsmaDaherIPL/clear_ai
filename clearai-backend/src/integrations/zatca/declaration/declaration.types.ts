@@ -2,14 +2,14 @@
  * In-memory shape of the decsub:saudiEDI envelope before serialisation.
  * Mirrors decsub.xsd structurally; the renderer translates field by field.
  */
-import type { DeclarationRunItemRow, OperatorDeclarationConfigRow } from '../../../db/schema.js';
+import type { BatchItemRow, OperatorDeclarationConfigRow } from '../../../db/schema.js';
 import type { BundleStrategy } from '../../../modules/declaration-runs/filings/declaration.types.js';
 import type { LookupValue } from '../../../modules/operators/operator-lookups.repository.js';
 import type { OperatorIdentity } from '../../../modules/operators/operator-config.types.js';
 
 export interface BundleInput {
   strategy: BundleStrategy;
-  items: ReadonlyArray<DeclarationRunItemRow>;
+  items: ReadonlyArray<BatchItemRow>;
 }
 
 export interface RenderInput {
@@ -26,7 +26,7 @@ export interface RenderInput {
    */
   config: Readonly<OperatorDeclarationConfigRow>;
   bundleStrategy: BundleStrategy;
-  items: ReadonlyArray<DeclarationRunItemRow>;
+  items: ReadonlyArray<BatchItemRow>;
   /** lookup_type -> source_value -> { canonical, metadata }. */
   lookups: ReadonlyMap<string, ReadonlyMap<string, LookupValue>>;
   now: Date;

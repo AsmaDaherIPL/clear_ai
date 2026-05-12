@@ -20,7 +20,7 @@ import { partitionHvLv } from '../../../integrations/zatca/declaration/declarati
 import { renderDeclarationXml } from '../../../integrations/zatca/declaration/declaration.template.js';
 import { getBlobClient } from '../../../storage/blob.client.js';
 import { filingKey } from '../../../storage/blob.paths.js';
-import { getDeclarationRun } from '../declaration-run.repository.js';
+import { getBatch } from '../declaration-run.repository.js';
 import { newId } from '../../../common/utils/uuid.js';
 import { loadThresholds } from '../../reference-data/setup-meta.repository.js';
 
@@ -28,7 +28,7 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   const startMs = Date.now();
   await markDeclarationPhase(declarationRunId, 'running');
 
-  const declarationRun = await getDeclarationRun(declarationRunId);
+  const declarationRun = await getBatch(declarationRunId);
   const operatorRow = await getOperatorById(declarationRun.operatorId);
   if (!operatorRow) {
     throw new Error(`operator ${declarationRun.operatorId} not found for declaration_run ${declarationRunId}`);

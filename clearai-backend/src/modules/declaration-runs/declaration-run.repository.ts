@@ -4,7 +4,7 @@
  * The two-phase status fields (classification_status / declaration_status)
  * are written via dedicated phase repositories
  * (classification.repository / declaration.repository); this module owns
- * CRUD + cross-phase queries (insertDeclarationRun, getDeclarationRun,
+ * CRUD + cross-phase queries (insertDeclarationRun, getBatch,
  * listItems, countItemsByStatus).
  */
 import { and, eq, sql } from 'drizzle-orm';
@@ -14,15 +14,15 @@ import {
   declarationRunItems,
   type ClassificationStatus,
   type DeclarationStatus,
-  type DeclarationRunItemRow,
-  type DeclarationRunItemStatus,
-  type DeclarationRunMode,
+  type BatchItemRow,
+  type BatchItemStatus,
+  type BatchMode,
   type DeclarationRunRow,
-  type DeclarationRunStatus,
+  type BatchStatus,
   type NewDeclarationRunItemRow,
 } from '../../db/schema.js';
 import type { CanonicalLineItem, RawRow } from '../operators/operator-config.types.js';
-import { DeclarationRunNotFoundError } from './declaration-run.errors.js';
+import { BatchNotFoundError } from './declaration-run.errors.js';
 
 /**
  * One paired (canonical, rawRow) record. The repository writes them into
@@ -38,7 +38,7 @@ export interface InsertDeclarationRunInput {
   /** Pre-allocated uuid so the caller can build deterministic blob paths. */
   declarationRunId: string;
   operatorId: string;
-  mode: DeclarationRunMode;
+  mode: BatchMode;
   sourceBlobKey: string;
   /** Tree-layout prefix locked in at creation time (e.g. naqel/2026/05/08/<run_id>). */
   blobPrefix: string;
@@ -96,13 +96,13 @@ export async function insertDeclarationRun(input: InsertDeclarationRunInput): Pr
   });
 }
 
-export async function getDeclarationRun(id: string): Promise<DeclarationRunRow> {
+export async function getBatch(id: string): Promise<DeclarationRunRow> {
   const rows = await db().select().from(declarationRuns).where(eq(declarationRuns.id, id)).limit(1);
-  if (!rows[0]) throw new DeclarationRunNotFoundError(id);
+  if (!rows[0]) throw new BatchNotFoundError(id);
   return rows[0];
 }
 
-export async function listItems(declarationRunId: string): Promise<DeclarationRunItemRow[]> {
+export async function listItems(declarationRunId: string): Promise<BatchItemRow[]> {
   return db()
     .select()
     .from(declarationRunItems)
@@ -112,13 +112,13 @@ export async function listItems(declarationRunId: string): Promise<DeclarationRu
 
 export async function countItemsByStatus(
   declarationRunId: string,
-): Promise<Record<DeclarationRunItemStatus, number>> {
+): Promise<Record<BatchItemStatus, number>> {
   const rows = await db()
     .select({ status: declarationRunItems.status, n: sql<number>`count(*)::int` })
     .from(declarationRunItems)
     .where(eq(declarationRunItems.declarationRunId, declarationRunId))
     .groupBy(declarationRunItems.status);
-  const out: Record<DeclarationRunItemStatus, number> = {
+  const out: Record<BatchItemStatus, number> = {
     pending: 0,
     classifying: 0,
     succeeded: 0,
@@ -126,14 +126,14 @@ export async function countItemsByStatus(
     blocked: 0,
     failed: 0,
   };
-  for (const r of rows) out[r.status as DeclarationRunItemStatus] = Number(r.n);
+  for (const r of rows) out[r.status as BatchItemStatus] = Number(r.n);
   return out;
 }
 
 export async function setDeclarationRunStatus(
   id: string,
   patch: Partial<{
-    status: DeclarationRunStatus;
+    status: BatchStatus;
     classificationStatus: ClassificationStatus;
     declarationStatus: DeclarationStatus | null;
     startedAt: Date | null;
@@ -154,15 +154,15 @@ export async function setDeclarationRunStatus(
   await db().update(declarationRuns).set(set).where(eq(declarationRuns.id, id));
 }
 
-export async function cancelDeclarationRunIfActive(id: string): Promise<DeclarationRunRow> {
-  const declarationRun = await getDeclarationRun(id);
-  const TERMINAL: DeclarationRunStatus[] = ['completed', 'failed', 'cancelled'];
-  if (TERMINAL.includes(declarationRun.status as DeclarationRunStatus)) {
+export async function cancelBatchIfActive(id: string): Promise<DeclarationRunRow> {
+  const declarationRun = await getBatch(id);
+  const TERMINAL: BatchStatus[] = ['completed', 'failed', 'cancelled'];
+  if (TERMINAL.includes(declarationRun.status as BatchStatus)) {
     return declarationRun;
   }
   await db()
     .update(declarationRuns)
     .set({ status: 'cancelled', completedAt: new Date() })
     .where(and(eq(declarationRuns.id, id)));
-  return getDeclarationRun(id);
+  return getBatch(id);
 }

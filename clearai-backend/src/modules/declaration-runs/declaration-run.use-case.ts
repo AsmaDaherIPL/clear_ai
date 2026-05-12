@@ -24,12 +24,12 @@ import {
   type DeclarationRunItemInput,
   type InsertDeclarationRunInput,
 } from './declaration-run.repository.js';
-import { DeclarationRunTooLargeError, DeclarationRunValidationError } from './declaration-run.errors.js';
+import { BatchTooLargeError, BatchValidationError } from './declaration-run.errors.js';
 import { env } from '../../config/env.js';
 import { getBlobClient } from '../../storage/blob.client.js';
 import { declarationRunPrefix, inputKey } from '../../storage/blob.paths.js';
 import type { OperatorConfig } from '../operators/operator-config.types.js';
-import type { DeclarationRunMode, DeclarationRunRow } from '../../db/schema.js';
+import type { BatchMode, DeclarationRunRow } from '../../db/schema.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
 import { newId } from '../../common/utils/uuid.js';
 
@@ -37,7 +37,7 @@ export type UploadKind = 'csv' | 'xlsx';
 
 export interface CreateDeclarationRunInput {
   operatorSlug: string;
-  mode: DeclarationRunMode;
+  mode: BatchMode;
   uploadKind: UploadKind;
   /** The raw bytes of the uploaded file. */
   uploadBytes: Buffer;
@@ -57,7 +57,7 @@ export interface CreateDeclarationRunResult {
  * Returns once the declaration_run row + items are written. Caller is
  * responsible for scheduling runProcessing() in the background.
  */
-export async function createDeclarationRun(input: CreateDeclarationRunInput): Promise<CreateDeclarationRunResult> {
+export async function createBatch(input: CreateDeclarationRunInput): Promise<CreateDeclarationRunResult> {
   const e = env();
   const operator = await resolveOperator(input.operatorSlug);
 
@@ -65,10 +65,10 @@ export async function createDeclarationRun(input: CreateDeclarationRunInput): Pr
     input.uploadKind === 'csv' ? parseCsvBuffer(input.uploadBytes) : parseXlsxBuffer(input.uploadBytes);
 
   if (parsed.rows.length === 0) {
-    throw new DeclarationRunValidationError('uploaded file has no data rows');
+    throw new BatchValidationError('uploaded file has no data rows');
   }
   if (parsed.rows.length > e.BATCH_INPUT_MAX_ROWS) {
-    throw new DeclarationRunTooLargeError(parsed.rows.length, e.BATCH_INPUT_MAX_ROWS);
+    throw new BatchTooLargeError(parsed.rows.length, e.BATCH_INPUT_MAX_ROWS);
   }
 
   const lookups = await loadLookups(operator);

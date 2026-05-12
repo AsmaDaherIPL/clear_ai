@@ -5,26 +5,26 @@
  * stay in lock-step with the DB CHECK constraints (rule 6).
  */
 export type {
-  DeclarationRunMode,
-  DeclarationRunStatus,
+  BatchMode,
+  BatchStatus,
   ClassificationStatus,
   DeclarationStatus,
-  DeclarationRunItemStatus,
+  BatchItemStatus,
 } from '../../db/schema.js';
 
 import type {
   ClassificationStatus,
   DeclarationStatus,
-  DeclarationRunItemStatus,
-  DeclarationRunMode,
-  DeclarationRunStatus,
+  BatchItemStatus,
+  BatchMode,
+  BatchStatus,
 } from '../../db/schema.js';
 
-export interface DeclarationRunSummary {
+export interface BatchSummary {
   id: string;
   operator_slug: string;
-  mode: DeclarationRunMode;
-  status: DeclarationRunStatus;
+  mode: BatchMode;
+  status: BatchStatus;
   classification_status: ClassificationStatus;
   declaration_status: DeclarationStatus | null;
   row_count: number;
@@ -42,7 +42,7 @@ export interface DeclarationRunItemRecord {
   id: string;
   declaration_run_id: string;
   row_index: number;
-  status: DeclarationRunItemStatus;
+  status: BatchItemStatus;
   final_code: string | null;
   classification_result: Record<string, unknown> | null;
   trace: Record<string, unknown> | null;

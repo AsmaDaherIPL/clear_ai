@@ -5,29 +5,29 @@
  */
 import type { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import type { MultipartFile, MultipartValue } from '@fastify/multipart';
-import { CreateDeclarationRunFieldsSchema, PatchDeclarationRunSchema } from './declaration-run.validation.js';
-import { createDeclarationRun, runProcessing, type UploadKind } from './declaration-run.use-case.js';
+import { CreateBatchFieldsSchema, PatchBatchSchema } from './declaration-run.validation.js';
+import { createBatch, runProcessing, type UploadKind } from './declaration-run.use-case.js';
 import {
-  cancelDeclarationRunIfActive,
+  cancelBatchIfActive,
   countItemsByStatus,
-  getDeclarationRun,
+  getBatch,
 } from './declaration-run.repository.js';
 import { getPool } from '../../db/client.js';
 import { enrichCodes } from '../reference-data/code-enrichment.service.js';
 import {
-  DeclarationRunValidationError,
-  DeclarationRunTooLargeError,
-  DeclarationRunNotFoundError,
+  BatchValidationError,
+  BatchTooLargeError,
+  BatchNotFoundError,
 } from './declaration-run.errors.js';
 import { OperatorNotFoundError, RequiredFieldMissingError } from '../operators/operator.errors.js';
 import { getOperatorById } from '../operators/operator.repository.js';
-import type { DeclarationRunSummary } from './declaration-run.types.js';
+import type { BatchSummary } from './declaration-run.types.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
 import type {
   ClassificationStatus,
   DeclarationStatus,
-  DeclarationRunMode,
-  DeclarationRunStatus,
+  BatchMode,
+  BatchStatus,
 } from '../../db/schema.js';
 
 const ACCEPTED_EXTS: Record<string, UploadKind> = {
@@ -79,7 +79,7 @@ async function readMultipart(req: FastifyRequest): Promise<MultipartFields> {
   return { file, fields };
 }
 
-export async function handleCreateDeclarationRun(
+export async function handleCreateBatch(
   req: FastifyRequest,
   reply: FastifyReply,
   dispatch: DispatchFn,
@@ -87,11 +87,11 @@ export async function handleCreateDeclarationRun(
   const { file, fields } = await readMultipart(req);
 
   if (!file) {
-    throw new DeclarationRunValidationError('multipart upload missing the `file` part');
+    throw new BatchValidationError('multipart upload missing the `file` part');
   }
   const kind = sniffKindFromFilename(file.filename);
   if (!kind) {
-    throw new DeclarationRunValidationError(`unsupported file extension: ${file.filename}`);
+    throw new BatchValidationError(`unsupported file extension: ${file.filename}`);
   }
 
   // 2026-05-12 cutover: multipart body shrunk to `{file, mode}`. The
@@ -99,19 +99,19 @@ export async function handleCreateDeclarationRun(
   // callback_url + metadata channels were unused by any caller and were
   // dropped from the spec; the only metadata retained is the original
   // upload filename (handy for ops triage).
-  const parsed = CreateDeclarationRunFieldsSchema.safeParse({
+  const parsed = CreateBatchFieldsSchema.safeParse({
     mode: fields.mode || undefined,
   });
   if (!parsed.success) {
-    throw new DeclarationRunValidationError('field validation failed', { issues: parsed.error.issues });
+    throw new BatchValidationError('field validation failed', { issues: parsed.error.issues });
   }
   const body = parsed.data;
 
   const buf = (file as MultipartFile & { _buffer: Buffer })._buffer;
 
-  const { declarationRun } = await createDeclarationRun({
+  const { declarationRun } = await createBatch({
     operatorSlug: V1_OPERATOR_SLUG,
-    mode: body.mode as DeclarationRunMode,
+    mode: body.mode as BatchMode,
     uploadKind: kind,
     uploadBytes: buf,
     metadata: { original_filename: file.filename },
@@ -131,15 +131,15 @@ export async function handleCreateDeclarationRun(
   });
 }
 
-export async function handleGetDeclarationRun(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
-  const declarationRun = await getDeclarationRun(req.params.id);
+export async function handleGetBatch(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply): Promise<unknown> {
+  const declarationRun = await getBatch(req.params.id);
   const counts = await countItemsByStatus(declarationRun.id);
   const operator = await getOperatorById(declarationRun.operatorId);
-  const summary: DeclarationRunSummary = {
+  const summary: BatchSummary = {
     id: declarationRun.id,
     operator_slug: operator?.slug ?? '',
-    mode: declarationRun.mode as DeclarationRunMode,
-    status: declarationRun.status as DeclarationRunStatus,
+    mode: declarationRun.mode as BatchMode,
+    status: declarationRun.status as BatchStatus,
     classification_status: declarationRun.classificationStatus as ClassificationStatus,
     declaration_status: (declarationRun.declarationStatus ?? null) as DeclarationStatus | null,
     row_count: declarationRun.rowCount,
@@ -159,7 +159,7 @@ export async function handleListClassifications(
   req: FastifyRequest<{ Params: { id: string }; Querystring: { limit?: string; offset?: string } }>,
   reply: FastifyReply,
 ): Promise<unknown> {
-  const declarationRun = await getDeclarationRun(req.params.id);
+  const declarationRun = await getBatch(req.params.id);
 
   // Server-side pagination. Default page size is generous (100) so small
   // batches don't have to deal with the pagination protocol; SPA can ask
@@ -170,12 +170,12 @@ export async function handleListClassifications(
   const limit = limitRaw === undefined ? 100 : Number(limitRaw);
   const offset = offsetRaw === undefined ? 0 : Number(offsetRaw);
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
-    throw new DeclarationRunValidationError('limit must be an integer between 1 and 500', {
+    throw new BatchValidationError('limit must be an integer between 1 and 500', {
       received: limitRaw,
     });
   }
   if (!Number.isInteger(offset) || offset < 0) {
-    throw new DeclarationRunValidationError('offset must be a non-negative integer', {
+    throw new BatchValidationError('offset must be a non-negative integer', {
       received: offsetRaw,
     });
   }
@@ -318,26 +318,26 @@ export async function handleListClassifications(
   });
 }
 
-export async function handlePatchDeclarationRun(
+export async function handlePatchBatch(
   req: FastifyRequest<{ Params: { id: string }; Body: unknown }>,
   reply: FastifyReply,
 ): Promise<unknown> {
-  const parsed = PatchDeclarationRunSchema.safeParse(req.body);
+  const parsed = PatchBatchSchema.safeParse(req.body);
   if (!parsed.success) {
-    throw new DeclarationRunValidationError('only { status: "cancelled" } is permitted', { issues: parsed.error.issues });
+    throw new BatchValidationError('only { status: "cancelled" } is permitted', { issues: parsed.error.issues });
   }
-  const updated = await cancelDeclarationRunIfActive(req.params.id);
+  const updated = await cancelBatchIfActive(req.params.id);
   return reply.send({ id: updated.id, status: updated.status });
 }
 
 export function mapDeclarationRunError(err: unknown): { statusCode: number; body: unknown } | null {
-  if (err instanceof DeclarationRunValidationError) {
+  if (err instanceof BatchValidationError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message, details: err.details } } };
   }
-  if (err instanceof DeclarationRunTooLargeError) {
+  if (err instanceof BatchTooLargeError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message, details: err.details } } };
   }
-  if (err instanceof DeclarationRunNotFoundError) {
+  if (err instanceof BatchNotFoundError) {
     return { statusCode: err.statusCode, body: { error: { code: err.code, message: err.message } } };
   }
   if (err instanceof OperatorNotFoundError) {

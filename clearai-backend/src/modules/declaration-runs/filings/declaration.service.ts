@@ -11,7 +11,7 @@
  * NEVER calls dispatch(). NEVER reads canonical via the LLM. The phase only
  * consumes already-classified items.
  */
-import { getDeclarationRun } from '../declaration-run.repository.js';
+import { getBatch } from '../declaration-run.repository.js';
 import { runDeclarationPhase } from './declaration.runner.js';
 
 /**
@@ -20,7 +20,7 @@ import { runDeclarationPhase } from './declaration.runner.js';
  * classify_only declaration_run but we double-check defensively.
  */
 export async function runDeclarationPhaseIfNeeded(declarationRunId: string): Promise<void> {
-  const declarationRun = await getDeclarationRun(declarationRunId);
+  const declarationRun = await getBatch(declarationRunId);
   if (declarationRun.mode !== 'classify_and_declare') return;
   await runDeclarationPhase(declarationRunId);
 }

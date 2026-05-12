@@ -41,7 +41,7 @@
  *     shape and is invariant to the unknown.
  */
 import type { RenderInput } from './declaration.types.js';
-import type { DeclarationRunItemRow } from '../../../db/schema.js';
+import type { BatchItemRow } from '../../../db/schema.js';
 import type { LookupValue } from '../../../modules/operators/operator-lookups.repository.js';
 import { buildDocRefNo } from './doc-id.js';
 
@@ -194,13 +194,13 @@ function renderDeclarationHeader(input: RenderInput): string {
   ].join('\n');
 }
 
-function renderInvoiceItems(items: ReadonlyArray<DeclarationRunItemRow>, input: RenderInput): string {
+function renderInvoiceItems(items: ReadonlyArray<BatchItemRow>, input: RenderInput): string {
   return items
     .map((item, idx) => renderInvoiceItem(item, idx, input))
     .join('\n');
 }
 
-function renderInvoiceItem(item: DeclarationRunItemRow, idx: number, input: RenderInput): string {
+function renderInvoiceItem(item: BatchItemRow, idx: number, input: RenderInput): string {
   const c = item.canonical;
   const seq = idx + 1;
 
