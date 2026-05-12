@@ -12,19 +12,35 @@
 //   removed automatically. Per-operation policies declared below survive
 //   re-import as long as the operationId stays stable.
 //
-//   Imported operations (gateway URLs):
-//     GET   https://{apim}.azure-api.net/health                                    (anonymous, short-circuited)
-//     GET   https://{apim}.azure-api.net/ready                                     (validate-jwt)
-//     POST  https://{apim}.azure-api.net/declaration-runs                          (validate-jwt)
-//     GET   https://{apim}.azure-api.net/declaration-runs/{id}                     (validate-jwt)
-//     PATCH https://{apim}.azure-api.net/declaration-runs/{id}                     (validate-jwt)
-//     GET   https://{apim}.azure-api.net/declaration-runs/{id}/classifications     (validate-jwt)
-//     POST  https://{apim}.azure-api.net/pipeline/submission-description           (validate-jwt)
+//   Imported operations (gateway URLs, post 2026-05-12 rename cutover):
+//     GET   https://{apim}.azure-api.net/health                                                 (anonymous, short-circuited)
+//     GET   https://{apim}.azure-api.net/ready                                                  (validate-jwt)
+//     POST  https://{apim}.azure-api.net/batches                                                (validate-jwt)
+//     GET   https://{apim}.azure-api.net/batches/{id}                                           (validate-jwt)
+//     GET   https://{apim}.azure-api.net/batches/{id}/items                                     (validate-jwt)
+//     POST  https://{apim}.azure-api.net/batches/{id}/cancel                                    (validate-jwt)
+//     GET   https://{apim}.azure-api.net/batches/{id}/files                                     (validate-jwt)
+//     GET   https://{apim}.azure-api.net/batches/{id}/files/{path}                              (validate-jwt)
+//     GET   https://{apim}.azure-api.net/batches/{id}/files/hv/{filing}                         (validate-jwt)
+//     GET   https://{apim}.azure-api.net/batches/{id}/files/lv/{filing}                         (validate-jwt)
+//     POST  https://{apim}.azure-api.net/classifications/dispatch                               (validate-jwt)
+//     GET   https://{apim}.azure-api.net/classifications/trace/{id}                             (validate-jwt)
+//     POST  https://{apim}.azure-api.net/classifications/submission-description                 (validate-jwt)
+//     GET   https://{apim}.azure-api.net/classifications/review                                 (validate-jwt)
+//     GET   https://{apim}.azure-api.net/classifications/review/{id}                            (validate-jwt)
+//     PATCH https://{apim}.azure-api.net/classifications/review/{id}                            (validate-jwt)
+//     POST  https://{apim}.azure-api.net/classifications/review/{id}/claim                      (validate-jwt)
 //
-//   The previous /classifications/* endpoints were retired in backend commit
-//   107b87c (legacy single-path classifier deleted; replaced by the two-track
-//   pipeline under /declaration-runs/*). The OpenAPI re-import drops them
-//   from APIM automatically — no manual cleanup needed.
+//   2026-05-12 rename (backend rev 70, commit 06c9f3d):
+//     /declaration-runs/*   ->  /batches/*
+//     /pipeline/*           ->  /classifications/*
+//     /hitl/queue           ->  /classifications/review
+//     PATCH /declaration-runs/{id}        ->  POST /batches/{id}/cancel
+//     POST  /hitl/queue/{id}/review       ->  PATCH /classifications/review/{id}
+//
+//   OperationIds are now explicit in openapi.yaml (no longer auto-generated
+//   from method+path). This keeps per-operation policies (currently only
+//   the /health override) stable across future path changes.
 //
 //   The previous separate `clearai-backend-public` API at path 'health'
 //   was collapsed into the imported `/health` operation. A per-operation
@@ -182,14 +198,16 @@ var entraIssuer  = 'https://login.microsoftonline.com/${entraTenantId}/v2.0'
 // /health, which has a per-operation policy override below.
 //
 // PATCH was added to allowed-methods on 2026-05-06 alongside the OpenAPI
-// import refactor — `PATCH /declaration-runs/{id}` (cancel run) is a new
-// method introduced by the two-track pipeline. Without it browser
-// preflights for the cancel button would fail.
+// import refactor — originally for `PATCH /declaration-runs/{id}` (cancel
+// run). After the 2026-05-12 rename, the cancel verb became POST
+// (/batches/{id}/cancel) BUT PATCH is still needed for
+// `PATCH /classifications/review/{id}` (review decide). Without PATCH in
+// allowed-methods, the SPA's preflight for the review-decide call fails.
 var apiInboundPolicyXml = '<policies>\n  <inbound>\n    <base />\n    <cors allow-credentials="false">\n      <allowed-origins>\n${corsOriginXml}\n      </allowed-origins>\n      <allowed-methods preflight-result-max-age="600">\n        <method>GET</method>\n        <method>POST</method>\n        <method>PATCH</method>\n        <method>OPTIONS</method>\n      </allowed-methods>\n      <allowed-headers>\n        <header>content-type</header>\n        <header>authorization</header>\n        <header>accept-language</header>\n      </allowed-headers>\n    </cors>\n    <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized — bearer token missing or invalid" require-scheme="Bearer" require-signed-tokens="true" require-expiration-time="true">\n      <openid-config url="${entraOidcUrl}" />\n      <audiences>\n        <audience>${entraApiAppIdUri}</audience>\n${altAudienceXml}      </audiences>\n      <issuers>\n        <issuer>${entraIssuer}</issuer>\n      </issuers>\n    </validate-jwt>\n    <set-header name="x-apim-shared-secret" exists-action="delete" />\n    <set-header name="x-apim-shared-secret" exists-action="override">\n      <value>{{apim-shared-secret}}</value>\n    </set-header>\n    <rate-limit calls="60" renewal-period="60" />\n  </inbound>\n  <backend>\n    <base />\n  </backend>\n  <outbound>\n    <base />\n  </outbound>\n  <on-error>\n    <base />\n  </on-error>\n</policies>'
 
-// Per-operation override for the imported `/health` operation (operationId
-// `get-health` after APIM auto-normalisation of GET /health). Reproduces
-// the previous separate-public-API behaviour: no validate-jwt, no rate-limit,
+// Per-operation override for the imported `/health` operation (explicit
+// operationId `get-health` in openapi.yaml). Reproduces the previous
+// separate-public-API behaviour: no validate-jwt, no rate-limit,
 // short-circuits with canned {"status":"ok"} so the request never reaches
 // the backend. Strips any client-supplied x-apim-shared-secret (anti-spoof)
 // before APIM would inject it — irrelevant for the canned response, but
@@ -278,20 +296,16 @@ resource sharedSecretNamedValue 'Microsoft.ApiManagement/service/namedValues@202
 // re-imports — operations matched by operationId update in place; new ones
 // are added; deleted ones are removed.
 //
-// Auto-generated operationIds (because the YAML doesn't specify them):
-//   GET   /health                                     -> get-health
-//   GET   /ready                                      -> get-ready
-//   POST  /declaration-runs                           -> post-declaration-runs
-//   GET   /declaration-runs/{id}                      -> get-declaration-runs-id
-//   PATCH /declaration-runs/{id}                      -> patch-declaration-runs-id
-//   GET   /declaration-runs/{id}/classifications      -> get-declaration-runs-id-classifications
-//   POST  /pipeline/submission-description            -> post-pipeline-submission-description
-//
-// Recommendation for the backend agent: explicitly set operationId on each
-// path in openapi.yaml to insulate against APIM auto-naming. Without
-// explicit IDs, any future rename of a path segment would generate a new
-// operationId and orphan per-operation policies (notably the /health
-// override below). With explicit IDs, the policy resource name stays stable.
+// Explicit operationIds (declared in openapi.yaml as of 2026-05-12).
+// They insulate per-operation policies from path renames — the /health
+// override below references operationId `get-health` regardless of the
+// path. Adding new operations? Set an explicit operationId so future
+// renames don't orphan any per-operation policies. Current map:
+//   get-health, get-ready
+//   create-batch, get-batch, get-batch-items, cancel-batch,
+//     get-batch-files, get-batch-file-flat, get-batch-file-hv, get-batch-file-lv
+//   dispatch-classification, get-classification-trace, post-submission-description
+//   list-reviews, get-review, decide-review, claim-review
 
 resource apiProtected 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   parent: apim
@@ -349,10 +363,9 @@ resource apiProtectedPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-
 //     before any backend hop happens
 //
 // IMPORTANT: the resource name `<api>/<operationId>/policy` references
-// the auto-generated operationId `get-health`. If the backend agent
-// later adds an explicit operationId on /health in openapi.yaml, update
-// this name to match. Without a match this resource fails to deploy
-// with `OperationNotFound`.
+// the explicit operationId `get-health` declared in openapi.yaml. If
+// that operationId is ever renamed, update this name to match —
+// otherwise this resource fails with `OperationNotFound`.
 
 resource opHealthPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@2024-05-01' = {
   name: '${apim.name}/${apiProtected.name}/get-health/policy'

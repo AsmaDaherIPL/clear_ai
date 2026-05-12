@@ -2,11 +2,23 @@ openapi: 3.0.3
 
 info:
   title: ClearAI Backend API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     HTTP surface of the ClearAI customs-classification backend. Source of
     truth for the Fastify route handlers in `clearai-backend/src/`. Imported
     by Azure API Management to define the public API shape.
+
+    2026-05-12 rename cutover (commit 06c9f3d, backend rev 70):
+      - /declaration-runs/*           -> /batches/*
+      - /declaration-runs/:id/classifications -> /batches/:id/items
+      - PATCH /declaration-runs/:id    -> POST /batches/:id/cancel
+      - /declaration-runs/:id/download-links -> /batches/:id/files (no SAS)
+      - /pipeline/*                    -> /classifications/*
+      - /hitl/queue                    -> /classifications/review
+      - POST /hitl/queue/:id/review    -> PATCH /classifications/review/:id
+
+    Internal code/DB still use `declaration_runs` / `hitl_queue`; only the
+    API surface uses the new names. See tracker/API_AUDIT_SPEC_2026-05-12.md.
 
     Authentication: every endpoint outside `/health` requires BOTH:
       1. A valid Microsoft Entra ID access token, validated by APIM's
@@ -23,10 +35,7 @@ info:
     Identity forwarding: the user's `Authorization: Bearer …` header is
     forwarded to the backend after validate-jwt. The backend may parse
     the JWT for audit/correlation but does NOT re-validate it (APIM has
-    already done so). New endpoints that need user identity (e.g.
-    "who created this declaration_run?") read claims from the forwarded
-    Authorization header. Today's existing /classifications/* endpoints
-    don't read it.
+    already done so).
 
     Public exception: `/health` is anonymous. APIM short-circuits with
     `{"status":"ok"}` directly — request never reaches the backend. The
@@ -50,12 +59,12 @@ servers:
 tags:
   - name: probes
     description: Liveness/readiness — used by Container Apps health checks.
-  - name: declaration-runs
+  - name: batches
     description: Bulk pipeline runs from uploaded xlsx/csv.
-  - name: pipeline
-    description: Single-shot pipeline endpoints.
-  - name: hitl
-    description: Human-in-the-loop review queue for items the pipeline escalated.
+  - name: classifications
+    description: Single-shot pipeline endpoints and stored traces.
+  - name: review
+    description: Human review queue for items the pipeline escalated.
 
 # -----------------------------------------------------------------------------
 # Components
@@ -83,11 +92,20 @@ components:
             api://clearai-backend/.default: Default access scope
 
   parameters:
-    DeclarationRunId:
+    BatchId:
       name: id
       in: path
       required: true
-      description: UUID of a declaration run.
+      description: UUIDv7 of a batch (was declaration_run_id).
+      schema:
+        type: string
+        format: uuid
+
+    ReviewId:
+      name: id
+      in: path
+      required: true
+      description: UUIDv7 of a review queue row.
       schema:
         type: string
         format: uuid
@@ -107,7 +125,7 @@ components:
             code:
               type: string
               description: Machine-readable error code (snake_case).
-              example: declaration_run_validation_failed
+              example: batch_validation_failed
             message:
               type: string
               description: Human-readable explanation.
@@ -146,21 +164,21 @@ components:
         detail:
           type: string
 
-    # ---------- declaration-runs ----------
+    # ---------- batches ----------
 
-    DeclarationRunMode:
+    BatchMode:
       type: string
       enum: [classify_only, classify_and_declare]
       description: |
-        `classify_only` runs Phase 1 and stops; the run produces no XML.
+        `classify_only` runs Phase 1 and stops; the batch produces no XML.
         `classify_and_declare` runs Phase 1 then Phase 2 (rendered XML
         per HV item / per LV bundle). Default `classify_and_declare`.
 
-    DeclarationRunStatus:
+    BatchStatus:
       type: string
       enum: [pending, running, completed, failed, cancelled]
 
-    ClassificationStatus:
+    ClassificationPhase:
       type: string
       enum: [pending, running, completed, failed]
 
@@ -169,31 +187,29 @@ components:
       nullable: true
       enum: [pending, running, completed, failed, skipped, null]
 
-    DeclarationRunItemStatus:
+    BatchItemStatus:
       type: string
       enum: [pending, classifying, succeeded, flagged, blocked, failed]
 
-    DeclarationRunCreated:
+    FinalCodeSource:
+      type: string
+      enum: [pipeline, reviewer_override]
+      description: |
+        Provenance of `final_code`. Defaults to `pipeline` on insert; flips
+        to `reviewer_override` after a HITL reviewer overrides via
+        `PATCH /classifications/review/{id}` with decision=override.
+
+    BatchCreated:
       type: object
-      required: [declaration_run_id, mode, poll_url, classifications_url]
+      required: [batch_id, mode]
       properties:
-        declaration_run_id:
+        batch_id:
           type: string
           format: uuid
         mode:
-          $ref: '#/components/schemas/DeclarationRunMode'
-        poll_url:
-          type: string
-          example: /declaration-runs/{id}
-        classifications_url:
-          type: string
-          example: /declaration-runs/{id}/classifications
-        declarations_url:
-          type: string
-          description: Present only when mode=classify_and_declare.
-          example: /declaration-runs/{id}/declarations
+          $ref: '#/components/schemas/BatchMode'
 
-    DeclarationRunSummary:
+    BatchSummary:
       type: object
       required:
         [id, operator_slug, mode, status, classification_status, declaration_status,
@@ -206,19 +222,19 @@ components:
         operator_slug:
           type: string
           description: |
-            The operator that owns this run (e.g. "naqel"). Read-only;
-            assigned at creation time from the `operator_slug` form field.
+            The operator that owns this batch (e.g. "naqel"). Read-only;
+            single-operator V1, always "naqel".
         mode:
-          $ref: '#/components/schemas/DeclarationRunMode'
+          $ref: '#/components/schemas/BatchMode'
         status:
-          $ref: '#/components/schemas/DeclarationRunStatus'
+          $ref: '#/components/schemas/BatchStatus'
         classification_status:
-          $ref: '#/components/schemas/ClassificationStatus'
+          $ref: '#/components/schemas/ClassificationPhase'
         declaration_status:
           $ref: '#/components/schemas/DeclarationStatus'
         row_count:
           type: integer
-          description: Total parsed rows in this run.
+          description: Total parsed rows in this batch.
         succeeded: { type: integer }
         flagged: { type: integer }
         blocked: { type: integer }
@@ -236,7 +252,7 @@ components:
           type: string
           nullable: true
 
-    DeclarationRunItem:
+    BatchItem:
       type: object
       required: [id, row_index, status, final_code, classification_result, trace, error]
       properties:
@@ -246,20 +262,31 @@ components:
         row_index:
           type: integer
         status:
-          $ref: '#/components/schemas/DeclarationRunItemStatus'
+          $ref: '#/components/schemas/BatchItemStatus'
         final_code:
           type: string
           nullable: true
           pattern: '^\d{12}$'
           description: 12-digit ZATCA HS code, present when status=succeeded|flagged.
+        final_code_source:
+          $ref: '#/components/schemas/FinalCodeSource'
+        pipeline_final_code:
+          type: string
+          nullable: true
+          pattern: '^\d{12}$'
+          description: |
+            Original auto-classified code. NULL until a reviewer overrides
+            (decision=override on the corresponding review row), at which
+            point this captures the pipeline's verdict and `final_code`
+            flips to the reviewer-supplied code.
         catalog_path_en:
           type: string
           nullable: true
-          description: ZATCA breadcrumb in English (zatca_hs_code_display.path_en) for the chosen final_code. Null when there's no final_code.
+          description: ZATCA breadcrumb in English (zatca_hs_code_display.path_en) for the chosen final_code.
         submission_description_ar:
           type: string
           nullable: true
-          description: LLM-generated Arabic goods description that ships in the XML envelope. Null when there's no final_code.
+          description: LLM-generated Arabic goods description that ships in the XML envelope.
         classification_result:
           type: object
           nullable: true
@@ -273,50 +300,71 @@ components:
           type: string
           nullable: true
 
-    DeclarationRunClassifications:
+    BatchItemsPage:
       type: object
-      required: [declaration_run_id, items]
+      required: [batch_id, classification_phase, total, limit, offset, has_more, next_offset, items]
       properties:
-        declaration_run_id:
+        batch_id:
           type: string
           format: uuid
+        classification_phase:
+          $ref: '#/components/schemas/ClassificationPhase'
+        total:
+          type: integer
+          description: Total items in the batch (across all pages).
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+        next_offset:
+          type: integer
+          nullable: true
+          description: Offset to pass on the next request, or null when has_more=false.
         items:
           type: array
           items:
-            $ref: '#/components/schemas/DeclarationRunItem'
+            $ref: '#/components/schemas/BatchItem'
 
-    PatchDeclarationRunBody:
+    BatchFile:
       type: object
-      required: [status]
+      required: [name]
       properties:
-        status:
+        name:
           type: string
-          enum: [cancelled]
-          description: Only `cancelled` is permitted.
+          example: hv/019e15e7-3e97-764f-845e-8848d7753193.xml
+        size_bytes:
+          type: integer
+          nullable: true
+        content_type:
+          type: string
+          nullable: true
 
-    PatchDeclarationRunResult:
+    BatchFilesList:
       type: object
-      required: [id, status]
+      required: [batch_id, files]
       properties:
-        id:
+        batch_id:
           type: string
           format: uuid
-        status:
-          type: string
-          enum: [cancelled]
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchFile'
 
     # ---------- submission-description ----------
 
     SubmissionDescriptionBody:
       type: object
-      required: [description, code]
+      required: [description, hs_code]
       properties:
         description:
           type: string
           minLength: 1
-          maxLength: 2000
+          maxLength: 500
           description: Cleaned item description (English).
-        code:
+        hs_code:
           type: string
           pattern: '^\d{12}$'
           description: 12-digit HS code (must exist in zatca_hs_codes).
@@ -335,46 +383,39 @@ components:
         latency_ms:
           type: integer
 
-    # ---------- pipeline single-shot dispatch ----------
+    # ---------- single-shot classifications dispatch ----------
 
     DispatchBody:
       type: object
-      required: [description]
+      required: [description, value_amount, currency_code]
       properties:
         description:
           type: string
           minLength: 1
-          maxLength: 2000
-          description: Free-text item description (English).
+          maxLength: 500
+          description: Free-text item description (English). 500-char cap matches batch row limit.
         merchant_code:
           type: string
-          description: |
-            Optional merchant-supplied HS code. The pipeline auto-detects
-            shape (12-digit, short prefix, malformed, absent). Accepts any
-            string; non-digits are stripped.
-        operator_slug:
-          type: string
-          pattern: '^[a-z][a-z0-9_]{2,31}$'
-          default: naqel
-          description: Owning operator. Defaults to 'naqel'.
+          pattern: '^\d{6,12}$'
+          description: Optional merchant-supplied HS code (6–12 digits).
         value_amount:
           type: number
-          minimum: 0.01
-          description: Optional declared value (for Stage 3 sanity).
+          minimum: 0
+          exclusiveMinimum: true
+          description: Declared value (Stage 3 sanity).
         currency_code:
           type: string
-          minLength: 3
-          maxLength: 3
-          description: ISO 4217 currency. Required if value_amount is set.
+          pattern: '^[A-Z]{3}$'
+          description: ISO 4217 currency (e.g. SAR, USD).
 
-    PipelineDispatchResult:
+    DispatchResponse:
       type: object
       required: [item_id, operator_slug, sanity_verdict, trace]
       properties:
         item_id:
           type: string
           format: uuid
-          description: Synthesised id for this single-shot dispatch (not persisted).
+          description: Synthesised id for this single-shot dispatch (also the row id in classification_events).
         operator_slug:
           type: string
         final_code:
@@ -386,65 +427,53 @@ components:
           type: string
           nullable: true
           maxLength: 300
-          description: ZATCA-safe Arabic from Stage 2.5. Null when rejected.
         sanity_verdict:
           type: string
           enum: [PASS, FLAG, BLOCK]
         trace:
           type: object
           additionalProperties: true
-          description: Full PipelineTrace (signal_count, track_a, track_b, verdict, sanity, stages[]).
 
-    # ---------- pipeline trace lookup ----------
+    # ---------- stored trace lookup ----------
 
-    PipelineTraceResult:
+    TraceResult:
       type: object
-      required: [item_id, declaration_run_id, status, final_code, trace]
+      required: [item_id, operator_slug, status, final_code, trace, created_at]
       properties:
         item_id:
           type: string
           format: uuid
-        declaration_run_id:
+        operator_slug:
           type: string
-          format: uuid
-          description: Parent run that produced this trace.
         status:
           type: string
-          enum: [pending, classifying, succeeded, flagged, blocked, failed]
         final_code:
           type: string
           nullable: true
           pattern: '^\d{12}$'
-        classification_result:
-          type: object
-          nullable: true
-          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
         trace:
           type: object
           nullable: true
           additionalProperties: true
-        error:
-          type: string
-          nullable: true
 
-    # ---------- alt error shape (legacy) ----------
+    # ---------- review queue ----------
 
-    SimpleError:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: string
-          example: invalid_body
-        detail:
-          oneOf:
-            - type: string
-            - type: object
-              additionalProperties: true
+    ReviewReason:
+      type: string
+      enum: [verdict_escalate, sanity_flag, low_information]
 
-    # ---------- HITL queue ----------
+    ReviewStatus:
+      type: string
+      enum: [pending, in_review, resolved, dismissed]
 
-    HitlRow:
+    ReviewDecision:
+      type: string
+      enum: [approve, override, reject]
+
+    ReviewRow:
       type: object
       required:
         - id
@@ -452,6 +481,7 @@ components:
         - enqueued_at
         - classification_event_id
         - item_id
+        - batch_id
         - operator_slug
         - reason
         - status
@@ -461,13 +491,16 @@ components:
         enqueued_at: { type: string, format: date-time }
         classification_event_id: { type: string, format: uuid }
         item_id: { type: string, format: uuid }
+        batch_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Parent batch. NULL for single-shot dispatches.
         operator_slug: { type: string, example: naqel }
         reason:
-          type: string
-          enum: [verdict_escalate, sanity_flag]
+          $ref: '#/components/schemas/ReviewReason'
         status:
-          type: string
-          enum: [pending, in_review, resolved, dismissed]
+          $ref: '#/components/schemas/ReviewStatus'
         reviewed_at: { type: string, format: date-time, nullable: true }
         reviewed_by: { type: string, nullable: true }
         reviewer_decision:
@@ -480,6 +513,57 @@ components:
           nullable: true
         reviewer_notes: { type: string, nullable: true }
 
+    ReviewListPage:
+      type: object
+      required: [items, total, limit, offset, has_more, next_offset]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewRow' }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        has_more: { type: boolean }
+        next_offset:
+          type: integer
+          nullable: true
+
+    DecideBody:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          $ref: '#/components/schemas/ReviewDecision'
+        reviewer_code:
+          type: string
+          pattern: '^\d{12}$'
+          description: Required when decision=override.
+        reviewer_notes:
+          type: string
+          maxLength: 2000
+
+    DecideResponse:
+      allOf:
+        - $ref: '#/components/schemas/ReviewRow'
+        - type: object
+          properties:
+            item_patched:
+              type: object
+              description: Present only when decision=override AND the queue row maps to a batch item.
+              required: [item_id, previous_final_code, new_final_code, final_code_source]
+              properties:
+                item_id: { type: string, format: uuid }
+                previous_final_code:
+                  type: string
+                  pattern: '^\d{12}$'
+                  nullable: true
+                new_final_code:
+                  type: string
+                  pattern: '^\d{12}$'
+                final_code_source:
+                  type: string
+                  enum: [reviewer_override]
+
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
@@ -487,7 +571,7 @@ components:
 paths:
 
   # ────────────────────────────────────────────────────────────────────────
-  # Probes (no auth)
+  # Probes
   # ────────────────────────────────────────────────────────────────────────
 
   /health:
@@ -496,12 +580,13 @@ paths:
       tags: [probes]
       summary: Liveness probe
       description: |
-        Used by Container Apps liveness checks. Always returns 200; the
-        body's `db` field flips to false if Postgres is unreachable.
+        Used by Container Apps liveness checks. APIM short-circuits with a
+        canned `{"status":"ok"}` so the request never reaches the backend
+        (see apim.bicep — opHealthPolicy).
       security: []
       responses:
         '200':
-          description: Process is alive (db field reports DB connectivity).
+          description: Process is alive (db field reports DB connectivity when reached directly).
           content:
             application/json:
               schema:
@@ -515,8 +600,10 @@ paths:
       description: |
         Returns 200 only after warmup completes (embedder loaded,
         setup_meta cached, prompts loaded). 503 + `retry-after` while
-        warming. Used by Container Apps to gate traffic routing.
-      security: []
+        warming.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
       responses:
         '200':
           description: Ready for traffic.
@@ -535,19 +622,23 @@ paths:
                 $ref: '#/components/schemas/NotReady'
 
   # ────────────────────────────────────────────────────────────────────────
-  # Declaration runs
+  # Batches (was /declaration-runs)
   # ────────────────────────────────────────────────────────────────────────
 
-  /declaration-runs:
+  /batches:
     post:
-      operationId: post-declaration-runs
-      tags: [declaration-runs]
-      summary: Upload an xlsx/csv and start a declaration run
+      operationId: create-batch
+      tags: [batches]
+      summary: Upload an xlsx/csv and start a batch
       description: |
         Multipart upload. The server validates the file extension, parses
-        rows synchronously into the canonical shape, persists the run, and
+        rows synchronously into the canonical shape, persists the batch, and
         kicks off Phase 1 (classification) in the background. Returns 202
-        immediately with poll URLs.
+        immediately with the batch id.
+
+        2026-05-12 cutover: `operator_slug`, `callback_url`, `metadata`
+        removed from the multipart body. Single-operator V1 ("naqel"
+        hardcoded server-side).
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
@@ -557,48 +648,29 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [file, operator_slug]
+              required: [file]
               properties:
                 file:
                   type: string
                   format: binary
                   description: '.csv or .xlsx commercial-invoice file. Max 25 MB.'
-                operator_slug:
-                  type: string
-                  pattern: '^[a-z][a-z0-9_]{2,31}$'
-                  description: Owning operator (e.g. "naqel").
                 mode:
-                  $ref: '#/components/schemas/DeclarationRunMode'
-                callback_url:
-                  type: string
-                  format: uri
-                  description: Optional webhook target stored in metadata.
-                metadata:
-                  type: string
-                  description: |
-                    Optional JSON-encoded object. Merged into the run's
-                    metadata field.
+                  $ref: '#/components/schemas/BatchMode'
       responses:
         '202':
-          description: Run accepted; processing in background.
+          description: Batch accepted; processing in background.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeclarationRunCreated'
+                $ref: '#/components/schemas/BatchCreated'
         '400':
-          description: Invalid body (bad file type, bad operator_slug, bad metadata, etc.).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '404':
-          description: Operator slug not in registry.
+          description: Invalid body (bad file type, bad mode, etc.).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '413':
           description: |
-            Upload exceeds row count limit (declaration_run_too_large)
-            or 25 MB file size limit.
+            Upload exceeds row count limit (batch_too_large) or 25 MB file size limit.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -608,26 +680,26 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
-  /declaration-runs/{id}:
+  /batches/{id}:
     parameters:
-      - $ref: '#/components/parameters/DeclarationRunId'
+      - $ref: '#/components/parameters/BatchId'
 
     get:
-      operationId: get-declaration-runs-id
-      tags: [declaration-runs]
-      summary: Run summary
+      operationId: get-batch
+      tags: [batches]
+      summary: Batch summary
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
       responses:
         '200':
-          description: Run found.
+          description: Batch found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeclarationRunSummary'
+                $ref: '#/components/schemas/BatchSummary'
         '404':
-          description: No run with that id.
+          description: No batch with that id.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -637,11 +709,247 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
-    patch:
-      operationId: patch-declaration-runs-id
-      tags: [declaration-runs]
-      summary: Cancel a running declaration run
-      description: 'Body must be `{ "status": "cancelled" }`. Idempotent on already-cancelled.'
+  /batches/{id}/items:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+
+    get:
+      operationId: get-batch-items
+      tags: [batches]
+      summary: Per-item classification results (paged)
+      description: |
+        Page of items + classification result + trace. 2026-05-12 cutover:
+        added `total` / `has_more` / `next_offset` for ergonomic paging.
+        `declaration_run_id` envelope key renamed to `batch_id`.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: Page of items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchItemsPage'
+        '425':
+          description: Phase 1 still pending or running.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: No batch with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /batches/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+
+    post:
+      operationId: cancel-batch
+      tags: [batches]
+      summary: Cancel a running batch
+      description: |
+        Replaces the old `PATCH /declaration-runs/{id}` cancel. No body.
+        Idempotent on already-cancelled. Returns 409 on already-terminal
+        non-cancelled states (completed/failed).
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchSummary'
+        '404':
+          description: No batch with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Batch already in a terminal state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /batches/{id}/files:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+
+    get:
+      operationId: get-batch-files
+      tags: [batches]
+      summary: List files produced by the batch
+      description: |
+        Replaces the old `/download-links` endpoint. No SAS URLs minted —
+        the SPA streams each file via `/batches/{id}/files/*`. Response
+        keys are snake_case (`size_bytes`, `content_type`).
+
+        Returns 409 `no_blob_prefix` when the batch hasn't produced any
+        XML output (legacy or in-flight).
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: List of files under the batch's blob prefix.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchFilesList'
+        '404':
+          description: No batch with that id, or no files under its prefix.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Batch has no blob output yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # APIM routing note: `urlTemplate` matches a SINGLE path segment per
+  # `{param}` placeholder. Blob paths like `lv/<filingId>.xml` contain a
+  # slash and cannot match a single template parameter, so the flat
+  # `/files/{path}` operation 404s at the gateway for nested paths.
+  # Backend (Fastify) uses a `*` wildcard route — `/batches/:id/files/*` —
+  # which accepts any sub-path. We split into THREE explicit operations:
+  # one flat (input.csv, run-index.json, classifications.json) and one
+  # each for `hv/` and `lv/` nested files. All three forward to the same
+  # backend route. If a new sub-folder is added (e.g. `errors/`), add a
+  # matching operation here AND re-import.
+
+  /batches/{id}/files/{path}:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+      - name: path
+        in: path
+        required: true
+        description: |
+          Flat file name (no slashes), one of `input.csv`, `input.xlsx`,
+          `run-index.json`, `classifications.json`. For nested files
+          under `hv/` or `lv/`, use the dedicated operations below.
+        schema: { type: string, example: run-index.json }
+
+    get:
+      operationId: get-batch-file-flat
+      tags: [batches]
+      summary: Stream a flat file from a batch
+      description: |
+        Streams bytes through the backend. Path-traversal guard rejects
+        `..`, leading `/`, and `\\`.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: File bytes (XML, JSON, CSV, or octet-stream).
+          content:
+            '*/*': {}
+        '400':
+          description: Invalid path or id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: No batch with that id, or no file at that path.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /batches/{id}/files/hv/{filing}:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+      - name: filing
+        in: path
+        required: true
+        description: File name under `hv/` — typically `<filingId>.xml`.
+        schema: { type: string, example: 019e15e7-3e97-764f-845e-8848d7753193.xml }
+
+    get:
+      operationId: get-batch-file-hv
+      tags: [batches]
+      summary: Stream an HV (high-value) declaration XML
+      description: |
+        High-value declarations are bundled one-per-item under `hv/`.
+        Same backend handler as `get-batch-file-flat` — the split exists
+        only to satisfy APIM's single-segment template-param rule.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: XML bytes.
+          content:
+            application/xml: {}
+        '404':
+          description: No batch with that id, or no HV file at that filing id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /batches/{id}/files/lv/{filing}:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+      - name: filing
+        in: path
+        required: true
+        description: File name under `lv/` — typically `<filingId>.xml`.
+        schema: { type: string, example: 019e15e7-3e97-764f-845e-8848d7753193.xml }
+
+    get:
+      operationId: get-batch-file-lv
+      tags: [batches]
+      summary: Stream an LV (low-value) declaration XML
+      description: |
+        Low-value declarations are bundled one-per-item under `lv/`.
+        Same backend handler as `get-batch-file-flat`.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: XML bytes.
+          content:
+            application/xml: {}
+        '404':
+          description: No batch with that id, or no LV file at that filing id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Classifications — single-shot dispatch + stored traces (was /pipeline)
+  # ────────────────────────────────────────────────────────────────────────
+
+  /classifications/dispatch:
+    post:
+      operationId: dispatch-classification
+      tags: [classifications]
+      summary: Run the full pipeline on a single item
+      description: |
+        Single-shot entry to the 5-stage classification pipeline. Wraps
+        the slim request into the canonical line-item shape, runs the
+        orchestrator, and returns the full result + trace inline.
+
+        2026-05-12 cutover:
+          - description max 500 chars (was 2000)
+          - value_amount + currency_code now REQUIRED
+          - currency_code regex `/^[A-Z]{3}$/`
+          - merchant_code regex `/^\d{6,12}$/`
+          - operator_slug removed (single-operator V1)
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
@@ -650,242 +958,90 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchDeclarationRunBody'
+              $ref: '#/components/schemas/DispatchBody'
       responses:
         '200':
-          description: Cancelled.
+          description: Pipeline ran. Inspect sanity_verdict for outcome.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PatchDeclarationRunResult'
+                $ref: '#/components/schemas/DispatchResponse'
         '400':
-          description: Body shape invalid.
+          description: Body invalid.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '404':
-          description: No run with that id.
+          description: Operator not found.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-        '409':
-          description: Run already in a terminal state.
+        '503':
+          description: LLM circuit breaker tripped — classification refused.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Origin access denied.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
-  /declaration-runs/{id}/classifications:
+  /classifications/trace/{id}:
     parameters:
-      - $ref: '#/components/parameters/DeclarationRunId'
+      - name: id
+        in: path
+        required: true
+        description: classification_events.id (UUIDv7) — same id used by /classifications/dispatch.
+        schema:
+          type: string
+          format: uuid
 
     get:
-      operationId: get-declaration-runs-id-classifications
-      tags: [declaration-runs]
-      summary: Per-item classification results
+      operationId: get-classification-trace
+      tags: [classifications]
+      summary: Fetch a stored pipeline trace
+      description: |
+        Reads a previously-classified item from `classification_events`
+        (single source of truth). Works for both single-shot dispatches
+        and per-item batch traces.
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
       responses:
         '200':
-          description: All items in the run, with classification results + trace.
+          description: Trace found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeclarationRunClassifications'
-        '425':
-          description: Phase 1 still pending or running.
+                $ref: '#/components/schemas/TraceResult'
+        '400':
+          description: id is not a valid UUIDv7.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '404':
-          description: No run with that id.
+          description: No trace with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Origin access denied.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
-  /declaration-runs/{id}/download-links:
-    parameters:
-      - $ref: '#/components/parameters/DeclarationRunId'
-
-    get:
-      operationId: get-declaration-runs-id-download-links
-      tags: [declaration-runs]
-      summary: Short-lived download URLs for all files produced by the run
-      description: |
-        Lists every blob under the run's prefix and returns a
-        user-delegation SAS URL for each. URLs are valid for 5 minutes;
-        the SPA should start downloads or zip them client-side promptly.
-        Returns 409 no_blob_prefix when the run has not yet produced any
-        XML output (legacy or in-flight runs).
-      security:
-        - apimSharedSecret: []
-          entraJwt: ['api://clearai-backend/.default']
-      responses:
-        '200':
-          description: List of short-lived SAS URLs, one per file.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [runId, expiresAt, files]
-                properties:
-                  runId: { type: string, format: uuid }
-                  expiresAt: { type: string, format: date-time }
-                  files:
-                    type: array
-                    items:
-                      type: object
-                      required: [name, url]
-                      properties:
-                        name: { type: string, example: hv/filing-001.xml }
-                        url: { type: string, format: uri }
-                        sizeBytes: { type: integer, nullable: true }
-                        contentType: { type: string, nullable: true }
-        '404':
-          description: No run with that id, or no files under its prefix.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '409':
-          description: Run has no blob output yet.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  # NOTE on routing: APIM operation `urlTemplate`s match a SINGLE path
-  # segment per `{param}` placeholder. A blob path like `lv/<filingId>.xml`
-  # contains a slash, so it cannot match a single template parameter and
-  # the original `/files/{path}` operation 404'd at the gateway before
-  # ever hitting the backend.
-  #
-  # Backend (Fastify) uses a `*` wildcard route — `/declaration-runs/:id/files/*` —
-  # which accepts any sub-path. To keep APIM and Fastify in agreement we
-  # split into THREE explicit operations: one flat (input.csv,
-  # run-index.json, classifications.json) and one each for the `hv/` and
-  # `lv/` nested files. All three forward to the same backend route.
-  # Historical pre-rename batches have `manifest.json` instead of
-  # `run-index.json` at the same path — both names resolve via the
-  # backend's read-side fallback.
-  #
-  # If you add a new sub-folder (e.g. `errors/`, `logs/`) under a run
-  # prefix, you must add a matching APIM operation here AND re-import,
-  # or callers will get a gateway-level 404. RFC-6570 `{+path}` reserved-
-  # string expansion is NOT supported by APIM Consumption — verified
-  # 2026-05-11 via direct PATCH against the operation urlTemplate.
-
-  /declaration-runs/{id}/files/{path}:
-    parameters:
-      - $ref: '#/components/parameters/DeclarationRunId'
-      - name: path
-        in: path
-        required: true
-        description: |
-          Flat file name (no slashes), one of `input.csv`, `input.xlsx`,
-          `run-index.json`, `classifications.json`. For nested files
-          under `hv/` or `lv/`, use the dedicated operations below.
-          Historical (pre-rename) batches accept `manifest.json` in place
-          of `run-index.json`.
-        schema: { type: string, example: run-index.json }
-
-    get:
-      operationId: get-declaration-runs-id-files
-      tags: [declaration-runs]
-      summary: Stream a flat file (run-index/classifications/input) from a run
-      description: |
-        Convenience endpoint for previewing a single top-level run file.
-        Streams bytes through the backend rather than handing out a SAS;
-        prefer /download-links for bulk fetches.
-      security:
-        - apimSharedSecret: []
-          entraJwt: ['api://clearai-backend/.default']
-      responses:
-        '200':
-          description: File bytes (XML, JSON, or octet-stream).
-          content:
-            '*/*': {}
-        '404':
-          description: No run with that id, or no file at that path.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  /declaration-runs/{id}/files/hv/{filing}:
-    parameters:
-      - $ref: '#/components/parameters/DeclarationRunId'
-      - name: filing
-        in: path
-        required: true
-        description: File name under `hv/` — typically `<filingId>.xml`.
-        schema: { type: string, example: 019e15e7-3e97-764f-845e-8848d7753193.xml }
-
-    get:
-      operationId: get-declaration-runs-id-files-hv
-      tags: [declaration-runs]
-      summary: Stream an HV (high-value) declaration XML from a run
-      description: |
-        High-value declarations are bundled one-per-item under `hv/`.
-        Same backend handler as the flat-file operation above — the split
-        exists only to satisfy APIM's single-segment template-param rule.
-      security:
-        - apimSharedSecret: []
-          entraJwt: ['api://clearai-backend/.default']
-      responses:
-        '200':
-          description: XML bytes.
-          content:
-            application/xml: {}
-        '404':
-          description: No run with that id, or no HV file at that filing id.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  /declaration-runs/{id}/files/lv/{filing}:
-    parameters:
-      - $ref: '#/components/parameters/DeclarationRunId'
-      - name: filing
-        in: path
-        required: true
-        description: File name under `lv/` — typically `<filingId>.xml`.
-        schema: { type: string, example: 019e15e7-3e97-764f-845e-8848d7753193.xml }
-
-    get:
-      operationId: get-declaration-runs-id-files-lv
-      tags: [declaration-runs]
-      summary: Stream an LV (low-value) declaration XML from a run
-      description: |
-        Low-value declarations are bundled one-per-item under `lv/`.
-        Same backend handler as the flat-file operation above — the split
-        exists only to satisfy APIM's single-segment template-param rule.
-      security:
-        - apimSharedSecret: []
-          entraJwt: ['api://clearai-backend/.default']
-      responses:
-        '200':
-          description: XML bytes.
-          content:
-            application/xml: {}
-        '404':
-          description: No run with that id, or no LV file at that filing id.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  # ────────────────────────────────────────────────────────────────────────
-  # Pipeline single-shot
-  # ────────────────────────────────────────────────────────────────────────
-
-  /pipeline/submission-description:
+  /classifications/submission-description:
     post:
-      operationId: post-pipeline-submission-description
-      tags: [pipeline]
+      operationId: post-submission-description
+      tags: [classifications]
       summary: Generate ZATCA-safe Arabic submission description
       description: |
         Stage 2.5 of the pipeline in isolation. Given a cleaned item
         description and an HS code, returns a ≤300-character Arabic
-        description for the ZATCA declaration envelope. Catalog leaf
-        Arabic + path Arabic are looked up server-side from
-        zatca_hs_codes/zatca_hs_code_display.
+        description for the ZATCA declaration envelope.
+
+        2026-05-12 cutover: `code` request field renamed to `hs_code`.
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
@@ -906,99 +1062,11 @@ paths:
           description: Body invalid.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SimpleError' }
+              schema: { $ref: '#/components/schemas/Error' }
         '404':
           description: HS code not in catalog.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SimpleError' }
-        '401':
-          description: Origin access denied.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  /pipeline/dispatch:
-    post:
-      operationId: post-pipeline-dispatch
-      tags: [pipeline]
-      summary: Run the full pipeline on a single item
-      description: |
-        Single-shot entry to the 5-stage classification pipeline. Wraps a
-        slim request body into the canonical line-item shape, runs the
-        orchestrator, and returns the full result + trace inline. No
-        server-side persistence — the SPA can stash the trace client-side
-        if it needs to revisit. Bulk classification uses /declaration-runs.
-      security:
-        - apimSharedSecret: []
-          entraJwt: ['api://clearai-backend/.default']
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DispatchBody'
-      responses:
-        '200':
-          description: Pipeline ran. Inspect sanity_verdict for outcome.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PipelineDispatchResult'
-        '400':
-          description: Body invalid.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '404':
-          description: Operator slug unknown.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '401':
-          description: Origin access denied.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  /pipeline/trace/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        description: declaration_run_items.id (UUID).
-        schema:
-          type: string
-          format: uuid
-
-    get:
-      operationId: get-pipeline-trace-id
-      tags: [pipeline]
-      summary: Fetch a stored pipeline trace
-      description: |
-        Reads a previously-classified item from declaration_run_items.
-        Returns its trace + classification result. Use this when the SPA
-        wants to revisit a result from a bulk run, or when /pipeline/dispatch
-        was followed by a separate page-load that needs the trace again.
-      security:
-        - apimSharedSecret: []
-          entraJwt: ['api://clearai-backend/.default']
-      responses:
-        '200':
-          description: Trace found.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PipelineTraceResult'
-        '400':
-          description: id is not a valid UUID.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '404':
-          description: No item with that id.
-          content:
-            application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '401':
           description: Origin access denied.
@@ -1007,17 +1075,19 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
 
   # ────────────────────────────────────────────────────────────────────────
-  # HITL queue
+  # Review queue (was /hitl/queue)
   # ────────────────────────────────────────────────────────────────────────
 
-  /hitl/queue:
+  /classifications/review:
     get:
-      operationId: get-hitl-queue
-      tags: [hitl]
-      summary: List HITL review rows
+      operationId: list-reviews
+      tags: [review]
+      summary: List review queue rows
       description: |
-        Returns rows from the human-in-the-loop queue, optionally filtered
-        by status and operator_slug. Default page size 50, max 200.
+        Returns rows from the human-review queue. 2026-05-12 cutover:
+        `operator_slug` filter dropped (single-operator V1); `batch_id`
+        and `reason=low_information` filters added; pagination envelope
+        now includes `has_more` and `next_offset`.
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
@@ -1026,12 +1096,16 @@ paths:
           in: query
           required: false
           schema:
-            type: string
-            enum: [pending, in_review, resolved, dismissed]
-        - name: operator_slug
+            $ref: '#/components/schemas/ReviewStatus'
+        - name: reason
           in: query
           required: false
-          schema: { type: string, pattern: '^[a-z][a-z0-9_]{2,31}$' }
+          schema:
+            $ref: '#/components/schemas/ReviewReason'
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
         - name: limit
           in: query
           required: false
@@ -1042,47 +1116,36 @@ paths:
           schema: { type: integer, minimum: 0, default: 0 }
       responses:
         '200':
-          description: Page of HITL rows.
+          description: Page of review rows.
           content:
             application/json:
               schema:
-                type: object
-                required: [items, total, limit, offset]
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: '#/components/schemas/HitlRow' }
-                  total: { type: integer }
-                  limit: { type: integer }
-                  offset: { type: integer }
+                $ref: '#/components/schemas/ReviewListPage'
         '400':
           description: Query validation failed.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
-  /hitl/queue/{id}:
+  /classifications/review/{id}:
     parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/ReviewId'
 
     get:
-      operationId: get-hitl-queue-id
-      tags: [hitl]
-      summary: Fetch a single HITL row including the forensic payload
+      operationId: get-review
+      tags: [review]
+      summary: Fetch a single review row including the forensic payload
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
       responses:
         '200':
-          description: HITL row with payload.
+          description: Review row with payload.
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/HitlRow'
+                  - $ref: '#/components/schemas/ReviewRow'
                   - type: object
                     required: [payload]
                     properties:
@@ -1098,56 +1161,23 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
-  /hitl/queue/{id}/claim:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-
-    post:
-      operationId: post-hitl-queue-id-claim
-      tags: [hitl]
-      summary: Claim a pending HITL row for review
+    patch:
+      operationId: decide-review
+      tags: [review]
+      summary: Resolve or dismiss a review row
       description: |
-        Transitions status from 'pending' to 'in_review'. Returns 409
-        invalid_state if the row is in any other status.
-      security:
-        - apimSharedSecret: []
-          entraJwt: ['api://clearai-backend/.default']
-      responses:
-        '200':
-          description: Row updated.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/HitlRow' }
-        '404':
-          description: No row with that id.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '409':
-          description: Row is not in 'pending' status.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+        Replaces the old `POST /hitl/queue/{id}/review`. Transitions
+        status to 'resolved' (decision=approve|override) or 'dismissed'
+        (decision=reject).
 
-  /hitl/queue/{id}/review:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
+        Override path is atomic — same transaction patches
+        `declaration_run_items`:
+          pipeline_final_code := current final_code  (preserved if NULL)
+          final_code         := reviewer_code
+          final_code_source  := 'reviewer_override'
 
-    post:
-      operationId: post-hitl-queue-id-review
-      tags: [hitl]
-      summary: Resolve or dismiss a HITL row
-      description: |
-        Transitions status to 'resolved' (decision=approve|override) or
-        'dismissed' (decision=reject). decision='override' requires
-        reviewer_code (12 digits). Idempotent on terminal rows: returns
-        409 invalid_state.
+        `decision='override'` requires `reviewer_code` (12 digits) via
+        zod `.refine()`. Returns 409 invalid_state on terminal rows.
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
@@ -1156,25 +1186,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [decision]
-              properties:
-                decision:
-                  type: string
-                  enum: [approve, override, reject]
-                reviewer_code:
-                  type: string
-                  pattern: '^\d{12}$'
-                  description: Required when decision='override'.
-                reviewer_notes:
-                  type: string
-                  maxLength: 2000
+              $ref: '#/components/schemas/DecideBody'
       responses:
         '200':
-          description: Row updated.
+          description: Row updated (+ item_patched block when decision=override).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/HitlRow' }
+              schema:
+                $ref: '#/components/schemas/DecideResponse'
         '400':
           description: Body invalid, or override missing reviewer_code.
           content:
@@ -1187,6 +1206,39 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '409':
           description: Row is already resolved or dismissed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /classifications/review/{id}/claim:
+    parameters:
+      - $ref: '#/components/parameters/ReviewId'
+
+    post:
+      operationId: claim-review
+      tags: [review]
+      summary: Claim a pending review row (V2-only, not in V1 UI)
+      description: |
+        Transitions status from 'pending' to 'in_review'. Kept in code
+        for forward-compat with V2 multi-reviewer flows; the V1 review
+        UI goes straight from pending to PATCH decide. Returns 409
+        invalid_state if the row is in any other status.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: Row updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewRow' }
+        '404':
+          description: No row with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Row is not in 'pending' status.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
