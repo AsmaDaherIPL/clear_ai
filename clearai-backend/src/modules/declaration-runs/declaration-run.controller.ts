@@ -34,6 +34,15 @@ const ACCEPTED_EXTS: Record<string, UploadKind> = {
   xlsx: 'xlsx',
 };
 
+/**
+ * Hardcoded single-operator slug for V1. The multipart body no longer
+ * accepts operator_slug; the deployment is single-tenant and every
+ * batch runs as 'naqel'. Mirrors the same constant in pipeline.routes.ts
+ * for the single-shot dispatch path. When V2 multi-operator lands, both
+ * sites switch back to reading from the request.
+ */
+const V1_OPERATOR_SLUG = 'naqel';
+
 function sniffKindFromFilename(filename: string | undefined): UploadKind | null {
   if (!filename) return null;
   const ext = filename.split('.').pop()?.toLowerCase();
@@ -84,26 +93,13 @@ export async function handleCreateDeclarationRun(
     throw new DeclarationRunValidationError(`unsupported file extension: ${file.filename}`);
   }
 
-  // Decode the metadata field (if present, JSON-encoded).
-  let metadataObj: Record<string, unknown> = {};
-  if (fields.metadata) {
-    try {
-      const parsed = JSON.parse(fields.metadata) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        metadataObj = parsed as Record<string, unknown>;
-      } else {
-        throw new DeclarationRunValidationError('metadata must be a JSON object');
-      }
-    } catch {
-      throw new DeclarationRunValidationError('metadata must be valid JSON');
-    }
-  }
-
+  // 2026-05-12 cutover: multipart body shrunk to `{file, mode}`. The
+  // single-operator V1 deployment hardcodes operator_slug to 'naqel'.
+  // callback_url + metadata channels were unused by any caller and were
+  // dropped from the spec; the only metadata retained is the original
+  // upload filename (handy for ops triage).
   const parsed = CreateDeclarationRunFieldsSchema.safeParse({
-    operator_slug: fields.operator_slug,
     mode: fields.mode || undefined,
-    callback_url: fields.callback_url || undefined,
-    metadata: metadataObj,
   });
   if (!parsed.success) {
     throw new DeclarationRunValidationError('field validation failed', { issues: parsed.error.issues });
@@ -113,11 +109,11 @@ export async function handleCreateDeclarationRun(
   const buf = (file as MultipartFile & { _buffer: Buffer })._buffer;
 
   const { declarationRun } = await createDeclarationRun({
-    operatorSlug: body.operator_slug,
+    operatorSlug: V1_OPERATOR_SLUG,
     mode: body.mode as DeclarationRunMode,
     uploadKind: kind,
     uploadBytes: buf,
-    metadata: { ...body.metadata, original_filename: file.filename, ...(body.callback_url ? { callback_url: body.callback_url } : {}) },
+    metadata: { original_filename: file.filename },
     dispatch,
   });
 

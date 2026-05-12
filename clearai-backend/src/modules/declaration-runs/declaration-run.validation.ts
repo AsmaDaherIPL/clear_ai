@@ -5,16 +5,18 @@
  * schemas validate the post-parse fields. The mode default mirrors the column
  * default ('classify_and_declare') for safety, but the controller still
  * enforces the value explicitly.
+ *
+ * 2026-05-12 rename cutover: `operator_slug`, `callback_url`, `metadata`
+ * were removed from the multipart body per the API audit spec — V1 is
+ * single-operator (`naqel`) and the optional metadata channel wasn't
+ * consumed by any caller. Only `file` + `mode` remain on the wire.
  */
 import { z } from 'zod';
 
 export const DeclarationRunModeSchema = z.enum(['classify_only', 'classify_and_declare']);
 
 export const CreateDeclarationRunFieldsSchema = z.object({
-  operator_slug: z.string().min(1).regex(/^[a-z][a-z0-9_]{2,31}$/),
   mode: DeclarationRunModeSchema.optional().default('classify_and_declare'),
-  callback_url: z.string().url().optional(),
-  metadata: z.record(z.unknown()).optional().default({}),
 });
 
 export type CreateDeclarationRunFields = z.infer<typeof CreateDeclarationRunFieldsSchema>;
