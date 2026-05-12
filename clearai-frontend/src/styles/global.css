@@ -156,6 +156,32 @@ input, textarea {
 }
 
 /*
+ * Neutralise the browser autofill background. Chrome/Edge/Safari paint
+ * `-webkit-autofill` with their own (yellow / blue / lavender) inset
+ * background that overrides `bg-transparent` and clashes with the
+ * project's cream surface. The only override that works is a 1000px
+ * inset box-shadow tinted to the surface colour — `background-color`
+ * itself is locked by the user-agent stylesheet during autofill.
+ *
+ * `-webkit-text-fill-color` is the matching property for autofilled
+ * text colour, since `color` is also overridden.
+ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+textarea:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--surface) inset;
+          box-shadow: 0 0 0 1000px var(--surface) inset;
+  -webkit-text-fill-color: var(--ink);
+  caret-color: var(--ink);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+/*
  * Skeleton shimmer — used by <Skeleton /> (src/components/ui/skeleton.tsx).
  * The animation slides a 200%-wide gradient from start to end over the
  * placeholder block. Defined here (not inside the component) because
