@@ -229,16 +229,14 @@ export interface ExpandRequest {
   description: string;
 }
 
-/** POST /pipeline/dispatch body. */
+/** POST /classifications/dispatch body. */
 export interface DispatchRequest {
   description: string;
   merchant_code?: string;
-  /** Defaults to 'naqel' on the backend if omitted. */
-  operator_slug?: string;
-  /** Commercial value of the item — passed through to Stage 3 sanity. */
-  value_amount?: number;
+  /** Commercial value of the item — required. */
+  value_amount: number;
   /** ISO 4217 3-letter code (e.g. 'SAR', 'USD'). */
-  currency_code?: string;
+  currency_code: string;
 }
 
 /**

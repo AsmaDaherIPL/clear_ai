@@ -6,10 +6,10 @@ import { cn } from '@/lib/utils';
 import type { ClassifyMode } from './ModeTabs';
 
 export interface ComposerExtras {
-  /** Numeric value of the item, parsed from the value input. Undefined when empty. */
-  valueAmount?: number;
-  /** ISO 4217 3-letter code (uppercase). Undefined when default. */
-  currencyCode?: string;
+  /** Positive numeric value. Always set after submit-time validation. */
+  valueAmount: number;
+  /** ISO 4217 3-letter code (uppercase). Always set. */
+  currencyCode: string;
 }
 
 interface ComposerProps {
@@ -58,6 +58,13 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
   const atCap = charCount >= DESCRIPTION_MAX;
   const PARENT_CODE_MIN = 4;
   const parentCodeValid = mode !== 'expand' || parentCode.length >= PARENT_CODE_MIN;
+  const parsedValueAmount = (() => {
+    const trimmed = valueAmount.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  const valueAmountValid = mode === 'batch' || parsedValueAmount !== null;
 
   const acceptFile = (file: File): void => {
     setBatchError(null);
@@ -79,12 +86,10 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
     const trimmed = description.trim();
     if (!trimmed) return;
     if (!parentCodeValid) return;
-    const parsedValue = valueAmount.trim() ? Number(valueAmount) : undefined;
+    if (parsedValueAmount === null) return;
     const extras: ComposerExtras = {
-      valueAmount: parsedValue !== undefined && Number.isFinite(parsedValue) && parsedValue > 0
-        ? parsedValue
-        : undefined,
-      currencyCode: currencyCode === 'SAR' ? undefined : currencyCode,
+      valueAmount: parsedValueAmount,
+      currencyCode,
     };
     onSubmit?.(
       trimmed,
@@ -236,7 +241,7 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
               <button
                 type="submit"
                 aria-label="Classify"
-                disabled={loading || !description.trim() || !parentCodeValid}
+                disabled={loading || !description.trim() || !parentCodeValid || !valueAmountValid}
                 className={cn(
                   'w-9 h-9 rounded-full border-0',
                   'bg-[var(--accent)] text-white',

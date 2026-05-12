@@ -506,7 +506,7 @@ export default function ClassifyApp() {
     description: string,
     parentCode?: string,
     extras?: ComposerExtras,
-  ) => {
+  ): Promise<void> => {
     // Capture mode at submit time so a tab switch mid-request lands in the
     // originating slice, not the new active tab.
     const m = mode;
@@ -528,17 +528,16 @@ export default function ClassifyApp() {
     try {
       let res: DescribeResponse;
       if (m === 'generate' || m === 'expand') {
-        // Both Generate and Expand now route through /pipeline/dispatch.
-        // Expand passes the parent code as merchant_code so Track B can
-        // resolve / disambiguate against the merchant-supplied prefix in
-        // parallel with Track A's blind classification.
         if (m === 'expand' && !parentCode) {
           throw new Error('Parent code required for Expand mode.');
         }
+        if (!extras) {
+          throw new Error('Value and currency are required.');
+        }
         const dispatchRes = await api.dispatch({
           description,
-          value_amount: extras?.valueAmount,
-          currency_code: extras?.currencyCode,
+          value_amount: extras.valueAmount,
+          currency_code: extras.currencyCode,
           ...(m === 'expand' && parentCode ? { merchant_code: parentCode } : {}),
         });
         res = dispatchToDescribe(dispatchRes);
