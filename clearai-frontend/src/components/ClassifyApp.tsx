@@ -737,12 +737,24 @@ export default function ClassifyApp() {
                   onPickAlternative={handleManualPick}
                 />
               )}
-              {/* Batch result. Mounts during upload + polling so the user sees progress. */}
-              <ResultBatch
-                visible={mode === 'batch' && batchState.phase !== 'idle'}
-                state={batchState}
-                onReset={handleResetBatch}
-              />
+              {/*
+                Batch result. Mounts during upload + polling so the user
+                sees progress. Breaks out of the <main>'s 1180px constraint
+                via the classic full-bleed pattern (w-[85vw] + left:50% +
+                -translate-x-1/2 relative to its anchor) so the wide table
+                gets the room it needs without affecting Generate/Expand
+                layouts above. Capped at max-w-[1600px] so it doesn't
+                sprawl on ultrawide monitors.
+              */}
+              {mode === 'batch' && batchState.phase !== 'idle' && (
+                <div className="relative left-1/2 -translate-x-1/2 w-[85vw] max-w-[1600px]">
+                  <ResultBatch
+                    visible
+                    state={batchState}
+                    onReset={handleResetBatch}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>

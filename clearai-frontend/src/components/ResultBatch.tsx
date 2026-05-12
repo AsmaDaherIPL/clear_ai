@@ -336,7 +336,14 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
             )}
           </div>
 
-          {/* Right rail — status pill + spinner */}
+          {/*
+            Right rail — status pill + spinner + (when terminal) the
+            "Start a new batch" reset button. Placing the reset action
+            here (instead of below the panel) means the user can pivot
+            to a new run without scrolling past the entire result table.
+            Only shown when the run has reached terminal so an in-flight
+            run can't be accidentally binned.
+          */}
           <div className="flex items-center gap-2 shrink-0">
             {pillKind && <StatusPill kind={pillKind} />}
             {isPolling && (
@@ -344,6 +351,36 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                 className="w-[22px] h-[22px] rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
                 aria-hidden
               />
+            )}
+            {runFinished && onReset && (
+              <button
+                type="button"
+                onClick={onReset}
+                className={cn(
+                  'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[10px]',
+                  'border border-[var(--line)] bg-[var(--surface)]',
+                  'text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+                  'transition-colors duration-150',
+                  'animate-[fadeUp_0.35s_ease_both]',
+                )}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                  className="rtl:scale-x-[-1]"
+                >
+                  <path d="M21 12a9 9 0 1 1-3-6.7" />
+                  <path d="M21 4v5h-5" />
+                </svg>
+                {t('batch_start_new')}
+              </button>
             )}
           </div>
         </div>
@@ -485,43 +522,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
       )}
     </div>
 
-    {/*
-      "Start a new batch" reset button. Mirrors the Batch.html mockup:
-      a centred secondary pill below the panel, only shown once the run
-      has reached a terminal state so the operator can't accidentally
-      bin an in-flight run. Clicking it triggers onReset on the parent,
-      which clears batchState and un-collapses the composer above.
-    */}
-    {runFinished && onReset && (
-      <div className="flex justify-center mt-[18px] animate-[fadeUp_0.35s_ease_both]">
-        <button
-          type="button"
-          onClick={onReset}
-          className={cn(
-            'inline-flex items-center gap-2 px-4 py-2 rounded-[10px]',
-            'border border-[var(--line)] bg-[var(--surface)]',
-            'text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
-            'transition-colors duration-150',
-          )}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M21 12a9 9 0 1 1-3-6.7" />
-            <path d="M21 4v5h-5" />
-          </svg>
-          {t('batch_start_new')}
-        </button>
-      </div>
-    )}
     </>
   );
 }
