@@ -216,12 +216,9 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                 inputMode="numeric"
                 value={parentCode}
                 onChange={(e) => setParentCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                placeholder="e.g. 010121 / 3304993 / 01012110"
+                placeholder="e.g. 910211"
                 className="flex-1 min-w-0 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
               />
-              <span className="hidden sm:inline text-[12px] text-[var(--ink-3)] shrink-0">
-                {t('parent_hint')}
-              </span>
             </div>
           )}
 

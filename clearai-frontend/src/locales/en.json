@@ -15,7 +15,6 @@
   "parent_label": "HS code",
   "value_label": "Value",
   "value_hint": "unit price, customs value",
-  "parent_hint": "4 / 6 / 8 / 10 digits",
   "lang_hint": "EN or AR",
   "drop_title": "Drop your invoice CSV here",
   "drop_hint": "…or click to browse · CSV or Excel accepted",
