@@ -130,11 +130,38 @@ function parseRetryAfterMs(message: string | null | undefined): number | null {
 }
 
 /**
- * Fetch all classification items for a run, auto-paging until the
- * server's `total` is satisfied or MAX_PAGES is hit. Returns the items
- * concatenated in row_index order plus the top-level fields the poll
- * loop needs (classification_phase). Bounded to prevent a runaway loop
- * on a misbehaving server.
+ * Fetch just the FIRST page of classifications. Used during active
+ * polling — the table fills in row-by-row from this page's items merged
+ * by id into existing state, so we don't refetch the whole run on every
+ * 3-second tick. For a 500-item batch this drops the per-tick call rate
+ * from 3 (3 pages) to 1.
+ *
+ * Trade-off: items past offset PAGE_SIZE that flip mid-run won't show
+ * until the next page is fetched. Acceptable because items past 200
+ * settle in the final terminal fetch via fetchAllClassifications.
+ */
+async function fetchFirstPageClassifications(runId: string): Promise<{
+  items: DeclarationRunItem[];
+  classification_phase?: 'pending' | 'running' | 'completed' | 'failed';
+  total: number;
+}> {
+  const first = await api.getDeclarationRunClassifications(runId, { limit: PAGE_SIZE, offset: 0 });
+  return {
+    items: first.items,
+    total: first.total ?? first.items.length,
+    ...(first.classification_phase ? { classification_phase: first.classification_phase } : {}),
+  };
+}
+
+/**
+ * Fetch ALL classification items for a run, auto-paging until the
+ * server's `total` is satisfied or MAX_PAGES is hit. Only called at
+ * terminal (classification_phase = completed | failed) to assemble the
+ * final reconciled table. Bounded to prevent a runaway loop.
+ *
+ * 429-aware: if a mid-pagination page hits APIM rate limit, waits the
+ * advertised retry-after duration before continuing. Doesn't restart
+ * from page 0 — previously-fetched pages survive the wait.
  */
 async function fetchAllClassifications(runId: string): Promise<{
   items: DeclarationRunItem[];
@@ -145,18 +172,48 @@ async function fetchAllClassifications(runId: string): Promise<{
   const all = [...first.items];
   let page = 1;
   while (all.length < total && page < MAX_PAGES) {
-    const next = await api.getDeclarationRunClassifications(runId, {
-      limit: PAGE_SIZE,
-      offset: page * PAGE_SIZE,
-    });
-    all.push(...next.items);
-    if (next.items.length === 0) break; // defensive: stop if a page came back empty
-    page += 1;
+    try {
+      const next = await api.getDeclarationRunClassifications(runId, {
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      });
+      all.push(...next.items);
+      if (next.items.length === 0) break;
+      page += 1;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 429) {
+        // Wait out APIM's cooldown, then retry the same page. The
+        // already-fetched pages stay in `all` so we don't redo work.
+        const retryMs = parseRetryAfterMs(err.message) ?? 30_000;
+        await new Promise((resolve) => setTimeout(resolve, retryMs));
+        continue;
+      }
+      throw err;
+    }
   }
   return {
     items: all,
     ...(first.classification_phase ? { classification_phase: first.classification_phase } : {}),
   };
+}
+
+/**
+ * Merge incoming items into an existing array, keyed by id. New items
+ * append; existing ids get replaced with the latest server state. Used
+ * during active polling so a partial first-page response doesn't
+ * temporarily blank out items past page 1 that we'd already loaded.
+ */
+function mergeItemsById(
+  prev: DeclarationRunItem[],
+  incoming: DeclarationRunItem[],
+): DeclarationRunItem[] {
+  if (prev.length === 0) return incoming;
+  const byId = new Map<string, DeclarationRunItem>();
+  for (const item of prev) byId.set(item.id, item);
+  for (const item of incoming) byId.set(item.id, item);
+  // Preserve row_index order — server returns in that order; the map
+  // may have shuffled it. Sort to be safe.
+  return Array.from(byId.values()).sort((a, b) => a.row_index - b.row_index);
 }
 
 function getUrlRunId(): string | null {
@@ -278,17 +335,28 @@ export default function ClassifyApp() {
           }
         }
 
-        // Items + classification_phase in a single endpoint hit.
-        let classificationPhase: 'pending' | 'running' | 'completed' | 'failed' | undefined;
-        const cls = await fetchAllClassifications(runId);
-        classificationPhase = cls.classification_phase;
-        setBatchState((s) => ({ ...s, items: cls.items }));
+        // Active polling: ONE page only, merged by id into existing
+        // items state. Items past page 1 that we'd already loaded
+        // survive across ticks. At terminal we fetch ALL pages for
+        // the final reconciled table.
+        const firstPage = await fetchFirstPageClassifications(runId);
+        const classificationPhase = firstPage.classification_phase;
+        setBatchState((s) => ({ ...s, items: mergeItemsById(s.items, firstPage.items) }));
 
         // Stop polling when classification_phase goes terminal. The
         // run-level summary.status can flip to 'failed' for Phase-2
         // reasons but that's surfaced by the final summary fetch
         // below, not by the polling loop itself.
         if (classificationPhase === 'completed' || classificationPhase === 'failed') {
+          // Final all-pages fetch so the reconciled table is complete
+          // regardless of how many pages exist. Replaces the merged
+          // state since the server's view is now authoritative.
+          try {
+            const finalCls = await fetchAllClassifications(runId);
+            setBatchState((s) => ({ ...s, items: finalCls.items }));
+          } catch {
+            /* swallow — keep whatever's already in state */
+          }
           // Final summary fetch so the per-status counts are accurate
           // at terminal. The poll loop never reads `summary.status`
           // again after this point.
