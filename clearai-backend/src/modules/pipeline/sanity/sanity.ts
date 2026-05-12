@@ -42,6 +42,13 @@ const SanitySchema = z
 export async function runSanity(params: {
   final_code: string;
   cleaned_description: string;
+  /**
+   * Verbatim merchant line. Carries the brand / model / SKU that cleanup
+   * strips. Sanity needs both: cleaned for the customs noun, raw for the
+   * retail tier (Casio Pro Trek vs unbranded digital both clean to
+   * "digital watch" but anchor very different bands).
+   */
+  raw_description: string | null;
   value_amount: number | null;
   currency_code: string | null;
 }): Promise<SanityResult> {
@@ -50,6 +57,7 @@ export async function runSanity(params: {
 
   const user = JSON.stringify({
     final_code: params.final_code,
+    raw_description: params.raw_description,
     cleaned_description: params.cleaned_description,
     value_amount: params.value_amount,
     currency_code: params.currency_code,

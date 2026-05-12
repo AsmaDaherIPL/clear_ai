@@ -312,6 +312,11 @@ export async function runPipeline(
   const sanity = await runSanity({
     final_code: verdict.final_code,
     cleaned_description: cleanup.cleaned_description,
+    // The brand / model / SKU live only in the raw merchant line — cleanup
+    // strips them by design. Sanity needs them to pick the right retail
+    // band ($30 Timex vs $300 Casio Pro Trek vs $5000 Rolex are all
+    // "digital watch" once cleaned).
+    raw_description: parsedItem.raw_description ?? null,
     value_amount: parsedItem.value_amount,
     currency_code: parsedItem.currency_code,
   });

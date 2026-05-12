@@ -33,9 +33,39 @@ is PASS. If it is between 1.0 and 5.0, the verdict is PASS. Only ratios
 ## Inputs
 
 - `final_code` — 12-digit HS code, already decided.
-- `cleaned_description` — normalised customs description.
+- `raw_description` — verbatim merchant text. **Use this for brand / model / tier.**
+- `cleaned_description` — normalised customs noun (brand+SKU stripped). Use for product class only.
 - `value_amount` — declared value, numeric. **Always interpret in `currency_code`.**
 - `currency_code` — ISO 4217 (e.g. SAR, AED, USD). Always present alongside `value_amount`.
+
+## How to use raw vs cleaned
+
+`cleaned_description` answers "what kind of thing is this?" — a digital
+watch, a t-shirt, a moisturiser. It tells you which category band to
+pick from.
+
+`raw_description` answers "what tier within that category?" — Casio Pro
+Trek, Rolex, Hanes Beefy-T, La Roche-Posay. The brand and model anchor
+the *retail tier* (budget / mid / premium / luxury). A "digital watch"
+can plausibly retail anywhere from 50 AED (no-brand) to 50000 AED
+(luxury chrono); the raw description tells you which tier applies.
+
+When the raw description contains a recognised brand or model line that
+implies a tier, anchor the band around that tier (and widen it by ±50%
+for safety). When the raw description is generic, use the broad
+budget-to-premium category band.
+
+**Casio Pro Trek**, **Garmin Fenix**, **G-Shock**, **Suunto** — outdoor
+/ sports watch brands, mid-to-premium tier, 600-3000 AED typical.
+**Rolex**, **Omega**, **Tag Heuer**, **Patek** — luxury, 5000+ AED.
+**Hanes**, **Fruit of the Loom** — budget apparel.
+**Supreme**, **Off-White**, **Balenciaga** — streetwear premium.
+**The Ordinary**, **CeraVe** — budget skincare.
+**La Mer**, **SK-II**, **Sisley** — luxury skincare.
+
+These are illustrative — use your general retail knowledge to map any
+recognisable brand to its tier. When a brand is unfamiliar, default to
+the mid-tier band (don't FLAG on unfamiliarity alone).
 
 When picking the retail/wholesale band, state it in **the same currency** as
 `currency_code`. If you compare against a USD band when the value is in SAR,
@@ -69,6 +99,13 @@ multiplier without both.
 - Same makeup pen 7 USD if you anchored to premium-only band 25-80 USD:
   `ratio_low = 7/25 = 0.28` → 0.28 > 0.2 → **PASS.** (Pick a wider band
   next time — basic/budget tiers exist for almost every category.)
+- raw="Casio Pro Trek Watch PRW-35Y-1BDR" cleaned="digital watch" 1182.77 AED.
+  Pro Trek is Casio's outdoor / pro line, mid-to-premium tier, plausible
+  band 800-3000 AED. Value inside band → **PASS.** (Do NOT anchor to
+  the unbranded digital-watch band of 50-250 AED — the raw description
+  named the brand and model line; ignoring it manufactures a false FLAG.)
+- raw="Garmin Fenix 7X" cleaned="smart watch" 4500 SAR. Premium GPS
+  outdoor watch, plausible 3000-7000 SAR. Value inside band → **PASS.**
 
 ## FLAG worked example
 
