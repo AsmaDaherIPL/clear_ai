@@ -431,22 +431,49 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
         expectedRowCount={summary?.row_count}
       />
 
-      {/*
-        Run-level error banner. Surfaces a single message below the
-        table when EITHER the run carries a top-level error, OR any
-        item carries an error. Per spec: per-row Error column is gone.
-      */}
-      {(state.summary?.error || items.some((i) => i.error)) && (
-        <div
-          className="px-[22px] py-3 border-t border-[var(--line-2)] bg-[oklch(0.95_0.07_25)] text-[13px] text-[oklch(0.32_0.12_25)]"
-          role="alert"
-        >
-          <div className="font-medium mb-1">Run-level error</div>
-          <div className="text-[12.5px]">
-            {humanError(state.summary?.error ?? items.find((i) => i.error)?.error)}
+      {(() => {
+        const runError = state.summary?.error ?? null;
+        const itemErrors = items.filter((i) => !!i.error);
+        const escalations = itemErrors.filter((i) => {
+          const e = i.error ?? '';
+          return e.includes('escalated to HITL') || e.includes('LOW_INFORMATION');
+        });
+        const realErrors = itemErrors.filter((i) => !escalations.includes(i));
+
+        if (!runError && itemErrors.length === 0) return null;
+
+        // Real run-level crash or per-item exception — red banner.
+        if (runError || realErrors.length > 0) {
+          return (
+            <div
+              className="px-[22px] py-3 border-t border-[var(--line-2)] bg-[oklch(0.95_0.07_25)] text-[13px] text-[oklch(0.32_0.12_25)]"
+              role="alert"
+            >
+              <div className="font-medium mb-1">Run-level error</div>
+              <div className="text-[12.5px]">
+                {humanError(runError ?? realErrors[0]?.error)}
+              </div>
+            </div>
+          );
+        }
+
+        // Only HITL escalations — informational amber banner.
+        return (
+          <div
+            className="px-[22px] py-3 border-t border-[var(--line-2)] bg-[oklch(0.95_0.08_75)] text-[13px] text-[oklch(0.36_0.13_75)]"
+            role="status"
+          >
+            <div className="font-medium mb-1">
+              {escalations.length === 1
+                ? '1 item needs manual review'
+                : `${escalations.length} items need manual review`}
+            </div>
+            <div className="text-[12.5px]">
+              Sent to the HITL queue — open the review tab to resolve.
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/*
         Footer strip: latency on the left, optional file-list status
