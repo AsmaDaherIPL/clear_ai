@@ -100,6 +100,20 @@ export interface DescriptionClassifierResult {
   effective_description: string;
   research: DescriptionClassifierResearchDetail | null;
   web_research: DescriptionClassifierResearchDetail | null;
+  /**
+   * Chapters inferred from keyword signals in the effective description.
+   * Empty when no keywords matched. Used by reconciliation to detect cases
+   * where the merchant code agrees with the description's inferred chapter
+   * but Track A's picker landed in a different chapter (the Geomag case).
+   */
+  inferred_chapters: string[];
+  /**
+   * True when chapter-coherence filter aborted because filtering would
+   * have dropped below MIN_CANDIDATES. Means retrieval didn't surface
+   * candidates in the inferred chapters — a strong signal that Track A's
+   * picker results may be drifting away from the merchant's intent.
+   */
+  prefilter_aborted: boolean;
 }
 
 // ---------------------------------------------------------------------------

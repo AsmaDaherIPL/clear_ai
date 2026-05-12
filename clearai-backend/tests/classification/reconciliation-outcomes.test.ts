@@ -52,6 +52,8 @@ function trackA(opts: {
     effective_description: 'test',
     research: null,
     web_research: null,
+    inferred_chapters: [],
+    prefilter_aborted: false,
   };
 }
 

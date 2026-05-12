@@ -120,6 +120,8 @@ export async function runDescriptionClassifier(
             effective_description,
             research: researchDetail,
             web_research: webResearchDetail,
+            inferred_chapters: [],
+            prefilter_aborted: false,
           },
           stages,
         };
@@ -229,6 +231,8 @@ export async function runDescriptionClassifier(
         effective_description,
         research: researchDetail,
         web_research: webResearchDetail,
+        inferred_chapters: [],
+        prefilter_aborted: false,
       },
       stages,
     };
@@ -257,6 +261,8 @@ export async function runDescriptionClassifier(
       effective_description,
       research: researchDetail,
       web_research: webResearchDetail,
+      inferred_chapters: picker.prefilter?.inferred_chapters ?? [],
+      prefilter_aborted: picker.prefilter?.aborted ?? false,
     },
     stages,
   };

@@ -119,6 +119,24 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
   if (trackB.consistency_verdict === 'contradicts' && aHas) {
     const topPositive = topFitOrPartial(trackA.annotated_candidates);
     if (topPositive?.fit === 'fits') {
+      // Geomag-class guard (2026-05-13): when the chapter-coherence
+      // pre-filter inferred a chapter from keyword signals AND the
+      // merchant code is in those inferred chapters AND Track A's fits
+      // candidate is in a DIFFERENT chapter, trust the merchant code.
+      // The picker's `fits` is overconfident — retrieval gave it 12
+      // wrong-chapter candidates because the catalog vocabulary clusters
+      // the wrong way ("magnetic" → chapter 85 magnets, even when the
+      // product is a toy in 95). Merchant code + cleanup-derived
+      // chapter inference beat picker's vector-driven fits here.
+      if (trackA.inferred_chapters.length > 0) {
+        const bCh = chapter(trackB.resolved_code);
+        const aCh = chapter(topPositive.code);
+        const merchantAgreesWithInference = bCh !== null && trackA.inferred_chapters.includes(bCh);
+        const trackAOutsideInference = aCh !== null && !trackA.inferred_chapters.includes(aCh);
+        if (merchantAgreesWithInference && trackAOutsideInference) {
+          return 'AMBIGUOUS';
+        }
+      }
       return 'CONTRADICTION';
     }
     // fall through to AMBIGUOUS via the default
@@ -132,6 +150,14 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
     const aCh = chapter(top?.code);
     const bCh = chapter(trackB.resolved_code);
     if (top?.fit === 'fits' && aCh && bCh && aCh !== bCh) {
+      // Geomag guard: prefer merchant code when it agrees with keyword inference.
+      if (trackA.inferred_chapters.length > 0) {
+        const merchantAgrees = trackA.inferred_chapters.includes(bCh);
+        const trackAOutside = !trackA.inferred_chapters.includes(aCh);
+        if (merchantAgrees && trackAOutside) {
+          return 'AMBIGUOUS';
+        }
+      }
       return 'CONTRADICTION';
     }
   }

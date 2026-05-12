@@ -10,7 +10,13 @@
  */
 import type { Candidate } from '../../../../../inference/retrieval/retrieve.js';
 
-/** Safety floor — never filter the candidate set below this count. */
+/**
+ * Safety floor — never filter the candidate set below this count. When the
+ * filter would drop the set below this, the picker still gets the full
+ * unfiltered set so it has something to evaluate. Reconciliation reads
+ * `aborted=true` and the merchant-code-vs-inferred-chapter signal to
+ * decide whether to favour the merchant code anyway.
+ */
 const MIN_CANDIDATES = 3;
 
 const KEYWORD_CHAPTERS: Array<{ pattern: RegExp; chapters: ReadonlyArray<string> }> = [

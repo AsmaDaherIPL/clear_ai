@@ -29,6 +29,8 @@ function trackA(opts: {
   candidates?: AnnotatedCandidate[];
   no_fit?: boolean;
   threshold_failed?: boolean;
+  inferred_chapters?: string[];
+  prefilter_aborted?: boolean;
 }): DescriptionClassifierResult {
   return {
     annotated_candidates: opts.candidates ?? [],
@@ -38,6 +40,8 @@ function trackA(opts: {
     effective_description: 'test',
     research: null,
     web_research: null,
+    inferred_chapters: opts.inferred_chapters ?? [],
+    prefilter_aborted: opts.prefilter_aborted ?? false,
   };
 }
 
@@ -148,6 +152,35 @@ describe('classifyConflict — precedence tests', () => {
     // chapter mismatch worth surfacing.
     const a = trackA({ candidates: [ac('460200000000', 'fits')] });
     const b = trackB({ resolved_code: '630790300000', consistency_verdict: 'contradicts' });
+    expect(classifyConflict(a, b)).toBe('CONTRADICTION');
+  });
+
+  it('Geomag guard: merchant agrees with keyword inference, Track A fits outside → AMBIGUOUS', () => {
+    // Concrete miss: "Geomag Math Building Magicube 55pcs"
+    //   cleanup → "magnetic building toy set"
+    //   chapter-coherence inferred chapters: [95] (toy keywords)
+    //   merchant code 9503... → chapter 95 (matches inference)
+    //   Track A picker landed on 8505 (magnets) with fit=fits
+    //   Track B's subtree-contradicts pulled toward CONTRADICTION
+    // Pre-fix verdict: CONTRADICTION → Track A 8505 wins (wrong)
+    // Post-fix verdict: AMBIGUOUS → merchant 9503 carries the row
+    const a = trackA({
+      candidates: [ac('850500000000', 'fits')],
+      inferred_chapters: ['95'],
+    });
+    const b = trackB({ resolved_code: '950300909999', consistency_verdict: 'contradicts' });
+    expect(classifyConflict(a, b)).toBe('AMBIGUOUS');
+  });
+
+  it('Geomag guard does NOT demote when merchant code is OUTSIDE the inferred chapters', () => {
+    // If the merchant code disagrees with both Track A AND the keyword
+    // inference, the guard should not fire — there's no second signal
+    // to favour over Track A.
+    const a = trackA({
+      candidates: [ac('850500000000', 'fits')],
+      inferred_chapters: ['95'],
+    });
+    const b = trackB({ resolved_code: '420212200006', consistency_verdict: 'contradicts' });
     expect(classifyConflict(a, b)).toBe('CONTRADICTION');
   });
 
