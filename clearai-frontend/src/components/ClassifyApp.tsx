@@ -349,11 +349,13 @@ export default function ClassifyApp() {
         // below, not by the polling loop itself.
         if (classificationPhase === 'completed' || classificationPhase === 'failed') {
           // Final all-pages fetch so the reconciled table is complete
-          // regardless of how many pages exist. Replaces the merged
-          // state since the server's view is now authoritative.
+          // regardless of how many pages exist. Merge by ID rather than
+          // wholesale replace so row identity stays stable across the
+          // terminal transition — the virtualizer keeps measured row
+          // heights and the user's scroll offset doesn't jump.
           try {
             const finalCls = await fetchAllClassifications(runId);
-            setBatchState((s) => ({ ...s, items: finalCls.items }));
+            setBatchState((s) => ({ ...s, items: mergeItemsById(s.items, finalCls.items) }));
           } catch {
             /* swallow — keep whatever's already in state */
           }

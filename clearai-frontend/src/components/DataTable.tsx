@@ -52,7 +52,7 @@ import {
   type PaginationState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Settings2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -627,13 +627,16 @@ export function DataTable<T extends object>({
       </div>
 
       {/*
-        Pagination footer.
+        Pagination footer — row counter + page-size picker only.
+        Virtualization is the primary scroll affordance, so prev/next page
+        buttons are deliberately omitted (they'd be redundant click-through
+        cost on top of free scroll). The page-size cap exists as a comfort
+        affordance: at 300+ items the user can choose to render only the
+        first 50 rather than measuring every row on initial paint.
         - Only renders when there are real rows (skeleton-only state hides it).
-        - "Showing X-Y of Z" reads from the filtered + paginated row models so
-          the count is honest when filters are active (e.g. "Showing 1-15 of
-          24 — 276 filtered out").
-        - Page size "All" sets pageSize to MAX_SAFE_INTEGER which makes
-          TanStack put every row on a single page (one page total).
+        - "Showing X-Y of Z" honours active filters (e.g. "276 filtered out").
+        - Page size "All" sets pageSize to MAX_SAFE_INTEGER → single page,
+          equivalent to pure virtualization with no truncation.
       */}
       {realRows.length > 0 && (() => {
         const filteredCount = table.getFilteredRowModel().rows.length;
@@ -641,7 +644,6 @@ export function DataTable<T extends object>({
         const filteredOut = totalCount - filteredCount;
         const pageIndex = table.getState().pagination.pageIndex;
         const pageSize = table.getState().pagination.pageSize;
-        const pageCount = table.getPageCount();
         const isAll = pageSize >= PAGE_SIZE_ALL;
         const fromRow = filteredCount === 0 ? 0 : pageIndex * pageSize + 1;
         const toRow = Math.min((pageIndex + 1) * pageSize, filteredCount);
@@ -680,104 +682,49 @@ export function DataTable<T extends object>({
               )}
             </div>
 
-            {/* Page nav + size picker */}
-            <div className="flex items-center gap-3">
-              {/* Page size picker — shadcn DropdownMenu radio group */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      'h-8 gap-1.5 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
-                      'hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
-                      'font-mono text-[11px] uppercase tracking-[0.06em]',
-                    )}
-                  >
-                    Show {currentSizeLabel}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="min-w-[140px] border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] text-[13px]"
+            {/* Page size picker — shadcn DropdownMenu radio group */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    'h-8 gap-1.5 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
+                    'hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+                    'font-mono text-[11px] uppercase tracking-[0.06em]',
+                  )}
                 >
-                  <DropdownMenuLabel className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase px-2 py-1.5">
-                    Rows per page
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator className="bg-[var(--line-2)]" />
-                  <DropdownMenuRadioGroup
-                    value={String(pageSize)}
-                    onValueChange={(value) => {
-                      const next = Number(value);
-                      table.setPageSize(next);
-                      table.setPageIndex(0);
-                    }}
-                  >
-                    {PAGE_SIZE_OPTIONS.map((opt) => (
-                      <DropdownMenuRadioItem
-                        key={opt.value}
-                        value={String(opt.value)}
-                        className="text-[13px]"
-                      >
-                        {opt.label}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              {/* Page nav — hidden when on a single page (e.g. "All") */}
-              {pageCount > 1 && (
-                <div className="flex items-center gap-1">
-                  <span className="text-[12px] text-[var(--ink-3)] tabular-nums me-2">
-                    Page{' '}
-                    <span className="text-[var(--ink-2)] font-medium">{pageIndex + 1}</span>
-                    {' '}of{' '}
-                    <span className="text-[var(--ink-2)] font-medium">{pageCount}</span>
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 p-0 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] disabled:opacity-40"
-                    onClick={() => table.setPageIndex(0)}
-                    disabled={!table.getCanPreviousPage()}
-                    aria-label="First page"
-                  >
-                    <ChevronsLeft aria-hidden className="rtl:rotate-180" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 p-0 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] disabled:opacity-40"
-                    onClick={() => table.previousPage()}
-                    disabled={!table.getCanPreviousPage()}
-                    aria-label="Previous page"
-                  >
-                    <ChevronLeft aria-hidden className="rtl:rotate-180" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 p-0 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] disabled:opacity-40"
-                    onClick={() => table.nextPage()}
-                    disabled={!table.getCanNextPage()}
-                    aria-label="Next page"
-                  >
-                    <ChevronRight aria-hidden className="rtl:rotate-180" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 p-0 border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)] hover:bg-[var(--line-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)] disabled:opacity-40"
-                    onClick={() => table.setPageIndex(pageCount - 1)}
-                    disabled={!table.getCanNextPage()}
-                    aria-label="Last page"
-                  >
-                    <ChevronsRight aria-hidden className="rtl:rotate-180" />
-                  </Button>
-                </div>
-              )}
-            </div>
+                  Show {currentSizeLabel}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="min-w-[140px] border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] text-[13px]"
+              >
+                <DropdownMenuLabel className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase px-2 py-1.5">
+                  Rows per page
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-[var(--line-2)]" />
+                <DropdownMenuRadioGroup
+                  value={String(pageSize)}
+                  onValueChange={(value) => {
+                    const next = Number(value);
+                    table.setPageSize(next);
+                    table.setPageIndex(0);
+                  }}
+                >
+                  {PAGE_SIZE_OPTIONS.map((opt) => (
+                    <DropdownMenuRadioItem
+                      key={opt.value}
+                      value={String(opt.value)}
+                      className="text-[13px]"
+                    >
+                      {opt.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         );
       })()}
