@@ -1,12 +1,18 @@
 /**
  * Stage 0a parser merchant-code length classification.
  *
- * Trailing zeros in HS codes are SEMANTIC indicators of granularity, not
- * padding to be auto-filled. Valid lengths are exactly {6, 8, 10, 12};
- * anything else is `malformed`. The parser must NEVER pad 7/9/11-digit
- * inputs — those almost always come from upstream data corruption (e.g.
- * xlsx scientific-notation truncation) and should surface as malformed
- * rather than be silently promoted to a wrong-but-valid-looking code.
+ * Trailing zeros are SEMANTIC granularity indicators, not padding. The
+ * parser does not auto-pad. Length policy (relaxed 2026-05-12):
+ *   - 12 digits         → twelve_digit
+ *   - 6-11 digits       → short_prefix (any subheading-or-deeper granularity)
+ *   - 1-5 digits, 13+   → malformed
+ *   - null / empty      → absent
+ *
+ * Pre-relaxation we only accepted exactly {6, 8, 10, 12}. 7/9/11 happen
+ * routinely from xlsx scientific-notation autoformat losing a trailing
+ * zero, or from broker uploads where a single national-tariff digit
+ * gets pasted onto an HS6. Track B's expandWithFallback widens the
+ * subtree search to whatever length is supplied.
  */
 import { describe, it, expect } from 'vitest';
 import { parseItem } from '../../src/modules/pipeline/stage-0-parse/parse.js';
@@ -53,31 +59,38 @@ describe('parseItem — merchant code length classification', () => {
     expect(r.item.raw_merchant_code).toBe('851830');
   });
 
-  it('rejects 7 digits as malformed (no padding — likely xlsx scientific notation)', () => {
+  it('classifies 7 digits as short_prefix (relaxed 2026-05-12)', () => {
     const r = parseItem(line('8518311'));
     if (r.rejected) throw new Error('unexpected reject');
-    expect(r.item.merchant_code_state).toBe('malformed');
+    expect(r.item.merchant_code_state).toBe('short_prefix');
+    expect(r.item.raw_merchant_code).toBe('8518311');
   });
 
-  it('rejects 9 digits as malformed', () => {
+  it('classifies 9 digits as short_prefix (relaxed 2026-05-12)', () => {
     const r = parseItem(line('851831100'));
     if (r.rejected) throw new Error('unexpected reject');
-    expect(r.item.merchant_code_state).toBe('malformed');
+    expect(r.item.merchant_code_state).toBe('short_prefix');
   });
 
-  it('rejects 11 digits as malformed', () => {
+  it('classifies 11 digits as short_prefix (relaxed 2026-05-12)', () => {
     const r = parseItem(line('85183110000'));
     if (r.rejected) throw new Error('unexpected reject');
-    expect(r.item.merchant_code_state).toBe('malformed');
+    expect(r.item.merchant_code_state).toBe('short_prefix');
   });
 
-  it('rejects 5 digits as malformed', () => {
+  it('rejects 5 digits as malformed (HS4 or shorter — too coarse for declaration)', () => {
     const r = parseItem(line('85183'));
     if (r.rejected) throw new Error('unexpected reject');
     expect(r.item.merchant_code_state).toBe('malformed');
   });
 
-  it('rejects 13 digits as malformed', () => {
+  it('rejects 4 digits as malformed (HS4 heading — too coarse)', () => {
+    const r = parseItem(line('8518'));
+    if (r.rejected) throw new Error('unexpected reject');
+    expect(r.item.merchant_code_state).toBe('malformed');
+  });
+
+  it('rejects 13 digits as malformed (longer than HS12 — data corruption)', () => {
     const r = parseItem(line('8518311000000'));
     if (r.rejected) throw new Error('unexpected reject');
     expect(r.item.merchant_code_state).toBe('malformed');
