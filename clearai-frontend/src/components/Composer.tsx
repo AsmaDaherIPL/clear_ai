@@ -1,8 +1,9 @@
 /** Main classify input area: textarea, optional parent-code field, batch dropzone. */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 import type { ClassifyMode } from './ModeTabs';
 
 export interface ComposerExtras {
@@ -28,28 +29,65 @@ const BATCH_MAX_BYTES = 10 * 1024 * 1024; // 10 MiB — backend caps row count s
 const DESCRIPTION_MAX = 250;
 
 /**
- * Currency options. Each row's `display` is the styled trigger label
- * (code · symbol) — matches the Landing Page reference where the pill
- * shows "SAR · ﷼" / "USD · $" / etc.
+ * Currency list comes from GET /reference-data/currencies — same response
+ * for both UI languages (3-letter ISO codes, no symbols or translations).
+ *
+ * FALLBACK_CURRENCIES is what we render before the fetch resolves AND if
+ * the fetch fails. Keeps the form usable offline / in dev / during APIM
+ * blips. Same default selection ('SAR') in both cases.
  */
-const CURRENCIES = [
-  { code: 'SAR', display: 'SAR · ﷼' },
-  { code: 'USD', display: 'USD · $' },
-  { code: 'EUR', display: 'EUR · €' },
-  { code: 'AED', display: 'AED · د.إ' },
-  { code: 'GBP', display: 'GBP · £' },
-  { code: 'CNY', display: 'CNY · ¥' },
-  { code: 'JPY', display: 'JPY · ¥' },
-  { code: 'INR', display: 'INR · ₹' },
-] as const;
-type CurrencyCode = (typeof CURRENCIES)[number]['code'];
+const FALLBACK_CURRENCIES = ['SAR', 'USD', 'EUR', 'AED', 'GBP'] as const;
+
+/**
+ * Module-level cache so navigating between routes / re-mounting the
+ * Composer doesn't re-fetch the list. Resolves once per page load.
+ */
+let currenciesCache: string[] | null = null;
+let currenciesPromise: Promise<string[]> | null = null;
+
+function loadCurrencies(): Promise<string[]> {
+  if (currenciesCache) return Promise.resolve(currenciesCache);
+  if (currenciesPromise) return currenciesPromise;
+  currenciesPromise = api
+    .getReferenceCurrencies()
+    .then((res) => {
+      const list = Array.isArray(res.currencies) && res.currencies.length > 0
+        ? res.currencies
+        : [...FALLBACK_CURRENCIES];
+      currenciesCache = list;
+      return list;
+    })
+    .catch(() => {
+      // Network/APIM error — fall through to the static list so the
+      // form stays usable. Don't cache the failure (next mount can retry).
+      currenciesPromise = null;
+      return [...FALLBACK_CURRENCIES];
+    });
+  return currenciesPromise;
+}
 
 export default function Composer({ mode, onSubmit, onPickFile, loading, className }: ComposerProps) {
   const t = useT();
   const [description, setDescription] = useState('');
   const [parentCode, setParentCode] = useState('');
   const [valueAmount, setValueAmount] = useState('');
-  const [currencyCode, setCurrencyCode] = useState<CurrencyCode>('SAR');
+  const [currencyCode, setCurrencyCode] = useState<string>('SAR');
+  // Currencies list — starts as the static fallback, swaps to the API
+  // response once the fetch resolves. The default selection ('SAR') is
+  // present in both so no flash of "invalid selection" during the swap.
+  const [currencies, setCurrencies] = useState<string[]>(() =>
+    currenciesCache ?? [...FALLBACK_CURRENCIES]
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void loadCurrencies().then((list) => {
+      if (cancelled) return;
+      setCurrencies(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -179,7 +217,7 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
               <select
                 aria-label={t('value_label')}
                 value={currencyCode}
-                onChange={(e) => setCurrencyCode(e.target.value as CurrencyCode)}
+                onChange={(e) => setCurrencyCode(e.target.value)}
                 className={cn(
                   'appearance-none cursor-pointer shrink-0',
                   'bg-[var(--line-2)] border border-[var(--line)] rounded-md',
@@ -191,8 +229,8 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                   "bg-[url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l4 4 4-4'/></svg>\")]",
                 )}
               >
-                {CURRENCIES.map((c) => (
-                  <option key={c.code} value={c.code}>{c.display}</option>
+                {currencies.map((c) => (
+                  <option key={c} value={c}>{c}</option>
                 ))}
               </select>
               <span className="hidden sm:inline text-[12px] text-[var(--ink-3)] shrink-0">

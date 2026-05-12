@@ -624,14 +624,16 @@ export default function ClassifyApp() {
       <TopBar />
 
       {/*
-        Result region wants the full 1180px column-width per the
-        "Layout language" spec; the hero+composer above stays
-        narrower (760px) because long line-lengths hurt the writing
-        experience there. We widen the outer <main> to 1180 and
-        re-constrain the hero/composer in their own 760-max wrapper.
+        Responsive page column. Width tracks viewport up to a 1180px
+        ceiling — clamp keeps it from sprawling on ultrawide monitors
+        while honouring narrower laptop screens. The inner wrapper
+        used to be capped at 760px so the composer felt prose-style,
+        but the form was visually narrower than the result cards
+        below it. They now share the same 1080px ceiling so the
+        composer and result panel align edge-to-edge.
       */}
-      <main className="max-w-[1180px] mx-auto px-7 pt-20 pb-12">
-        <div className="max-w-[760px] mx-auto">
+      <main className="w-full max-w-[min(95vw,1180px)] mx-auto px-7 pt-20 pb-12">
+        <div className="w-full max-w-[1080px] mx-auto">
           <Hero />
 
           {/*

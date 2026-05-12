@@ -581,8 +581,22 @@ async function requestMultipart<T>(path: string, form: FormData): Promise<T> {
   return body as T;
 }
 
+/** Response shape from GET /reference-data/currencies. */
+export interface ReferenceCurrenciesResponse {
+  currencies: string[];
+}
+
 export const api = {
   health: () => request<HealthResponse>('/health'),
+
+  /**
+   * GET /reference-data/currencies — ISO 4217 currency codes accepted by
+   * the pipeline. Used to populate the Composer's currency picker.
+   * Returns the canonical list (no symbols or translated names — just
+   * 3-letter codes); same response shape for both UI languages.
+   */
+  getReferenceCurrencies: () =>
+    request<ReferenceCurrenciesResponse>('/reference-data/currencies'),
 
   /** POST /classifications — primary classification endpoint. */
   classify: (b: ClassifyRequest) =>

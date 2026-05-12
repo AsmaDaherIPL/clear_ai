@@ -152,20 +152,27 @@ export default function SubmissionDescriptionCard({
         )}
       </div>
 
-      {/* EN row */}
-      <div className="flex items-center gap-2 px-4 py-3 rounded-md text-[14px] text-[var(--ink)] leading-[1.5]"
-           style={{ background: 'oklch(0.97 0.005 80)' }}>
-        <div className="flex-1 min-w-0">
-          {status === 'loading' && <Skeleton className="h-5 w-2/3" />}
-          {status === 'success' && data?.description_en}
-          {status === 'error' && (
-            <span className="text-[var(--ink-3)] font-mono">—</span>
+      {/*
+        EN row — only renders when the backend actually returned an
+        English description. ZATCA submissions are Arabic-only legally,
+        and the LLM increasingly returns description_en as empty/null
+        for catalog rows that don't need an English calque. Showing an
+        empty placeholder row was confusing operators ("did it fail?").
+        Loading state still renders so the layout doesn't jump.
+      */}
+      {(status === 'loading' ||
+        (status === 'success' && !!data?.description_en)) && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-md text-[14px] text-[var(--ink)] leading-[1.5]"
+             style={{ background: 'oklch(0.97 0.005 80)' }}>
+          <div className="flex-1 min-w-0">
+            {status === 'loading' && <Skeleton className="h-5 w-2/3" />}
+            {status === 'success' && data?.description_en}
+          </div>
+          {status === 'success' && data?.description_en && (
+            <CopyIcon text={data.description_en} title="Copy English" />
           )}
         </div>
-        {status === 'success' && data?.description_en && (
-          <CopyIcon text={data.description_en} title="Copy English" />
-        )}
-      </div>
+      )}
 
       {/* AR row — RTL with copy icon on inline-end */}
       <div className="flex items-center gap-2 px-4 py-3 rounded-md text-[14px] text-[var(--ink)] leading-[1.5]"
