@@ -22,6 +22,7 @@ import { runPipeline } from './pipeline.orchestrator.js';
 import { assembleDispatchV1 } from './trace/dispatch-v1.js';
 import { recordClassificationEvent } from './events/recorder.js';
 import { enqueueHitl } from './review/review.js';
+import { enrichCode } from '../reference-data/code-enrichment.service.js';
 import { getPool } from '../../db/client.js';
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { OperatorNotFoundError } from '../operators/operator.errors.js';
@@ -170,6 +171,15 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       completedAt,
     });
 
+    const enrichment = await enrichCode(response.final_code, req.log);
+    const enrichedResponse = {
+      ...response,
+      value_amount: body.value_amount,
+      currency_code: body.currency_code,
+      duty_info: enrichment.duty_info,
+      procedures: enrichment.procedures,
+    };
+
     // Persist audit row first; if it succeeds and the orchestrator
     // surfaced a HITL intent, follow with the queue write so the FK
     // from hitl_queue.classification_event_id is satisfied. Both writes
@@ -207,7 +217,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       }
     })();
 
-    return reply.code(200).send(response);
+    return reply.code(200).send(enrichedResponse);
   });
 
   // GET /pipeline/trace/:id
@@ -227,8 +237,8 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     const id = idParse.data;
 
     const pool = getPool();
-    const r = await pool.query<ClassificationEventTraceRow>(
-      `SELECT id, operator_slug, status, final_code, trace, created_at
+    const r = await pool.query<ClassificationEventTraceRow & { request: unknown }>(
+      `SELECT id, operator_slug, status, final_code, trace, request, created_at
          FROM classification_events
         WHERE id = $1
         LIMIT 1`,
@@ -240,12 +250,18 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       });
     }
     const row = r.rows[0];
+    const enrichment = await enrichCode(row.final_code, req.log);
+    const request = (row.request as { value_amount?: number; currency_code?: string } | null) ?? {};
     return reply.code(200).send({
       item_id: row.id,
       operator_slug: row.operator_slug,
       status: row.status,
       final_code: row.final_code,
       created_at: row.created_at.toISOString(),
+      value_amount: request.value_amount ?? null,
+      currency_code: request.currency_code ?? null,
+      duty_info: enrichment.duty_info,
+      procedures: enrichment.procedures,
       trace: row.trace,
     });
   });

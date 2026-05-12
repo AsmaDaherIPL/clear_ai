@@ -13,6 +13,7 @@ import {
   getDeclarationRun,
 } from './declaration-run.repository.js';
 import { getPool } from '../../db/client.js';
+import { enrichCodes } from '../reference-data/code-enrichment.service.js';
 import {
   DeclarationRunValidationError,
   DeclarationRunTooLargeError,
@@ -210,6 +211,8 @@ export async function handleListClassifications(
     override_applied: boolean | null;
     raw_description: string | null;
     effective_description: string | null;
+    value_amount: string | null;
+    currency_code: string | null;
   }>(
     `SELECT i.id,
             i.row_index,
@@ -220,6 +223,8 @@ export async function handleListClassifications(
             i.error,
             d.path_en              AS catalog_path_en,
             i.goods_description_ar AS submission_description_ar,
+            (i.canonical ->> 'valueAmount')::numeric  AS value_amount,
+            (i.canonical ->> 'currencyCode')          AS currency_code,
             -- V1 surface: AGREEMENT | DRIFT | ZERO_SIGNAL. Falls back to
             -- the legacy conflict_type mapping for older rows persisted
             -- before classification_status existed in the trace.
@@ -265,6 +270,11 @@ export async function handleListClassifications(
   const itemsFetchedSoFar = offset + r.rows.length;
   const hasMore = itemsFetchedSoFar < total;
 
+  const enrichmentByCode = await enrichCodes(
+    r.rows.map((i) => i.final_code),
+    req.log,
+  );
+
   return reply.send({
     // Envelope key renamed declaration_run_id → batch_id in the
     // 2026-05-12 API cutover. The DB column is still
@@ -281,23 +291,30 @@ export async function handleListClassifications(
     offset,
     has_more: hasMore,
     next_offset: hasMore ? itemsFetchedSoFar : null,
-    items: r.rows.map((i) => ({
-      id: i.id,
-      row_index: i.row_index,
-      status: i.status,
-      final_code: i.final_code,
-      catalog_path_en: i.catalog_path_en,
-      submission_description_ar: i.submission_description_ar,
-      classification_status: i.classification_status,
-      raw_merchant_code: i.raw_merchant_code,
-      codebook_state: i.codebook_state,
-      override_applied: i.override_applied ?? false,
-      raw_description: i.raw_description,
-      effective_description: i.effective_description,
-      classification_result: i.classification_result,
-      trace: i.trace,
-      error: i.error,
-    })),
+    items: r.rows.map((i) => {
+      const enrichment = i.final_code ? enrichmentByCode.get(i.final_code) : null;
+      return {
+        id: i.id,
+        row_index: i.row_index,
+        status: i.status,
+        final_code: i.final_code,
+        catalog_path_en: i.catalog_path_en,
+        submission_description_ar: i.submission_description_ar,
+        classification_status: i.classification_status,
+        raw_merchant_code: i.raw_merchant_code,
+        codebook_state: i.codebook_state,
+        override_applied: i.override_applied ?? false,
+        raw_description: i.raw_description,
+        effective_description: i.effective_description,
+        value_amount: i.value_amount !== null ? Number(i.value_amount) : null,
+        currency_code: i.currency_code,
+        duty_info: enrichment?.duty_info ?? null,
+        procedures: enrichment?.procedures ?? [],
+        classification_result: i.classification_result,
+        trace: i.trace,
+        error: i.error,
+      };
+    }),
   });
 }
 

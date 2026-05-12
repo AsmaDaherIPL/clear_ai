@@ -287,6 +287,23 @@ components:
           type: string
           nullable: true
           description: LLM-generated Arabic goods description that ships in the XML envelope.
+        value_amount:
+          type: number
+          nullable: true
+          description: Declared value of the line item, in `currency_code`.
+        currency_code:
+          type: string
+          nullable: true
+          pattern: '^[A-Z]{3}$'
+          description: ISO 4217 3-letter currency code for value_amount.
+        duty_info:
+          $ref: '#/components/schemas/DutyInfo'
+          nullable: true
+        procedures:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcedureInfo'
+          description: Required-procedure codes attached to final_code. Empty when none.
         classification_result:
           type: object
           nullable: true
@@ -299,6 +316,36 @@ components:
         error:
           type: string
           nullable: true
+
+    DutyInfo:
+      type: object
+      required: [rate_percent, status]
+      description: |
+        Duty information for an HS code. Exactly one of `rate_percent` / `status`
+        carries data; the other is null. Returned as null at the parent level
+        when the code has no duty data.
+      properties:
+        rate_percent:
+          type: number
+          nullable: true
+          description: Numeric % when the row carries a rate; null when the row is a non-rate status.
+        status:
+          type: string
+          nullable: true
+          enum: [exempted, prohibited_import, prohibited_export, prohibited_both]
+          description: Non-rate duty status; null when the row carries a rate.
+
+    ProcedureInfo:
+      type: object
+      required: [code, description_ar, is_repealed]
+      properties:
+        code:
+          type: string
+        description_ar:
+          type: string
+        is_repealed:
+          type: boolean
+          description: True when the procedure description ends with `(ملغي)`.
 
     BatchItemsPage:
       type: object
@@ -430,6 +477,21 @@ components:
         sanity_verdict:
           type: string
           enum: [PASS, FLAG, BLOCK]
+        value_amount:
+          type: number
+          nullable: true
+          description: Echoes the request's value_amount.
+        currency_code:
+          type: string
+          nullable: true
+          pattern: '^[A-Z]{3}$'
+        duty_info:
+          $ref: '#/components/schemas/DutyInfo'
+          nullable: true
+        procedures:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcedureInfo'
         trace:
           type: object
           additionalProperties: true
@@ -454,6 +516,21 @@ components:
         created_at:
           type: string
           format: date-time
+        value_amount:
+          type: number
+          nullable: true
+          description: Echoes the original request's value_amount.
+        currency_code:
+          type: string
+          nullable: true
+          pattern: '^[A-Z]{3}$'
+        duty_info:
+          $ref: '#/components/schemas/DutyInfo'
+          nullable: true
+        procedures:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcedureInfo'
         trace:
           type: object
           nullable: true
