@@ -1320,6 +1320,36 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /reference-data/currencies:
+    get:
+      operationId: list-currencies
+      tags: [reference-data]
+      summary: List available Tabadul currency codes for SPA dropdowns.
+      description: |
+        Returns the sorted list of ISO 4217 currency codes accepted by the
+        ZATCA pipeline (i.e. rows from `tabadul_codes` with
+        `code_type='currency_code'`). The list is universal (operator-agnostic)
+        and reflects the live catalog, so a reseed against Tabadul's published
+        sheet propagates to dropdowns on the next fetch.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: Currency list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [currencies]
+                properties:
+                  currencies:
+                    type: array
+                    items:
+                      type: string
+                      pattern: '^[A-Z]{3}$'
+                    example: ['AED', 'EUR', 'GBP', 'SAR', 'USD']
+
 # Default security applied at the operation level above; this default keeps
 # probes wide-open via `security: []` overrides.
 security:

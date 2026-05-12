@@ -8,6 +8,7 @@ import { declarationRunsRoutes } from '../modules/declaration-runs/declaration-r
 import { submissionDescriptionRoute } from '../modules/pipeline/submission-description/submission-description.routes.js';
 import { pipelineRoutes } from '../modules/pipeline/pipeline.routes.js';
 import { hitlRoutes } from '../modules/hitl/hitl.routes.js';
+import { registerReferenceDataRoutes } from '../modules/reference-data/reference-data.routes.js';
 import { getPool, closeDb } from '../db/client.js';
 import { registerErrorHandler } from './error-handler.js';
 import { warmEmbedder } from '../inference/embeddings/embedder.js';
@@ -106,6 +107,7 @@ await app.register(declarationRunsRoutes);
 await app.register(submissionDescriptionRoute);
 await app.register(pipelineRoutes);
 await app.register(hitlRoutes);
+await app.register(registerReferenceDataRoutes);
 
 const start = async (): Promise<void> => {
   try {

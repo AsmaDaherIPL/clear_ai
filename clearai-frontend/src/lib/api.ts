@@ -626,6 +626,10 @@ export const api = {
   trace: (id: string) =>
     request<TraceResponse>(`/classifications/${encodeURIComponent(id)}`),
 
+  /** GET /reference-data/currencies — ISO 4217 codes accepted by the pipeline. */
+  listCurrencies: () =>
+    request<{ currencies: string[] }>('/reference-data/currencies'),
+
   /** POST /classifications/{id}/feedback — UPSERT one feedback row per (event_id, user_id). */
   feedback: (id: string, body: PostFeedbackBody) =>
     request<{ ok: boolean; feedback_id: string | null }>(
