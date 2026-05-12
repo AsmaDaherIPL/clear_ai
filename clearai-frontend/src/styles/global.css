@@ -167,3 +167,33 @@ input, textarea {
   0%   { background-position: 100% 0; }
   100% { background-position: -100% 0; }
 }
+
+/*
+ * fadeUp — used by result cards (ResultBatch, ResultSingle, ResultExpand)
+ * on mount to soft-introduce the panel rather than popping in. Was being
+ * referenced via `animate-[fadeUp_0.35s_ease_both]` but the keyframe was
+ * never declared — so the animation was silently a no-op until now.
+ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/*
+ * blink — pulsing dot on the "Processing" status pill in the batch panel
+ * header. Catches the eye and signals the run is live without being noisy.
+ */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/*
+ * slide — indeterminate progress bar at the bottom of the batch panel
+ * header during active polling. A narrow accent gradient slides across a
+ * neutral track. Stops the moment the run reaches terminal.
+ */
+@keyframes slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(380%); }
+}

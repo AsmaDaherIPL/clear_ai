@@ -12,6 +12,111 @@ function humanError(raw: string | null | undefined): string {
   return raw;
 }
 
+/**
+ * Render the title's phase suffix in plain English.
+ * "Processing" → "Processing — phase 1: classifying lines"
+ * "Run failed" → "Run failed — stopped at declaration phase"
+ * Falls back to a blank suffix when the phase is just "completed" / "idle".
+ */
+type PhaseDescriptor = { title: string; suffix: string };
+function describePhase(state: {
+  phase: 'idle' | 'uploading' | 'polling' | 'done' | 'error';
+  summary: { status: string; classification_status: string; succeeded: number } | null;
+}): PhaseDescriptor {
+  switch (state.phase) {
+    case 'uploading':
+      return { title: 'Uploading', suffix: '— preparing your invoice' };
+    case 'polling': {
+      const cls = state.summary?.classification_status;
+      if (cls === 'running' || cls === 'pending') {
+        return { title: 'Processing', suffix: '— phase 1: classifying lines' };
+      }
+      if (cls === 'completed') {
+        return { title: 'Processing', suffix: '— phase 2: assembling declaration' };
+      }
+      return { title: 'Processing', suffix: '' };
+    }
+    case 'done': {
+      if (state.summary?.status === 'completed') {
+        return { title: 'Run complete', suffix: '' };
+      }
+      if (state.summary?.status === 'failed' && (state.summary?.succeeded ?? 0) === 0) {
+        return { title: 'Run failed', suffix: '— stopped before any item completed' };
+      }
+      if (state.summary?.status === 'failed') {
+        return { title: 'Run failed', suffix: '— stopped at declaration phase' };
+      }
+      return { title: `Run ${state.summary?.status ?? 'finished'}`, suffix: '' };
+    }
+    case 'error':
+      return { title: 'Error', suffix: '' };
+    default:
+      return { title: 'Idle', suffix: '' };
+  }
+}
+
+/**
+ * Status pill — animated dot + uppercase label. Three states:
+ *   processing : orange dot, blink animation (run is live)
+ *   failed     : red dot, static
+ *   done       : green dot, static
+ */
+function StatusPill({ kind }: { kind: 'processing' | 'failed' | 'done' }) {
+  const styles = {
+    processing: 'bg-[oklch(0.96_0.025_55)] text-[var(--accent-ink)]',
+    failed:     'bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]',
+    done:       'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
+  } as const;
+  const dot = {
+    processing: 'bg-[var(--accent)] animate-[blink_1.4s_ease-in-out_infinite]',
+    failed:     'bg-[oklch(0.55_0.18_25)]',
+    done:       'bg-[oklch(0.45_0.15_140)]',
+  } as const;
+  const label = { processing: 'Processing', failed: 'Failed', done: 'Done' } as const;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5',
+        'font-mono text-[10.5px] tracking-[0.12em] uppercase',
+        'px-2.5 py-[5px] rounded-full',
+        styles[kind],
+      )}
+    >
+      <span className={cn('w-1.5 h-1.5 rounded-full', dot[kind])} aria-hidden />
+      {label[kind]}
+    </span>
+  );
+}
+
+/**
+ * Colored stat used in the panel header counts row.
+ * Renders as `<value> <label>` with a tabular-nums monospace value.
+ */
+function Stat({
+  value,
+  label,
+  tone,
+}: {
+  value: number;
+  label: string;
+  tone?: 'ok' | 'warn' | 'bad' | 'pend';
+}) {
+  const toneCls = {
+    ok:   'text-[oklch(0.45_0.15_140)]',
+    warn: 'text-[oklch(0.50_0.16_60)]',
+    bad:  'text-[oklch(0.50_0.18_25)]',
+    pend: 'text-[var(--accent-ink)]',
+  } as const;
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <span className={cn('font-mono tabular-nums font-medium', tone ? toneCls[tone] : 'text-[var(--ink-2)]')}>
+        {value}
+      </span>
+      <span className="text-[var(--ink-3)]">{label}</span>
+    </span>
+  );
+}
+
 interface ResultBatchProps {
   visible: boolean;
   state: BatchState;
@@ -148,65 +253,120 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
     }
   };
 
-  const phaseLabel = (() => {
-    switch (state.phase) {
-      case 'uploading': return 'Uploading…';
-      case 'polling': return summary
-        ? `Processing — ${summary.status} (Phase 1: ${summary.classification_status})`
-        : 'Processing…';
-      case 'done': return summary?.status === 'completed' ? 'Completed' : `Run ${summary?.status ?? 'finished'}`;
-      case 'error': return 'Error';
-      default: return 'Idle';
-    }
-  })();
+  const phase = describePhase({ phase: state.phase, summary });
+  const pillKind: 'processing' | 'failed' | 'done' | null =
+    isPolling
+      ? 'processing'
+      : state.phase === 'done' && summary?.status === 'failed'
+        ? 'failed'
+        : state.phase === 'done' && summary?.status === 'completed'
+          ? 'done'
+          : null;
 
   return (
     <>
     <div
       className={cn(
         'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
+        'shadow-[0_1px_2px_rgba(20,15,5,0.04),0_8px_24px_-16px_rgba(20,15,5,0.12)]',
         'animate-[fadeUp_0.35s_ease_both]',
         className,
       )}
     >
-      <div className="px-[22px] py-[18px] flex items-start justify-between gap-4 border-b border-[var(--line-2)]">
-        <div>
-          <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.06em] uppercase mb-1.5">
-            {t('res_batch')}
+      {/*
+        Panel header — the "what's happening" hero of the batch view.
+        Layout: eyebrow breadcrumb · big title with muted phase suffix ·
+        copyable run id · stats row · status pill + spinner on the right.
+        While polling, an indeterminate progress strip slides across the
+        bottom edge of the header so the user always sees motion.
+      */}
+      <div className="relative px-[22px] py-[20px] border-b border-[var(--line-2)]">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            {/* Eyebrow crumb */}
+            <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.12em] uppercase flex items-center gap-2">
+              <span>Batch</span>
+              <span className="text-[var(--line)]">·</span>
+              <span>Run</span>
+            </div>
+
+            {/* Big title + muted phase suffix */}
+            <h2 className="m-0 mt-2 text-[21px] leading-tight font-medium tracking-[-0.015em] text-[var(--ink)]">
+              {phase.title}
+              {phase.suffix && (
+                <span className="text-[var(--ink-3)] font-normal ms-1.5">{phase.suffix}</span>
+              )}
+            </h2>
+
+            {/* Run ID — copyable */}
+            {state.runId && (
+              <button
+                type="button"
+                className="mt-1.5 font-mono text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] transition-colors cursor-copy select-all text-start tracking-[0.005em]"
+                title="Click to copy run ID"
+                onClick={() => navigator.clipboard.writeText(state.runId!)}
+              >
+                {state.runId}
+              </button>
+            )}
+
+            {/* Stats row */}
+            {summary && (
+              <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12.5px]">
+                <Stat value={summary.row_count} label="rows" />
+                <span className="text-[var(--line)]">·</span>
+                <Stat value={summary.succeeded} label="succeeded" tone="ok" />
+                <span className="text-[var(--line)]">·</span>
+                <Stat value={summary.flagged} label="flagged" tone="warn" />
+                <span className="text-[var(--line)]">·</span>
+                <Stat value={summary.blocked + summary.failed} label="failed" tone="bad" />
+                {summary.pending > 0 && (
+                  <>
+                    <span className="text-[var(--line)]">·</span>
+                    <Stat value={summary.pending} label="pending" tone="pend" />
+                  </>
+                )}
+              </div>
+            )}
+
+            {state.errorMessage && (
+              <p className="text-[13px] text-[var(--accent-ink)] mt-2 m-0" role="alert">
+                {state.errorMessage}
+              </p>
+            )}
           </div>
-          <p className="text-[14px] text-[var(--ink)] m-0">
-            {phaseLabel}
-          </p>
-          {state.runId && (
-            <button
-              type="button"
-              className="mt-1 font-mono text-[11px] text-[var(--ink-3)] hover:text-[var(--ink-2)] transition-colors cursor-copy select-all text-start"
-              title="Click to copy run ID"
-              onClick={() => navigator.clipboard.writeText(state.runId!)}
-            >
-              {state.runId}
-            </button>
-          )}
-          {summary && (
-            <p className="text-[12.5px] text-[var(--ink-3)] mt-1 m-0">
-              {summary.row_count} rows ·{' '}
-              <span className="text-[oklch(0.40_0.10_140)]">{summary.succeeded} succeeded</span> ·{' '}
-              <span className="text-[oklch(0.45_0.15_60)]">{summary.flagged} flagged</span> ·{' '}
-              <span className="text-[oklch(0.45_0.12_25)]">{summary.blocked + summary.failed} failed</span>
-              {summary.pending > 0 && <> · {summary.pending} pending</>}
-            </p>
-          )}
-          {state.errorMessage && (
-            <p className="text-[13px] text-[var(--accent-ink)] mt-2 m-0" role="alert">
-              {state.errorMessage}
-            </p>
-          )}
+
+          {/* Right rail — status pill + spinner */}
+          <div className="flex items-center gap-2 shrink-0">
+            {pillKind && <StatusPill kind={pillKind} />}
+            {isPolling && (
+              <div
+                className="w-[22px] h-[22px] rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
+                aria-hidden
+              />
+            )}
+          </div>
         </div>
+
+        {/*
+          Indeterminate progress strip — only while polling. A narrow
+          accent gradient slides across a neutral track at the bottom edge
+          of the header, giving the panel a continuous "this is live" cue
+          even when the row counts haven't ticked.
+        */}
         {isPolling && (
           <div
-            className="w-4 h-4 mt-1 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
+            className="absolute inset-x-0 bottom-0 h-[2px] bg-[var(--line-2)] overflow-hidden"
             aria-hidden
-          />
+          >
+            <div
+              className="h-full w-1/3 animate-[slide_1.4s_linear_infinite]"
+              style={{
+                background:
+                  'linear-gradient(90deg, transparent, var(--accent), transparent)',
+              }}
+            />
+          </div>
         )}
       </div>
 
