@@ -126,14 +126,11 @@ export async function handleCreateDeclarationRun(
     req.log.error({ err, declaration_run_id: declarationRun.id }, 'background processing failed');
   });
 
+  // Slim 202 response: just the batch id + mode. Clients construct
+  // paths from the canonical URL pattern (`/batches/<id>/...`).
   return reply.code(202).send({
-    declaration_run_id: declarationRun.id,
+    batch_id: declarationRun.id,
     mode: declarationRun.mode,
-    poll_url: `/declaration-runs/${declarationRun.id}`,
-    classifications_url: `/declaration-runs/${declarationRun.id}/classifications`,
-    ...(declarationRun.mode === 'classify_and_declare'
-      ? { declarations_url: `/declaration-runs/${declarationRun.id}/declarations` }
-      : {}),
   });
 }
 
@@ -269,9 +266,15 @@ export async function handleListClassifications(
     [declarationRun.id],
   );
   const total = Number(totalRes.rows[0]?.count ?? 0);
+  const itemsFetchedSoFar = offset + r.rows.length;
+  const hasMore = itemsFetchedSoFar < total;
 
   return reply.send({
-    declaration_run_id: declarationRun.id,
+    // Envelope key renamed declaration_run_id → batch_id in the
+    // 2026-05-12 API cutover. The DB column is still
+    // declaration_run_items.declaration_run_id; only the wire-format
+    // name changed.
+    batch_id: declarationRun.id,
     // The SPA polls this endpoint while a run is in flight. classification_phase
     // is the authoritative stop signal: keep polling while it's 'pending' or
     // 'running', stop on 'completed' / 'failed'. Per-item `status` covers the
@@ -280,6 +283,8 @@ export async function handleListClassifications(
     total,
     limit,
     offset,
+    has_more: hasMore,
+    next_offset: hasMore ? itemsFetchedSoFar : null,
     items: r.rows.map((i) => ({
       id: i.id,
       row_index: i.row_index,

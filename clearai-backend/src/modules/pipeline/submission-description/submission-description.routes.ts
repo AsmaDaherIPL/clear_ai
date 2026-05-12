@@ -15,8 +15,8 @@ import { getPool } from '../../../db/client.js';
 import { generateSubmissionDescription } from './submission-description.js';
 
 const Body = z.object({
-  description: z.string().min(1).max(2000),
-  code: z.string().regex(/^\d{12}$/, 'HS code must be exactly 12 digits'),
+  description: z.string().min(1).max(500),
+  hs_code: z.string().regex(/^\d{12}$/, 'hs_code must be exactly 12 digits'),
 });
 
 interface CatalogRow {
@@ -27,14 +27,14 @@ interface CatalogRow {
 }
 
 export async function submissionDescriptionRoute(app: FastifyInstance): Promise<void> {
-  app.post('/pipeline/submission-description', async (req, reply) => {
+  app.post('/classifications/submission-description', async (req, reply) => {
     const parse = Body.safeParse(req.body);
     if (!parse.success) {
       return reply.code(400).send({
         error: { code: 'invalid_body', message: 'Body validation failed.', details: parse.error.flatten() },
       });
     }
-    const { description, code } = parse.data;
+    const { description, hs_code } = parse.data;
 
     const pool = getPool();
     const catRes = await pool.query<CatalogRow>(
@@ -42,11 +42,11 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
          FROM zatca_hs_codes c
          LEFT JOIN zatca_hs_code_display d ON d.code = c.code
         WHERE c.code = $1`,
-      [code],
+      [hs_code],
     );
     if (catRes.rowCount === 0) {
       return reply.code(404).send({
-        error: { code: 'unknown_code', message: `HS code ${code} not found.` },
+        error: { code: 'unknown_code', message: `HS code ${hs_code} not found.` },
       });
     }
     const cat = catRes.rows[0]!;
@@ -57,7 +57,7 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
     const result = await generateSubmissionDescription({
       cleanedDescription: description,
       rawDescription: description,
-      chosenCode: code,
+      chosenCode: hs_code,
       catalogLeafAr: cat.description_ar,
       catalogLeafEn: cat.description_en,
       catalogPathAr: cat.path_ar,

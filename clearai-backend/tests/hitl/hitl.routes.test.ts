@@ -89,14 +89,16 @@ beforeEach(async () => {
   await getPool().query(`DELETE FROM classification_events WHERE operator_slug = $1`, [TEST_OPERATOR_SLUG]);
 });
 
-describe('GET /hitl/queue', () => {
+describe('GET /classifications/review', () => {
   it('returns rows filtered by operator_slug', async () => {
     await seedEventAndQueueRow();
     await seedEventAndQueueRow();
 
+    // operator_slug filter removed in the 2026-05-12 API cutover
+    // (single-operator V1). Test now lists without any filter.
     const res = await app.inject({
       method: 'GET',
-      url: `/hitl/queue?operator_slug=${TEST_OPERATOR_SLUG}`,
+      url: `/classifications/review`,
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { items: unknown[]; total: number };
@@ -111,28 +113,26 @@ describe('GET /hitl/queue', () => {
 
     const pendingRes = await app.inject({
       method: 'GET',
-      url: `/hitl/queue?operator_slug=${TEST_OPERATOR_SLUG}&status=pending`,
+      url: `/classifications/review?status=pending`,
     });
     expect(pendingRes.statusCode).toBe(200);
     expect((pendingRes.json() as { items: unknown[] }).items.length).toBe(1);
 
     const resolvedRes = await app.inject({
       method: 'GET',
-      url: `/hitl/queue?operator_slug=${TEST_OPERATOR_SLUG}&status=resolved`,
+      url: `/classifications/review?status=resolved`,
     });
     expect((resolvedRes.json() as { items: unknown[] }).items.length).toBe(1);
   });
 
-  it('rejects malformed operator_slug', async () => {
-    const res = await app.inject({ method: 'GET', url: '/hitl/queue?operator_slug=BADCAPS' });
-    expect(res.statusCode).toBe(400);
-  });
+  // 'rejects malformed operator_slug' test removed — operator_slug is
+  // no longer a query parameter on this endpoint.
 });
 
-describe('GET /hitl/queue/:id', () => {
+describe('GET /classifications/review/:id', () => {
   it('returns the row including the forensic payload', async () => {
     const { queueId } = await seedEventAndQueueRow();
-    const res = await app.inject({ method: 'GET', url: `/hitl/queue/${queueId}` });
+    const res = await app.inject({ method: 'GET', url: `/classifications/review/${queueId}` });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { id: string; payload: { cleaned_description: string } };
     expect(body.id).toBe(queueId);
@@ -142,34 +142,34 @@ describe('GET /hitl/queue/:id', () => {
   it('404s on unknown id', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: '/hitl/queue/00000000-0000-0000-0000-000000000000',
+      url: '/classifications/review/00000000-0000-0000-0000-000000000000',
     });
     expect(res.statusCode).toBe(404);
   });
 });
 
-describe('POST /hitl/queue/:id/claim', () => {
+describe('POST /classifications/review/:id/claim', () => {
   it('flips pending → in_review', async () => {
     const { queueId } = await seedEventAndQueueRow();
-    const res = await app.inject({ method: 'POST', url: `/hitl/queue/${queueId}/claim` });
+    const res = await app.inject({ method: 'POST', url: `/classifications/review/${queueId}/claim` });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { status: string }).status).toBe('in_review');
   });
 
   it('409s when row is already in_review', async () => {
     const { queueId } = await seedEventAndQueueRow();
-    await app.inject({ method: 'POST', url: `/hitl/queue/${queueId}/claim` });
-    const res = await app.inject({ method: 'POST', url: `/hitl/queue/${queueId}/claim` });
+    await app.inject({ method: 'POST', url: `/classifications/review/${queueId}/claim` });
+    const res = await app.inject({ method: 'POST', url: `/classifications/review/${queueId}/claim` });
     expect(res.statusCode).toBe(409);
   });
 });
 
-describe('POST /hitl/queue/:id/review', () => {
+describe('PATCH /classifications/review/:id (decide)', () => {
   it('approve → resolved (no reviewer_code required)', async () => {
     const { queueId } = await seedEventAndQueueRow();
     const res = await app.inject({
-      method: 'POST',
-      url: `/hitl/queue/${queueId}/review`,
+      method: 'PATCH',
+      url: `/classifications/review/${queueId}`,
       payload: { decision: 'approve' },
     });
     expect(res.statusCode).toBe(200);
@@ -181,15 +181,15 @@ describe('POST /hitl/queue/:id/review', () => {
   it('override requires reviewer_code', async () => {
     const { queueId } = await seedEventAndQueueRow();
     const noCode = await app.inject({
-      method: 'POST',
-      url: `/hitl/queue/${queueId}/review`,
+      method: 'PATCH',
+      url: `/classifications/review/${queueId}`,
       payload: { decision: 'override' },
     });
     expect(noCode.statusCode).toBe(400);
 
     const withCode = await app.inject({
-      method: 'POST',
-      url: `/hitl/queue/${queueId}/review`,
+      method: 'PATCH',
+      url: `/classifications/review/${queueId}`,
       payload: { decision: 'override', reviewer_code: '610910000000', reviewer_notes: 'cotton t-shirt' },
     });
     expect(withCode.statusCode).toBe(200);
@@ -202,8 +202,8 @@ describe('POST /hitl/queue/:id/review', () => {
   it('reject → dismissed', async () => {
     const { queueId } = await seedEventAndQueueRow();
     const res = await app.inject({
-      method: 'POST',
-      url: `/hitl/queue/${queueId}/review`,
+      method: 'PATCH',
+      url: `/classifications/review/${queueId}`,
       payload: { decision: 'reject', reviewer_notes: 'bogus' },
     });
     expect(res.statusCode).toBe(200);
@@ -213,13 +213,13 @@ describe('POST /hitl/queue/:id/review', () => {
   it('409s when row is already resolved', async () => {
     const { queueId } = await seedEventAndQueueRow();
     await app.inject({
-      method: 'POST',
-      url: `/hitl/queue/${queueId}/review`,
+      method: 'PATCH',
+      url: `/classifications/review/${queueId}`,
       payload: { decision: 'approve' },
     });
     const res = await app.inject({
-      method: 'POST',
-      url: `/hitl/queue/${queueId}/review`,
+      method: 'PATCH',
+      url: `/classifications/review/${queueId}`,
       payload: { decision: 'approve' },
     });
     expect(res.statusCode).toBe(409);

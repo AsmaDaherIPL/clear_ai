@@ -1,14 +1,15 @@
 /**
- * Declaration-set endpoints. Routes are thin — delegation lives in
- * declaration-run.controller.ts.
+ * Batch endpoints (renamed from /declaration-runs in the 2026-05-12 API
+ * cutover). Routes are thin — delegation lives in declaration-run.controller.ts.
+ * Internal code/DB still use the `declaration_runs` / `declaration_run_items`
+ * names; only the API surface uses `batch`. See API_AUDIT_SPEC_2026-05-12.md.
  *
- *   POST   /declaration-runs                       multipart upload, returns 202
- *   GET    /declaration-runs/:id                   DeclarationRunSummary
- *   GET    /declaration-runs/:id/classifications   per-item canonical + result + trace
- *   GET    /declaration-runs/:id/declarations      Phase 5 (404 here until landed)
- *   GET    /declaration-runs/:id/download-links    short-lived SAS URLs for the run's blobs
- *   GET    /declaration-runs/:id/files/*           stream a single blob through the backend
- *   PATCH  /declaration-runs/:id                   cancel
+ *   POST   /batches                       multipart upload, returns 202
+ *   GET    /batches/:id                   BatchSummary
+ *   GET    /batches/:id/items             per-item canonical + result + trace
+ *   POST   /batches/:id/cancel            cancel
+ *   GET    /batches/:id/files             list blob files (no SAS URLs)
+ *   GET    /batches/:id/files/*           stream a single blob through the backend
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -39,7 +40,7 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
   await attachDeclarationRunPlugins(app);
   const dispatch = opts?.dispatch ?? realDispatch;
 
-  app.post('/declaration-runs', async (req, reply) => {
+  app.post('/batches', async (req, reply) => {
     try {
       return await handleCreateDeclarationRun(req, reply, dispatch);
     } catch (err) {
@@ -49,7 +50,7 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
     }
   });
 
-  app.get<{ Params: { id: string } }>('/declaration-runs/:id', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/batches/:id', async (req, reply) => {
     try {
       return await handleGetDeclarationRun(req, reply);
     } catch (err) {
@@ -62,7 +63,7 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
   app.get<{
     Params: { id: string };
     Querystring: { limit?: string; offset?: string };
-  }>('/declaration-runs/:id/classifications', async (req, reply) => {
+  }>('/batches/:id/items', async (req, reply) => {
     try {
       return await handleListClassifications(req, reply);
     } catch (err) {
@@ -72,9 +73,17 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
     }
   });
 
-  app.patch<{ Params: { id: string }; Body: unknown }>('/declaration-runs/:id', async (req, reply) => {
+  // Cancel. Previously PATCH /declaration-runs/:id with body
+  // { status: 'cancelled' }. Now a proper action endpoint — no body
+  // needed. The controller handler still expects the same body shape;
+  // we synthesize it here so the implementation doesn't change.
+  app.post<{ Params: { id: string } }>('/batches/:id/cancel', async (req, reply) => {
     try {
-      return await handlePatchDeclarationRun(req, reply);
+      // Synthesize the legacy body shape so the controller's PATCH
+      // handler keeps working without a rename.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (req as any).body = { status: 'cancelled' };
+      return await handlePatchDeclarationRun(req as never, reply);
     } catch (err) {
       const mapped = mapDeclarationRunError(err);
       if (mapped) return reply.code(mapped.statusCode).send(mapped.body);
@@ -138,11 +147,11 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
       message: 'id must be a UUIDv7',
     });
 
-  // 5-minute SAS expiry. Long enough for the SPA to start parallel
-  // downloads and for slow networks; short enough to limit replay.
-  const SAS_TTL_MS = 5 * 60 * 1000;
-
-  app.get<{ Params: { id: string } }>('/declaration-runs/:id/download-links', async (req, reply) => {
+  // List the files under a batch's blob prefix. Replaces the old
+  // /download-links endpoint. SAS URLs are no longer minted — the SPA
+  // streams via /batches/:id/files/* below. Response keys are snake_case
+  // for consistency with the rest of the API.
+  app.get<{ Params: { id: string } }>('/batches/:id/files', async (req, reply) => {
     const idParse = UuidV7Schema.safeParse(req.params.id);
     if (!idParse.success) {
       return reply.code(400).send({ error: { code: 'invalid_id', message: 'id must be a UUIDv7.' } });
@@ -154,44 +163,37 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
       [idParse.data],
     );
     if (r.rowCount === 0) {
-      return reply.code(404).send({ error: { code: 'not_found', message: 'declaration_run not found' } });
+      return reply.code(404).send({ error: { code: 'not_found', message: 'batch not found' } });
     }
     const row = r.rows[0]!;
     if (!row.blob_prefix) {
       return reply
         .code(409)
-        .send({ error: { code: 'no_blob_prefix', message: 'Run has no blob output yet (legacy or unfinished).' } });
+        .send({ error: { code: 'no_blob_prefix', message: 'Batch has no blob output yet (legacy or unfinished).' } });
     }
 
     const blob = getBlobClient();
     const items = await blob.list(row.blob_prefix);
     if (items.length === 0) {
-      return reply.code(404).send({ error: { code: 'no_files', message: 'No files under run prefix.' } });
+      return reply.code(404).send({ error: { code: 'no_files', message: 'No files under batch prefix.' } });
     }
 
-    const files = await Promise.all(
-      items.map(async (item) => {
-        const sas = await blob.getReadSasUrl(item.key, SAS_TTL_MS);
-        return {
-          name: item.key.startsWith(`${row.blob_prefix}/`)
-            ? item.key.slice(row.blob_prefix!.length + 1)
-            : item.key,
-          url: sas.url,
-          sizeBytes: item.sizeBytes,
-          contentType: item.contentType,
-        };
-      }),
-    );
+    const files = items.map((item) => ({
+      name: item.key.startsWith(`${row.blob_prefix}/`)
+        ? item.key.slice(row.blob_prefix!.length + 1)
+        : item.key,
+      size_bytes: item.sizeBytes,
+      content_type: item.contentType,
+    }));
 
     return reply.code(200).send({
-      runId: row.id,
-      expiresAt: new Date(Date.now() + SAS_TTL_MS).toISOString(),
+      batch_id: row.id,
       files,
     });
   });
 
   app.get<{ Params: { id: string; '*': string } }>(
-    '/declaration-runs/:id/files/*',
+    '/batches/:id/files/*',
     async (req, reply) => {
       const idParse = UuidV7Schema.safeParse(req.params.id);
       if (!idParse.success) {
@@ -216,7 +218,7 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
         [idParse.data],
       );
       if (r.rowCount === 0 || !r.rows[0]?.blob_prefix) {
-        return reply.code(404).send({ error: { code: 'not_found', message: 'declaration_run not found' } });
+        return reply.code(404).send({ error: { code: 'not_found', message: 'batch not found' } });
       }
 
       const key = `${r.rows[0]!.blob_prefix}/${relPath}`;
@@ -237,7 +239,7 @@ export async function declarationRunsRoutes(app: FastifyInstance, opts?: Declara
         return reply.send(buf);
       } catch (err) {
         if (err instanceof BlobNotFoundError) {
-          return reply.code(404).send({ error: { code: 'not_found', message: 'file not found in run' } });
+          return reply.code(404).send({ error: { code: 'not_found', message: 'file not found in batch' } });
         }
         throw err;
       }

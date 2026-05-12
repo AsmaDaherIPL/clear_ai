@@ -18,7 +18,9 @@ describe('looksClean — deterministic short-circuit', () => {
     'Cards',
     'Women Pants',
     'Ceramic Water Cup',
-    'Phone Case',
+    // 'Phone Case' removed — head noun 'case' is now an ambiguous
+    // container noun that forces the LLM (see AMBIGUOUS_HEAD_NOUNS in
+    // description-cleanup.ts). Same with phone/diaper/laptop + case/bag.
     'Earrings',
     'Sweater',
     'Eyeshadow',

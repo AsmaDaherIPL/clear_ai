@@ -33,21 +33,31 @@ import type { PipelineResult } from './shared/pipeline.types.js';
 // POST /pipeline/dispatch
 // ---------------------------------------------------------------------------
 
+// Single-shot dispatch body. Tightened in the 2026-05-12 API cutover:
+//   - description: max 500 (was 2000) to match the batch CSV row limit
+//   - merchant_code: regex /^\d{6,12}$/ (was: any string)
+//   - value_amount + currency_code: now REQUIRED (were optional)
+//   - currency_code: regex /^[A-Z]{3}$/ ISO 4217 (was: just .length(3))
+//   - operator_slug: removed entirely (single-operator V1; server uses 'naqel')
 const DispatchBody = z.object({
-  description: z.string().min(1).max(2000),
-  merchant_code: z.string().optional(),
-  /** Optional override; defaults to 'naqel' (the only seeded operator today). */
-  operator_slug: z
+  description: z.string().min(1).max(500),
+  merchant_code: z
     .string()
-    .regex(/^[a-z][a-z0-9_]{2,31}$/)
-    .optional()
-    .default('naqel'),
-  /** Optional commercial context — passed through to Stage 3 sanity. */
-  value_amount: z.number().positive().optional(),
-  currency_code: z.string().length(3).optional(),
+    .regex(/^\d{6,12}$/, 'merchant_code must be 6-12 digits')
+    .optional(),
+  value_amount: z.number().positive(),
+  currency_code: z.string().regex(/^[A-Z]{3}$/, 'currency_code must be a 3-letter ISO 4217 code'),
 });
 
 type DispatchBody = z.infer<typeof DispatchBody>;
+
+/**
+ * Hardcoded single-operator slug for V1. The dispatch body no longer
+ * accepts operator_slug as a parameter — the deployment is single-tenant
+ * and every classification runs as 'naqel'. When V2 multi-operator
+ * lands, this becomes a request field again.
+ */
+const V1_OPERATOR_SLUG = 'naqel';
 
 /**
  * Build a CanonicalLineItem from the slim dispatch body. Fields not provided
@@ -60,13 +70,13 @@ function buildItem(body: DispatchBody, operatorId: string): CanonicalLineItem {
     itemId: randomUUID(),
     rowIndex: 0,
     operatorId,
-    operatorSlug: body.operator_slug,
+    operatorSlug: V1_OPERATOR_SLUG,
     description: body.description,
     waybillNo: '',
     merchantHsCode: body.merchant_code ?? null,
     merchantSku: null,
-    valueAmount: body.value_amount ?? 0,
-    currencyCode: body.currency_code ?? 'SAR',
+    valueAmount: body.value_amount,
+    currencyCode: body.currency_code,
     quantity: 1,
     uom: 'PCE',
     netWeightKg: 0,
@@ -85,7 +95,13 @@ function buildItem(body: DispatchBody, operatorId: string): CanonicalLineItem {
 // GET /pipeline/trace/:id
 // ---------------------------------------------------------------------------
 
-const TraceIdSchema = z.string().uuid();
+// UUIDv7 strict. Tighter than z.string().uuid() (which accepts v1/v4 too).
+// All our ids are minted v7 via newId(), so anything else is malformed.
+const TraceIdSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, {
+    message: 'id must be a UUIDv7',
+  });
 
 interface ClassificationEventTraceRow {
   id: string;
@@ -102,7 +118,7 @@ interface ClassificationEventTraceRow {
 
 export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
   // POST /pipeline/dispatch
-  app.post('/pipeline/dispatch', async (req, reply) => {
+  app.post('/classifications/dispatch', async (req, reply) => {
     const parsed = DispatchBody.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -130,7 +146,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
 
     let operatorConfig;
     try {
-      operatorConfig = await resolveOperator(body.operator_slug);
+      operatorConfig = await resolveOperator(V1_OPERATOR_SLUG);
     } catch (err) {
       if (err instanceof OperatorNotFoundError) {
         return reply.code(404).send({
@@ -143,12 +159,12 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     const item = buildItem(body, operatorConfig.id);
     const startedAtMs = Date.now();
     const startedAt = new Date(startedAtMs).toISOString();
-    const result: PipelineResult = await runPipeline(item, body.operator_slug, item.itemId);
+    const result: PipelineResult = await runPipeline(item, V1_OPERATOR_SLUG, item.itemId);
     const completedAt = new Date().toISOString();
 
     const response = assembleDispatchV1({
       itemId: item.itemId,
-      operatorSlug: body.operator_slug,
+      operatorSlug: V1_OPERATOR_SLUG,
       result,
       startedAt,
       completedAt,
@@ -163,7 +179,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       const eventOk = await recordClassificationEvent(
         {
           operatorId: operatorConfig.id,
-          operatorSlug: body.operator_slug,
+          operatorSlug: V1_OPERATOR_SLUG,
           request: body,
           response,
           totalLatencyMs: Date.now() - startedAtMs,
@@ -178,7 +194,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
             item_id: response.item_id,
             // Single-shot dispatch has no parent batch.
             batch_id: null,
-            operator_slug: body.operator_slug,
+            operator_slug: V1_OPERATOR_SLUG,
             reason: result.hitl.reason,
             cleaned_description: result.hitl.cleaned_description,
             verdict_output: result.trace.verdict,
@@ -201,7 +217,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
   // processing) writes here via recordClassificationEvent. The id used
   // is canonical: it's the same UUID that flows through
   // declaration_run_items.id and the dispatch response's item_id.
-  app.get<{ Params: { id: string } }>('/pipeline/trace/:id', async (req, reply) => {
+  app.get<{ Params: { id: string } }>('/classifications/trace/:id', async (req, reply) => {
     const idParse = TraceIdSchema.safeParse(req.params.id);
     if (!idParse.success) {
       return reply.code(400).send({
