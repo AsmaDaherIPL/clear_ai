@@ -99,8 +99,20 @@ function buildBreakdown(finalCode: string | null, pathEn: string | null): BuildB
   ];
 }
 
-const BREAKDOWN_DESC_MAX = 50;
+const BREAKDOWN_DESC_MAX = 38;
 
+/**
+ * Code breakdown cell — four-row hierarchy showing how the 12-digit code
+ * decomposes into Chapter / Heading / Subheading / Tariff with the
+ * matching catalog description on each row.
+ *
+ * Layout (matches the Landing Page batch reference):
+ *   [code (mono, tabular)]  [LEVEL (small caps)]  [description (truncated)]
+ *
+ * The Tariff row (last) is the "answer" row, so its code AND its level
+ * label are rendered in the accent-orange ink to draw the eye there
+ * first; the upper three rows are subdued so they read as context.
+ */
 function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
   const breakdown = useMemo(
     () => buildBreakdown(item.final_code, item.catalog_path_en),
@@ -112,23 +124,48 @@ function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
   }
 
   return (
-    <div className="flex flex-col gap-0.5 text-[12.5px] leading-[1.3]">
-      {breakdown.map((b, i) => (
-        <div key={i} className="flex items-baseline gap-2">
-          <div className="font-mono text-[var(--ink)] tabular-nums whitespace-nowrap min-w-[88px]">
-            <span>{b.code}</span>
-            <span className="text-[var(--ink-3)] text-[10px] font-normal ms-1.5 uppercase tracking-[0.04em]">
+    <div
+      className={cn(
+        'grid gap-y-1 text-[13px] leading-[1.5]',
+        // 3-col inner grid: code · level · text
+        // minmax keeps the code column from collapsing when text wraps,
+        // and the level column stays a stable width across all four rows
+        // so the eye can scan it as a single vertical strip.
+      )}
+      style={{ gridTemplateColumns: 'auto 72px minmax(0, 1fr)' }}
+    >
+      {breakdown.map((b, i) => {
+        const isTariff = i === breakdown.length - 1;
+        return (
+          <div key={i} className="contents">
+            <div
+              className={cn(
+                'font-mono text-[11.5px] tabular-nums whitespace-nowrap pe-3',
+                isTariff ? 'text-[var(--accent-ink)] font-medium' : 'text-[var(--ink)]',
+              )}
+            >
+              {b.code}
+            </div>
+            <div
+              className={cn(
+                'font-mono text-[9.5px] uppercase tracking-[0.10em] self-center',
+                isTariff ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-3)]',
+              )}
+            >
               {b.label}
-            </span>
+            </div>
+            <div
+              className={cn(
+                'min-w-0 truncate',
+                isTariff ? 'text-[var(--ink)]' : 'text-[var(--ink-2)]',
+              )}
+              title={b.description}
+            >
+              {clampChars(b.description, BREAKDOWN_DESC_MAX)}
+            </div>
           </div>
-          <div
-            className="flex-1 min-w-0 text-[var(--ink-2)] truncate"
-            title={b.description}
-          >
-            {clampChars(b.description, BREAKDOWN_DESC_MAX)}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -210,9 +247,11 @@ export default function BatchResultsTable({
       header: t('batch_col_merchant_code' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.raw_merchant_code ?? '',
-      size: 110,
-      minSize: 90,
-      maxSize: 200,
+      // Bumped to 140/120 so 12-digit codes (e.g. 851830900000) fit without
+      // overflow-clipping into the next column.
+      size: 140,
+      minSize: 120,
+      maxSize: 220,
       cell: ({ row }) => (
         <MerchantCodeCell
           item={row.original}
@@ -253,9 +292,11 @@ export default function BatchResultsTable({
       header: t('batch_col_classified_code_breakdown' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.final_code ?? '',
-      size: 280,
-      minSize: 220,
-      maxSize: 440,
+      // Widened: the new 3-column inner grid (code · level · text) needs
+      // room for the 72px level strip plus a usable text width on the right.
+      size: 340,
+      minSize: 280,
+      maxSize: 500,
       cell: ({ row }) => <CodeBreakdownCell item={row.original} />,
     },
     {

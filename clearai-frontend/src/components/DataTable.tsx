@@ -506,7 +506,7 @@ export function DataTable<T extends object>({
                       key={header.id}
                       style={{ width: header.getSize(), position: 'relative' }}
                       className={cn(
-                        'text-start px-3.5 py-3 border-b border-[var(--line)] font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase select-none align-middle',
+                        'text-start px-[18px] py-3.5 border-b border-[var(--line)] font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.10em] uppercase select-none align-middle',
                       )}
                       aria-sort={
                         sortDir === 'asc'
@@ -577,7 +577,10 @@ export function DataTable<T extends object>({
                         onClick={onRowClick ? () => onRowClick(original) : undefined}
                         className={cn(
                           'border-b border-[var(--line-2)] align-top',
-                          onRowClick && 'cursor-pointer hover:bg-[var(--line-2)]',
+                          // Subtle hover — cream/bg tone, not line-2 (too dark).
+                          // Matches the Landing Page batch reference's #FBFAF7 hover.
+                          'hover:bg-[oklch(0.985_0.006_70)] transition-colors duration-100',
+                          onRowClick && 'cursor-pointer',
                           extraCls,
                         )}
                       >
@@ -586,7 +589,7 @@ export function DataTable<T extends object>({
                           // from the matching <th>, so no inline width here.
                           <td
                             key={cell.id}
-                            className="px-3.5 py-2.5 align-top overflow-hidden"
+                            className="px-[18px] py-[18px] align-top overflow-hidden"
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </td>
