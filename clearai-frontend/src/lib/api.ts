@@ -133,8 +133,18 @@ export interface AlternativeLine {
   retrieval_score: number | null;
   source?: 'branch_8' | 'branch_6' | 'branch_4' | 'rrf';
   rank?: number;
-  fit?: 'fits' | 'partial' | 'excludes';
+  /**
+   * LLM fit verdict. 'does_not_fit' aliases the legacy 'excludes' value
+   * so payloads from either era render correctly.
+   */
+  fit?: 'fits' | 'partial' | 'excludes' | 'does_not_fit';
   reason?: string;
+  /**
+   * Track of origin for "Considered alternatives" grouping in the
+   * sidebar. 'track_a' = annotated_candidates (RRF/picker output),
+   * 'track_b' = subtree_candidates (merchant-prefix-anchored).
+   */
+  track?: 'track_a' | 'track_b';
 }
 
 export interface ModelInfo {
@@ -326,7 +336,65 @@ export interface DispatchTrace {
   stages: DispatchStage[];
 }
 
+/**
+ * One candidate from the picker / branch-rank annotated lists.
+ * Both track_a.annotated_candidates and track_b.subtree_candidates use
+ * this shape. `fit` is the LLM's per-candidate judgement; `rrf_score`
+ * is the retrieval fusion score used to sort.
+ */
+export interface DispatchAnnotatedCandidate {
+  code: string;
+  /** LLM verdict: 'fits' | 'partial' | 'does_not_fit'. */
+  fit?: string;
+  rationale?: string;
+  rrf_score?: number;
+  description_en?: string | null;
+  description_ar?: string | null;
+}
+
+/**
+ * Optional `trace.meta` block on the dispatch response. Surfaces:
+ *   - track_a.annotated_candidates : RRF-scored picker candidates
+ *   - track_b.subtree_candidates    : merchant-prefix-anchored candidates
+ *   - verdict                       : final reconciliation outcome
+ * The frontend reads `annotated_candidates` and `subtree_candidates` to
+ * populate the "Considered alternatives" sidebar.
+ */
+export interface DispatchTraceMeta {
+  track_a?: {
+    annotated_candidates?: DispatchAnnotatedCandidate[];
+    threshold_failed?: boolean;
+    interpretation_stage?: string;
+    effective_description?: string;
+  };
+  track_b?: {
+    subtree_candidates?: DispatchAnnotatedCandidate[];
+    resolution?: string;
+    valid_prefix?: string | null;
+    resolved_code?: string | null;
+    codebook_state?: string;
+    consistency_verdict?: string;
+  };
+  verdict?: {
+    decision?: string;
+    conflict_type?: string;
+    classification_status?: string;
+    rationale?: string;
+    final_code?: string | null;
+  };
+  sanity?: {
+    verdict?: string;
+    rationale?: string;
+  } | null;
+}
+
 export interface DispatchResponse {
+  /**
+   * UUID for this classification — also surfaced on the URL as ?id=…
+   * Falls back to item_id (legacy synonym) when the new field isn't
+   * shipped yet.
+   */
+  id?: string;
   item_id: string;
   operator_slug: string;
   status: 'succeeded' | 'failed' | 'rejected';
@@ -334,7 +402,16 @@ export interface DispatchResponse {
   goods_description_ar: string | null;
   goods_description_en: string | null;
   sanity_verdict: 'PASS' | 'FLAG' | 'BLOCK';
-  trace: DispatchTrace;
+  /** Per-line duty for the final_code (null when no duty info available). */
+  duty_info?: DutyInfo | null;
+  /** Required ZATCA procedures for the final_code (empty array when none). */
+  procedures?: ProcedureRef[];
+  /**
+   * Optional extension to DispatchTrace surfacing the reconciliation
+   * meta block (track_a.annotated_candidates, track_b.subtree_candidates,
+   * verdict, sanity). The legacy `stages[]` array is unchanged.
+   */
+  trace: DispatchTrace & { meta?: DispatchTraceMeta };
 }
 
 /** Lazy-loaded ZATCA submission description from POST /classifications/{id}/submission-description. */

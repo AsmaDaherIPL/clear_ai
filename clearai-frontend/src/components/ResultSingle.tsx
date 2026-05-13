@@ -690,6 +690,22 @@ export default function ResultSingle({
                   {t('res_code_saudi')}
                 </div>
                 <BigCode code={code12} />
+                {/*
+                  Classification ID — copyable mono label below the big
+                  code. Same pattern as the batch panel's run-id chip.
+                  Mirrors ?id=… on the URL so users can copy either the
+                  ID or the URL to refer back to this result.
+                */}
+                {data.request_id && (
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(data.request_id!)}
+                    title="Click to copy classification ID"
+                    className="self-start font-mono text-[11.5px] text-[var(--ink-3)] hover:text-[var(--ink-2)] transition-colors cursor-copy select-all text-start tracking-[0.005em]"
+                  >
+                    {data.request_id}
+                  </button>
+                )}
               </div>
               {showStrongMatch && (
                 <span
@@ -821,20 +837,20 @@ export default function ResultSingle({
         {/* ──────────── SIDEBAR ──────────── */}
         <aside className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-[22px] flex flex-col gap-[22px] shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200">
 
-          {/* DUTY & REQUIREMENTS */}
+          {/*
+            DUTY & REQUIREMENTS — Import Duty only. The VAT row was
+            removed: it always rendered a hardcoded 15% which isn't part
+            of the duty_info payload, and the project rule is to never
+            invent values. Numeric rates come from r.duty.rate_percent;
+            enum statuses (exempted / prohibited) come from r.duty.status.
+          */}
           <div>
             <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
               {t('res_sidebar_duty')}
             </div>
-            <div className="flex flex-col">
-              <div className="flex items-center justify-between gap-3 py-2 text-[13.5px] border-b border-[var(--line-2)]">
-                <span className="text-[var(--ink)]">{t('res_sidebar_duty_import')}</span>
-                <span className="font-mono text-[var(--ink)] font-medium">{importDutyValue}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3 py-2 text-[13.5px]">
-                <span className="text-[var(--ink)]">{t('res_sidebar_duty_vat')}</span>
-                <span className="font-mono text-[var(--ink)] font-medium">15%</span>
-              </div>
+            <div className="flex items-center justify-between gap-3 py-2 text-[13.5px]">
+              <span className="text-[var(--ink)]">{t('res_sidebar_duty_import')}</span>
+              <span className="font-mono text-[var(--ink)] font-medium">{importDutyValue}</span>
             </div>
           </div>
 
@@ -848,46 +864,103 @@ export default function ResultSingle({
             </div>
           )}
 
-          {/* CONSIDERED ALTERNATIVES — collapsible per-row + centred trace link. */}
-          {altRows.length > 0 && (
-            <div>
-              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
-                {t('res_sidebar_alternatives')}
-              </div>
-              <div className="flex flex-col divide-y divide-[var(--line-2)]">
-                {altRows.map((a, i) => (
-                  <AlternativeSidebarRow
-                    key={`${a.code}-${i}`}
-                    alt={a}
-                    chosenCode={r.code}
-                    t={t}
-                  />
-                ))}
-              </div>
-              {data.request_id && (
-                <a
-                  href={`/trace?id=${data.request_id}`}
-                  className="inline-flex w-full items-center justify-center gap-2 mt-4 pt-3.5 border-t border-[var(--line-2)] text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] no-underline transition-colors duration-150"
-                >
-                  <span>{t('view_trace')}</span>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                    className="rtl:scale-x-[-1]"
+          {/*
+            CONSIDERED ALTERNATIVES — grouped by track.
+            Track A (description_classifier / annotated_candidates): RRF-
+            ranked picker output. Track B (code_resolver / subtree_candidates):
+            merchant-prefix-anchored. When only one track returned items,
+            we render a single ungrouped list (no empty section header).
+          */}
+          {altRows.length > 0 && (() => {
+            const trackARows = altRows.filter((a) => a.track === 'track_a');
+            const trackBRows = altRows.filter((a) => a.track === 'track_b');
+            const groupless = altRows.filter((a) => !a.track);
+            const hasBothTracks = trackARows.length > 0 && trackBRows.length > 0;
+            return (
+              <div>
+                <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
+                  {t('res_sidebar_alternatives')}
+                </div>
+
+                {/* Track A — only label when both tracks present (else no header noise) */}
+                {trackARows.length > 0 && (
+                  <>
+                    {hasBothTracks && (
+                      <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase mt-1 mb-1.5">
+                        Track A — description
+                      </div>
+                    )}
+                    <div className="flex flex-col divide-y divide-[var(--line-2)]">
+                      {trackARows.map((a, i) => (
+                        <AlternativeSidebarRow
+                          key={`a-${a.code}-${i}`}
+                          alt={a}
+                          chosenCode={r.code}
+                          t={t}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Track B */}
+                {trackBRows.length > 0 && (
+                  <>
+                    <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase mt-3 mb-1.5">
+                      Track B — merchant code
+                    </div>
+                    <div className="flex flex-col divide-y divide-[var(--line-2)]">
+                      {trackBRows.map((a, i) => (
+                        <AlternativeSidebarRow
+                          key={`b-${a.code}-${i}`}
+                          alt={a}
+                          chosenCode={r.code}
+                          t={t}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Legacy untrack'd alternatives — render as a flat list. */}
+                {groupless.length > 0 && (
+                  <div className="flex flex-col divide-y divide-[var(--line-2)]">
+                    {groupless.map((a, i) => (
+                      <AlternativeSidebarRow
+                        key={`u-${a.code}-${i}`}
+                        alt={a}
+                        chosenCode={r.code}
+                        t={t}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {data.request_id && (
+                  <a
+                    href={`/trace?id=${data.request_id}`}
+                    className="inline-flex w-full items-center justify-center gap-2 mt-4 pt-3.5 border-t border-[var(--line-2)] text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] no-underline transition-colors duration-150"
                   >
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
-                </a>
-              )}
-            </div>
-          )}
+                    <span>{t('view_trace')}</span>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                      className="rtl:scale-x-[-1]"
+                    >
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
+                  </a>
+                )}
+              </div>
+            );
+          })()}
 
           {/* If there are no alternatives, the trace link still lives at the foot of the sidebar. */}
           {altRows.length === 0 && data.request_id && (

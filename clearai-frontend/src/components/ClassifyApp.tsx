@@ -18,6 +18,7 @@ import {
   type DispatchResponse,
   type DeclarationRunSummary,
   type DeclarationRunItem,
+  type AlternativeLine,
 } from '@/lib/api';
 
 /**
@@ -47,15 +48,55 @@ function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
       ? subOutput.description_en
       : null;
 
+  // Considered alternatives — top 3 from each track, with the chosen
+  // final_code filtered out so it doesn't render as its own alternative.
+  // Track A = annotated_candidates (RRF/picker), Track B = subtree_candidates
+  // (merchant-prefix-anchored). Both arrays may be empty / undefined.
+  const meta = d.trace.meta;
+  const trackA = (meta?.track_a?.annotated_candidates ?? [])
+    .filter((c) => c.code !== d.final_code)
+    .slice(0, 3)
+    .map<AlternativeLine>((c) => ({
+      code: c.code,
+      description_en: c.description_en ?? null,
+      description_ar: c.description_ar ?? null,
+      retrieval_score: typeof c.rrf_score === 'number' ? c.rrf_score : null,
+      fit: normaliseFit(c.fit),
+      reason: c.rationale,
+      track: 'track_a',
+    }));
+  const trackB = (meta?.track_b?.subtree_candidates ?? [])
+    .filter((c) => c.code !== d.final_code)
+    .slice(0, 3)
+    .map<AlternativeLine>((c) => ({
+      code: c.code,
+      description_en: c.description_en ?? null,
+      description_ar: c.description_ar ?? null,
+      retrieval_score: typeof c.rrf_score === 'number' ? c.rrf_score : null,
+      fit: normaliseFit(c.fit),
+      reason: c.rationale,
+      track: 'track_b',
+    }));
+  const alternatives = [...trackA, ...trackB];
+
+  // Classification ID — prefer the new `id` field; fall back to legacy item_id.
+  const classificationId = d.id ?? d.item_id ?? undefined;
+
   return {
+    request_id: classificationId,
     decision_status: accepted ? 'accepted' : 'needs_clarification',
     decision_reason: accepted ? 'strong_match' : 'ambiguous_top_candidates',
-    alternatives: [],
+    alternatives,
     result: accepted
       ? {
           code: d.final_code as string,
           description_en: null,
           description_ar: d.goods_description_ar,
+          // Duty + procedures from the dispatch top level. ResultSingle
+          // reads result.duty.rate_percent / status for the sidebar, and
+          // RequiredProcedures reads result.procedures.
+          duty: d.duty_info ?? null,
+          procedures: d.procedures ?? [],
         }
       : undefined,
     submission_description: description_ar
@@ -69,6 +110,21 @@ function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
       : undefined,
     model: { embedder: 'text-embedding-3-large', llm: null },
   };
+}
+
+/**
+ * Map upstream fit strings to the AlternativeLine fit enum. The dispatch
+ * payload emits 'fits' | 'partial' | 'does_not_fit'; legacy code uses
+ * 'excludes' as a synonym for does_not_fit. Returns undefined for unknown
+ * values so the sidebar pill is omitted rather than rendering raw text.
+ */
+function normaliseFit(raw?: string): AlternativeLine['fit'] | undefined {
+  if (!raw) return undefined;
+  const lc = raw.toLowerCase();
+  if (lc === 'fits') return 'fits';
+  if (lc === 'partial') return 'partial';
+  if (lc === 'does_not_fit' || lc === 'excludes') return 'does_not_fit';
+  return undefined;
 }
 
 type Phase = 'idle' | 'classifying' | 'result' | 'error';
@@ -234,6 +290,25 @@ function syncRunIdToUrl(runId: string | null): void {
   window.history.replaceState(null, '', next);
 }
 
+/**
+ * Mirror the single-shot classification id to the URL as ?id=… so the
+ * user can copy/share the result page or come back to it from history.
+ * Single-shot doesn't currently resume from URL on page load (a follow-up
+ * GET endpoint is needed for that); the URL is informational + shareable.
+ */
+function syncClassificationIdToUrl(id: string | null): void {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search);
+  if (id) {
+    params.set('id', id);
+  } else {
+    params.delete('id');
+  }
+  const qs = params.toString();
+  const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+  window.history.replaceState(null, '', next);
+}
+
 export default function ClassifyApp() {
   const t = useT();
   // Auth state drives the composer/login swap. The page chrome
@@ -277,6 +352,16 @@ export default function ClassifyApp() {
   useEffect(() => {
     syncRunIdToUrl(batchState.runId);
   }, [batchState.runId]);
+
+  // Keep ?id=<classification_id> in sync with single-shot results.
+  // Only mirrors when the current mode is generate/expand and there's
+  // a response — batch mode owns the URL via ?run= (above), so we don't
+  // want both params fighting. Clears when the user wipes the result.
+  useEffect(() => {
+    if (mode === 'batch') return;
+    const id = cur.response?.request_id ?? null;
+    syncClassificationIdToUrl(id);
+  }, [mode, cur.response]);
 
   /**
    * Reset batch mode to its initial state. Called from the
