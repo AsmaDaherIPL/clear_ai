@@ -108,10 +108,25 @@ function rowToCandidate(row: HsCodeRecord, rank: number): Candidate {
 // merchant_code_state from Stage 0 describes the raw merchant input
 // only. When the walk runs against an override target, length must be
 // recomputed.
+//
+// 6-11 digit codes are all valid prefixes (parse.ts accepts the same range).
+// 7/9/11 are odd-length prefixes that don't align with codebook granularity;
+// truncate them down to the nearest aligned length (6/8/10). The codebook
+// walker's expandWithFallback then handles "no children at this prefix" by
+// climbing further if needed.
 function classifyLength(code: string): 'twelve_digit' | 'short_prefix' | 'malformed' {
   if (code.length === 12) return 'twelve_digit';
-  if (code.length === 6 || code.length === 8 || code.length === 10) return 'short_prefix';
+  if (code.length >= 6 && code.length <= 11) return 'short_prefix';
   return 'malformed';
+}
+
+/** Truncate a 6-11 digit code down to the nearest aligned prefix length. No-op for 6/8/10. */
+function alignToCodebookPrefix(code: string): string {
+  if (code.length === 6 || code.length === 8 || code.length === 10) return code;
+  if (code.length === 11) return code.slice(0, 10);
+  if (code.length === 9) return code.slice(0, 8);
+  if (code.length === 7) return code.slice(0, 6);
+  return code;
 }
 
 async function resolveAgainstCodebook(
@@ -185,8 +200,11 @@ async function resolveAgainstCodebook(
     };
   }
 
-  // Short prefix
-  const { children, matched_prefix } = await expandWithFallback(code);
+  // Short prefix. Odd lengths (7/9/11) are truncated to the nearest aligned
+  // prefix (6/8/10) so the walker has a valid anchor. expandWithFallback then
+  // climbs further if no children exist at that length.
+  const alignedPrefix = alignToCodebookPrefix(code);
+  const { children, matched_prefix } = await expandWithFallback(alignedPrefix);
 
   if (children.length === 0) {
     return {
