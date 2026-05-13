@@ -81,12 +81,14 @@ interface AttemptOutcome {
 }
 
 async function attemptClassify(params: {
+  stage: LlmStage;
   system: string;
   user: string;
   model?: string;
   timeoutMs: number;
 }): Promise<AttemptOutcome> {
   const llmResult: LlmCallResult = await callLlmWithRetry({
+    stage: params.stage,
     system: params.system,
     user: params.user,
     ...(params.model ? { model: params.model } : {}),
@@ -178,6 +180,7 @@ export async function llmClassify(params: {
     if (attempts > 0 && Date.now() - startedAt >= policy.totalBudgetMs) break;
     attempts += 1;
     const outcome = await attemptClassify({
+      stage,
       system,
       user,
       ...(params.model ? { model: params.model } : {}),

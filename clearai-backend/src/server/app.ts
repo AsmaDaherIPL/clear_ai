@@ -9,6 +9,7 @@ import { submissionDescriptionRoute } from '../modules/pipeline/submission-descr
 import { pipelineRoutes } from '../modules/pipeline/pipeline.routes.js';
 import { reviewRoutes } from '../modules/review/review.routes.js';
 import { registerReferenceDataRoutes } from '../modules/reference-data/reference-data.routes.js';
+import { adminRoutes } from '../modules/admin/admin.routes.js';
 import { getPool, closeDb } from '../db/client.js';
 import { registerErrorHandler } from './error-handler.js';
 import { warmEmbedder } from '../inference/embeddings/embedder.js';
@@ -131,6 +132,7 @@ await app.register(submissionDescriptionRoute);
 await app.register(pipelineRoutes);
 await app.register(reviewRoutes);
 await app.register(registerReferenceDataRoutes);
+await app.register(adminRoutes);
 
 const start = async (): Promise<void> => {
   try {

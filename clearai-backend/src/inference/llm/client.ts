@@ -10,6 +10,8 @@
  */
 import { env } from '../../config/env.js';
 import { recordLlmOutcome, classifyLlmOutcome, breakerStatus } from './breaker.js';
+import { writeLlmCallMetric } from './metrics.js';
+import type { LlmStage } from './policy.js';
 import type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
 export type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
 
@@ -41,6 +43,11 @@ export type LlmTool = {
 };
 
 export interface LlmCallParams {
+  /**
+   * Stage label for metrics and tracing. When omitted, the call is not
+   * recorded in `llm_call_metrics` (legacy / ad-hoc callers).
+   */
+  stage?: LlmStage;
   /** Overrides env LLM_MODEL. */
   model?: string;
   system: string;
@@ -60,13 +67,31 @@ export interface LlmCallParams {
  */
 let lastTransientWarning = false;
 
+const HTTP_STATUS_RE = /HTTP (\d{3})/;
+
+function extractHttpStatus(error: string | undefined): number | null {
+  if (!error) return null;
+  const m = error.match(HTTP_STATUS_RE);
+  if (!m || !m[1]) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
  * Single exit point for `callLlm`. Feeds the breaker and emits a WARN log
  * on every non-ok result so failures are visible in container logs without
  * having to read full pipeline traces. The result object is returned
  * unchanged so callers can keep their existing branching.
+ *
+ * When `stage` is provided, also fires a best-effort insert into
+ * `llm_call_metrics`. The insert is fire-and-forget — a DB outage here
+ * MUST NOT block the LLM call or surface to the caller.
  */
-function finalize(result: LlmCallResult): LlmCallResult {
+function finalize(
+  result: LlmCallResult,
+  stage: LlmStage | undefined,
+  attempt: number,
+): LlmCallResult {
   recordLlmOutcome(result);
   if (result.status !== 'ok') {
     const cls = classifyLlmOutcome(result);
@@ -85,10 +110,27 @@ function finalize(result: LlmCallResult): LlmCallResult {
     console.warn(`[llm] transient warning: rate=${pct}% over last ${bs.window_size} calls`);
   }
   lastTransientWarning = bs.transient_warning;
+
+  if (stage) {
+    void writeLlmCallMetric({
+      stage,
+      model: result.model,
+      attempt,
+      outcomeClass: classifyLlmOutcome(result),
+      latencyMs: result.latencyMs,
+      httpStatus: extractHttpStatus(result.error),
+      errorClass: result.status === 'ok' ? null : result.status,
+    }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[llm_call_metrics] insert failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
   return result;
 }
 
-export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
+export async function callLlm(params: LlmCallParams, attempt = 1): Promise<LlmCallResult> {
   const { ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } = env();
   const model = params.model ?? LLM_MODEL;
   const t0 = Date.now();
@@ -122,38 +164,50 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      return finalize({
-        status: 'error',
-        text: null,
-        raw: errText,
-        error: `HTTP ${res.status}: ${errText.slice(0, 300)}`,
-        latencyMs: Date.now() - t0,
-        model,
-      });
+      return finalize(
+        {
+          status: 'error',
+          text: null,
+          raw: errText,
+          error: `HTTP ${res.status}: ${errText.slice(0, 300)}`,
+          latencyMs: Date.now() - t0,
+          model,
+        },
+        params.stage,
+        attempt,
+      );
     }
     const json = (await res.json()) as AnthropicResponse;
     const text =
       json.content?.find((b) => b.type === 'text')?.text ??
       (json.content && json.content[0]?.text) ??
       null;
-    return finalize({
-      status: 'ok',
-      text,
-      raw: json,
-      latencyMs: Date.now() - t0,
-      model,
-    });
+    return finalize(
+      {
+        status: 'ok',
+        text,
+        raw: json,
+        latencyMs: Date.now() - t0,
+        model,
+      },
+      params.stage,
+      attempt,
+    );
   } catch (err) {
     clearTimeout(timeout);
     const msg = err instanceof Error ? err.message : String(err);
-    return finalize({
-      status: msg.includes('aborted') ? 'timeout' : 'error',
-      text: null,
-      raw: null,
-      error: msg,
-      latencyMs: Date.now() - t0,
-      model,
-    });
+    return finalize(
+      {
+        status: msg.includes('aborted') ? 'timeout' : 'error',
+        text: null,
+        raw: null,
+        error: msg,
+        latencyMs: Date.now() - t0,
+        model,
+      },
+      params.stage,
+      attempt,
+    );
   }
 }
 
@@ -167,7 +221,7 @@ export async function callLlmWithRetry(params: LlmCallParams, retries = 2): Prom
   let last: LlmCallResult | null = null;
   const delays = [250, 1000];
   for (let attempt = 0; attempt <= retries; attempt++) {
-    last = await callLlm(params);
+    last = await callLlm(params, attempt + 1);
     if (last.status === 'ok') return last;
     const errStr = last.error ?? '';
     const isTransient =

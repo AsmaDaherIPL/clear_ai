@@ -65,6 +65,8 @@ tags:
     description: Single-shot pipeline endpoints and stored traces.
   - name: review
     description: Human review queue for items the pipeline escalated.
+  - name: admin
+    description: Operational read endpoints for infra observability.
 
 # -----------------------------------------------------------------------------
 # Components
@@ -1513,6 +1515,111 @@ paths:
                         as_of:
                           type: string
                           format: date
+
+  /admin/llm-call-metrics:
+    get:
+      operationId: get-llm-call-metrics
+      tags: [admin]
+      summary: Aggregated counts and latency percentiles for Foundry LLM calls.
+      description: |
+        Returns per-stage call counts, outcome-class rates
+        (`ok`, `auth_class`, `transient`, `other`) and p50 / p95 latency
+        over a rolling window. Backed by the `llm_call_metrics` table,
+        which is written fire-and-forget from every `callLlm` invocation
+        in the LLM transport (one row per attempt; retries are separate
+        rows).
+
+        Use this endpoint instead of reading individual trace blobs when
+        answering "what's the picker transient rate over the last hour?"
+        type questions.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      parameters:
+        - name: since_minutes
+          in: query
+          required: false
+          description: |
+            Rolling window size in minutes. Defaults to 60. Capped at
+            1440 (24h) so an accidental wide window can't trigger a long
+            table scan.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1440
+            default: 60
+        - name: stage
+          in: query
+          required: false
+          description: |
+            Optional stage filter — one of the `LlmStage` values
+            (`cleanup`, `researcher_cheap`, `researcher_web`, `picker`,
+            `code_resolver`, `reconciliation`, `submission_description`,
+            `sanity`). When omitted, all stages are returned.
+          schema:
+            type: string
+            maxLength: 64
+      responses:
+        '200':
+          description: Aggregated metrics for the requested window.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [since, until, total_calls, by_stage]
+                properties:
+                  since:
+                    type: string
+                    format: date-time
+                  until:
+                    type: string
+                    format: date-time
+                  total_calls:
+                    type: integer
+                    description: Sum of `calls` across all stages in the window.
+                  by_stage:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      required:
+                        - calls
+                        - ok_rate
+                        - auth_class_rate
+                        - transient_rate
+                        - other_rate
+                        - p50_latency_ms
+                        - p95_latency_ms
+                      properties:
+                        calls:
+                          type: integer
+                        ok_rate:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                        auth_class_rate:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                        transient_rate:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                        other_rate:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                        p50_latency_ms:
+                          type: integer
+                          nullable: true
+                        p95_latency_ms:
+                          type: integer
+                          nullable: true
+        '400':
+          description: Query validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
 # Default security applied at the operation level above; this default keeps
 # probes wide-open via `security: []` overrides.

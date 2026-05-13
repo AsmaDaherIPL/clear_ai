@@ -24,7 +24,7 @@ import { z } from 'zod';
 import { callLlmWithRetry, type LlmCallResult, type LlmTool } from '../../../../../inference/llm/client.js';
 import { loadPrompt } from '../../../../../inference/llm/structured-call.js';
 import { extractJson } from '../../../../../inference/llm/parse-json.js';
-import { getLlmStagePolicy } from '../../../../../inference/llm/policy.js';
+import { getLlmStagePolicy, type LlmStage } from '../../../../../inference/llm/policy.js';
 import { env } from '../../../../../config/env.js';
 
 /* ------------------------------------------------------------------ */
@@ -61,6 +61,7 @@ export interface ResearcherOutput {
 /* ------------------------------------------------------------------ */
 
 interface ResearchCallParams {
+  stage: LlmStage;
   promptFile: string;
   user: string;
   model: string;
@@ -74,6 +75,7 @@ async function callResearchLlm(params: ResearchCallParams): Promise<LlmCallResul
   const system = await loadPrompt(params.promptFile);
   return callLlmWithRetry(
     {
+      stage: params.stage,
       system,
       user: params.user.trim(),
       model: params.model,
@@ -146,6 +148,7 @@ export async function runResearcher(
     if (attempts > 0 && Date.now() - startedAt >= policy.totalBudgetMs) break;
     attempts += 1;
     const result = await callResearchLlm({
+      stage: 'researcher_cheap',
       promptFile: 'research-input.md',
       user: input,
       model,
@@ -280,6 +283,7 @@ export async function runWebResearcher(
 
   const policy = getLlmStagePolicy('researcher_web');
   const result = await callResearchLlm({
+    stage: 'researcher_web',
     promptFile: 'research-with-web.md',
     user: raw_description,
     model: env().LLM_MODEL_STRONG,

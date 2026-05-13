@@ -97,3 +97,10 @@ export type {
   SubmissionDescriptionRow,
   NewSubmissionDescriptionRow,
 } from './schema/submission-descriptions.js';
+
+export { llmCallMetrics } from './schema/llm-call-metrics.js';
+export type {
+  LlmCallMetricRow,
+  NewLlmCallMetricRow,
+  LlmOutcomeClass,
+} from './schema/llm-call-metrics.js';

@@ -70,6 +70,17 @@ const EnvSchema = z
       .default('false'),
 
     /**
+     * Gate for the llm_call_metrics fire-and-forget inserts. Off by default
+     * until migration 0078 (the table itself) has been applied. With this
+     * off, finalize() in inference/llm/client.ts still classifies and
+     * counts in-memory (the breaker window) but skips the INSERT.
+     */
+    LLM_CALL_METRICS_ENABLED: z
+      .union([z.literal('true'), z.literal('false'), z.boolean()])
+      .transform((v) => v === true || v === 'true')
+      .default('false'),
+
+    /**
      * Submission-description cache toggle. Off by default — the (path_ar,
      * cleaned_norm) key collapsed too aggressively (two distinct products
      * sharing a chapter/leaf path got the same cached Arabic line). Re-enable

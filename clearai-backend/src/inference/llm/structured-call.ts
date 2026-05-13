@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { callLlmWithRetry, type LlmStatus, type LlmTool } from './client.js';
+import type { LlmStage } from './policy.js';
 import { extractJson } from './parse-json.js';
 
 const PROMPT_DIR = join(process.cwd(), 'prompts');
@@ -71,8 +72,8 @@ export interface StructuredLlmCallParams<TSchema extends z.ZodTypeAny> {
   promptFile: string;
   user: string;
   schema: TSchema;
-  /** Stage label for tracing. */
-  stage: string;
+  /** Stage label for tracing and llm_call_metrics. */
+  stage: LlmStage;
   /** Defaults to env LLM_MODEL. */
   model?: string;
   maxTokens?: number;
@@ -115,6 +116,7 @@ export async function structuredLlmCall<TSchema extends z.ZodTypeAny>(
     attempts += 1;
     const llm = await callLlmWithRetry(
       {
+        stage: params.stage,
         system,
         user: params.user,
         ...(params.model ? { model: params.model } : {}),
