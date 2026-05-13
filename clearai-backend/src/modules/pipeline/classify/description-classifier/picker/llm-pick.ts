@@ -38,7 +38,16 @@ const MISSING_ENUM = new Set<MissingAttribute>([
   'composition',
 ]);
 
-const FIT_VALUES = new Set<CandidateFitVerdict>(['fits', 'partial', 'does_not_fit']);
+const FIT_VALUES = new Set<CandidateFitVerdict>([
+  'fits',
+  'partial_family',
+  'chapter_adjacent',
+  'does_not_fit',
+  // 'partial' kept for backwards compatibility with picker traces that
+  // predate the PR4 taxonomy widening. New picker output uses
+  // 'partial_family'; consumers treat both identically.
+  'partial',
+]);
 
 const ParsedClassifierSchema = z
   .object({

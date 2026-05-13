@@ -35,18 +35,45 @@ function heading(code: string | null | undefined): string | null {
   return code.slice(0, 4);
 }
 
-/** Top fits/partial candidate from Track A. Prefers `fits` over `partial`. */
+/**
+ * "partial" is a legacy alias for "partial_family" (PR4 / Layer 2). Returns
+ * true for either label so existing call sites keep working without
+ * touching every comparison.
+ */
+function isPartialFamily(fit: AnnotatedCandidate['fit']): boolean {
+  return fit === 'partial_family' || fit === 'partial';
+}
+
+/** Top fits/partial-family candidate from Track A. Prefers `fits`. */
 function topFitOrPartial(candidates: AnnotatedCandidate[]): AnnotatedCandidate | null {
   return (
     candidates.find((c) => c.fit === 'fits') ??
-    candidates.find((c) => c.fit === 'partial') ??
+    candidates.find((c) => isPartialFamily(c.fit)) ??
     null
   );
 }
 
-/** Has Track A produced any candidate with a positive fit? */
+/**
+ * Has Track A produced any candidate with a positive fit? `fits`,
+ * `partial_family` (incl. legacy `partial`), and `chapter_adjacent` all
+ * count — `chapter_adjacent` means "we recognised the family, just not in
+ * this chapter", which is positive signal for reconciliation.
+ */
 function trackAHasSignal(trackA: DescriptionClassifierResult): boolean {
-  return trackA.annotated_candidates.some((c) => c.fit === 'fits' || c.fit === 'partial');
+  return trackA.annotated_candidates.some(
+    (c) => c.fit === 'fits' || isPartialFamily(c.fit) || c.fit === 'chapter_adjacent',
+  );
+}
+
+/**
+ * Top `chapter_adjacent` candidate, or null. Used by the new chapter-family
+ * reconciliation rule (PR4) — when Track A says "I see a related family,
+ * just not this chapter" AND Track B's resolved code lands in a chapter
+ * the picker considered adjacent, that's a family agreement, not a
+ * contradiction.
+ */
+function topChapterAdjacent(candidates: AnnotatedCandidate[]): AnnotatedCandidate | null {
+  return candidates.find((c) => c.fit === 'chapter_adjacent') ?? null;
 }
 
 /**
@@ -145,6 +172,35 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
     (trackB.valid_prefix?.length ?? 0) >= MIN_RESOLVER_PREFIX_FOR_GATE
   ) {
     return 'AMBIGUOUS';
+  }
+
+  // 1b. CHAPTER-FAMILY AGREEMENT — Track A explicitly marked a candidate
+  //     `chapter_adjacent` AND Track B's resolved code lands in a chapter
+  //     different from Track A's adjacent-marked candidate. The picker has
+  //     stated "I see the same product family, just split across chapters
+  //     by HS convention" — that's a family match, not a CONTRADICTION.
+  //     Route to AGREEMENT so Track B's chapter-correct code wins.
+  //
+  //     Rescues row-23 (Babybjorn bouncer: Track A picked 6307 textile
+  //     cradle as chapter_adjacent, merchant 9401 seats — same family),
+  //     row-108 (Joolz cot: same shape), row-8 (GPU: Track A 8542 ICs as
+  //     chapter_adjacent, merchant 8471 computer parts).
+  //
+  //     Guard: only fires when no `fits` candidate exists in the resolver's
+  //     chapter — otherwise the normal AGREEMENT rule (3) handles it
+  //     correctly and we don't want to short-circuit a clean fits.
+  if (bHas) {
+    const adjacent = topChapterAdjacent(trackA.annotated_candidates);
+    const bCh = chapter(trackB.resolved_code);
+    const aCh = chapter(adjacent?.code);
+    if (adjacent && bCh && aCh && bCh !== aCh) {
+      const hasFitsInResolverChapter = trackA.annotated_candidates.some(
+        (c) => c.fit === 'fits' && chapter(c.code) === bCh,
+      );
+      if (!hasFitsInResolverChapter) {
+        return 'AGREEMENT';
+      }
+    }
   }
 
   // 2. CONTRADICTION — Track B subtree retrieval says the description

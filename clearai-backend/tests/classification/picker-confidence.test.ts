@@ -265,3 +265,51 @@ describe('classifyConflict — picker-confidence gate', () => {
     expect(classifyConflict(a, b)).toBe('AGREEMENT');
   });
 });
+
+describe('classifyConflict — chapter_adjacent family rule (PR4)', () => {
+  it('routes chapter_adjacent + cross-chapter resolver to AGREEMENT', () => {
+    // Joolz baby cot pattern: Track A marked Ch 63 textile cradle as
+    // chapter_adjacent to merchant Ch 87 baby carriage. Same family
+    // across an HS chapter split — AGREEMENT, not CONTRADICTION.
+    const a = trackA({
+      candidates: [ac('630790950000', 'chapter_adjacent')], // Ch 63
+      picker_confidence: 0.5, // above the confidence gate
+    });
+    const b = trackB({
+      resolved_code: '871500100000', // Ch 87
+      valid_prefix: '8715',
+    });
+    expect(classifyConflict(a, b)).toBe('AGREEMENT');
+  });
+
+  it('does NOT fire when resolver shares a chapter with a Track A fits candidate', () => {
+    // Guard: a clean fits in the resolver's chapter should win normally;
+    // the chapter_adjacent rule must not short-circuit it.
+    const a = trackA({
+      candidates: [
+        ac('871500100000', 'fits'), // matches resolver chapter
+        ac('630790950000', 'chapter_adjacent'),
+      ],
+      picker_confidence: 0.7,
+    });
+    const b = trackB({
+      resolved_code: '871500100000',
+      valid_prefix: '8715',
+    });
+    expect(classifyConflict(a, b)).toBe('AGREEMENT');
+  });
+
+  it('does NOT fire when adjacent and resolver share the same chapter', () => {
+    // Picker marked something chapter_adjacent but it's actually in the
+    // resolver's chapter — fall through to the normal rules.
+    const a = trackA({
+      candidates: [ac('871500900000', 'chapter_adjacent')],
+      picker_confidence: 0.5,
+    });
+    const b = trackB({
+      resolved_code: '871500100000', // same Ch 87
+      valid_prefix: '8715',
+    });
+    expect(classifyConflict(a, b)).not.toBe('AGREEMENT');
+  });
+});

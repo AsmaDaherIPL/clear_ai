@@ -39,9 +39,22 @@ import type {
 function topFitCandidate(candidates: AnnotatedCandidate[]): AnnotatedCandidate | null {
   return (
     candidates.find((c) => c.fit === 'fits') ??
-    candidates.find((c) => c.fit === 'partial') ??
+    // partial_family is the PR4 name; partial is the legacy alias kept
+    // for compatibility with stored traces.
+    candidates.find((c) => c.fit === 'partial_family' || c.fit === 'partial') ??
     null
   );
+}
+
+/** Top `chapter_adjacent` candidate from Track A, or null. */
+function topChapterAdjacentCandidate(candidates: AnnotatedCandidate[]): AnnotatedCandidate | null {
+  return candidates.find((c) => c.fit === 'chapter_adjacent') ?? null;
+}
+
+/** First two digits of an HS code; the chapter level. */
+function chapterOf(code: string | null | undefined): string | null {
+  if (!code || code.length < 2) return null;
+  return code.slice(0, 2);
 }
 
 const ReconciliationSchema = z
@@ -200,6 +213,26 @@ function handleAgreement(trackA: DescriptionClassifierResult, trackB: CodeResolv
       };
     }
   }
+  // Path 1b (PR4 / Layer 2): chapter-family AGREEMENT. Track A marked a
+  // candidate `chapter_adjacent` and the conflict-type classifier routed
+  // here because Track B's resolved code sits in a different chapter that
+  // the picker considered family-adjacent. The picker is saying "I see
+  // the same product family across an HS chapter split" — Track B's
+  // chapter-correct code wins.
+  if (trackB.resolved_code) {
+    const adjacent = topChapterAdjacentCandidate(trackA.annotated_candidates);
+    if (adjacent && chapterOf(adjacent.code) !== chapterOf(trackB.resolved_code)) {
+      return {
+        decision: 'accept',
+        final_code: trackB.resolved_code,
+        rationale:
+          `AGREEMENT (chapter-family): Track A marked ${adjacent.code} as chapter_adjacent to ${trackB.resolved_code} — same family, different HS chapters. ${adjacent.rationale}`,
+        source: 'code_resolver',
+        classification_status: 'AGREEMENT',
+        conflict_type: 'AGREEMENT',
+      };
+    }
+  }
   // Path 2: single_a path. Track A has positive signal but no resolver to
   // corroborate (or the resolver isn't in the fits set). Take Track A's
   // top positive candidate — `fits` preferred, but `partial` is accepted
@@ -275,11 +308,15 @@ function handleAmbiguous(trackA: DescriptionClassifierResult, trackB: CodeResolv
     throw new Error('reconciliation: AMBIGUOUS classified but trackB has no resolved_code');
   }
 
-  // Detect convergence: Track A's top partial candidate is the same code
-  // as Track B's resolved leaf. Only `partial` matters here — a `fits` at
-  // the same code would have routed to AGREEMENT in the classifier, not
-  // here. `does_not_fit` candidates can't represent convergence.
-  const topPartial = trackA.annotated_candidates.find((c) => c.fit === 'partial');
+  // Detect convergence: Track A's top partial-family candidate is the
+  // same code as Track B's resolved leaf. Only partial-family matters
+  // here — a `fits` at the same code would have routed to AGREEMENT in
+  // the classifier, not here. `does_not_fit` and `chapter_adjacent`
+  // can't represent convergence at this leaf (chapter_adjacent is by
+  // definition a different chapter, not the same leaf).
+  const topPartial = trackA.annotated_candidates.find(
+    (c) => c.fit === 'partial_family' || c.fit === 'partial',
+  );
   const converges = topPartial != null && topPartial.code === trackB.resolved_code;
 
   const trackASilent = trackA.threshold_failed || trackA.no_fit;

@@ -75,8 +75,47 @@ export interface CleanupResult {
 // Track A — Description classifier output
 // ---------------------------------------------------------------------------
 
-/** Fit verdict assigned by the description classifier to each retrieval candidate. */
-export type CandidateFitVerdict = 'fits' | 'partial' | 'does_not_fit';
+/**
+ * Fit verdict assigned by the description classifier to each retrieval candidate.
+ *
+ * PR4 / Layer 2 (2026-05-14): widened from binary `fits | partial | does_not_fit`
+ * to a richer family-aware taxonomy.
+ *
+ * `partial` is retained as a legacy alias for `partial_family` so that stored
+ * traces from before this migration still deserialize cleanly. New picker
+ * output uses the richer set. Reconciliation and downstream code treat
+ * `partial` and `partial_family` identically.
+ *
+ *   fits             — leaf is the correct resolution; picker endorses it.
+ *   partial_family   — same heading/chapter as the item's family but the leaf
+ *                       is uncertain (description silent on a leaf-specialising
+ *                       attribute, OR the item is an accessory/related product
+ *                       under the same heading).
+ *   chapter_adjacent — different chapter but functionally related — same
+ *                       product family split across chapters by HS convention.
+ *                       Example: a baby cot (Ch 87 baby carriages or Ch 94
+ *                       furniture) marked `chapter_adjacent` when the picker
+ *                       sees one chapter's leaf and the merchant code points
+ *                       at the other.
+ *   does_not_fit     — unrelated; candidate should not be considered.
+ *   partial          — legacy alias for `partial_family`. Accepted on input,
+ *                       not emitted by new picker code.
+ */
+export type CandidateFitVerdict =
+  | 'fits'
+  | 'partial_family'
+  | 'chapter_adjacent'
+  | 'does_not_fit'
+  | 'partial';
+
+/**
+ * Map a legacy `partial` verdict to `partial_family` for downstream
+ * comparison. New consumers should treat both as the same signal.
+ */
+export function normalizeFitVerdict(fit: CandidateFitVerdict): Exclude<CandidateFitVerdict, 'partial'> {
+  if (fit === 'partial') return 'partial_family';
+  return fit;
+}
 
 /** Retrieval candidate annotated with a relevance verdict by the description classifier. */
 export interface AnnotatedCandidate {
