@@ -58,6 +58,18 @@ const EnvSchema = z
     LLM_TRANSIENT_RATE_WINDOW: z.coerce.number().int().positive().default(100),
 
     /**
+     * Gate for the pending_infra item status downgrade. Off by default
+     * until migration 0077 (which extends declaration_run_items_status_chk)
+     * has been applied. With this off, infra-degraded rows fall through
+     * to the natural status (succeeded/flagged/failed) — same behaviour
+     * as pre-PR 3. Flip to 'true' AFTER the migration runs.
+     */
+    PENDING_INFRA_ENABLED: z
+      .union([z.literal('true'), z.literal('false'), z.boolean()])
+      .transform((v) => v === true || v === 'true')
+      .default('false'),
+
+    /**
      * Submission-description cache toggle. Off by default — the (path_ar,
      * cleaned_norm) key collapsed too aggressively (two distinct products
      * sharing a chapter/leaf path got the same cached Arabic line). Re-enable

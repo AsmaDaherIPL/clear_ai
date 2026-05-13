@@ -51,10 +51,10 @@ function classifyOutcome(
   // unusable rejection, not an LLM-stage exhaustion.
   if (verdict === 'BLOCK') return 'blocked';
   if (finalCode === null) {
-    return infraDegraded ? 'pending_infra' : 'failed';
+    return infraDegraded && env().PENDING_INFRA_ENABLED ? 'pending_infra' : 'failed';
   }
   const natural: ClassificationOutcome = verdict === 'PASS' ? 'succeeded' : 'flagged';
-  return infraDegraded ? 'pending_infra' : natural;
+  return infraDegraded && env().PENDING_INFRA_ENABLED ? 'pending_infra' : natural;
 }
 
 /**
