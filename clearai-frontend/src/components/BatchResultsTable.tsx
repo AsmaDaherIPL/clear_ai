@@ -24,12 +24,6 @@ import { DataTable } from './DataTable';
 
 const ROW_HEIGHT = 90;
 
-const CLASSIFICATION_BADGE: Record<string, { cls: string; key: TKey }> = {
-  AGREEMENT:   { cls: 'bg-[oklch(0.90_0.06_160)] text-[oklch(0.32_0.10_160)]', key: 'classification_status_agreement' as TKey },
-  DRIFT:       { cls: 'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',  key: 'classification_status_drift' as TKey },
-  ZERO_SIGNAL: { cls: 'bg-[oklch(0.92_0.07_25)]  text-[oklch(0.40_0.12_25)]',  key: 'classification_status_zero_signal' as TKey },
-};
-
 const VERDICT_BADGE: Record<string, string> = {
   pass:    'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
   fail:    'bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]',
@@ -347,26 +341,6 @@ export default function BatchResultsTable({
       cell: ({ row }) => <CodeBreakdownCell item={row.original} />,
     },
     {
-      id: 'classification_status',
-      header: t('batch_col_classification_status' as TKey),
-      enableSorting: true,
-      accessorFn: (row) => row.classification_status ?? '',
-      size: 120,
-      minSize: 100,
-      maxSize: 180,
-      cell: ({ row }) => {
-        const status = row.original.classification_status;
-        const b = status ? CLASSIFICATION_BADGE[String(status)] : null;
-        return b ? (
-          <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em]', b.cls)}>
-            {t(b.key)}
-          </span>
-        ) : (
-          <span className="text-[var(--ink-3)] text-[12px]">—</span>
-        );
-      },
-    },
-    {
       id: 'submission_ar',
       header: t('batch_col_zatca_submission' as TKey),
       enableSorting: false,
@@ -450,8 +424,6 @@ export default function BatchResultsTable({
             </div>
           ))}
         </div>
-        {/* Classification status pill */}
-        <span className="h-4 w-16 bg-[var(--line-2)] animate-pulse rounded-full shrink-0" />
         {/* ZATCA submission */}
         <span className="h-3 w-[120px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
         {/* Verdict pill */}
@@ -462,11 +434,11 @@ export default function BatchResultsTable({
 
   return (
     <DataTable
-      // Bumped v1 → v3 to invalidate any persisted column prefs from
-      // before the default-hide policy below. New visitors get the
-      // verdict column hidden by default; returning visitors with stale
-      // v1 prefs would otherwise see the column visible.
-      tableId="batch-results-v3"
+      // Bumped to v4 because the classification_status column was fully
+      // removed in this iteration. Bumping the key invalidates any
+      // persisted column prefs that referenced the removed column, so
+      // returning users don't carry a phantom hidden slot.
+      tableId="batch-results-v4"
       // value_plausibility_verdict ships hidden by default — it's noisy
       // and most operators don't act on it. Power users can opt in via
       // the Columns dropdown in the footer. Once they toggle it, the
