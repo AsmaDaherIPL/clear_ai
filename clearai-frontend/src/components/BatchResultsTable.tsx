@@ -30,56 +30,12 @@ const CLASSIFICATION_BADGE: Record<string, { cls: string; key: TKey }> = {
   ZERO_SIGNAL: { cls: 'bg-[oklch(0.92_0.07_25)]  text-[oklch(0.40_0.12_25)]',  key: 'classification_status_zero_signal' as TKey },
 };
 
-const VERDICT_BADGE: Record<string, string> = {
-  pass:    'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
-  fail:    'bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]',
-  warn:    'bg-[oklch(0.93_0.10_60)] text-[oklch(0.40_0.15_60)]',
-  skipped: 'bg-[var(--line-2)] text-[var(--ink-3)]',
-  unknown: 'bg-[var(--line-2)] text-[var(--ink-3)]',
-};
-
 function clampChars(text: string, max: number): string {
   if (text.length <= max) return text;
   const slice = text.slice(0, max);
   const lastSpace = slice.lastIndexOf(' ');
   const cut = lastSpace > max * 0.6 ? slice.slice(0, lastSpace) : slice;
   return `${cut.trimEnd()}…`;
-}
-
-/**
- * Read the sanity verdict off the item's classification_result blob.
- * Accepts three backend shapes so future schema changes don't silently
- * break the column:
- *   1. classification_result.sanity_verdict  (current dispatch shape)
- *   2. classification_result.verdict          (flat alias)
- *   3. classification_result.sanity.verdict   (nested form)
- */
-function readVerdict(item: DeclarationRunItem): string | null {
-  const cr = item.classification_result;
-  if (!cr || typeof cr !== 'object') return null;
-
-  const topSanity = (cr as { sanity_verdict?: unknown }).sanity_verdict;
-  if (typeof topSanity === 'string' && topSanity.length > 0) return topSanity;
-
-  const topVerdict = (cr as { verdict?: unknown }).verdict;
-  if (typeof topVerdict === 'string' && topVerdict.length > 0) return topVerdict;
-
-  const sanity = (cr as { sanity?: unknown }).sanity;
-  if (sanity && typeof sanity === 'object') {
-    const v = (sanity as { verdict?: unknown }).verdict;
-    if (typeof v === 'string' && v.length > 0) return v;
-  }
-
-  return null;
-}
-
-function normaliseVerdict(raw: string): 'pass' | 'fail' | 'warn' | 'skipped' | 'unknown' {
-  const lc = raw.toLowerCase();
-  if (lc === 'pass') return 'pass';
-  if (lc === 'fail' || lc === 'block') return 'fail';
-  if (lc === 'warn' || lc === 'flag') return 'warn';
-  if (lc === 'skipped' || lc === 'skip') return 'skipped';
-  return 'unknown';
 }
 
 interface BuildBreakdownRow {
@@ -388,40 +344,6 @@ export default function BatchResultsTable({
         );
       },
     },
-    {
-      id: 'value_plausibility_verdict',
-      header: t('batch_col_value_plausibility_verdict' as TKey),
-      enableSorting: true,
-      accessorFn: (row) => {
-        const raw = readVerdict(row);
-        return raw ? normaliseVerdict(raw) : '';
-      },
-      size: 130,
-      minSize: 100,
-      maxSize: 200,
-      filterFn: (row, _id, value) => {
-        const raw = readVerdict(row.original);
-        if (!raw) return false;
-        return normaliseVerdict(raw) === value;
-      },
-      cell: ({ row }) => {
-        const raw = readVerdict(row.original);
-        if (!raw) return <span className="text-[var(--ink-3)] text-[12px]">—</span>;
-        const bucket = normaliseVerdict(raw);
-        const cls = VERDICT_BADGE[bucket] ?? VERDICT_BADGE.unknown;
-        const label =
-          bucket === 'pass'    ? t('batch_verdict_pass' as TKey) :
-          bucket === 'fail'    ? t('batch_verdict_fail' as TKey) :
-          bucket === 'warn'    ? t('batch_verdict_warn' as TKey) :
-          bucket === 'skipped' ? t('batch_verdict_skipped' as TKey) :
-                                 raw;
-        return (
-          <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em]', cls)}>
-            {label}
-          </span>
-        );
-      },
-    },
   ], [t]);
 
   // Skeleton row spans full colSpan so it is unaffected by column resizing.
@@ -454,15 +376,17 @@ export default function BatchResultsTable({
         <span className="h-4 w-16 bg-[var(--line-2)] animate-pulse rounded-full shrink-0" />
         {/* ZATCA submission */}
         <span className="h-3 w-[120px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
-        {/* Verdict pill */}
-        <span className="h-4 w-14 bg-[var(--line-2)] animate-pulse rounded-full shrink-0" />
       </div>
     );
   }, []);
 
   return (
     <DataTable
-      tableId="batch-results-v1"
+      // Bumped from v1 → v2 to invalidate persisted localStorage column
+      // prefs from before the verdict column was removed. Without this,
+      // operators who'd hidden a column would carry a "ghost" hidden slot
+      // for the removed verdict column forever.
+      tableId="batch-results-v2"
       data={items}
       columns={columns}
       estimatedRowHeight={ROW_HEIGHT}
@@ -470,16 +394,6 @@ export default function BatchResultsTable({
       renderSkeletonRow={renderSkeletonRow}
       enableGlobalSearch
       searchPlaceholder={t('batch_search_placeholder' as TKey)}
-      filterChips={{
-        columnId: 'value_plausibility_verdict',
-        label: t('batch_filter_verdict_label' as TKey),
-        options: [
-          { label: t('batch_filter_verdict_all' as TKey) },
-          { label: t('batch_filter_verdict_pass' as TKey), value: 'pass' },
-          { label: t('batch_filter_verdict_fail' as TKey), value: 'fail' },
-          { label: t('batch_filter_verdict_warn' as TKey), value: 'warn' },
-        ],
-      }}
       emptyState={t('batch_empty_state' as TKey)}
       className={className}
     />
