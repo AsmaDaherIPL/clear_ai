@@ -1,16 +1,11 @@
 /**
  * Verifies llmClassify behavior under operational LLM failures.
  *
- * PR I (2026-05-10): adds a retry-once policy on three picker failure modes —
- *   - empty_text     (status=ok with no body — provider hiccup)
- *   - parse_failed   (LLM returned non-JSON)
- *   - empty_verdicts (valid JSON, but no verdicts — observed in 2026-05-10
- *                     reproducibility runs as 1-of-3 variance)
- *
- * Each "first attempt fails / retry succeeds" case is pinned with two mocks.
- * "Both attempts fail" cases use two failing mocks. Hard llm_failed (HTTP
- * 4xx/5xx that callLlmWithRetry already escalated) is NOT retried at this
- * layer — the circuit breaker handles those at dispatch entry.
+ * Parse-class retries are governed by getLlmStagePolicy('picker'): up to 3
+ * attempts on empty_text / parse_failed / empty_verdicts, same prompt each
+ * time, bounded by totalBudgetMs. Hard llm_failed (HTTP 4xx/5xx that
+ * callLlmWithRetry already escalated) is NOT retried here — the circuit
+ * breaker handles those at dispatch entry.
  *
  * We don't test against real Foundry — we mock the LLM client.
  */
@@ -136,52 +131,46 @@ describe('llmClassify — retry recovery', () => {
   });
 });
 
-describe('llmClassify — when both attempts fail', () => {
-  it('escalates status=ok with text=null to llmStatus=error after retry also returns empty', async () => {
+describe('llmClassify — when all attempts fail', () => {
+  it('escalates status=ok with text=null to llmStatus=error after all attempts return empty', async () => {
+    const emptyTextResult = {
+      status: 'ok' as const,
+      text: null,
+      raw: { content: [] },
+      latencyMs: 12,
+      model: 'mock-haiku',
+    };
     vi.mocked(callLlmWithRetry)
-      .mockResolvedValueOnce({
-        status: 'ok',
-        text: null,
-        raw: { content: [] },
-        latencyMs: 12,
-        model: 'mock-haiku',
-      })
-      .mockResolvedValueOnce({
-        status: 'ok',
-        text: null,
-        raw: { content: [] },
-        latencyMs: 14,
-        model: 'mock-haiku',
-      });
+      .mockResolvedValueOnce(emptyTextResult)
+      .mockResolvedValueOnce(emptyTextResult)
+      .mockResolvedValueOnce(emptyTextResult);
     const r = await llmClassify({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('error');
     expect(r.verdicts).toEqual([]);
     expect(r.rawError).toMatch(/no text block/i);
-    expect(vi.mocked(callLlmWithRetry)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(callLlmWithRetry)).toHaveBeenCalledTimes(3);
+    expect(r.attempts).toBe(3);
   });
 
-  it('escalates status=ok with text="" to llmStatus=error after retry also returns empty', async () => {
+  it('escalates status=ok with text="" to llmStatus=error after all attempts return empty', async () => {
+    const emptyStringResult = {
+      status: 'ok' as const,
+      text: '',
+      raw: { content: [{ type: 'text', text: '' }] },
+      latencyMs: 8,
+      model: 'mock-haiku',
+    };
     vi.mocked(callLlmWithRetry)
-      .mockResolvedValueOnce({
-        status: 'ok',
-        text: '',
-        raw: { content: [{ type: 'text', text: '' }] },
-        latencyMs: 8,
-        model: 'mock-haiku',
-      })
-      .mockResolvedValueOnce({
-        status: 'ok',
-        text: '',
-        raw: { content: [{ type: 'text', text: '' }] },
-        latencyMs: 9,
-        model: 'mock-haiku',
-      });
+      .mockResolvedValueOnce(emptyStringResult)
+      .mockResolvedValueOnce(emptyStringResult)
+      .mockResolvedValueOnce(emptyStringResult);
     const r = await llmClassify({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('error');
-    expect(vi.mocked(callLlmWithRetry)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(callLlmWithRetry)).toHaveBeenCalledTimes(3);
+    expect(r.attempts).toBe(3);
   });
 
-  it('returns parse_failed when both attempts fail to produce valid JSON', async () => {
+  it('returns parse_failed when all attempts fail to produce valid JSON', async () => {
     vi.mocked(callLlmWithRetry)
       .mockResolvedValueOnce({
         status: 'ok',
@@ -196,35 +185,40 @@ describe('llmClassify — when both attempts fail', () => {
         raw: {},
         latencyMs: 14,
         model: 'mock-haiku',
-      });
-    const r = await llmClassify({ kind: 'describe', query: 'horse', candidates });
-    expect(r.llmStatus).toBe('ok');
-    expect(r.parseFailed).toBe(true);
-    expect(r.verdicts).toEqual([]);
-    expect(vi.mocked(callLlmWithRetry)).toHaveBeenCalledTimes(2);
-  });
-
-  it('returns empty verdicts when both attempts produce empty verdicts arrays', async () => {
-    vi.mocked(callLlmWithRetry)
-      .mockResolvedValueOnce({
-        status: 'ok',
-        text: '```json\n{"verdicts":[],"missing_attributes":[]}\n```',
-        raw: {},
-        latencyMs: 12,
-        model: 'mock-haiku',
       })
       .mockResolvedValueOnce({
         status: 'ok',
-        text: '```json\n{"verdicts":[],"missing_attributes":[]}\n```',
+        text: 'still garbage v3',
         raw: {},
         latencyMs: 14,
         model: 'mock-haiku',
       });
     const r = await llmClassify({ kind: 'describe', query: 'horse', candidates });
     expect(r.llmStatus).toBe('ok');
+    expect(r.parseFailed).toBe(true);
+    expect(r.verdicts).toEqual([]);
+    expect(vi.mocked(callLlmWithRetry)).toHaveBeenCalledTimes(3);
+    expect(r.attempts).toBe(3);
+  });
+
+  it('returns empty verdicts when all attempts produce empty verdicts arrays', async () => {
+    const emptyVerdictsResult = {
+      status: 'ok' as const,
+      text: '```json\n{"verdicts":[],"missing_attributes":[]}\n```',
+      raw: {},
+      latencyMs: 12,
+      model: 'mock-haiku',
+    };
+    vi.mocked(callLlmWithRetry)
+      .mockResolvedValueOnce(emptyVerdictsResult)
+      .mockResolvedValueOnce(emptyVerdictsResult)
+      .mockResolvedValueOnce(emptyVerdictsResult);
+    const r = await llmClassify({ kind: 'describe', query: 'horse', candidates });
+    expect(r.llmStatus).toBe('ok');
     expect(r.parseFailed).toBe(false);
     expect(r.verdicts).toEqual([]);
-    expect(vi.mocked(callLlmWithRetry)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(callLlmWithRetry)).toHaveBeenCalledTimes(3);
+    expect(r.attempts).toBe(3);
   });
 });
 

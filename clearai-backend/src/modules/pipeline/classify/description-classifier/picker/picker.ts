@@ -7,6 +7,10 @@ export interface PickerOutput {
   annotated_candidates: AnnotatedCandidate[];
   no_fit: boolean;
   latency_ms: number;
+  /** Total picker LLM attempts (>=1). */
+  attempts: number;
+  /** Per-retry reasons recorded by the policy-driven retry loop. */
+  retried_reasons: string[];
   /**
    * Forensic detail: which candidates the deterministic chapter-coherence
    * filter dropped before the LLM ran, and which chapters were inferred
@@ -43,6 +47,7 @@ export async function runPicker(
     kind: 'describe',
     query: effective_description,
     candidates: filtered,
+    stage: 'picker',
   });
 
   if (result.llmStatus !== 'ok' || result.parseFailed) {
@@ -50,6 +55,8 @@ export async function runPicker(
       annotated_candidates: [],
       no_fit: true,
       latency_ms: Date.now() - start,
+      attempts: result.attempts,
+      retried_reasons: result.retriedReasons,
       prefilter,
     };
   }
@@ -89,6 +96,8 @@ export async function runPicker(
     annotated_candidates: annotated,
     no_fit,
     latency_ms: Date.now() - start,
+    attempts: result.attempts,
+    retried_reasons: result.retriedReasons,
     prefilter,
   };
 }

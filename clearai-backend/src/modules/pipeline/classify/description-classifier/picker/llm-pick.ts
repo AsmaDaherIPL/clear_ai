@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { callLlmWithRetry, type LlmCallResult, type LlmStatus } from '../../../../../inference/llm/client.js';
 import { extractJson } from '../../../../../inference/llm/parse-json.js';
 import { loadPrompt } from '../../../../../inference/llm/structured-call.js';
+import { getLlmStagePolicy, type LlmStage } from '../../../../../inference/llm/policy.js';
 import type { Candidate } from '../../../../../inference/retrieval/retrieve.js';
 import type { MissingAttribute } from '../../../shared/domain.types.js';
 import type { CandidateFitVerdict } from '../../../shared/pipeline.types.js';
@@ -15,6 +16,7 @@ export interface CandidateVerdict {
 export interface LlmClassifyResult {
   llmStatus: LlmStatus;
   llmModel: string;
+  /** Wall-clock latency across every parse-retry attempt. */
   latencyMs: number;
   parseFailed: boolean;
   /** Per-candidate verdicts. Empty on parse failure or LLM error. */
@@ -22,6 +24,10 @@ export interface LlmClassifyResult {
   missingAttributes: MissingAttribute[];
   rawText: string | null;
   rawError?: string;
+  /** Total attempts including the first call (>=1). */
+  attempts: number;
+  /** Reason recorded for each attempt that triggered a parse retry. */
+  retriedReasons: string[];
 }
 
 const MISSING_ENUM = new Set<MissingAttribute>([
@@ -64,104 +70,78 @@ export function buildUser(
   return `${parentLine}User description:\n${query}\n\nCandidates:\n${lines.join('\n\n')}\n\nReturn JSON only.`;
 }
 
-/**
- * One full call+parse cycle: LLM call → text extraction → schema parse →
- * verdict validation. Returns either a usable result or one of three
- * "unusable" sentinels (`llm_failed` | `empty_text` | `parse_failed`)
- * the outer retry loop uses to decide whether to try again.
- *
- * Hard-failure classes (HTTP 401/403/404, schema-invalid responses) and
- * empty-verdicts results are both common picker failure modes that are
- * retryable — same prompt, same input, often gets a real response on
- * second attempt. The outer retry runs at most once.
- */
+type AttemptKind = 'ok' | 'llm_failed' | 'empty_text' | 'parse_failed' | 'empty_verdicts';
+
+interface AttemptOutcome {
+  kind: AttemptKind;
+  llmResult: LlmCallResult;
+  rawVerdicts: unknown[];
+  rawMissing: unknown[];
+  parseFailed: boolean;
+}
+
 async function attemptClassify(params: {
   system: string;
   user: string;
   model?: string;
-}): Promise<
-  | { kind: 'ok'; result: LlmClassifyResult }
-  | { kind: 'llm_failed'; result: LlmClassifyResult }
-  | { kind: 'empty_text'; result: LlmClassifyResult }
-  | { kind: 'parse_failed'; result: LlmClassifyResult }
-  | { kind: 'empty_verdicts'; result: LlmClassifyResult }
-> {
+  timeoutMs: number;
+}): Promise<AttemptOutcome> {
   const llmResult: LlmCallResult = await callLlmWithRetry({
     system: params.system,
     user: params.user,
     ...(params.model ? { model: params.model } : {}),
     maxTokens: 1500,
     temperature: 0,
+    timeoutMs: params.timeoutMs,
   });
 
   const isEmptyOk = llmResult.status === 'ok' && !llmResult.text;
   if (llmResult.status !== 'ok' || isEmptyOk) {
-    const result: LlmClassifyResult = {
-      llmStatus: isEmptyOk ? 'error' : llmResult.status,
-      llmModel: llmResult.model,
-      latencyMs: llmResult.latencyMs,
+    return {
+      kind: isEmptyOk ? 'empty_text' : 'llm_failed',
+      llmResult,
+      rawVerdicts: [],
+      rawMissing: [],
       parseFailed: false,
-      verdicts: [],
-      missingAttributes: [],
-      rawText: null,
-      ...(isEmptyOk
-        ? { rawError: 'provider returned status=ok with no text block' }
-        : llmResult.error
-          ? { rawError: llmResult.error }
-          : {}),
     };
-    return { kind: isEmptyOk ? 'empty_text' : 'llm_failed', result };
   }
 
-  const text = llmResult.text!;
-  const extract = extractJson(text, ParsedClassifierSchema);
+  const extract = extractJson(llmResult.text!, ParsedClassifierSchema);
   if (!extract.ok) {
     return {
       kind: 'parse_failed',
-      result: {
-        llmStatus: 'ok',
-        llmModel: llmResult.model,
-        latencyMs: llmResult.latencyMs,
-        parseFailed: true,
-        verdicts: [],
-        missingAttributes: [],
-        rawText: llmResult.text,
-      },
+      llmResult,
+      rawVerdicts: [],
+      rawMissing: [],
+      parseFailed: true,
     };
   }
 
-  // The redacted-call cache (test mocks etc) sometimes returns the LlmCallResult
-  // shape but without a body that has structured-call's runtime stats. Defensive.
-  return validateAndShape(llmResult, extract.data);
+  const rawVerdicts = Array.isArray(extract.data.verdicts) ? extract.data.verdicts : [];
+  const rawMissing = Array.isArray(extract.data.missing_attributes)
+    ? extract.data.missing_attributes
+    : [];
+  return {
+    kind: rawVerdicts.length === 0 ? 'empty_verdicts' : 'ok',
+    llmResult,
+    rawVerdicts,
+    rawMissing,
+    parseFailed: false,
+  };
 }
 
-function validateAndShape(
-  llmResult: LlmCallResult,
-  parsed: { verdicts?: unknown; missing_attributes?: unknown },
-): { kind: 'ok' | 'empty_verdicts'; result: LlmClassifyResult } {
-  // Note: callers don't have direct access to the candidate set here;
-  // the outer llmClassify passes it in via closure. We accept whatever
-  // verdicts the LLM produced and let the closure-scoped validCodes
-  // filter happen in the outer function below.
-  const rawVerdicts = Array.isArray(parsed.verdicts) ? parsed.verdicts : [];
-  const result: LlmClassifyResult = {
-    llmStatus: 'ok',
-    llmModel: llmResult.model,
-    latencyMs: llmResult.latencyMs,
-    parseFailed: false,
-    verdicts: [], // populated by outer caller after candidate-set filter
-    missingAttributes: [],
-    rawText: llmResult.text,
-  };
-  // Stash raw verdicts on the result so the outer caller can filter them.
-  // We use a non-typed extra field via assignment (LlmClassifyResult is open).
-  (result as unknown as { _rawVerdicts: unknown[] })._rawVerdicts = rawVerdicts;
-  (result as unknown as { _rawMissing: unknown[] })._rawMissing = Array.isArray(
-    parsed.missing_attributes,
-  )
-    ? parsed.missing_attributes
-    : [];
-  return { kind: rawVerdicts.length === 0 ? 'empty_verdicts' : 'ok', result };
+/** Map an unsuccessful attempt to the reason recorded on retry. */
+function reasonForRetry(kind: AttemptKind): string | null {
+  switch (kind) {
+    case 'parse_failed':
+      return 'llm_unparseable';
+    case 'empty_text':
+      return 'empty_text';
+    case 'empty_verdicts':
+      return 'empty_verdicts';
+    default:
+      return null;
+  }
 }
 
 export async function llmClassify(params: {
@@ -170,7 +150,15 @@ export async function llmClassify(params: {
   candidates: Candidate[];
   parentPrefix?: string;
   model?: string;
+  /**
+   * Stage policy to apply. Defaults to 'picker' for the Track A entry path;
+   * the code-resolver-internal picker call passes 'code_resolver' so its
+   * retry/budget profile matches the resolver semantics.
+   */
+  stage?: LlmStage;
 }): Promise<LlmClassifyResult> {
+  const stage: LlmStage = params.stage ?? 'picker';
+  const policy = getLlmStagePolicy(stage);
   const pickerFile = params.kind === 'describe' ? 'picker-describe.md' : 'picker-expand.md';
   const [gir, picker] = await Promise.all([
     loadPrompt('gir-system.md'),
@@ -180,48 +168,120 @@ export async function llmClassify(params: {
   const user = buildUser(params.query, params.candidates, params.parentPrefix);
   const validCodes = new Set(params.candidates.map((c) => c.code));
 
-  // Retry-once policy. We retry on three recoverable picker failure modes:
-  //   - empty_text     (status=ok with no body — provider hiccup)
-  //   - parse_failed   (LLM returned non-JSON — usually a once-off)
-  //   - empty_verdicts (LLM returned valid JSON but with no verdicts —
-  //                     observed in 1-of-3 reproducibility runs at the
-  //                     same input; same prompt + temperature 0 typically
-  //                     produces real verdicts on retry)
-  // Hard llm_failed (401/403/404) is NOT retried at this layer — the
-  // circuit breaker (PR C) handles those at the dispatch entry point.
-  let attempt = await attemptClassify({ system, user, ...(params.model ? { model: params.model } : {}) });
-  if (
-    attempt.kind === 'empty_text' ||
-    attempt.kind === 'parse_failed' ||
-    attempt.kind === 'empty_verdicts'
-  ) {
+  const startedAt = Date.now();
+  const retriedReasons: string[] = [];
+  let attempts = 0;
+  let totalLatencyMs = 0;
+  let best: AttemptOutcome | null = null;
+
+  while (attempts < policy.maxAttempts) {
+    if (attempts > 0 && Date.now() - startedAt >= policy.totalBudgetMs) break;
+    attempts += 1;
+    const outcome = await attemptClassify({
+      system,
+      user,
+      ...(params.model ? { model: params.model } : {}),
+      timeoutMs: policy.timeoutMs,
+    });
+    totalLatencyMs += outcome.llmResult.latencyMs;
+
+    // Hard transport failure: callLlmWithRetry already exhausted its transient
+    // retries; the breaker handles auth-class outcomes. Stop here.
+    if (outcome.kind === 'llm_failed') {
+      best = outcome;
+      break;
+    }
+
+    // First clean parse with verdicts: done.
+    if (outcome.kind === 'ok') {
+      best = outcome;
+      break;
+    }
+
+    // Keep the most recent outcome as the fallback if we exhaust attempts.
+    best = pickBetter(best, outcome);
+
+    // empty_text / parse_failed / empty_verdicts are all parse-class failures
+    // under this policy — same prompt next attempt rides out the glitch.
+    if (!policy.retryOnParseFailure || attempts >= policy.maxAttempts) break;
+    const reason = reasonForRetry(outcome.kind);
+    if (reason) retriedReasons.push(reason);
     // eslint-disable-next-line no-console
     console.warn(
-      `[picker] ${attempt.kind} on first attempt; retrying once. model=${attempt.result.llmModel} kind=${params.kind}`,
+      `[picker] ${outcome.kind} on attempt ${attempts}; retrying (max=${policy.maxAttempts}). model=${outcome.llmResult.model} kind=${params.kind} stage=${stage}`,
     );
-    const retry = await attemptClassify({ system, user, ...(params.model ? { model: params.model } : {}) });
-    // Take the retry result if it's better; otherwise keep the first attempt.
-    if (retry.kind === 'ok') {
-      attempt = retry;
-    } else if (attempt.kind === 'empty_verdicts' && retry.kind !== 'empty_verdicts') {
-      // Even a parse_failed retry is no better than empty_verdicts on the
-      // first attempt — keep the first.
-    } else if (retry.kind === 'empty_verdicts' || retry.kind === 'parse_failed' || retry.kind === 'empty_text') {
-      // Both attempts failed in similar ways — keep whichever has more
-      // signal (the second is at least as recent).
-      attempt = retry;
-    }
   }
 
-  if (attempt.kind === 'llm_failed' || attempt.kind === 'empty_text' || attempt.kind === 'parse_failed') {
-    return attempt.result;
+  // best is non-null because the loop runs at least once.
+  const finalOutcome = best!;
+  return shapeResult({
+    outcome: finalOutcome,
+    validCodes,
+    attempts,
+    retriedReasons,
+    totalLatencyMs,
+  });
+}
+
+/** Prefer ok > empty_verdicts > parse_failed > empty_text > llm_failed. */
+function pickBetter(a: AttemptOutcome | null, b: AttemptOutcome): AttemptOutcome {
+  if (!a) return b;
+  const rank: Record<AttemptKind, number> = {
+    ok: 5,
+    empty_verdicts: 4,
+    parse_failed: 3,
+    empty_text: 2,
+    llm_failed: 1,
+  };
+  return rank[b.kind] >= rank[a.kind] ? b : a;
+}
+
+function shapeResult(args: {
+  outcome: AttemptOutcome;
+  validCodes: Set<string>;
+  attempts: number;
+  retriedReasons: string[];
+  totalLatencyMs: number;
+}): LlmClassifyResult {
+  const { outcome, validCodes, attempts, retriedReasons, totalLatencyMs } = args;
+  const llmResult = outcome.llmResult;
+  const isEmptyOk = llmResult.status === 'ok' && !llmResult.text;
+
+  if (outcome.kind === 'llm_failed' || outcome.kind === 'empty_text') {
+    return {
+      llmStatus: isEmptyOk ? 'error' : llmResult.status,
+      llmModel: llmResult.model,
+      latencyMs: totalLatencyMs,
+      parseFailed: false,
+      verdicts: [],
+      missingAttributes: [],
+      rawText: null,
+      ...(isEmptyOk
+        ? { rawError: 'provider returned status=ok with no text block' }
+        : llmResult.error
+          ? { rawError: llmResult.error }
+          : {}),
+      attempts,
+      retriedReasons,
+    };
   }
 
-  // attempt.kind is 'ok' or 'empty_verdicts' — both have raw verdicts on the result.
-  const rawVerdicts = (attempt.result as unknown as { _rawVerdicts?: unknown[] })._rawVerdicts ?? [];
-  const rawMissing = (attempt.result as unknown as { _rawMissing?: unknown[] })._rawMissing ?? [];
+  if (outcome.kind === 'parse_failed') {
+    return {
+      llmStatus: 'ok',
+      llmModel: llmResult.model,
+      latencyMs: totalLatencyMs,
+      parseFailed: true,
+      verdicts: [],
+      missingAttributes: [],
+      rawText: llmResult.text,
+      attempts,
+      retriedReasons,
+    };
+  }
 
-  const verdicts: CandidateVerdict[] = rawVerdicts
+  // ok or empty_verdicts: filter raw verdicts against the candidate set.
+  const verdicts: CandidateVerdict[] = outcome.rawVerdicts
     .filter(
       (v): v is { code: string; fit: string; rationale: string } =>
         v != null &&
@@ -238,21 +298,20 @@ export async function llmClassify(params: {
       rationale: v.rationale.slice(0, 200),
     }));
 
-  const missingAttributes = rawMissing.filter(
+  const missingAttributes = outcome.rawMissing.filter(
     (x): x is MissingAttribute => typeof x === 'string' && MISSING_ENUM.has(x as MissingAttribute),
   );
 
-  // Strip the closure-internal fields before returning to caller.
-  const { _rawVerdicts, _rawMissing, ...cleanResult } = attempt.result as unknown as LlmClassifyResult & {
-    _rawVerdicts?: unknown[];
-    _rawMissing?: unknown[];
-  };
-  void _rawVerdicts;
-  void _rawMissing;
   return {
-    ...cleanResult,
+    llmStatus: 'ok',
+    llmModel: llmResult.model,
+    latencyMs: totalLatencyMs,
+    parseFailed: false,
     verdicts,
     missingAttributes,
+    rawText: llmResult.text,
+    attempts,
+    retriedReasons,
   };
 }
 

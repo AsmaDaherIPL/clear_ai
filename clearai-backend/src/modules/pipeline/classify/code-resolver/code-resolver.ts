@@ -177,7 +177,7 @@ async function resolveAgainstCodebook(
         i,
       ),
     );
-    const classify = await llmClassify({ kind: 'describe', query: cleaned_description, candidates });
+    const classify = await llmClassify({ kind: 'describe', query: cleaned_description, candidates, stage: 'code_resolver' });
     const topFit = classify.verdicts.find((v) => v.fit === 'fits') ?? classify.verdicts.find((v) => v.fit === 'partial');
 
     if (classify.llmStatus === 'ok' && !classify.parseFailed && topFit) {
@@ -233,7 +233,7 @@ async function resolveAgainstCodebook(
   }
 
   const candidates = children.slice(0, 20).map((r, i) => rowToCandidate(r, i));
-  const classify = await llmClassify({ kind: 'expand', query: cleaned_description, candidates, parentPrefix: matched_prefix });
+  const classify = await llmClassify({ kind: 'expand', query: cleaned_description, candidates, parentPrefix: matched_prefix, stage: 'code_resolver' });
   const topFit =
     classify.verdicts.find((v) => v.fit === 'fits') ?? classify.verdicts.find((v) => v.fit === 'partial');
 
@@ -329,6 +329,7 @@ async function computeSubtreeConsistency(
     query: cleaned_description,
     candidates: anchored,
     parentPrefix: validPrefix,
+    stage: 'code_resolver',
   });
 
   // Merge verdicts back onto candidates (preserving rrf_score), in retrieval order.

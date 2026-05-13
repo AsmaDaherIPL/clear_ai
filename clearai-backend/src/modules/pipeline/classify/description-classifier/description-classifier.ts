@@ -249,6 +249,8 @@ export async function runDescriptionClassifier(
       annotated_count: picker.annotated_candidates.length,
       fits_count: picker.annotated_candidates.filter((a) => a.fit === 'fits').length,
       no_fit: picker.no_fit,
+      attempts: picker.attempts,
+      ...(picker.attempts > 1 ? { retried_reasons: picker.retried_reasons } : {}),
     },
   });
 
