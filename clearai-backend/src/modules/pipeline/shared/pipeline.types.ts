@@ -55,6 +55,10 @@ export interface CleanupResult {
    * tariff English natively. See description-cleanup.md prompt.
    */
   tariff_expansion_en: string;
+  /** Total LLM attempts including the first call. 0 when short-circuited. */
+  attempts: number;
+  /** Reason recorded for each attempt that triggered a parse retry. */
+  retried_reasons: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +87,10 @@ export interface DescriptionClassifierResearchDetail {
   evidence_quote: string | null;
   model: string | null;
   latency_ms: number;
+  /** Total attempts including the first call (>=1). */
+  attempts: number;
+  /** Reason recorded for each attempt that triggered a parse retry. */
+  retried_reasons?: string[];
 }
 
 export interface DescriptionClassifierResult {
@@ -352,6 +360,16 @@ export interface SanityResult {
   verdict: SanityLlmVerdict;
   rationale: string;
   latency_ms: number;
+  /**
+   * True when the sanity LLM exhausted retries and the stage degraded to PASS
+   * rather than recording an actual plausibility judgement. Operators see
+   * this in trace meta to distinguish a real PASS from a sanity-skipped row.
+   */
+  degraded?: boolean;
+  /** Total LLM attempts including the first call (>=1). Omitted on skip. */
+  attempts?: number;
+  /** Reason recorded for each attempt that triggered a parse retry. */
+  retried_reasons?: string[];
 }
 
 // ---------------------------------------------------------------------------

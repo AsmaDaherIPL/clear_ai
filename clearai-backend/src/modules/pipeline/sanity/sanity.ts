@@ -22,13 +22,14 @@
  * prices in normal retail bands are PASS; only ~10x mismatches FLAG.
  * False positives waste reviewer time and desensitise the queue.
  *
- * Never throws — degrades to FLAG on LLM failure so HITL still sees the
- * item rather than silently passing on infra error. (FLAG-on-failure is
- * a structural fallback, not a content judgement; it doesn't conflict
- * with the prompt's PASS bias on real LLM responses.)
+ * Failure mode: never throws. On exhaustion of retries, degrades to PASS
+ * with `degraded: true` rather than FLAG. FLAG-on-failure produced false-
+ * positive HITL queue entries every time Foundry hiccuped; the verdict
+ * should reflect plausibility of the value, not the health of the LLM.
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
+import { getLlmStagePolicy } from '../../../inference/llm/policy.js';
 import { env } from '../../../config/env.js';
 import type { SanityResult } from '../shared/pipeline.types.js';
 
@@ -54,6 +55,7 @@ export async function runSanity(params: {
 }): Promise<SanityResult> {
   const start = Date.now();
   const model = env().LLM_MODEL;
+  const policy = getLlmStagePolicy('sanity');
 
   const user = JSON.stringify({
     final_code: params.final_code,
@@ -70,14 +72,30 @@ export async function runSanity(params: {
     stage: 'sanity',
     model,
     maxTokens: 256,
-    timeoutMs: 12_000,
+    timeoutMs: policy.timeoutMs,
+    parseRetryPolicy: {
+      enabled: policy.retryOnParseFailure,
+      maxAttempts: policy.maxAttempts,
+      totalBudgetMs: policy.totalBudgetMs,
+    },
   });
 
   const latency_ms = Date.now() - start;
+  const attempts = outcome.trace.attempts;
+  const retried_reasons = outcome.trace.retried_reasons;
 
   if (outcome.kind !== 'ok') {
-    // Degrade to FLAG — don't pass-through on infra failure. HITL will review.
-    return { verdict: 'FLAG', rationale: `sanity LLM failed: ${outcome.kind}`, latency_ms };
+    // graceful_degrade: default to PASS rather than FLAG. A failing LLM is
+    // not evidence of an implausible value, so we should not punish the
+    // merchant for our infra. Operators see degraded=true in the trace.
+    return {
+      verdict: 'PASS',
+      rationale: 'sanity check skipped: LLM unavailable',
+      latency_ms,
+      degraded: true,
+      attempts,
+      ...(retried_reasons && retried_reasons.length > 0 ? { retried_reasons } : {}),
+    };
   }
 
   const d = outcome.data;
@@ -86,5 +104,11 @@ export async function runSanity(params: {
   const verdict: 'PASS' | 'FLAG' = d.verdict === 'PASS' ? 'PASS' : 'FLAG';
   const rationale = typeof d.rationale === 'string' ? d.rationale : '';
 
-  return { verdict, rationale, latency_ms };
+  return {
+    verdict,
+    rationale,
+    latency_ms,
+    attempts,
+    ...(retried_reasons && retried_reasons.length > 0 ? { retried_reasons } : {}),
+  };
 }

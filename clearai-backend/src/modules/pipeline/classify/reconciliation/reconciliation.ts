@@ -24,6 +24,7 @@
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../../inference/llm/structured-call.js';
+import { getLlmStagePolicy } from '../../../../inference/llm/policy.js';
 import { env } from '../../../../config/env.js';
 import { classifyConflict } from './conflict-type.js';
 import type {
@@ -66,9 +67,13 @@ async function callReconciliationLlmForDrift(params: {
   cleaned_description: string;
   trackA: DescriptionClassifierResult;
   trackB: CodeResolverResult;
-}): Promise<VerdictResult | { kind: 'escalate'; reason: string }> {
+}): Promise<
+  | (VerdictResult & { attempts: number; retried_reasons: string[] })
+  | { kind: 'escalate'; reason: string; attempts: number; retried_reasons: string[] }
+> {
   const { cleaned_description, trackA, trackB } = params;
   const model = env().LLM_MODEL_STRONG;
+  const policy = getLlmStagePolicy('reconciliation');
 
   const user = JSON.stringify({
     cleaned_description,
@@ -95,8 +100,16 @@ async function callReconciliationLlmForDrift(params: {
     stage: 'reconciliation',
     model,
     maxTokens: 512,
-    timeoutMs: 15_000,
+    timeoutMs: policy.timeoutMs,
+    parseRetryPolicy: {
+      enabled: policy.retryOnParseFailure,
+      maxAttempts: policy.maxAttempts,
+      totalBudgetMs: policy.totalBudgetMs,
+    },
   });
+
+  const attempts = outcome.trace.attempts;
+  const retried_reasons = outcome.trace.retried_reasons ?? [];
 
   if (outcome.kind !== 'ok') {
     // LLM failure during DRIFT. If the resolver is override-curated, prefer
@@ -111,9 +124,16 @@ async function callReconciliationLlmForDrift(params: {
         source: 'code_resolver',
         classification_status: 'DRIFT',
         conflict_type: 'DRIFT',
+        attempts,
+        retried_reasons,
       };
     }
-    return { kind: 'escalate', reason: `DRIFT reconciliation LLM unavailable: ${outcome.kind}` };
+    return {
+      kind: 'escalate',
+      reason: `DRIFT reconciliation LLM unavailable: ${outcome.kind}`,
+      attempts,
+      retried_reasons,
+    };
   }
 
   const d = outcome.data;
@@ -128,6 +148,8 @@ async function callReconciliationLlmForDrift(params: {
       return {
         kind: 'escalate',
         reason: `DRIFT LLM returned final_code='${d.final_code}' which is not in the allowed set`,
+        attempts,
+        retried_reasons,
       };
     }
     const source: ReconciliationSource =
@@ -142,6 +164,8 @@ async function callReconciliationLlmForDrift(params: {
       source,
       classification_status: 'DRIFT',
       conflict_type: 'DRIFT',
+      attempts,
+      retried_reasons,
     };
   }
 
@@ -151,6 +175,8 @@ async function callReconciliationLlmForDrift(params: {
       typeof d.disagreement_summary === 'string'
         ? `DRIFT LLM escalated: ${d.disagreement_summary}`
         : 'DRIFT LLM chose to escalate without summary',
+    attempts,
+    retried_reasons,
   };
 }
 

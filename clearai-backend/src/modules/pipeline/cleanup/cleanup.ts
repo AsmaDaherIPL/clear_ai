@@ -57,6 +57,8 @@ export async function runCleanup(
     degraded,
     latency_ms: degraded ? result.latencyMs : result.latencyMs,
     tariff_expansion_en: result.tariffExpansionEn,
+    attempts: result.attempts,
+    retried_reasons: result.retriedReasons,
   };
 }
 

@@ -24,6 +24,7 @@
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
+import { getLlmStagePolicy } from '../../../inference/llm/policy.js';
 import { env } from '../../../config/env.js';
 import type { DescriptionCleanupKind } from '../shared/domain.types.js';
 export type { DescriptionCleanupKind } from '../shared/domain.types.js';
@@ -61,6 +62,10 @@ export interface DescriptionCleanupResult {
   tariffExpansionEn: string;
   latencyMs: number;
   model?: string | undefined;
+  /** Total LLM attempts including the first call (>=1). 0 when skipped. */
+  attempts: number;
+  /** Reason recorded for each attempt that triggered a parse retry. */
+  retriedReasons: string[];
 }
 
 /**
@@ -291,12 +296,15 @@ export async function cleanDescription(
       typoCorrections: [],
       tariffExpansionEn: '',
       latencyMs: 0,
+      attempts: 0,
+      retriedReasons: [],
     };
   }
 
   const e = env();
   const model = opts.model ?? e.LLM_MODEL;
   const maxTokens = opts.maxTokens ?? 200;
+  const policy = getLlmStagePolicy('cleanup');
 
   const outcome = await structuredLlmCall({
     promptFile: 'description-cleanup.md',
@@ -305,9 +313,16 @@ export async function cleanDescription(
     stage: 'cleanup',
     model,
     maxTokens,
-    timeoutMs: 8_000,
+    timeoutMs: policy.timeoutMs,
+    parseRetryPolicy: {
+      enabled: policy.retryOnParseFailure,
+      maxAttempts: policy.maxAttempts,
+      totalBudgetMs: policy.totalBudgetMs,
+    },
   });
 
+  const attempts = outcome.trace.attempts;
+  const retriedReasons = outcome.trace.retried_reasons ?? [];
   if (outcome.kind === 'llm_failed') {
     return {
       invoked: 'llm_failed',
@@ -321,6 +336,8 @@ export async function cleanDescription(
       tariffExpansionEn: '',
       latencyMs: outcome.trace.latency_ms,
       model,
+      attempts,
+      retriedReasons,
     };
   }
   if (outcome.kind !== 'ok') {
@@ -336,6 +353,8 @@ export async function cleanDescription(
       tariffExpansionEn: '',
       latencyMs: outcome.trace.latency_ms,
       model,
+      attempts,
+      retriedReasons,
     };
   }
   const parsed = outcome.data;
@@ -390,6 +409,8 @@ export async function cleanDescription(
     tariffExpansionEn,
     latencyMs: llmTrace.latency_ms,
     model,
+    attempts,
+    retriedReasons,
   };
 }
 

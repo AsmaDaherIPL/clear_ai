@@ -175,7 +175,14 @@ export async function runPipeline(
     started_at: new Date(t0b).toISOString(),
     duration_ms: cleanup.latency_ms,
     outcome: 'ok',
-    detail: { clarity_verdict: cleanup.clarity_verdict, degraded: cleanup.degraded },
+    detail: {
+      clarity_verdict: cleanup.clarity_verdict,
+      degraded: cleanup.degraded,
+      attempts: cleanup.attempts,
+      ...(cleanup.retried_reasons.length > 0
+        ? { retried_reasons: cleanup.retried_reasons }
+        : {}),
+    },
   });
 
   // Unusable description — reject before tracks.
@@ -331,7 +338,14 @@ export async function runPipeline(
     started_at: new Date(t3).toISOString(),
     duration_ms: sanity.latency_ms,
     outcome: 'ok',
-    detail: { verdict: sanity.verdict },
+    detail: {
+      verdict: sanity.verdict,
+      ...(sanity.degraded ? { degraded: true } : {}),
+      ...(sanity.attempts !== undefined ? { attempts: sanity.attempts } : {}),
+      ...(sanity.retried_reasons && sanity.retried_reasons.length > 0
+        ? { retried_reasons: sanity.retried_reasons }
+        : {}),
+    },
   });
 
   const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity, stages: allStages });

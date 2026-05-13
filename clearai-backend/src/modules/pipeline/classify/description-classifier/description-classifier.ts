@@ -22,6 +22,8 @@ function toResearchDetail(r: ResearcherOutput): DescriptionClassifierResearchDet
     evidence_quote: r.evidence_quote,
     model: r.model,
     latency_ms: r.latency_ms,
+    attempts: r.attempts,
+    ...(r.retried_reasons.length > 0 ? { retried_reasons: r.retried_reasons } : {}),
   };
 }
 
@@ -66,6 +68,10 @@ export async function runDescriptionClassifier(
         recognised: research.recognised,
         model: research.model,
         enriched_description: research.enriched_description,
+        attempts: research.attempts,
+        ...(research.retried_reasons.length > 0
+          ? { retried_reasons: research.retried_reasons }
+          : {}),
       },
     });
 
@@ -95,6 +101,10 @@ export async function runDescriptionClassifier(
           evidence_quote: web.evidence_quote,
           model: web.model,
           enriched_description: web.enriched_description,
+          attempts: web.attempts,
+          ...(web.retried_reasons.length > 0
+            ? { retried_reasons: web.retried_reasons }
+            : {}),
         },
       });
 
@@ -181,6 +191,10 @@ export async function runDescriptionClassifier(
         evidence_quote: web.evidence_quote,
         model: web.model,
         enriched_description: web.enriched_description,
+        attempts: web.attempts,
+        ...(web.retried_reasons.length > 0
+          ? { retried_reasons: web.retried_reasons }
+          : {}),
       },
     });
 

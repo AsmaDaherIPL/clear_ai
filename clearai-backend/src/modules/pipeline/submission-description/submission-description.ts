@@ -30,6 +30,7 @@
  */
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
+import { getLlmStagePolicy } from '../../../inference/llm/policy.js';
 import { env } from '../../../config/env.js';
 
 export interface SubmissionDescriptionResult {
@@ -38,6 +39,10 @@ export interface SubmissionDescriptionResult {
   descriptionAr: string;
   latencyMs: number;
   model?: string | undefined;
+  /** Total LLM attempts including the first call (>=1). */
+  attempts: number;
+  /** Reason recorded for each attempt that triggered a parse retry. */
+  retried_reasons?: string[];
 }
 
 const MAX_CHARS = 300;
@@ -139,19 +144,26 @@ export async function generateSubmissionDescription(
     max_chars: MAX_CHARS,
   });
 
+  const policy = getLlmStagePolicy('submission_description');
   const outcome = await structuredLlmCall({
     promptFile: 'submission-description.md',
     user,
     schema: ParsedSchema,
     stage: 'submission_description',
     model,
-    // Arabic averages ~1.2 tokens/char; the 300-char output cap is ~360
-    // tokens worst case. 500 gives comfortable headroom for the JSON
-    // envelope without ballooning cost (Haiku output is cheap).
     maxTokens: 500,
     temperature: 0,
-    timeoutMs: 8_000,
+    timeoutMs: policy.timeoutMs,
+    parseRetryPolicy: {
+      enabled: true,
+      maxAttempts: policy.maxAttempts,
+      totalBudgetMs: policy.totalBudgetMs,
+    },
   });
+
+  const attempts = outcome.trace.attempts ?? 1;
+  const retried_reasons = outcome.trace.retried_reasons;
+  const traceMeta = retried_reasons && retried_reasons.length > 0 ? { retried_reasons } : {};
 
   if (outcome.kind !== 'ok') {
     return {
@@ -159,6 +171,8 @@ export async function generateSubmissionDescription(
       descriptionAr: buildFallback(cleanedDescription, catalogLeafAr, catalogPathAr),
       latencyMs: outcome.trace.latency_ms,
       model: outcome.trace.model,
+      attempts,
+      ...traceMeta,
     };
   }
 
@@ -171,16 +185,19 @@ export async function generateSubmissionDescription(
       descriptionAr: buildFallback(cleanedDescription, catalogLeafAr, catalogPathAr),
       latencyMs: outcome.trace.latency_ms,
       model: outcome.trace.model,
+      attempts,
+      ...traceMeta,
     };
   }
 
-  // Hard ZATCA rule: must not be a verbatim copy of the catalog leaf Arabic.
   if (equalsLeaf(cleaned, catalogLeafAr)) {
     return {
       invoked: 'fallback_after_collision',
       descriptionAr: buildFallback(cleanedDescription, catalogLeafAr, catalogPathAr),
       latencyMs: outcome.trace.latency_ms,
       model: outcome.trace.model,
+      attempts,
+      ...traceMeta,
     };
   }
 
@@ -189,6 +206,8 @@ export async function generateSubmissionDescription(
     descriptionAr: cleaned,
     latencyMs: outcome.trace.latency_ms,
     model: outcome.trace.model,
+    attempts,
+    ...traceMeta,
   };
 }
 

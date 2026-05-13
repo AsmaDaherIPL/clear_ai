@@ -307,6 +307,17 @@ function buildSanityStage(
   const stage = findStage(stages, 'stage-3/sanity');
   if (!stage && !trace.sanity) return null;
   const sanity = trace.sanity;
+  const sanityOutput = sanity
+    ? {
+        verdict: sanity.verdict,
+        rationale: sanity.rationale,
+        ...(sanity.degraded ? { degraded: true } : {}),
+        ...(sanity.attempts !== undefined ? { attempts: sanity.attempts } : {}),
+        ...(sanity.retried_reasons && sanity.retried_reasons.length > 0
+          ? { retried_reasons: sanity.retried_reasons }
+          : {}),
+      }
+    : {};
   return {
     stage: 'sanity',
     started_at: stage?.started_at ?? new Date().toISOString(),
@@ -318,14 +329,10 @@ function buildSanityStage(
         duration_ms: stage?.duration_ms ?? sanity?.latency_ms ?? 0,
         outcome: mapOutcome(stage),
         llm_used: true,
-        output: sanity
-          ? { verdict: sanity.verdict, rationale: sanity.rationale }
-          : {},
+        output: sanityOutput,
       },
     ],
-    output: sanity
-      ? { verdict: sanity.verdict, rationale: sanity.rationale }
-      : {},
+    output: sanityOutput,
   };
 }
 

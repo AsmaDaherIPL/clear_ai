@@ -24,6 +24,7 @@ import { z } from 'zod';
 import { callLlmWithRetry, type LlmCallResult, type LlmTool } from '../../../../../inference/llm/client.js';
 import { loadPrompt } from '../../../../../inference/llm/structured-call.js';
 import { extractJson } from '../../../../../inference/llm/parse-json.js';
+import { getLlmStagePolicy } from '../../../../../inference/llm/policy.js';
 import { env } from '../../../../../config/env.js';
 
 /* ------------------------------------------------------------------ */
@@ -49,6 +50,10 @@ export interface ResearcherOutput {
   evidence_quote: string | null;
   latency_ms: number;
   model: string | null;
+  /** Total attempts including the first call (>=1). */
+  attempts: number;
+  /** Reason recorded for each attempt that triggered a parse retry. */
+  retried_reasons: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -129,15 +134,40 @@ export async function runResearcher(
   raw_description: string,
 ): Promise<ResearcherOutput> {
   const input = cleaned_description || raw_description;
-  const result = await callResearchLlm({
-    promptFile: 'research-input.md',
-    user: input,
-    model: env().LLM_MODEL_STRONG,
-    maxTokens: 100,
-    retries: 1,
-  });
-  const outcome = parseCheapResearchReply(result);
+  const policy = getLlmStagePolicy('researcher_cheap');
+  const model = env().LLM_MODEL_STRONG;
+  const startedAt = Date.now();
+  const retriedReasons: string[] = [];
+  let attempts = 0;
+  let totalLatencyMs = 0;
+  let lastOutcome: ResearchOutcome | null = null;
 
+  while (attempts < policy.maxAttempts) {
+    if (attempts > 0 && Date.now() - startedAt >= policy.totalBudgetMs) break;
+    attempts += 1;
+    const result = await callResearchLlm({
+      promptFile: 'research-input.md',
+      user: input,
+      model,
+      maxTokens: 100,
+      // Transport-level retries are not the parse-retry loop; the stage
+      // policy is now the single knob for retry behaviour.
+      retries: 0,
+      timeoutMs: policy.timeoutMs,
+    });
+    totalLatencyMs += result.latencyMs;
+    const outcome = parseCheapResearchReply(result);
+    lastOutcome = outcome;
+
+    if (outcome.kind === 'recognised' || outcome.kind === 'unknown') break;
+
+    // outcome.kind === 'failed' — treat regex non-match / transport failure
+    // as a parse-class failure worth one retry under the policy.
+    if (!policy.retryOnParseFailure || attempts >= policy.maxAttempts) break;
+    retriedReasons.push('researcher_unparseable');
+  }
+
+  const outcome = lastOutcome!;
   if (outcome.kind === 'recognised') {
     return {
       enriched_description: outcome.canonical,
@@ -145,8 +175,10 @@ export async function runResearcher(
       unrecognised_reason: null,
       source: 'cheap_llm',
       evidence_quote: null,
-      latency_ms: outcome.latencyMs,
+      latency_ms: totalLatencyMs,
       model: outcome.model,
+      attempts,
+      retried_reasons: retriedReasons,
     };
   }
 
@@ -156,8 +188,10 @@ export async function runResearcher(
     unrecognised_reason: outcome.kind === 'unknown' ? outcome.reason : outcome.error,
     source: 'failed_passthrough',
     evidence_quote: null,
-    latency_ms: outcome.latencyMs,
+    latency_ms: totalLatencyMs,
     model: outcome.model,
+    attempts,
+    retried_reasons: retriedReasons,
   };
 }
 
@@ -239,19 +273,24 @@ export async function runWebResearcher(
       evidence_quote: null,
       latency_ms: 0,
       model: null,
+      attempts: 0,
+      retried_reasons: [],
     };
   }
 
+  const policy = getLlmStagePolicy('researcher_web');
   const result = await callResearchLlm({
     promptFile: 'research-with-web.md',
     user: raw_description,
     model: env().LLM_MODEL_STRONG,
     maxTokens: 400,
     retries: 0,
-    timeoutMs: 30_000,
+    timeoutMs: policy.timeoutMs,
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches }],
   });
   const outcome = parseWebResearchReply(result);
+  // researcher_web policy is maxAttempts=1 today; single shot, no parse retry.
+  const attempts = 1;
 
   if (outcome.kind === 'recognised') {
     return {
@@ -262,6 +301,8 @@ export async function runWebResearcher(
       evidence_quote: outcome.evidenceQuote,
       latency_ms: outcome.latencyMs,
       model: outcome.model,
+      attempts,
+      retried_reasons: [],
     };
   }
 
@@ -273,5 +314,7 @@ export async function runWebResearcher(
     evidence_quote: null,
     latency_ms: outcome.latencyMs,
     model: outcome.model,
+    attempts,
+    retried_reasons: [],
   };
 }
