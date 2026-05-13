@@ -81,13 +81,13 @@ import { cn } from '@/lib/utils';
 
 const PAGE_SIZE_ALL = Number.MAX_SAFE_INTEGER;
 const PAGE_SIZE_OPTIONS: { label: string; value: number }[] = [
-  { label: '15', value: 15 },
+  { label: '10', value: 10 },
   { label: '25', value: 25 },
   { label: '50', value: 50 },
   { label: '100', value: 100 },
   { label: 'All', value: PAGE_SIZE_ALL },
 ];
-const DEFAULT_PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 10;
 
 // ---------------------------------------------------------------------------
 // localStorage persistence — column visibility only (sizing was retired).
