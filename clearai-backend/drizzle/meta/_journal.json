@@ -533,6 +533,13 @@
       "when": 1778800100000,
       "tag": "0075_hitl_batch_id_fks",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1778900000000,
+      "tag": "0076_fx_rates",
+      "breakpoints": true
     }
   ]
 }

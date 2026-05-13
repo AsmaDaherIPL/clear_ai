@@ -1,81 +1,26 @@
 /**
- * FX rates: currency-code (ISO-4217) -> SAR rate.
+ * FX → SAR for ZATCA rendering.
  *
- * Used to convert `valueAmount` to SAR before HV/LV partition. The threshold
- * (`tenants.hv_threshold_sar`) is denominated in SAR; without conversion, a
- * 1500 AED row (~1530 SAR) would be checked as 1500 SAR (still HV here, but
- * a 1100 AED row ≈ 1122 SAR is LV under the wrong assumption).
+ * Post 2026-05-13: items are converted to SAR at parse time and the
+ * SAR-equivalent is stamped on `CanonicalLineItem.valueAmountSar`. This
+ * module is the renderer-side fallback for legacy items / unit tests that
+ * still ask for an ad-hoc conversion. New code should read
+ * `valueAmountSar` directly off the item — no synchronous FX lookup is
+ * needed during rendering.
  *
- * v0 reads from env BATCH_FX_RATES_TO_SAR (a JSON object). v1 will pull from
- * a daily-refresh table or an FX provider; the public surface stays the
- * same.
- *
- * SAR is implicitly 1.0. Missing currencies log a warning and fall back to
- * identity (1.0) — this is intentionally conservative: emitting an
- * incorrect HV/LV partition is worse than treating an unknown currency as
- * SAR-equivalent at parse time, which keeps the row in the safe (LV) band
- * unless the raw amount itself crosses the threshold.
+ * The env-based BATCH_FX_RATES_TO_SAR JSON is gone. Conversions now go
+ * through fx_rates (manual-seed table). Missing currencies hard-reject
+ * via FxRateMissingError at parse time, so the renderer never sees an
+ * untranslated item.
  */
-import { env } from '../../../config/env.js';
-
-let _ratesCache: ReadonlyMap<string, number> | null = null;
-const _warnedCurrencies = new Set<string>();
-
-/** Parse the env JSON once; cache for the lifetime of the process. */
-function ratesToSar(): ReadonlyMap<string, number> {
-  if (_ratesCache) return _ratesCache;
-  const raw = env().BATCH_FX_RATES_TO_SAR;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`BATCH_FX_RATES_TO_SAR is not valid JSON: ${(err as Error).message}`);
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('BATCH_FX_RATES_TO_SAR must be a JSON object');
-  }
-  const out = new Map<string, number>();
-  for (const [code, rate] of Object.entries(parsed as Record<string, unknown>)) {
-    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0) {
-      throw new Error(`BATCH_FX_RATES_TO_SAR['${code}']: must be a positive finite number, got ${rate}`);
-    }
-    out.set(code.toUpperCase(), rate);
-  }
-  // SAR -> 1 always. Caller-supplied SAR rate (if any) is ignored to avoid
-  // accidental misconfiguration.
-  out.set('SAR', 1);
-  _ratesCache = out;
-  return out;
-}
+import { convertToSar } from '../../../modules/reference-data/fx.service.js';
 
 /**
- * Convert an amount in `currencyCode` to SAR.
- *
- * Currencies not present in the rate table fall back to identity (rate = 1)
- * and emit a one-time warning per currency code. Use sparingly — if a
- * operator ships a new currency, add it to BATCH_FX_RATES_TO_SAR rather than
- * silently degrading.
+ * Convert an amount in `currencyCode` to SAR. ASYNC because it hits the
+ * fx_rates table. Prefer reading `valueAmountSar` off the item — only
+ * call this from one-off paths that don't have a parsed item available.
  */
-export function toSar(amount: number, currencyCode: string): number {
-  if (!Number.isFinite(amount)) return 0;
-  const code = currencyCode.toUpperCase();
-  const rate = ratesToSar().get(code);
-  if (rate === undefined) {
-    if (!_warnedCurrencies.has(code)) {
-      _warnedCurrencies.add(code);
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[fx] no SAR rate for currency '${code}' — treating as 1:1. ` +
-          `Add it to BATCH_FX_RATES_TO_SAR.`,
-      );
-    }
-    return amount;
-  }
-  return amount * rate;
-}
-
-/** TEST-ONLY: drop the cached rates so the next call re-reads env. */
-export function _resetFxCacheForTests(): void {
-  _ratesCache = null;
-  _warnedCurrencies.clear();
+export async function toSar(amount: number, currencyCode: string): Promise<number> {
+  const c = await convertToSar(amount, currencyCode);
+  return c.sarAmount;
 }

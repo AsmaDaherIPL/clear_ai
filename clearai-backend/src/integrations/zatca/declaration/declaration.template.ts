@@ -219,12 +219,13 @@ function renderInvoiceItem(item: BatchItemRow, idx: number, input: RenderInput):
 
   const qty = c.quantity;
   const weight = c.netWeightKg;
-  // unitInvoiceCost = the per-line price as Naqel's spec describes
-  // (`UnitInvoiceCost = Amount` in their InvoiceItem - Fields sheet).
-  // Always emitted: per-HS-code UnitPerPrice flag isn't available in v0
-  // (over-emission is forward-compatible; under-emission risks rejection).
-  const unitInvoiceCost = c.valueAmount;
-  // itemCost = unitInvoiceCost × quantity.
+  // ZATCA accepts only SAR-denominated invoices. We use valueAmountSar
+  // stamped at parse time; fall back to valueAmount only for legacy rows
+  // (pre 2026-05-13) that predate the FX migration.
+  const unitInvoiceCost =
+    typeof c.valueAmountSar === 'number' && Number.isFinite(c.valueAmountSar)
+      ? c.valueAmountSar
+      : c.valueAmount;
   const itemCost = unitInvoiceCost * qty;
 
   return [
@@ -254,20 +255,26 @@ function renderInvoice(input: RenderInput): string {
   // totalNoItems = sum of quantities, NOT items.length. Verified against
   // sample NQD60 (29 item blocks, totalNoItems=51 = sum of quantities).
   const totalNoItems = items.reduce((s, it) => s + Number(it.canonical.quantity || 0), 0);
-  // invoiceCost = sum of itemCost = sum of valueAmount × quantity per item.
-  const totalCost = items.reduce(
-    (s, it) => s + Number(it.canonical.valueAmount || 0) * Number(it.canonical.quantity || 0),
-    0,
-  );
+  // invoiceCost = sum of itemCost in SAR. ZATCA accepts only SAR.
+  // valueAmountSar is stamped at parse time; legacy fallback to valueAmount.
+  const totalCost = items.reduce((s, it) => {
+    const c = it.canonical;
+    const sarUnit =
+      typeof c.valueAmountSar === 'number' && Number.isFinite(c.valueAmountSar)
+        ? c.valueAmountSar
+        : Number(c.valueAmount || 0);
+    return s + sarUnit * Number(c.quantity || 0);
+  }, 0);
   const totalWeight = items.reduce((s, it) => s + Number(it.canonical.netWeightKg || 0), 0);
 
-  // Currency / source-company are taken from the FIRST item (HV: only one;
-  // LV: bundles share carrier + currency by Naqel convention).
+  // ZATCA invoice currency is always SAR (Tabadul currency_code = "100").
+  // Don't look up the merchant's currency — the source values have already
+  // been converted to SAR at parse time.
   const first = items[0]!;
   const currency = lookupOrThrow(
     input,
     'currency_code',
-    first.canonical.currencyCode,
+    'SAR',
     `invoice currency`,
   );
 

@@ -296,6 +296,22 @@ components:
           nullable: true
           pattern: '^[A-Z]{3}$'
           description: ISO 4217 3-letter currency code for value_amount.
+        value_amount_sar:
+          type: number
+          nullable: true
+          description: |
+            Declared value converted to SAR at parse time (Asia/Riyadh date)
+            using the manually-seeded `fx_rates` table. ZATCA envelopes use
+            this value; sanity stage anchors retail bands against it.
+        fx_rate:
+          type: number
+          nullable: true
+          description: SAR-per-unit rate applied to value_amount (1 for SAR itself).
+        fx_rate_as_of:
+          type: string
+          nullable: true
+          format: date
+          description: Calendar date of the fx_rates row used for conversion (Asia/Riyadh).
         duty_info:
           $ref: '#/components/schemas/DutyInfo'
           nullable: true
@@ -1349,6 +1365,49 @@ paths:
                       type: string
                       pattern: '^[A-Z]{3}$'
                     example: ['AED', 'EUR', 'GBP', 'SAR', 'USD']
+
+  /reference-data/fx-rates:
+    get:
+      operationId: list-fx-rates
+      tags: [reference-data]
+      summary: Current SAR conversion rates for supported currencies.
+      description: |
+        Returns the most recent row per quote currency from the `fx_rates`
+        table (manually seeded). SAR is the base; rate is "units of SAR per
+        1 unit of quote currency". A currency missing from this response
+        will be rejected at parse time with `fx_rate_missing` — ops must
+        seed the rate via the maintenance CLI before that currency can be
+        used in a classification.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: Current FX rate table.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [base, rates]
+                properties:
+                  base:
+                    type: string
+                    enum: [SAR]
+                  rates:
+                    type: array
+                    items:
+                      type: object
+                      required: [currency, sar_per_unit, as_of]
+                      properties:
+                        currency:
+                          type: string
+                          pattern: '^[A-Z]{3}$'
+                        sar_per_unit:
+                          type: number
+                          description: e.g. 3.75 for USD (1 USD -> 3.75 SAR).
+                        as_of:
+                          type: string
+                          format: date
 
 # Default security applied at the operation level above; this default keeps
 # probes wide-open via `security: []` overrides.

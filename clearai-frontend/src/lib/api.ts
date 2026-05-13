@@ -533,6 +533,17 @@ export interface BatchItem {
   value_amount?: number | null;
   currency_code?: string | null;
   /**
+   * Declared value converted to SAR at parse time using the manually-seeded
+   * fx_rates table. ZATCA envelopes are SAR-only, so this is what the
+   * downstream renderer + sanity stage use. Always present after the
+   * 2026-05-13 FX migration; older rows may have it null.
+   */
+  value_amount_sar?: number | null;
+  /** SAR-per-unit rate used for the conversion (1 for SAR itself). */
+  fx_rate?: number | null;
+  /** Calendar date of the fx_rates row used (Asia/Riyadh). */
+  fx_rate_as_of?: string | null;
+  /**
    * V1 reconciliation status — the primary user-facing answer to
    * "did Track A and Track B agree on the code?".
    *
@@ -726,6 +737,13 @@ export const api = {
   /** GET /reference-data/currencies — ISO 4217 codes accepted by the pipeline. */
   listCurrencies: () =>
     request<{ currencies: string[] }>('/reference-data/currencies'),
+
+  /** GET /reference-data/fx-rates — SAR conversion rates (one row per currency). */
+  listFxRates: () =>
+    request<{
+      base: 'SAR';
+      rates: Array<{ currency: string; sar_per_unit: number; as_of: string }>;
+    }>('/reference-data/fx-rates'),
 
   /** POST /classifications/{id}/feedback — UPSERT one feedback row per (event_id, user_id). */
   feedback: (id: string, body: PostFeedbackBody) =>

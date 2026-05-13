@@ -14,6 +14,7 @@
  */
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { mapRowToCanonical, type MapperLookups } from '../operators/operator-line-item.mapper.js';
+import { stampFxFields, FxRateMissingError } from '../pipeline/parse/enrich-fx.js';
 import { getLookupsByOperatorId } from '../operators/operator-lookups.repository.js';
 import { parseCsvBuffer } from './parsers/csv.parser.js';
 import { parseXlsxBuffer } from './parsers/xlsx.parser.js';
@@ -72,7 +73,19 @@ export async function createBatch(input: CreateDeclarationRunInput): Promise<Cre
   }
 
   const lookups = await loadLookups(operator);
-  const items = canonicaliseRows(parsed.rows, operator, lookups);
+  let items: DeclarationRunItemInput[];
+  try {
+    items = await canonicaliseRows(parsed.rows, operator, lookups);
+  } catch (err) {
+    if (err instanceof FxRateMissingError) {
+      throw new BatchValidationError(err.message, {
+        code: err.code,
+        currency: err.currency,
+        as_of: err.asOfDate,
+      });
+    }
+    throw err;
+  }
 
   const declarationRunId = newId();
   // Lock the blob prefix in at creation time so every Phase that reads
@@ -171,15 +184,15 @@ async function loadLookups(operator: OperatorConfig): Promise<MapperLookups> {
   return { byType };
 }
 
-function canonicaliseRows(
+async function canonicaliseRows(
   rows: ReadonlyArray<Record<string, string>>,
   operator: OperatorConfig,
   lookups: MapperLookups,
-): DeclarationRunItemInput[] {
+): Promise<DeclarationRunItemInput[]> {
   const out: DeclarationRunItemInput[] = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
-    const canonical = mapRowToCanonical(row, operator, i + 1, lookups);
+    const canonical = await stampFxFields(mapRowToCanonical(row, operator, i + 1, lookups));
     out.push({ canonical, rawRow: row });
   }
   return out;

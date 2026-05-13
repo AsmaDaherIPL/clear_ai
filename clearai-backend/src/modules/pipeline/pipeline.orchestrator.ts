@@ -317,8 +317,14 @@ export async function runPipeline(
     // band ($30 Timex vs $300 Casio Pro Trek vs $5000 Rolex are all
     // "digital watch" once cleaned).
     raw_description: parsedItem.raw_description ?? null,
-    value_amount: parsedItem.value_amount,
-    currency_code: parsedItem.currency_code,
+    // Always pass SAR for the value, regardless of the merchant's source
+    // currency. Sanity bands are SAR-anchored; parse stamps valueAmountSar.
+    // Fall back to legacy value_amount when SAR field is absent (pre 0076 row).
+    value_amount:
+      typeof item.valueAmountSar === 'number' && Number.isFinite(item.valueAmountSar)
+        ? item.valueAmountSar
+        : parsedItem.value_amount,
+    currency_code: 'SAR',
   });
   allStages.push({
     name: 'stage-3/sanity',

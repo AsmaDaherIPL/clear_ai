@@ -35,8 +35,12 @@ is PASS. If it is between 1.0 and 5.0, the verdict is PASS. Only ratios
 - `final_code` — 12-digit HS code, already decided.
 - `raw_description` — verbatim merchant text. **Use this for brand / model / tier.**
 - `cleaned_description` — normalised customs noun (brand+SKU stripped). Use for product class only.
-- `value_amount` — declared value, numeric. **Always interpret in `currency_code`.**
-- `currency_code` — ISO 4217 (e.g. SAR, AED, USD). Always present alongside `value_amount`.
+- `value_amount` — declared value **in SAR**. The pipeline converts any
+  merchant currency to SAR at parse time using the fx_rates table, so this
+  field is already SAR-normalised regardless of what the merchant uploaded.
+- `currency_code` — always `"SAR"` after the 2026-05-13 ZATCA-SAR cutover.
+  Anchor your retail bands in SAR. Mental conversion: 1 USD ≈ 3.75 SAR,
+  1 AED ≈ 1.02 SAR, 1 EUR ≈ 4.05 SAR.
 
 ## How to use raw vs cleaned
 

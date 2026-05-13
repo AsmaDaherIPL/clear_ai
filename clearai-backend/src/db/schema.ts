@@ -23,6 +23,9 @@ export type {
 export { setupMeta } from './schema/setup-meta.js';
 export type { SetupMetaRow } from './schema/setup-meta.js';
 
+export { fxRates } from './schema/fx-rates.js';
+export type { FxRateRow, NewFxRateRow } from './schema/fx-rates.js';
+
 export { classificationEvents } from './schema/classification-events.js';
 export type {
   ClassificationEventRow,

@@ -19,6 +19,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { runPipeline } from './pipeline.orchestrator.js';
+import { stampFxFields, FxRateMissingError } from './parse/enrich-fx.js';
 import { assembleDispatchV1 } from './trace/dispatch-v1.js';
 import { recordClassificationEvent } from './events/recorder.js';
 import { enqueueHitl } from './review/review.js';
@@ -157,7 +158,22 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
 
-    const item = buildItem(body, operatorConfig.id);
+    let item: CanonicalLineItem;
+    try {
+      item = await stampFxFields(buildItem(body, operatorConfig.id));
+    } catch (err) {
+      if (err instanceof FxRateMissingError) {
+        return reply.code(400).send({
+          error: {
+            code: 'fx_rate_missing',
+            message: err.message,
+            currency: err.currency,
+            as_of: err.asOfDate,
+          },
+        });
+      }
+      throw err;
+    }
     const startedAtMs = Date.now();
     const startedAt = new Date(startedAtMs).toISOString();
     const result: PipelineResult = await runPipeline(item, V1_OPERATOR_SLUG, item.itemId);

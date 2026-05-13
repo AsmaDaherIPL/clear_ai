@@ -16,7 +16,6 @@
  */
 import type { BatchItemRow } from '../../../db/schema.js';
 import type { BundleInput } from './declaration.types.js';
-import { toSar } from './fx.js';
 
 export interface PartitionOpts {
   hvThresholdSar: number;
@@ -58,10 +57,12 @@ export function partitionHvLv(
 }
 
 function readSarAmount(row: BatchItemRow): number {
+  // Post 2026-05-13: parse stamps valueAmountSar on every item with a valid
+  // (value_amount, currency_code). Render reads it directly — no per-item
+  // FX lookup at bundle time. Fall back to raw amount only for legacy rows.
   const c = row.canonical;
-  const amount = c.valueAmount;
-  const code = c.currencyCode;
-  if (typeof amount !== 'number' || !Number.isFinite(amount)) return 0;
-  if (typeof code !== 'string' || code === '') return amount;
-  return toSar(amount, code);
+  if (typeof c.valueAmountSar === 'number' && Number.isFinite(c.valueAmountSar)) {
+    return c.valueAmountSar;
+  }
+  return typeof c.valueAmount === 'number' && Number.isFinite(c.valueAmount) ? c.valueAmount : 0;
 }

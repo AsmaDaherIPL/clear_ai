@@ -141,23 +141,10 @@ const EnvSchema = z
     // ZATCA submitter credentials moved to per-operator columns on
     // operators in 0062; no env var equivalents.
 
-    // ─── FX rates for HV/LV partition (G7) ─────────────────────────────────
-    //
-    // The HV/LV threshold is in SAR but rows can arrive in AED/USD/etc. We
-    // convert valueAmount to SAR before comparing. v0 takes a static daily
-    // snapshot from env; v1 will pull from a daily-refreshed table or an
-    // FX provider.
-    //
-    // Format: a JSON object of currency-code -> SAR rate
-    //   {"AED":0.98,"USD":3.75,"EUR":4.05}
-    // SAR is implicitly 1.0 and doesn't need to be listed.
-    /**
-     * JSON object: currency code (ISO-4217) -> SAR rate.
-     * Default ships sensible mid-2026 spot rates; override per environment
-     * for daily refresh. Missing currencies fall back to identity (rate = 1)
-     * with a warning logged at conversion time.
-     */
-    BATCH_FX_RATES_TO_SAR: z.string().default('{"AED":1.02,"USD":3.75,"EUR":4.05,"GBP":4.75}'),
+    // FX rates moved to the fx_rates table in migration 0076. The previous
+    // BATCH_FX_RATES_TO_SAR env var fell back to identity (rate=1) on
+    // unknown currencies — silent corruption of ZATCA invoice totals.
+    // Manual-seed table now hard-rejects unknown currencies at parse time.
   })
   /**
    * Phase 2.10: APIM_SHARED_SECRET is required in production. The previous

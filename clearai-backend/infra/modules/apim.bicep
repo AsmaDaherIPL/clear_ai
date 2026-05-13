@@ -31,6 +31,7 @@
 //     PATCH https://{apim}.azure-api.net/classifications/review/{id}                            (validate-jwt)
 //     POST  https://{apim}.azure-api.net/classifications/review/{id}/claim                      (validate-jwt)
 //     GET   https://{apim}.azure-api.net/reference-data/currencies                              (validate-jwt)
+//     GET   https://{apim}.azure-api.net/reference-data/fx-rates                                 (validate-jwt)
 //
 //   2026-05-12 rename (backend rev 70, commit 06c9f3d):
 //     /declaration-runs/*   ->  /batches/*
@@ -307,7 +308,7 @@ resource sharedSecretNamedValue 'Microsoft.ApiManagement/service/namedValues@202
 //     get-batch-files, get-batch-file-flat, get-batch-file-hv, get-batch-file-lv
 //   dispatch-classification, get-classification-trace, post-submission-description
 //   list-reviews, get-review, decide-review, claim-review
-//   list-currencies
+//   list-currencies, list-fx-rates
 
 resource apiProtected 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   parent: apim

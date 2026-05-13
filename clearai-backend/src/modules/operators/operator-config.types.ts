@@ -159,6 +159,19 @@ export interface CanonicalLineItem {
   /* ---- Commercial values ---- */
   valueAmount: number;
   currencyCode: string;
+  /**
+   * Merchant value converted to SAR at parse time. Used by the HV/LV
+   * splitter, sanity stage, and ZATCA renderer (ZATCA accepts SAR only).
+   * Always populated after parse — if conversion failed, parse rejects
+   * the item upstream.
+   */
+  valueAmountSar?: number;
+  /** SAR-per-unit rate applied (e.g. 3.75 for USD). 1 for SAR itself. */
+  fxRate?: number;
+  /** Calendar date of the rate row used (Asia/Riyadh). */
+  fxRateAsOf?: string;
+  /** Audit pointer to the fx_rates row; "sar-passthrough" when no conversion needed. */
+  fxRateId?: string;
   quantity: number;
   uom: string;
   netWeightKg: number;

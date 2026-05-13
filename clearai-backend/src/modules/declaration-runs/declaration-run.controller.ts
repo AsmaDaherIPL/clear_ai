@@ -213,6 +213,9 @@ export async function handleListClassifications(
     effective_description: string | null;
     value_amount: string | null;
     currency_code: string | null;
+    value_amount_sar: string | null;
+    fx_rate: string | null;
+    fx_rate_as_of: string | null;
   }>(
     `SELECT i.id,
             i.row_index,
@@ -223,8 +226,11 @@ export async function handleListClassifications(
             i.error,
             d.path_en              AS catalog_path_en,
             i.goods_description_ar AS submission_description_ar,
-            (i.canonical ->> 'valueAmount')::numeric  AS value_amount,
-            (i.canonical ->> 'currencyCode')          AS currency_code,
+            (i.canonical ->> 'valueAmount')::numeric    AS value_amount,
+            (i.canonical ->> 'currencyCode')            AS currency_code,
+            (i.canonical ->> 'valueAmountSar')::numeric AS value_amount_sar,
+            (i.canonical ->> 'fxRate')::numeric         AS fx_rate,
+            (i.canonical ->> 'fxRateAsOf')              AS fx_rate_as_of,
             -- V1 surface: AGREEMENT | DRIFT | ZERO_SIGNAL. Falls back to
             -- the legacy conflict_type mapping for older rows persisted
             -- before classification_status existed in the trace.
@@ -308,6 +314,9 @@ export async function handleListClassifications(
         effective_description: i.effective_description,
         value_amount: i.value_amount !== null ? Number(i.value_amount) : null,
         currency_code: i.currency_code,
+        value_amount_sar: i.value_amount_sar !== null ? Number(i.value_amount_sar) : null,
+        fx_rate: i.fx_rate !== null ? Number(i.fx_rate) : null,
+        fx_rate_as_of: i.fx_rate_as_of,
         duty_info: enrichment?.duty_info ?? null,
         procedures: enrichment?.procedures ?? [],
         classification_result: i.classification_result,
