@@ -30,6 +30,7 @@ function trackA(opts: {
     web_research: opts.web_research ?? null,
     inferred_chapters: [],
     prefilter_aborted: false,
+    picker_confidence: null,
   };
 }
 

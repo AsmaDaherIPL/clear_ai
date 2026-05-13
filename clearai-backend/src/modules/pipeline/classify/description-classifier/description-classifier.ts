@@ -68,6 +68,9 @@ export async function runDescriptionClassifier(
   let interpretation_stage: DescriptionClassifierResult['interpretation_stage'] = 'cleaned';
   let researchDetail: DescriptionClassifierResearchDetail | null = null;
   let webResearchDetail: DescriptionClassifierResearchDetail | null = null;
+  // PR3 / Layer 5: family hint carried forward from web research to the
+  // main retrieval call. Empty string when no hint is available.
+  let pendingFamilyChapter = '';
 
   if (cleanup.clarity_verdict === 'needs_research') {
     const t0 = Date.now();
@@ -136,6 +139,9 @@ export async function runDescriptionClassifier(
         // happy path below.
         effective_description = web.enriched_description;
         retrieval_query = web.enriched_description;
+        if (web.family_chapter) {
+          pendingFamilyChapter = web.family_chapter;
+        }
       } else {
         // Both researcher AND web gave up. Returning early with
         // threshold_failed=true matches the shape Reconciliation
@@ -164,7 +170,9 @@ export async function runDescriptionClassifier(
   }
 
   const t1 = Date.now();
-  let retrieval = await runRetrieval(retrieval_query);
+  let retrieval = await runRetrieval(retrieval_query, {
+    ...(pendingFamilyChapter ? { family_chapter: pendingFamilyChapter } : {}),
+  });
   stages.push({
     name: 'track-a/retrieval',
     started_at: new Date(t1).toISOString(),
@@ -177,6 +185,8 @@ export async function runDescriptionClassifier(
       // cleanup emitted a tariff_expansion_en (non-English input case).
       // Surfaced so debugging can verify which query embedded.
       retrieval_query,
+      ...(pendingFamilyChapter ? { family_chapter: pendingFamilyChapter } : {}),
+      ...(retrieval.family_widened ? { family_widened: true } : {}),
     },
   });
 
@@ -229,7 +239,15 @@ export async function runDescriptionClassifier(
       interpretation_stage = 'researched';
 
       const tr2 = Date.now();
-      retrieval = await runRetrieval(retrieval_query);
+      // PR3 / Layer 5: when web research emitted a family_chapter hint
+      // (2-digit HS chapter), pass it to retrieval. retrieval.ts widens
+      // the pool with chapter-scoped candidates only if the
+      // unconstrained pass missed that family entirely — cheap on the
+      // happy path, rescues row-42-class cases where the embedder
+      // landed in a wrong-family neighbourhood.
+      retrieval = await runRetrieval(retrieval_query, {
+        ...(web.family_chapter ? { family_chapter: web.family_chapter } : {}),
+      });
       stages.push({
         name: 'track-a/retrieval-after-web',
         started_at: new Date(tr2).toISOString(),
@@ -239,6 +257,8 @@ export async function runDescriptionClassifier(
           candidate_count: retrieval.candidates.length,
           effective_description,
           retrieval_query,
+          ...(web.family_chapter ? { family_chapter: web.family_chapter } : {}),
+          ...(retrieval.family_widened ? { family_widened: true } : {}),
         },
       });
 

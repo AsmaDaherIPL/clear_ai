@@ -48,6 +48,16 @@ export interface ResearcherOutput {
   unrecognised_reason: string | null;
   source: 'cheap_llm' | 'web_search' | 'failed_passthrough';
   evidence_quote: string | null;
+  /**
+   * Two-digit HS chapter hint emitted by the web researcher when the
+   * product family is unambiguous from snippets (PR3 / Layer 5). Empty
+   * string when no hint is available. Used by retrieval to widen the
+   * candidate pool when the embedder missed the right family entirely.
+   * Not a classification — the picker still picks the leaf.
+   */
+  family_chapter: string;
+  /** One-sentence rationale for the family hint, or empty string. */
+  family_rationale: string;
   latency_ms: number;
   model: string | null;
   /** Total attempts including the first call (>=1). */
@@ -178,6 +188,8 @@ export async function runResearcher(
       unrecognised_reason: null,
       source: 'cheap_llm',
       evidence_quote: null,
+      family_chapter: '',
+      family_rationale: '',
       latency_ms: totalLatencyMs,
       model: outcome.model,
       attempts,
@@ -191,6 +203,8 @@ export async function runResearcher(
     unrecognised_reason: outcome.kind === 'unknown' ? outcome.reason : outcome.error,
     source: 'failed_passthrough',
     evidence_quote: null,
+    family_chapter: '',
+    family_rationale: '',
     latency_ms: totalLatencyMs,
     model: outcome.model,
     attempts,
@@ -208,11 +222,21 @@ const WebResearchSchema = z
     canonical: z.unknown().optional(),
     evidence_quote: z.unknown().optional(),
     reason: z.unknown().optional(),
+    family_chapter: z.unknown().optional(),
+    family_rationale: z.unknown().optional(),
   })
   .passthrough();
 
 type WebResearchOutcome =
-  | { kind: 'recognised'; canonical: string; evidenceQuote: string; latencyMs: number; model: string }
+  | {
+      kind: 'recognised';
+      canonical: string;
+      evidenceQuote: string;
+      familyChapter: string;
+      familyRationale: string;
+      latencyMs: number;
+      model: string;
+    }
   | { kind: 'unknown'; reason: string; latencyMs: number; model: string }
   | { kind: 'failed'; error: string; latencyMs: number; model: string };
 
@@ -240,8 +264,26 @@ function parseWebResearchReply(result: LlmCallResult): WebResearchOutcome {
   const evidenceQuote = typeof data.evidence_quote === 'string' ? data.evidence_quote.trim() : '';
   const reason = typeof data.reason === 'string' ? data.reason.trim() : 'unspecified';
 
+  // family_chapter: only accepted when it's a literal 2-digit string in the
+  // valid HS chapter range (01-99). Anything else (heading-level, junk, longer
+  // strings) is dropped — wrong hints poison retrieval more than missing ones.
+  const rawFamilyChapter = typeof data.family_chapter === 'string' ? data.family_chapter.trim() : '';
+  const familyChapter = /^(?:0[1-9]|[1-9][0-9])$/.test(rawFamilyChapter) ? rawFamilyChapter : '';
+  const familyRationaleRaw = typeof data.family_rationale === 'string' ? data.family_rationale.trim() : '';
+  const familyRationale = familyChapter && familyRationaleRaw.length > 0 && familyRationaleRaw.length <= 200
+    ? familyRationaleRaw
+    : '';
+
   if (kind === 'recognised' && canonical && evidenceQuote) {
-    return { kind: 'recognised', canonical, evidenceQuote, latencyMs: result.latencyMs, model: result.model };
+    return {
+      kind: 'recognised',
+      canonical,
+      evidenceQuote,
+      familyChapter,
+      familyRationale,
+      latencyMs: result.latencyMs,
+      model: result.model,
+    };
   }
   return {
     kind: 'unknown',
@@ -274,6 +316,8 @@ export async function runWebResearcher(
       unrecognised_reason: 'web research disabled',
       source: 'failed_passthrough',
       evidence_quote: null,
+      family_chapter: '',
+      family_rationale: '',
       latency_ms: 0,
       model: null,
       attempts: 0,
@@ -303,6 +347,8 @@ export async function runWebResearcher(
       unrecognised_reason: null,
       source: 'web_search',
       evidence_quote: outcome.evidenceQuote,
+      family_chapter: outcome.familyChapter,
+      family_rationale: outcome.familyRationale,
       latency_ms: outcome.latencyMs,
       model: outcome.model,
       attempts,
@@ -316,6 +362,8 @@ export async function runWebResearcher(
     unrecognised_reason: outcome.kind === 'unknown' ? outcome.reason : outcome.error,
     source: 'failed_passthrough',
     evidence_quote: null,
+    family_chapter: '',
+    family_rationale: '',
     latency_ms: outcome.latencyMs,
     model: outcome.model,
     attempts,
