@@ -57,6 +57,7 @@ export async function runCleanup(
     degraded,
     latency_ms: degraded ? result.latencyMs : result.latencyMs,
     tariff_expansion_en: result.tariffExpansionEn,
+    identity_tokens: result.identityTokens,
     attempts: result.attempts,
     retried_reasons: result.retriedReasons,
   };

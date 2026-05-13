@@ -55,6 +55,16 @@ export interface CleanupResult {
    * tariff English natively. See description-cleanup.md prompt.
    */
   tariff_expansion_en: string;
+  /**
+   * Up to 4 identity-anchor tokens that did NOT belong in
+   * `cleaned_description` (too brand/language-specific) and did NOT
+   * belong in `stripped` (still carry classification signal). Used to
+   * widen retrieval via BM25/trigram on lexical anchors that the
+   * embedder may not know — ingredient names, foreign-language customs
+   * nouns, classification-anchoring brand identifiers. See
+   * description-cleanup.md prompt §identity_tokens.
+   */
+  identity_tokens: string[];
   /** Total LLM attempts including the first call. 0 when short-circuited. */
   attempts: number;
   /** Reason recorded for each attempt that triggered a parse retry. */

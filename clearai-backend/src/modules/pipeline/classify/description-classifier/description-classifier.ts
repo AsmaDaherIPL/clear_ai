@@ -49,7 +49,22 @@ export async function runDescriptionClassifier(
   // picker continues to see the original `effective_description` (not the
   // expansion), so its fit/partial/does_not_fit verdicts and rationales
   // judge candidates against the merchant's actual words.
-  let retrieval_query = cleanup.tariff_expansion_en || cleanup.cleaned_description;
+  //
+  // identity_tokens (PR2 / Layer 1): cleanup emits up to 4 lexical anchors
+  // that don't belong in cleaned_description but carry classification
+  // signal — ingredient names ("panthenol"), foreign-language customs
+  // nouns ("بانثينول"), brand-as-chapter identifiers ("lego"). Appending
+  // them to the retrieval query lets BM25/trigram surface catalog rows
+  // that mention them even when the embedder has never seen them. The
+  // tokens are deduplicated against cleaned_description in cleanup itself
+  // to avoid double-weighting.
+  const identityAnchor = (cleanup.identity_tokens ?? []).join(' ');
+  let retrieval_query = [
+    cleanup.tariff_expansion_en || cleanup.cleaned_description,
+    identityAnchor,
+  ]
+    .filter((s) => s.length > 0)
+    .join(' ');
   let interpretation_stage: DescriptionClassifierResult['interpretation_stage'] = 'cleaned';
   let researchDetail: DescriptionClassifierResearchDetail | null = null;
   let webResearchDetail: DescriptionClassifierResearchDetail | null = null;

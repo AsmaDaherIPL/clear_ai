@@ -60,6 +60,20 @@ export interface DescriptionCleanupResult {
    * produce one.
    */
   tariffExpansionEn: string;
+  /**
+   * Up to 4 tokens that anchor the product's identity but were excluded
+   * from `clean_description` (too brand- or language-specific) and from
+   * `stripped` (still carry classification signal). Used to widen the
+   * retrieval query for BM25 / trigram matching — ingredient names,
+   * non-English customs nouns, classification-anchoring brand identifiers.
+   *
+   * Rescues the row-94 class: "بانثينول" stripped from cleanup left
+   * "tablet 500mg" as the only retrieval signal, hitting penicillin (Ch
+   * 2941) instead of the correct vitamin / dermatological preparation
+   * chapter. With بانثينول preserved as an identity token, retrieval gets
+   * the lexical anchor it needs.
+   */
+  identityTokens: string[];
   latencyMs: number;
   model?: string | undefined;
   /** Total LLM attempts including the first call (>=1). 0 when skipped. */
@@ -224,6 +238,7 @@ const ParsedCleanupSchema = z
     noun_grounded: z.unknown().optional(),
     typo_corrections: z.unknown().optional(),
     tariff_expansion_en: z.unknown().optional(),
+    identity_tokens: z.unknown().optional(),
   })
   .passthrough();
 
@@ -295,6 +310,7 @@ export async function cleanDescription(
       nounGrounded: true,
       typoCorrections: [],
       tariffExpansionEn: '',
+      identityTokens: [],
       latencyMs: 0,
       attempts: 0,
       retriedReasons: [],
@@ -334,6 +350,7 @@ export async function cleanDescription(
       nounGrounded: false,
       typoCorrections: [],
       tariffExpansionEn: '',
+      identityTokens: [],
       latencyMs: outcome.trace.latency_ms,
       model,
       attempts,
@@ -351,6 +368,7 @@ export async function cleanDescription(
       nounGrounded: false,
       typoCorrections: [],
       tariffExpansionEn: '',
+      identityTokens: [],
       latencyMs: outcome.trace.latency_ms,
       model,
       attempts,
@@ -397,6 +415,14 @@ export async function cleanDescription(
   const tariffExpansionEn =
     tariffExpansionRaw.length > 0 && tariffExpansionRaw.length < 400 ? tariffExpansionRaw : '';
 
+  // identity_tokens: cap at 4 entries, each <= 40 chars after trimming.
+  // Defensively reject anything that's already covered by clean_description
+  // (otherwise the retrieval query gets a literal duplicate).
+  const identityTokens = coerceStringArray(parsed.identity_tokens, 4)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0 && t.length <= 40)
+    .filter((t) => !effectiveClean.toLowerCase().includes(t.toLowerCase()));
+
   return {
     invoked: 'llm',
     kind,
@@ -407,6 +433,7 @@ export async function cleanDescription(
     nounGrounded,
     typoCorrections,
     tariffExpansionEn,
+    identityTokens,
     latencyMs: llmTrace.latency_ms,
     model,
     attempts,

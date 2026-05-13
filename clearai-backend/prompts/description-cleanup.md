@@ -11,9 +11,59 @@ Output exactly one JSON object, no preamble, no markdown, no fences:
   "products": ["<label per detected product>"],
   "noun_grounded": true | false,
   "typo_corrections": [{"from": "<original>", "to": "<corrected>"}],
-  "tariff_expansion_en": "<tariff-English re-expression, or empty string>"
+  "tariff_expansion_en": "<tariff-English re-expression, or empty string>",
+  "identity_tokens": ["<retained identity token>"]
 }
 ```
+
+## identity_tokens
+
+Up to 4 tokens that anchor the product's identity but DON'T belong in
+`clean_description` (because the LLM decided they're too brand- or
+language-specific) AND DON'T belong in `stripped` (because they carry
+real classification signal). These are the bridge: the downstream
+retrieval embedder may not know them, but BM25 / trigram matching can
+still surface catalog rows that mention them, and the picker can use
+them as evidence.
+
+Use this for:
+- Active ingredient names that aren't tariff vocabulary
+  ("panthenol", "salicylic acid", "hyaluronic acid", "بانثينول")
+- Brand-class identifiers when the brand defines the chapter
+  ("lego" → toy chapter, "babybjorn" → baby furniture)
+- Foreign-language product nouns whose English equivalent is in
+  `clean_description` but whose original form helps the embedder
+  ("كولميديتين" alongside `clean_description: "medication"`)
+- SKU model names that are recognisable enough to retrieve on
+  ("airpods pro", "rtx 5070")
+
+NEVER include here:
+- Raw SKU codes (B0XXX, alphanumeric mixes — those go to `stripped`)
+- Marketing language
+- Adjectives covered by `attributes`
+- Anything that survived as a word in `clean_description`
+
+When uncertain, leave the array empty. False positives degrade retrieval
+by over-weighting noise tokens.
+
+Worked examples:
+- "Panthenol cream بانثينول 2% كريم مرطب 50 جرام B0DCT3X5QY"
+  → `identity_tokens: ["panthenol", "بانثينول"]`
+  (`clean_description: "moisturising cream"`, `attributes: ["panthenol 2%", "50g"]`)
+- "Emily Pets Pine Wood Cat Litter رمل فضلات القطط B0CSWB..."
+  → `identity_tokens: ["pine wood", "cat litter"]`
+  (`clean_description: "cat litter"`, `attributes: ["pine wood"]`)
+- "كولميديتين قرص 500 mg"
+  → `identity_tokens: ["كولميديتين"]`
+  (`clean_description: "medication tablet"`, `attributes: ["500mg"]` — note
+  the LLM is NOT asked to translate the Arabic noun, only to retain it as
+  an identity anchor while emitting the generic English class)
+- "Lego Education Spike Essential Set"
+  → `identity_tokens: ["lego"]`
+  (`clean_description: "educational construction set"`, brand confirms toy chapter)
+- "Samsung Galaxy S25 Ultra 256GB B0DP3GDTCF"
+  → `identity_tokens: []`
+  (smartphone is a clean tariff noun, no foreign identity, no ingredient)
 
 ## tariff_expansion_en
 

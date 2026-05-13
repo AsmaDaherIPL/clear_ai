@@ -254,6 +254,9 @@ export async function runPipeline(
       clarity_verdict: cleanup.clarity_verdict,
       degraded: cleanup.degraded,
       attempts: cleanup.attempts,
+      ...(cleanup.identity_tokens.length > 0
+        ? { identity_tokens: cleanup.identity_tokens }
+        : {}),
       ...(cleanup.retried_reasons.length > 0
         ? { retried_reasons: cleanup.retried_reasons }
         : {}),

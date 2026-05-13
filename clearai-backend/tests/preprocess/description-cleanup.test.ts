@@ -113,6 +113,9 @@ describe('cleanDescription — skipped_clean shape contract', () => {
     expect(r.typoCorrections).toEqual([]);
     expect(r.products).toEqual([]);
     expect(r.attributes).toEqual([]);
+    // identity_tokens (PR2): empty on the skipped-clean path. The
+    // identity-token field only carries signal when the LLM actually ran.
+    expect(r.identityTokens).toEqual([]);
   });
 
   it('returns nounGrounded=true on whitespace-trimmed clean input', async () => {
@@ -120,5 +123,6 @@ describe('cleanDescription — skipped_clean shape contract', () => {
     expect(r.invoked).toBe('skipped_clean');
     expect(r.effective).toBe('Cards');
     expect(r.nounGrounded).toBe(true);
+    expect(r.identityTokens).toEqual([]);
   });
 });
