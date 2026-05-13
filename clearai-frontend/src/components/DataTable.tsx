@@ -147,6 +147,18 @@ export interface DataTableProps<T> {
    */
   tableId: string;
 
+  /**
+   * Default column visibility map applied on first mount when no user
+   * preferences are persisted yet. Once the user has toggled any column
+   * via the Columns dropdown, the persisted state takes over and this
+   * default is ignored. Use this to ship a column "off by default" while
+   * still letting power users opt in.
+   *
+   * Example: `{ value_plausibility_verdict: false }` — column exists,
+   * lives in the Columns menu, but isn't rendered until the user enables it.
+   */
+  defaultColumnVisibility?: VisibilityState;
+
   estimatedRowHeight: number;
 
   expectedRowCount?: number;
@@ -210,6 +222,7 @@ export function DataTable<T extends object>({
   data,
   columns,
   tableId,
+  defaultColumnVisibility,
   estimatedRowHeight,
   expectedRowCount,
   renderSkeletonRow,
@@ -230,7 +243,14 @@ export function DataTable<T extends object>({
   const [globalFilter, setGlobalFilter] = useState('');
 
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => {
-    return loadPrefs(tableId).columnVisibility ?? {};
+    const persisted = loadPrefs(tableId).columnVisibility;
+    // Persisted prefs (if any) ALWAYS win — once the user toggles a column
+    // we honour that choice forever. defaultColumnVisibility only applies
+    // on the very first mount (no prefs yet in localStorage), so first-time
+    // users see columns marked default-off as hidden while still being able
+    // to toggle them on via the Columns menu.
+    if (persisted) return persisted;
+    return defaultColumnVisibility ?? {};
   });
 
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() => {
@@ -362,6 +382,17 @@ export function DataTable<T extends object>({
     }
   };
 
+  // Clear any active chip filter when its target column is hidden via the
+  // Columns dropdown. Otherwise a hidden column could keep filtering the
+  // visible set with no UI to surface or undo the filter.
+  const chipColumnVisible = filterChips
+    ? table.getColumn(filterChips.columnId)?.getIsVisible() ?? true
+    : true;
+  useEffect(() => {
+    if (!filterChips || chipColumnVisible) return;
+    setColumnFilters((prev) => prev.filter((cf) => cf.id !== filterChips.columnId));
+  }, [chipColumnVisible, filterChips]);
+
   // -------------------------------------------------------------------------
   // Columns toggle list — only columns with a string header can be listed
   // meaningfully (function headers have no display name for the menu).
@@ -397,7 +428,12 @@ export function DataTable<T extends object>({
             />
           )}
 
-          {filterChips && (
+          {/*
+            Filter chips are gated on the target column being visible.
+            Showing chips that filter a hidden column would let users click
+            "Pass" and see rows disappear without understanding why.
+          */}
+          {filterChips && table.getColumn(filterChips.columnId)?.getIsVisible() && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase me-1">
                 {filterChips.label}
