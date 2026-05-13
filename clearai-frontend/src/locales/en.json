@@ -123,7 +123,6 @@
   "batch_verdict_warn": "Warn",
   "batch_verdict_skipped": "Skipped",
   "batch_verdict_unknown": "—",
-  "batch_pill_override_applied": "Override applied",
   "batch_empty_state": "No items processed.",
   "batch_start_new": "Start a new batch",
   "view_trace": "View full trace",

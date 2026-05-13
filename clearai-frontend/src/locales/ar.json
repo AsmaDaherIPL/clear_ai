@@ -123,7 +123,6 @@
   "batch_verdict_warn": "تحذير",
   "batch_verdict_skipped": "تم التخطي",
   "batch_verdict_unknown": "—",
-  "batch_pill_override_applied": "تم تطبيق التجاوز",
   "batch_empty_state": "لا توجد عناصر معالَجة.",
   "batch_start_new": "بدء دفعة جديدة",
   "view_trace": "عرض التتبع الكامل",

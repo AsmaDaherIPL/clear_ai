@@ -252,89 +252,159 @@ components:
           type: string
           nullable: true
 
-    BatchItem:
+    LocalizedString:
       type: object
-      required: [id, row_index, status, final_code, classification_result, trace, error]
+      required: [language, value]
       properties:
-        id:
+        language:
           type: string
-          format: uuid
-        row_index:
-          type: integer
-        status:
-          $ref: '#/components/schemas/BatchItemStatus'
-        final_code:
+          enum: [en, ar]
+        value:
           type: string
           nullable: true
-          pattern: '^\d{12}$'
-          description: 12-digit ZATCA HS code, present when status=succeeded|flagged.
-        final_code_source:
-          $ref: '#/components/schemas/FinalCodeSource'
-        pipeline_final_code:
+
+    DeclaredValue:
+      type: object
+      required: [hs_code, description, amount, currency]
+      description: |
+        Merchant-supplied values exactly as they appeared in the source row,
+        before any FX conversion or pipeline cleanup.
+      properties:
+        hs_code:
           type: string
           nullable: true
-          pattern: '^\d{12}$'
-          description: |
-            Original auto-classified code. NULL until a reviewer overrides
-            (decision=override on the corresponding review row), at which
-            point this captures the pipeline's verdict and `final_code`
-            flips to the reviewer-supplied code.
-        catalog_path_en:
+          description: Merchant's HS code prefix as supplied. Null when absent or malformed.
+        description:
           type: string
           nullable: true
-          description: ZATCA breadcrumb in English (zatca_hs_code_display.path_en) for the chosen final_code.
-        submission_description_ar:
-          type: string
-          nullable: true
-          description: LLM-generated Arabic goods description that ships in the XML envelope.
-        value_amount:
+          description: Verbatim merchant description.
+        amount:
           type: number
           nullable: true
-          description: |
-            Declared value, SAR-denominated. The merchant's submitted value is
-            converted to SAR at parse time using the `fx_rates` table and
-            returned here. `currency_code` is `"SAR"` whenever the conversion
-            ran; legacy rows pre-FX migration fall through to the merchant's
-            original currency.
-        currency_code:
+          description: Declared value in the merchant's submitted currency.
+        currency:
           type: string
           nullable: true
           pattern: '^[A-Z]{3}$'
+          description: ISO 4217 currency code as supplied by the merchant.
+
+    ResolvedHsCodeDescription:
+      type: object
+      required: [full_hierarchy, zatca_submission_description, retrieval_query]
+      properties:
+        full_hierarchy:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/LocalizedString'
+          description: Bilingual catalog breadcrumb (en + ar) for the resolved HS code.
+        zatca_submission_description:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/LocalizedString'
           description: |
-            ISO 4217 code for `value_amount`. Almost always `"SAR"` (ZATCA
-            envelopes are SAR-only and the API mirrors that). Falls back to
-            the merchant's original currency only for legacy pre-FX-migration
-            rows where conversion did not run.
-        value_amount_original:
-          type: number
+            LLM-generated Arabic goods description that ships in the ZATCA
+            envelope. English row is null until the bilingual surface lands.
+        retrieval_query:
+          type: string
           nullable: true
           description: |
-            The merchant's original submitted value before FX conversion.
-            Preserved so operators can diff "system saw X SAR (was Y AED)".
-            Null for legacy rows persisted before the FX migration.
-        currency_code_original:
+            Effective description used by Track A retrieval (post-cleanup /
+            researcher). Lets operators see what the pipeline actually queried
+            against vs. the verbatim merchant input.
+
+    CanonicalValueAmount:
+      type: object
+      required: [value, currency]
+      properties:
+        value:
+          type: number
+          nullable: true
+        currency:
           type: string
           nullable: true
           pattern: '^[A-Z]{3}$'
-          description: ISO 4217 code for `value_amount_original` (the merchant's submitted currency).
-        value_amount_sar:
+
+    Value:
+      type: object
+      required: [amount, rate, rate_as_of]
+      description: |
+        SAR-denominated declared value (ZATCA envelopes are SAR-only) plus
+        the FX rate + as-of date used at parse time.
+      properties:
+        amount:
+          $ref: '#/components/schemas/CanonicalValueAmount'
+        rate:
           type: number
           nullable: true
-          description: |
-            Declared value converted to SAR at parse time (Asia/Riyadh date)
-            using the manually-seeded `fx_rates` table. Duplicates
-            `value_amount` above when the conversion ran; surfaced as a
-            distinct field so callers can audit "did this row run through
-            FX conversion?" without parsing currency strings.
-        fx_rate:
-          type: number
-          nullable: true
-          description: SAR-per-unit rate applied to the original merchant value (1 for SAR itself).
-        fx_rate_as_of:
+          description: SAR-per-unit rate applied to the merchant's value (1 for SAR itself).
+        rate_as_of:
           type: string
           nullable: true
           format: date
           description: Calendar date of the fx_rates row used for conversion (Asia/Riyadh).
+
+    ClassificationResult:
+      type: object
+      required: [resolved_hs_code, classification_status, classification_confidence, sanity_verdict]
+      properties:
+        resolved_hs_code:
+          type: string
+          nullable: true
+          pattern: '^\d{12}$'
+          description: 12-digit code chosen by the pipeline. Null when no defensible answer.
+        classification_status:
+          type: string
+          nullable: true
+          enum: [AGREEMENT, DRIFT, ZERO_SIGNAL]
+          description: V1 reconciliation outcome between the two tracks.
+        classification_confidence:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: 0-100 score. Always null in V1 until the score work lands.
+        sanity_verdict:
+          type: string
+          nullable: true
+          enum: [PASS, FLAG, BLOCK]
+          description: Stage 3 value-plausibility verdict.
+
+    CanonicalItem:
+      type: object
+      required:
+        - id
+        - operator_slug
+        - declared_value
+        - resolved_hs_code_description
+        - value
+        - duty_info
+        - procedures
+        - classification_result
+        - error
+      description: |
+        Unified per-item shape returned by both /batches/{id}/items (batch
+        listing) and /classifications/dispatch (single-shot). `row_index` is
+        present only on batch responses; `trace` is present only when
+        `?include_trace=true`.
+      properties:
+        id:
+          type: string
+          format: uuid
+        operator_slug:
+          type: string
+        row_index:
+          type: integer
+          description: 1-based row position. Batch listing only; omitted on standalone.
+        declared_value:
+          $ref: '#/components/schemas/DeclaredValue'
+        resolved_hs_code_description:
+          $ref: '#/components/schemas/ResolvedHsCodeDescription'
+        value:
+          $ref: '#/components/schemas/Value'
         duty_info:
           $ref: '#/components/schemas/DutyInfo'
           nullable: true
@@ -342,16 +412,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProcedureInfo'
-          description: Required-procedure codes attached to final_code. Empty when none.
         classification_result:
-          type: object
-          nullable: true
-          additionalProperties: true
+          $ref: '#/components/schemas/ClassificationResult'
         trace:
           type: object
-          nullable: true
           additionalProperties: true
-          description: Full PipelineTrace (all stage outputs).
+          description: |
+            Full PipelineTrace. Present only when the request included
+            `?include_trace=true`; otherwise the key is omitted entirely.
         error:
           type: string
           nullable: true
@@ -411,7 +479,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/BatchItem'
+            $ref: '#/components/schemas/CanonicalItem'
 
     BatchFile:
       type: object
@@ -495,45 +563,12 @@ components:
           description: ISO 4217 currency (e.g. SAR, USD).
 
     DispatchResponse:
-      type: object
-      required: [item_id, operator_slug, sanity_verdict, trace]
-      properties:
-        item_id:
-          type: string
-          format: uuid
-          description: Synthesised id for this single-shot dispatch (also the row id in classification_events).
-        operator_slug:
-          type: string
-        final_code:
-          type: string
-          nullable: true
-          pattern: '^\d{12}$'
-          description: Null when the pipeline rejected the item (sanity_verdict=BLOCK).
-        goods_description_ar:
-          type: string
-          nullable: true
-          maxLength: 300
-        sanity_verdict:
-          type: string
-          enum: [PASS, FLAG, BLOCK]
-        value_amount:
-          type: number
-          nullable: true
-          description: Echoes the request's value_amount.
-        currency_code:
-          type: string
-          nullable: true
-          pattern: '^[A-Z]{3}$'
-        duty_info:
-          $ref: '#/components/schemas/DutyInfo'
-          nullable: true
-        procedures:
-          type: array
-          items:
-            $ref: '#/components/schemas/ProcedureInfo'
-        trace:
-          type: object
-          additionalProperties: true
+      allOf:
+        - $ref: '#/components/schemas/CanonicalItem'
+      description: |
+        Single-shot dispatch reuses the canonical per-item shape. `row_index`
+        is omitted (not applicable to standalone). `trace` is present only
+        when the caller included `?include_trace=true`.
 
     # ---------- stored trace lookup ----------
 
@@ -849,6 +884,11 @@ paths:
           in: query
           required: false
           schema: { type: integer, minimum: 0, default: 0 }
+        - name: include_trace
+          in: query
+          required: false
+          description: When true, include the full per-item `trace` object. Off by default to keep paging cheap.
+          schema: { type: boolean, default: false }
       responses:
         '200':
           description: Page of items.
@@ -1069,6 +1109,12 @@ paths:
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
+      parameters:
+        - name: include_trace
+          in: query
+          required: false
+          description: When true, include the `trace` object on the response. Off by default.
+          schema: { type: boolean, default: false }
       requestBody:
         required: true
         content:

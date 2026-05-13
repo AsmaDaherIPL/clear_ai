@@ -56,3 +56,20 @@ export async function enrichCode(
   const map = await enrichCodes([code], log);
   return map.get(code) ?? { duty_info: null, procedures: [] };
 }
+
+export interface CatalogPath {
+  path_en: string | null;
+  path_ar: string | null;
+}
+
+/** Pull the bilingual breadcrumb for a single HS code from zatca_hs_code_display. */
+export async function lookupCatalogPath(code: string | null): Promise<CatalogPath> {
+  if (!code) return { path_en: null, path_ar: null };
+  const pool = getPool();
+  const r = await pool.query<{ path_en: string | null; path_ar: string | null }>(
+    `SELECT path_en, path_ar FROM zatca_hs_code_display WHERE code = $1 LIMIT 1`,
+    [code],
+  );
+  const row = r.rows[0];
+  return { path_en: row?.path_en ?? null, path_ar: row?.path_ar ?? null };
+}

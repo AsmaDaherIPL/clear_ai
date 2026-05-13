@@ -14,6 +14,11 @@ import {
 } from './declaration-run.repository.js';
 import { getPool } from '../../db/client.js';
 import { enrichCodes } from '../reference-data/code-enrichment.service.js';
+import { assembleCanonicalItem } from '../pipeline/trace/dispatch-v1.js';
+import type {
+  ClassificationStatus as VerdictClassificationStatus,
+  SanityVerdict,
+} from '../pipeline/shared/pipeline.types.js';
 import {
   BatchValidationError,
   BatchTooLargeError,
@@ -156,7 +161,10 @@ export async function handleGetBatch(req: FastifyRequest<{ Params: { id: string 
 }
 
 export async function handleListClassifications(
-  req: FastifyRequest<{ Params: { id: string }; Querystring: { limit?: string; offset?: string } }>,
+  req: FastifyRequest<{
+    Params: { id: string };
+    Querystring: { limit?: string; offset?: string; include_trace?: string };
+  }>,
   reply: FastifyReply,
 ): Promise<unknown> {
   const declarationRun = await getBatch(req.params.id);
@@ -179,38 +187,33 @@ export async function handleListClassifications(
       received: offsetRaw,
     });
   }
+  const includeTrace = req.query.include_trace === 'true' || req.query.include_trace === '1';
 
   // Returns whatever items are in flight RIGHT NOW so the SPA's
   // BatchResultsTable can paint rows progressively as Phase 1 completes
-  // them. The original 425 'phase_not_ready' guard was lifted 2026-05-10
-  // when live polling went live — refusing service while items existed
-  // forced the table to do one big drop at the end. Frontend uses the
-  // top-level `classification_phase` flag below to know when to stop
-  // polling.
-  // Single query joins display + submission_descriptions so the SPA
-  // result table can render `path_en` and the LLM-generated Arabic
-  // submission text per item without follow-up fetches.
+  // them. Frontend uses the top-level `classification_phase` flag below
+  // to know when to stop polling.
+  // Single query joins display so the result table can render the
+  // bilingual catalog hierarchy + the LLM-generated Arabic submission
+  // text per item without follow-up fetches. The heavy `i.trace` JSONB
+  // is only selected when include_trace=true to keep paging cheap.
   const pool = getPool();
-  // Top-level extracts let the SPA render the result table without
-  // traversing the heavy `trace` JSONB on every row. raw_merchant_code,
-  // codebook_state, override_applied feed the merchant→resolved diff
-  // and the "Valid"/"Override applied" pill in BatchResultsTable.
+  const traceColumn = includeTrace ? 'i.trace' : 'NULL::jsonb';
   const r = await pool.query<{
     id: string;
     row_index: number;
     status: string;
     final_code: string | null;
-    classification_result: unknown;
     trace: unknown;
     error: string | null;
     catalog_path_en: string | null;
+    catalog_path_ar: string | null;
     submission_description_ar: string | null;
     classification_status: string | null;
+    sanity_verdict: string | null;
     raw_merchant_code: string | null;
-    codebook_state: string | null;
-    override_applied: boolean | null;
     raw_description: string | null;
-    effective_description: string | null;
+    retrieval_query: string | null;
     value_amount: string | null;
     currency_code: string | null;
     value_amount_sar: string | null;
@@ -221,19 +224,16 @@ export async function handleListClassifications(
             i.row_index,
             i.status,
             i.final_code,
-            i.classification_result,
-            i.trace,
+            ${traceColumn}              AS trace,
             i.error,
-            d.path_en              AS catalog_path_en,
-            i.goods_description_ar AS submission_description_ar,
+            d.path_en                   AS catalog_path_en,
+            d.path_ar                   AS catalog_path_ar,
+            i.goods_description_ar      AS submission_description_ar,
             (i.canonical ->> 'valueAmount')::numeric    AS value_amount,
             (i.canonical ->> 'currencyCode')            AS currency_code,
             (i.canonical ->> 'valueAmountSar')::numeric AS value_amount_sar,
             (i.canonical ->> 'fxRate')::numeric         AS fx_rate,
             (i.canonical ->> 'fxRateAsOf')              AS fx_rate_as_of,
-            -- V1 surface: AGREEMENT | DRIFT | ZERO_SIGNAL. Falls back to
-            -- the legacy conflict_type mapping for older rows persisted
-            -- before classification_status existed in the trace.
             COALESCE(
               i.trace -> 'meta' -> 'verdict' ->> 'classification_status',
               CASE i.trace -> 'meta' -> 'verdict' ->> 'conflict_type'
@@ -245,18 +245,11 @@ export async function handleListClassifications(
                 WHEN 'SPARSE_DESCRIPTION' THEN 'DRIFT'
                 ELSE NULL
               END
-            )                                                          AS classification_status,
-            (i.trace -> 'meta' -> 'track_b' ->> 'raw_merchant_code')  AS raw_merchant_code,
-            (i.trace -> 'meta' -> 'track_b' ->> 'codebook_state')     AS codebook_state,
-            ((i.trace -> 'meta' -> 'track_b' ->> 'override_applied')::boolean) AS override_applied,
-            -- raw_description: the merchant's verbatim input (xlsx 'Description' cell).
-            -- Lets the SPA show a "merchant said X / system saw Y" diff without
-            -- digging into declaration_run_items.canonical jsonb.
-            (i.canonical ->> 'description')                          AS raw_description,
-            -- effective_description: post-Stage-0b cleanup; what Track A retrieval
-            -- actually queried against. Reveals when cleanup mangled or stripped
-            -- something the merchant supplied.
-            (i.trace -> 'meta' -> 'track_a' ->> 'effective_description') AS effective_description
+            )                                                       AS classification_status,
+            (i.trace -> 'meta' -> 'sanity' ->> 'verdict')           AS sanity_verdict,
+            (i.trace -> 'meta' -> 'track_b' ->> 'raw_merchant_code') AS raw_merchant_code,
+            (i.canonical ->> 'description')                         AS raw_description,
+            (i.trace -> 'meta' -> 'track_a' ->> 'effective_description') AS retrieval_query
        FROM declaration_run_items i
        LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
       WHERE i.declaration_run_id = $1
@@ -281,16 +274,15 @@ export async function handleListClassifications(
     req.log,
   );
 
+  const operator = await getOperatorById(declarationRun.operatorId);
+  const operatorSlug = operator?.slug ?? '';
+
   return reply.send({
     // Envelope key renamed declaration_run_id → batch_id in the
     // 2026-05-12 API cutover. The DB column is still
     // declaration_run_items.declaration_run_id; only the wire-format
     // name changed.
     batch_id: declarationRun.id,
-    // The SPA polls this endpoint while a run is in flight. classification_phase
-    // is the authoritative stop signal: keep polling while it's 'pending' or
-    // 'running', stop on 'completed' / 'failed'. Per-item `status` covers the
-    // individual row state (pending|classifying|succeeded|flagged|blocked|failed).
     classification_phase: declarationRun.classificationStatus,
     total,
     limit,
@@ -299,44 +291,41 @@ export async function handleListClassifications(
     next_offset: hasMore ? itemsFetchedSoFar : null,
     items: r.rows.map((i) => {
       const enrichment = i.final_code ? enrichmentByCode.get(i.final_code) : null;
-      return {
+      const valueAmount =
+        i.value_amount_sar !== null
+          ? Number(i.value_amount_sar)
+          : i.value_amount !== null
+            ? Number(i.value_amount)
+            : null;
+      const valueCurrency = i.value_amount_sar !== null ? 'SAR' : i.currency_code;
+      return assembleCanonicalItem({
         id: i.id,
-        row_index: i.row_index,
-        status: i.status,
-        final_code: i.final_code,
-        catalog_path_en: i.catalog_path_en,
-        submission_description_ar: i.submission_description_ar,
-        classification_status: i.classification_status,
-        raw_merchant_code: i.raw_merchant_code,
-        codebook_state: i.codebook_state,
-        override_applied: i.override_applied ?? false,
-        raw_description: i.raw_description,
-        effective_description: i.effective_description,
-        // SAR-only on the wire. value_amount + currency_code expose the
-        // SAR-converted figure (ZATCA envelopes are SAR-only; SPA cells
-        // mirror that). The merchant's original figure stays available
-        // as value_amount_original + currency_code_original for diff
-        // and operator review. Legacy rows pre-FX migration may have
-        // value_amount_sar=null — surface the original in that case so
-        // the cell never renders blank.
-        value_amount:
-          i.value_amount_sar !== null
-            ? Number(i.value_amount_sar)
-            : i.value_amount !== null
-              ? Number(i.value_amount)
-              : null,
-        currency_code: i.value_amount_sar !== null ? 'SAR' : i.currency_code,
-        value_amount_original: i.value_amount !== null ? Number(i.value_amount) : null,
-        currency_code_original: i.currency_code,
-        value_amount_sar: i.value_amount_sar !== null ? Number(i.value_amount_sar) : null,
-        fx_rate: i.fx_rate !== null ? Number(i.fx_rate) : null,
-        fx_rate_as_of: i.fx_rate_as_of,
-        duty_info: enrichment?.duty_info ?? null,
+        operatorSlug,
+        rowIndex: i.row_index,
+        declared: {
+          hs_code: i.raw_merchant_code,
+          description: i.raw_description,
+          amount: i.value_amount !== null ? Number(i.value_amount) : null,
+          currency: i.currency_code,
+        },
+        resolvedHsCode: i.final_code,
+        catalogPathEn: i.catalog_path_en,
+        catalogPathAr: i.catalog_path_ar,
+        submissionDescriptionAr: i.submission_description_ar,
+        submissionDescriptionEn: null,
+        retrievalQuery: i.retrieval_query,
+        valueSar: { amount: valueAmount, currency: valueCurrency },
+        fxRate: i.fx_rate !== null ? Number(i.fx_rate) : null,
+        fxRateAsOf: i.fx_rate_as_of,
+        dutyInfo: enrichment?.duty_info ?? null,
         procedures: enrichment?.procedures ?? [],
-        classification_result: i.classification_result,
-        trace: i.trace,
+        classificationStatus: (i.classification_status as VerdictClassificationStatus | null) ?? null,
+        classificationConfidence: null,
+        sanityVerdict: (i.sanity_verdict as SanityVerdict | null) ?? null,
+        trace: includeTrace ? (i.trace as Record<string, unknown> | null) : null,
         error: i.error,
-      };
+        includeTrace,
+      });
     }),
   });
 }

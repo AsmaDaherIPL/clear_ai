@@ -28,33 +28,23 @@ import {
  * cleaner trace shape.
  */
 function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
-  const accepted = d.final_code !== null && d.sanity_verdict !== 'BLOCK';
+  const resolved = d.classification_result?.resolved_hs_code ?? null;
+  const sanity = d.classification_result?.sanity_verdict ?? null;
+  const accepted = resolved !== null && sanity !== 'BLOCK';
 
-  // Pull the submission description from the dispatch trace's
-  // submission_description action so the SPA's renderer can short-circuit
-  // the legacy /classifications/{id}/submission-description fetch.
-  const classify = d.trace.stages.find((s) => s.stage === 'classify');
-  const subAction = classify?.actions.find((a) => a.action === 'submission_description');
-  const subOutput = (subAction?.output ?? {}) as {
-    description_ar?: string | null;
-    description_en?: string | null;
-  };
-  const description_ar =
-    typeof subOutput.description_ar === 'string'
-      ? subOutput.description_ar
-      : d.goods_description_ar;
-  const description_en =
-    typeof subOutput.description_en === 'string'
-      ? subOutput.description_en
-      : null;
+  const submissionAr =
+    d.resolved_hs_code_description?.zatca_submission_description.find((p) => p.language === 'ar')
+      ?.value ?? null;
+  const submissionEn =
+    d.resolved_hs_code_description?.zatca_submission_description.find((p) => p.language === 'en')
+      ?.value ?? null;
 
   // Considered alternatives — top 3 from each track, with the chosen
-  // final_code filtered out so it doesn't render as its own alternative.
-  // Track A = annotated_candidates (RRF/picker), Track B = subtree_candidates
-  // (merchant-prefix-anchored). Both arrays may be empty / undefined.
-  const meta = d.trace.meta;
+  // resolved_hs_code filtered out. Trace is only present when the
+  // caller asked for it; without it the sidebar shows no alternatives.
+  const meta = d.trace?.meta;
   const trackA = (meta?.track_a?.annotated_candidates ?? [])
-    .filter((c) => c.code !== d.final_code)
+    .filter((c) => c.code !== resolved)
     .slice(0, 3)
     .map<AlternativeLine>((c) => ({
       code: c.code,
@@ -66,7 +56,7 @@ function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
       track: 'track_a',
     }));
   const trackB = (meta?.track_b?.subtree_candidates ?? [])
-    .filter((c) => c.code !== d.final_code)
+    .filter((c) => c.code !== resolved)
     .slice(0, 3)
     .map<AlternativeLine>((c) => ({
       code: c.code,
@@ -79,30 +69,25 @@ function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
     }));
   const alternatives = [...trackA, ...trackB];
 
-  // Classification ID — prefer the new `id` field; fall back to legacy item_id.
-  const classificationId = d.id ?? d.item_id ?? undefined;
-
   return {
-    request_id: classificationId,
+    request_id: d.id,
     decision_status: accepted ? 'accepted' : 'needs_clarification',
     decision_reason: accepted ? 'strong_match' : 'ambiguous_top_candidates',
+    classification_status: d.classification_result?.classification_status ?? undefined,
     alternatives,
     result: accepted
       ? {
-          code: d.final_code as string,
+          code: resolved as string,
           description_en: null,
-          description_ar: d.goods_description_ar,
-          // Duty + procedures from the dispatch top level. ResultSingle
-          // reads result.duty.rate_percent / status for the sidebar, and
-          // RequiredProcedures reads result.procedures.
+          description_ar: submissionAr,
           duty: d.duty_info ?? null,
           procedures: d.procedures ?? [],
         }
       : undefined,
-    submission_description: description_ar
+    submission_description: submissionAr
       ? {
-          description_ar,
-          description_en: description_en ?? '',
+          description_ar: submissionAr,
+          description_en: submissionEn ?? '',
           rationale: '',
           differs_from_catalog: true,
           source: 'llm',
@@ -269,7 +254,7 @@ function mergeItemsById(
   for (const item of incoming) byId.set(item.id, item);
   // Preserve row_index order — server returns in that order; the map
   // may have shuffled it. Sort to be safe.
-  return Array.from(byId.values()).sort((a, b) => a.row_index - b.row_index);
+  return Array.from(byId.values()).sort((a, b) => (a.row_index ?? 0) - (b.row_index ?? 0));
 }
 
 function getUrlRunId(): string | null {
@@ -619,12 +604,15 @@ export default function ClassifyApp() {
         if (!extras) {
           throw new Error('Value and currency are required.');
         }
-        const dispatchRes = await api.dispatch({
-          description,
-          value_amount: extras.valueAmount,
-          currency_code: extras.currencyCode,
-          ...(m === 'expand' && parentCode ? { merchant_code: parentCode } : {}),
-        });
+        const dispatchRes = await api.dispatch(
+          {
+            description,
+            value_amount: extras.valueAmount,
+            currency_code: extras.currencyCode,
+            ...(m === 'expand' && parentCode ? { merchant_code: parentCode } : {}),
+          },
+          { includeTrace: true },
+        );
         res = dispatchToDescribe(dispatchRes);
       } else {
         // Batch mode submits via Composer's onPickFile callback into

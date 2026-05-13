@@ -40,31 +40,9 @@ function clampChars(text: string, max: number): string {
   return `${cut.trimEnd()}…`;
 }
 
-/**
- * Read the sanity verdict off the item's classification_result blob.
- * Accepts three backend shapes so future schema changes don't silently
- * break the column:
- *   1. classification_result.sanity_verdict  (current dispatch shape)
- *   2. classification_result.verdict          (flat alias)
- *   3. classification_result.sanity.verdict   (nested form)
- */
+/** Read the sanity verdict off the canonical classification_result. */
 function readVerdict(item: DeclarationRunItem): string | null {
-  const cr = item.classification_result;
-  if (!cr || typeof cr !== 'object') return null;
-
-  const topSanity = (cr as { sanity_verdict?: unknown }).sanity_verdict;
-  if (typeof topSanity === 'string' && topSanity.length > 0) return topSanity;
-
-  const topVerdict = (cr as { verdict?: unknown }).verdict;
-  if (typeof topVerdict === 'string' && topVerdict.length > 0) return topVerdict;
-
-  const sanity = (cr as { sanity?: unknown }).sanity;
-  if (sanity && typeof sanity === 'object') {
-    const v = (sanity as { verdict?: unknown }).verdict;
-    if (typeof v === 'string' && v.length > 0) return v;
-  }
-
-  return null;
+  return item.classification_result?.sanity_verdict ?? null;
 }
 
 function normaliseVerdict(raw: string): 'pass' | 'fail' | 'warn' | 'skipped' | 'unknown' {
@@ -108,9 +86,12 @@ const BREAKDOWN_DESC_MAX = 38;
  * first; the upper three rows are subdued so they read as context.
  */
 function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
+  const resolved = item.classification_result?.resolved_hs_code ?? null;
+  const pathEn =
+    item.resolved_hs_code_description?.full_hierarchy.find((p) => p.language === 'en')?.value ?? null;
   const breakdown = useMemo(
-    () => buildBreakdown(item.final_code, item.catalog_path_en),
-    [item.final_code, item.catalog_path_en],
+    () => buildBreakdown(resolved, pathEn),
+    [resolved, pathEn],
   );
 
   if (breakdown.length === 0) {
@@ -164,14 +145,8 @@ function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
   );
 }
 
-function MerchantCodeCell({
-  item,
-  overridePillLabel,
-}: {
-  item: DeclarationRunItem;
-  overridePillLabel: string;
-}) {
-  const merchantCode = item.raw_merchant_code ?? null;
+function MerchantCodeCell({ item }: { item: DeclarationRunItem }) {
+  const merchantCode = item.declared_value?.hs_code ?? null;
   if (!merchantCode) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   }
@@ -180,11 +155,6 @@ function MerchantCodeCell({
       <span className="font-mono text-[12.5px] text-[var(--ink-3)] whitespace-nowrap">
         {merchantCode}
       </span>
-      {item.override_applied && (
-        <span className="inline-flex items-center px-1.5 py-[1px] rounded-full text-[9.5px] font-mono uppercase tracking-[0.06em] bg-[oklch(0.92_0.06_240)] text-[oklch(0.32_0.12_240)] whitespace-nowrap">
-          {overridePillLabel}
-        </span>
-      )}
     </div>
   );
 }
@@ -197,7 +167,7 @@ function MerchantCodeCell({
  * variable row heights are cheap.
  */
 function MerchantDescriptionCell({ item }: { item: DeclarationRunItem }) {
-  const desc = item.raw_description ?? null;
+  const desc = item.declared_value?.description ?? null;
   if (!desc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   return (
     <div className="text-[13px] text-[var(--ink-2)] leading-[1.5] break-words whitespace-pre-wrap">
@@ -213,8 +183,8 @@ function MerchantDescriptionCell({ item }: { item: DeclarationRunItem }) {
  * muted small-caps mono. Falls back to "—" when either field is missing.
  */
 function ValueCell({ item }: { item: DeclarationRunItem }) {
-  const amount = item.value_amount;
-  const currency = item.currency_code;
+  const amount = item.value?.amount?.value ?? null;
+  const currency = item.value?.amount?.currency ?? null;
   if (amount === null || amount === undefined || !Number.isFinite(amount)) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   }
@@ -274,24 +244,19 @@ export default function BatchResultsTable({
       id: 'merchant_code',
       header: t('batch_col_merchant_code' as TKey),
       enableSorting: false,
-      accessorFn: (row) => row.raw_merchant_code ?? '',
+      accessorFn: (row) => row.declared_value?.hs_code ?? '',
       // Bumped to 140/120 so 12-digit codes (e.g. 851830900000) fit without
       // overflow-clipping into the next column.
       size: 140,
       minSize: 120,
       maxSize: 220,
-      cell: ({ row }) => (
-        <MerchantCodeCell
-          item={row.original}
-          overridePillLabel={t('batch_pill_override_applied' as TKey)}
-        />
-      ),
+      cell: ({ row }) => <MerchantCodeCell item={row.original} />,
     },
     {
       id: 'merchant_description',
       header: t('batch_col_merchant_description' as TKey),
       enableSorting: false,
-      accessorFn: (row) => row.raw_description ?? '',
+      accessorFn: (row) => row.declared_value?.description ?? '',
       // Wider default so the full description fits without wrapping in the
       // common case. Cell wraps freely when content exceeds width — row
       // grows to fit (no truncation).
@@ -304,7 +269,7 @@ export default function BatchResultsTable({
       id: 'value',
       header: t('batch_col_value' as TKey),
       enableSorting: true,
-      accessorFn: (row) => row.value_amount ?? 0,
+      accessorFn: (row) => row.value?.amount?.value ?? 0,
       size: 130,
       minSize: 100,
       maxSize: 200,
@@ -314,12 +279,12 @@ export default function BatchResultsTable({
       id: 'classified_code',
       header: t('batch_col_classified_code' as TKey),
       enableSorting: true,
-      accessorFn: (row) => row.final_code ?? '',
+      accessorFn: (row) => row.classification_result?.resolved_hs_code ?? '',
       size: 120,
       minSize: 100,
       maxSize: 180,
       cell: ({ row }) => {
-        const fc = row.original.final_code;
+        const fc = row.original.classification_result?.resolved_hs_code ?? null;
         if (!fc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
         return (
           <span className="font-mono text-[14px] font-medium text-[var(--accent-ink)] whitespace-nowrap tabular-nums">
@@ -332,7 +297,7 @@ export default function BatchResultsTable({
       id: 'classified_code_breakdown',
       header: t('batch_col_classified_code_breakdown' as TKey),
       enableSorting: false,
-      accessorFn: (row) => row.final_code ?? '',
+      accessorFn: (row) => row.classification_result?.resolved_hs_code ?? '',
       // Widened: the new 3-column inner grid (code · level · text) needs
       // room for the 72px level strip plus a usable text width on the right.
       size: 340,
@@ -344,12 +309,18 @@ export default function BatchResultsTable({
       id: 'submission_ar',
       header: t('batch_col_zatca_submission' as TKey),
       enableSorting: false,
-      accessorFn: (row) => row.submission_description_ar ?? '',
+      accessorFn: (row) =>
+        row.resolved_hs_code_description?.zatca_submission_description.find(
+          (p) => p.language === 'ar',
+        )?.value ?? '',
       size: 180,
       minSize: 140,
       maxSize: 320,
       cell: ({ row }) => {
-        const ar = row.original.submission_description_ar;
+        const ar =
+          row.original.resolved_hs_code_description?.zatca_submission_description.find(
+            (p) => p.language === 'ar',
+          )?.value ?? null;
         return (
           <div
             dir="rtl"

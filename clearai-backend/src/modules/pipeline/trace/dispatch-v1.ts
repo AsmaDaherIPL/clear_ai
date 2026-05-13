@@ -12,8 +12,14 @@
  *   classify   → actions: [description_classifier, code_resolver,
  *                          reconciliation, submission_description]
  *   sanity     → actions: [sanity_check]
+ *
+ * This module also exports `assembleCanonicalItem`, the wire-format
+ * builder used by both /batches/{id}/items and /classifications/dispatch.
+ * `DispatchV1Response` remains for internal recorders that read the
+ * three-level trace shape; the canonical item is what ships to the SPA.
  */
 import type {
+  ClassificationStatus,
   DispatchV1Action,
   DispatchV1Outcome,
   DispatchV1Response,
@@ -24,6 +30,7 @@ import type {
   DispatchV1Trace,
   PipelineResult,
   PipelineTrace,
+  SanityVerdict,
   StageTrace,
   DescriptionClassifierResult,
   CodeResolverResult,
@@ -399,4 +406,130 @@ export function assembleDispatchV1(params: AssembleParams): DispatchV1Response {
     sanity_verdict: result.sanity_verdict,
     trace: v1Trace,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Canonical wire shape (shared by /batches/{id}/items and /classifications/dispatch)
+// ---------------------------------------------------------------------------
+
+export interface LocalizedString {
+  language: 'en' | 'ar';
+  value: string | null;
+}
+
+export interface DeclaredValue {
+  hs_code: string | null;
+  description: string | null;
+  amount: number | null;
+  currency: string | null;
+}
+
+export interface ResolvedHsCodeDescription {
+  full_hierarchy: LocalizedString[];
+  zatca_submission_description: LocalizedString[];
+  retrieval_query: string | null;
+}
+
+export interface CanonicalValueAmount {
+  value: number | null;
+  currency: string | null;
+}
+
+export interface CanonicalValue {
+  amount: CanonicalValueAmount;
+  rate: number | null;
+  rate_as_of: string | null;
+}
+
+export interface CanonicalClassificationResult {
+  resolved_hs_code: string | null;
+  classification_status: ClassificationStatus | null;
+  classification_confidence: number | null;
+  sanity_verdict: SanityVerdict | null;
+}
+
+export interface CanonicalItem {
+  id: string;
+  operator_slug: string;
+  row_index?: number;
+  declared_value: DeclaredValue;
+  resolved_hs_code_description: ResolvedHsCodeDescription;
+  value: CanonicalValue;
+  duty_info: unknown | null;
+  procedures: unknown[];
+  classification_result: CanonicalClassificationResult;
+  trace?: DispatchV1Trace | Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface AssembleCanonicalParams {
+  id: string;
+  operatorSlug: string;
+  rowIndex?: number;
+  declared: DeclaredValue;
+  resolvedHsCode: string | null;
+  catalogPathEn: string | null;
+  catalogPathAr: string | null;
+  submissionDescriptionAr: string | null;
+  submissionDescriptionEn: string | null;
+  retrievalQuery: string | null;
+  valueSar: { amount: number | null; currency: string | null };
+  fxRate: number | null;
+  fxRateAsOf: string | null;
+  dutyInfo: unknown | null;
+  procedures: unknown[];
+  classificationStatus: ClassificationStatus | null;
+  classificationConfidence: number | null;
+  sanityVerdict: SanityVerdict | null;
+  trace?: DispatchV1Trace | Record<string, unknown> | null;
+  error: string | null;
+  includeTrace: boolean;
+}
+
+export function assembleCanonicalItem(params: AssembleCanonicalParams): CanonicalItem {
+  const base: CanonicalItem = {
+    id: params.id,
+    operator_slug: params.operatorSlug,
+    ...(params.rowIndex !== undefined ? { row_index: params.rowIndex } : {}),
+    declared_value: params.declared,
+    resolved_hs_code_description: {
+      full_hierarchy: [
+        { language: 'en', value: params.catalogPathEn },
+        { language: 'ar', value: params.catalogPathAr },
+      ],
+      zatca_submission_description: [
+        { language: 'en', value: params.submissionDescriptionEn },
+        { language: 'ar', value: params.submissionDescriptionAr },
+      ],
+      retrieval_query: params.retrievalQuery,
+    },
+    value: {
+      amount: { value: params.valueSar.amount, currency: params.valueSar.currency },
+      rate: params.fxRate,
+      rate_as_of: params.fxRateAsOf,
+    },
+    duty_info: params.dutyInfo,
+    procedures: params.procedures,
+    classification_result: {
+      resolved_hs_code: params.resolvedHsCode,
+      classification_status: params.classificationStatus,
+      classification_confidence: params.classificationConfidence,
+      sanity_verdict: params.sanityVerdict,
+    },
+    error: params.error,
+  };
+  if (params.includeTrace) {
+    base.trace = params.trace ?? null;
+  }
+  return base;
+}
+
+/** Pull `track_a.effective_description` out of a PipelineTrace for the retrieval_query field. */
+export function retrievalQueryFromTrace(trace: PipelineTrace): string | null {
+  return trace.track_a?.effective_description ?? null;
+}
+
+/** Derive ClassificationStatus from a PipelineTrace's verdict block. */
+export function classificationStatusFromTrace(trace: PipelineTrace): ClassificationStatus | null {
+  return trace.verdict?.classification_status ?? null;
 }

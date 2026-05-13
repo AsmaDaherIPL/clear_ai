@@ -20,10 +20,15 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { runPipeline } from './pipeline.orchestrator.js';
 import { stampFxFields, FxRateMissingError } from './parse/enrich-fx.js';
-import { assembleDispatchV1 } from './trace/dispatch-v1.js';
+import {
+  assembleCanonicalItem,
+  assembleDispatchV1,
+  classificationStatusFromTrace,
+  retrievalQueryFromTrace,
+} from './trace/dispatch-v1.js';
 import { recordClassificationEvent } from './events/recorder.js';
 import { enqueueHitl } from './review/review.js';
-import { enrichCode } from '../reference-data/code-enrichment.service.js';
+import { enrichCode, lookupCatalogPath } from '../reference-data/code-enrichment.service.js';
 import { getPool } from '../../db/client.js';
 import { resolve as resolveOperator } from '../operators/operator-config.registry.js';
 import { OperatorNotFoundError } from '../operators/operator.errors.js';
@@ -120,7 +125,7 @@ interface ClassificationEventTraceRow {
 
 export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
   // POST /pipeline/dispatch
-  app.post('/classifications/dispatch', async (req, reply) => {
+  app.post<{ Querystring: { include_trace?: string } }>('/classifications/dispatch', async (req, reply) => {
     const parsed = DispatchBody.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -128,6 +133,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       });
     }
     const body = parsed.data;
+    const includeTrace = req.query.include_trace === 'true' || req.query.include_trace === '1';
 
     // Refuse to start a classification when the LLM circuit breaker is tripped.
     // Sustained auth-class failures (401/403/404) mean the env is broken — every
@@ -179,7 +185,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     const result: PipelineResult = await runPipeline(item, V1_OPERATOR_SLUG, item.itemId);
     const completedAt = new Date().toISOString();
 
-    const response = assembleDispatchV1({
+    const v1Response = assembleDispatchV1({
       itemId: item.itemId,
       operatorSlug: V1_OPERATOR_SLUG,
       result,
@@ -187,14 +193,39 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       completedAt,
     });
 
-    const enrichment = await enrichCode(response.final_code, req.log);
-    const enrichedResponse = {
-      ...response,
-      value_amount: body.value_amount,
-      currency_code: body.currency_code,
-      duty_info: enrichment.duty_info,
+    const enrichment = await enrichCode(result.final_code, req.log);
+    const catalogPath = await lookupCatalogPath(result.final_code);
+
+    const canonical = assembleCanonicalItem({
+      id: item.itemId,
+      operatorSlug: V1_OPERATOR_SLUG,
+      declared: {
+        hs_code: body.merchant_code ?? null,
+        description: body.description,
+        amount: body.value_amount,
+        currency: body.currency_code,
+      },
+      resolvedHsCode: result.final_code,
+      catalogPathEn: catalogPath.path_en,
+      catalogPathAr: catalogPath.path_ar,
+      submissionDescriptionAr: result.goods_description_ar,
+      submissionDescriptionEn: null,
+      retrievalQuery: retrievalQueryFromTrace(result.trace),
+      valueSar: {
+        amount: item.valueAmountSar ?? body.value_amount,
+        currency: item.valueAmountSar !== undefined ? 'SAR' : body.currency_code,
+      },
+      fxRate: item.fxRate ?? null,
+      fxRateAsOf: item.fxRateAsOf ?? null,
+      dutyInfo: enrichment.duty_info,
       procedures: enrichment.procedures,
-    };
+      classificationStatus: classificationStatusFromTrace(result.trace),
+      classificationConfidence: null,
+      sanityVerdict: result.sanity_verdict,
+      trace: v1Response.trace,
+      error: null,
+      includeTrace,
+    });
 
     // Persist audit row first; if it succeeds and the orchestrator
     // surfaced a HITL intent, follow with the queue write so the FK
@@ -207,7 +238,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
           operatorId: operatorConfig.id,
           operatorSlug: V1_OPERATOR_SLUG,
           request: body,
-          response,
+          response: v1Response,
           totalLatencyMs: Date.now() - startedAtMs,
         },
         req.log,
@@ -216,8 +247,8 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       if (eventOk && result.hitl) {
         await enqueueHitl(
           {
-            classification_event_id: response.item_id,
-            item_id: response.item_id,
+            classification_event_id: item.itemId,
+            item_id: item.itemId,
             // Single-shot dispatch has no parent batch.
             batch_id: null,
             operator_slug: V1_OPERATOR_SLUG,
@@ -225,7 +256,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
             cleaned_description: result.hitl.cleaned_description,
             verdict_output: result.trace.verdict,
             sanity_result: result.trace.sanity,
-            trace: response.trace,
+            trace: v1Response.trace,
             enqueued_at: new Date().toISOString(),
           },
           req.log,
@@ -233,7 +264,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       }
     })();
 
-    return reply.code(200).send(enrichedResponse);
+    return reply.code(200).send(canonical);
   });
 
   // GET /pipeline/trace/:id

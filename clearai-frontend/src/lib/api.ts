@@ -388,30 +388,23 @@ export interface DispatchTraceMeta {
   } | null;
 }
 
+/**
+ * /classifications/dispatch response — canonical item shape, identical
+ * to one entry of `BatchItemsPage.items`. `row_index` is omitted on
+ * standalone (not applicable). `trace` is present only when the caller
+ * passed `?include_trace=true`.
+ */
 export interface DispatchResponse {
-  /**
-   * UUID for this classification — also surfaced on the URL as ?id=…
-   * Falls back to item_id (legacy synonym) when the new field isn't
-   * shipped yet.
-   */
-  id?: string;
-  item_id: string;
+  id: string;
   operator_slug: string;
-  status: 'succeeded' | 'failed' | 'rejected';
-  final_code: string | null;
-  goods_description_ar: string | null;
-  goods_description_en: string | null;
-  sanity_verdict: 'PASS' | 'FLAG' | 'BLOCK';
-  /** Per-line duty for the final_code (null when no duty info available). */
-  duty_info?: DutyInfo | null;
-  /** Required ZATCA procedures for the final_code (empty array when none). */
-  procedures?: ProcedureRef[];
-  /**
-   * Optional extension to DispatchTrace surfacing the reconciliation
-   * meta block (track_a.annotated_candidates, track_b.subtree_candidates,
-   * verdict, sanity). The legacy `stages[]` array is unchanged.
-   */
-  trace: DispatchTrace & { meta?: DispatchTraceMeta };
+  declared_value: DeclaredValue;
+  resolved_hs_code_description: ResolvedHsCodeDescription;
+  value: CanonicalValue;
+  duty_info: DutyInfo | null;
+  procedures: ProcedureRef[];
+  classification_result: CanonicalClassificationResult;
+  trace?: DispatchTrace & { meta?: DispatchTraceMeta };
+  error: string | null;
 }
 
 /** Lazy-loaded ZATCA submission description from POST /classifications/{id}/submission-description. */
@@ -497,77 +490,65 @@ export interface BatchSummary {
 /** @deprecated Use BatchSummary. */
 export type DeclarationRunSummary = BatchSummary;
 
+/** One {language, value} pair from a `LocalizedString[]`. */
+export interface LocalizedString {
+  language: 'en' | 'ar';
+  value: string | null;
+}
+
+/** Merchant-submitted values exactly as they appeared in the source row. */
+export interface DeclaredValue {
+  hs_code: string | null;
+  description: string | null;
+  amount: number | null;
+  currency: string | null;
+}
+
+export interface ResolvedHsCodeDescription {
+  /** Bilingual catalog breadcrumb. Always two entries [en, ar]. */
+  full_hierarchy: LocalizedString[];
+  /** LLM-generated submission description. Always two entries [en, ar]. */
+  zatca_submission_description: LocalizedString[];
+  /** Effective description that Track A retrieval queried against. */
+  retrieval_query: string | null;
+}
+
+export interface CanonicalValueAmount {
+  value: number | null;
+  currency: string | null;
+}
+
+export interface CanonicalValue {
+  amount: CanonicalValueAmount;
+  rate: number | null;
+  rate_as_of: string | null;
+}
+
+export interface CanonicalClassificationResult {
+  resolved_hs_code: string | null;
+  classification_status: 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL' | null;
+  /** 0-100. Always null until score work lands. */
+  classification_confidence: number | null;
+  sanity_verdict: 'PASS' | 'FLAG' | 'BLOCK' | null;
+}
+
+/**
+ * Canonical per-item shape returned by both /batches/{id}/items and
+ * /classifications/dispatch. `row_index` is present only on batch
+ * responses; `trace` is present only when `?include_trace=true`.
+ */
 export interface BatchItem {
   id: string;
-  row_index: number;
-  status: BatchItemStatus;
-  final_code: string | null;
-  /** ZATCA breadcrumb in English (zatca_hs_code_display.path_en). Null when no final_code. */
-  catalog_path_en: string | null;
-  /** LLM-generated Arabic submission description that ships in the XML. Null when no final_code. */
-  submission_description_ar: string | null;
-  classification_result: Record<string, unknown> | null;
-  trace: Record<string, unknown> | null;
+  operator_slug: string;
+  row_index?: number;
+  declared_value: DeclaredValue;
+  resolved_hs_code_description: ResolvedHsCodeDescription;
+  value: CanonicalValue;
+  duty_info: DutyInfo | null;
+  procedures: ProcedureRef[];
+  classification_result: CanonicalClassificationResult;
+  trace?: Record<string, unknown> | null;
   error: string | null;
-  /**
-   * Merchant-supplied product description from the source CSV/XLSX.
-   * Backend is shipping this incrementally (PR pending). Optional now;
-   * frontend cell falls back to "—" when absent so older rows render
-   * cleanly. The "Merchant description" column reads this verbatim.
-   */
-  raw_description?: string | null;
-  /**
-   * Merchant-supplied HS-code prefix (the code on the input invoice
-   * before classification). Already shipped by some backend builds —
-   * surfaces in the "Merchant code" column. The "Override applied"
-   * pill renders inline when override_applied is true.
-   */
-  raw_merchant_code?: string | null;
-  override_applied?: boolean;
-  /**
-   * Per-line declared value, SAR-denominated. The backend converts the
-   * merchant's submitted value to SAR at parse time (fx_rates seed) and
-   * returns the SAR figure here. currency_code is "SAR" whenever the
-   * conversion ran; for legacy rows pre-FX migration it falls back to the
-   * merchant's original ISO-4217 code. Surfaces in the "Value" column.
-   */
-  value_amount?: number | null;
-  currency_code?: string | null;
-  /**
-   * The merchant's original (pre-conversion) figures, preserved for
-   * diff / operator review. Null when the row predates the FX migration.
-   */
-  value_amount_original?: number | null;
-  currency_code_original?: string | null;
-  /**
-   * Declared value converted to SAR at parse time using the manually-seeded
-   * fx_rates table. Duplicates value_amount above when the conversion ran;
-   * kept as a separate field so consumers can audit "did this run through
-   * FX conversion at all?" without comparing currency_code strings.
-   */
-  value_amount_sar?: number | null;
-  /** SAR-per-unit rate used for the conversion (1 for SAR itself). */
-  fx_rate?: number | null;
-  /** Calendar date of the fx_rates row used (Asia/Riyadh). */
-  fx_rate_as_of?: string | null;
-  /**
-   * V1 reconciliation status — the primary user-facing answer to
-   * "did Track A and Track B agree on the code?".
-   *
-   *   AGREEMENT    — both tracks agree, high confidence
-   *   DRIFT        — tracks disagreed at some level; final code still
-   *                  picked (this absorbs the legacy AMBIGUOUS_MATERIAL,
-   *                  SPARSE_DESCRIPTION, and CONTRADICTION buckets)
-   *   ZERO_SIGNAL  — neither track had a defensible code; row escalates
-   *
-   * Optional for backward-compat with rows persisted before the field
-   * existed in trace JSON. The backend's SQL falls back to a mapping
-   * from legacy conflict_type when the new field is absent.
-   *
-   * Distinct from DeclarationRunSummary.classification_status, which is
-   * the run-level lifecycle ('pending'|'running'|'completed'|'failed').
-   */
-  classification_status?: 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL' | string | null;
 }
 /** @deprecated Use BatchItem. */
 export type DeclarationRunItem = BatchItem;
@@ -702,22 +683,26 @@ export const api = {
 
   /**
    * POST /classifications/dispatch — single-item classification through
-   * the two-track pipeline (description classifier + code resolver +
-   * reconciliation + sanity). Returns the full trace inline.
+   * the two-track pipeline. Returns the canonical item shape; pass
+   * `include_trace=true` to also receive the full PipelineTrace.
    * Renamed from /pipeline/dispatch in the 2026-05-12 API cutover.
    */
-  dispatchClassification: (b: DispatchRequest) =>
-    request<DispatchResponse>('/classifications/dispatch', {
+  dispatchClassification: (b: DispatchRequest, opts?: { includeTrace?: boolean }) => {
+    const suffix = opts?.includeTrace ? '?include_trace=true' : '';
+    return request<DispatchResponse>(`/classifications/dispatch${suffix}`, {
       method: 'POST',
       body: JSON.stringify(b),
-    }),
+    });
+  },
 
   /** @deprecated Use dispatchClassification. */
-  dispatch: (b: DispatchRequest) =>
-    request<DispatchResponse>('/classifications/dispatch', {
+  dispatch: (b: DispatchRequest, opts?: { includeTrace?: boolean }) => {
+    const suffix = opts?.includeTrace ? '?include_trace=true' : '';
+    return request<DispatchResponse>(`/classifications/dispatch${suffix}`, {
       method: 'POST',
       body: JSON.stringify(b),
-    }),
+    });
+  },
 
   /** POST /classifications/expand — narrow a 4-10 digit prefix to a 12-digit leaf. */
   expand: (b: ExpandRequest) =>
@@ -799,16 +784,17 @@ export const api = {
 
   /**
    * GET /batches/{id}/items — per-item results. Server-side paginated:
-   * default page size is 100, max 500. Envelope returns total + limit +
-   * offset + has_more + next_offset for ergonomic paging.
+   * default page size is 100, max 500. Pass `includeTrace: true` to also
+   * receive the per-item PipelineTrace (off by default — heavy column).
    */
   getBatchItems: (
     id: string,
-    opts?: { limit?: number; offset?: number },
+    opts?: { limit?: number; offset?: number; includeTrace?: boolean },
   ) => {
     const params = new URLSearchParams();
     if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
     if (opts?.offset !== undefined) params.set('offset', String(opts.offset));
+    if (opts?.includeTrace) params.set('include_trace', 'true');
     const qs = params.toString();
     const suffix = qs ? `?${qs}` : '';
     return request<BatchItemsPage>(
@@ -818,11 +804,12 @@ export const api = {
   /** @deprecated Use getBatchItems. */
   getDeclarationRunClassifications: (
     id: string,
-    opts?: { limit?: number; offset?: number },
+    opts?: { limit?: number; offset?: number; includeTrace?: boolean },
   ) => {
     const params = new URLSearchParams();
     if (opts?.limit !== undefined) params.set('limit', String(opts.limit));
     if (opts?.offset !== undefined) params.set('offset', String(opts.offset));
+    if (opts?.includeTrace) params.set('include_trace', 'true');
     const qs = params.toString();
     const suffix = qs ? `?${qs}` : '';
     return request<BatchItemsPage>(
