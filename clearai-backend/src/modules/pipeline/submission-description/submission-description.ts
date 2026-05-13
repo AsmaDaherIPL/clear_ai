@@ -1,5 +1,5 @@
 /**
- * Stage 2.5 — Submission description (lightweight LLM).
+ * Stage 2.5 — Submission description (lightweight LLM, pure-LLM, no cache).
  *
  * After Reconciliation accepts a final 12-digit HS code, ZATCA needs an
  * Arabic goods description for the declaration envelope. The only hard
@@ -9,7 +9,8 @@
  * specific item, not a paraphrase contest with the catalog.
  *
  * Inputs to the LLM:
- *   • cleaned_description (the item itself)
+ *   • cleaned_description (the item itself, primary signal)
+ *   • item_description (raw merchant input, supporting signal for brand/type/capacity)
  *   • chosenCode (12-digit)
  *   • catalog leaf Arabic     — vocabulary the LLM can borrow from
  *   • catalog leaf English    — cross-reference
@@ -30,15 +31,9 @@
 import { z } from 'zod';
 import { structuredLlmCall } from '../../../inference/llm/structured-call.js';
 import { env } from '../../../config/env.js';
-import {
-  bumpHit,
-  findCached,
-  normalizeForCache,
-  upsertCached,
-} from './submission-descriptions.repository.js';
 
 export interface SubmissionDescriptionResult {
-  invoked: 'cache' | 'llm' | 'llm_failed' | 'fallback' | 'fallback_after_collision';
+  invoked: 'llm' | 'llm_failed' | 'fallback' | 'fallback_after_collision';
   /** ZATCA-safe Arabic description, ≤300 chars. Always non-empty. */
   descriptionAr: string;
   latencyMs: number;
@@ -98,10 +93,10 @@ export interface GenerateSubmissionParams {
   cleanedDescription: string;
   /**
    * The merchant's verbatim input (post Stage-0a parse, before Stage-0b
-   * cleanup stripping). Often carries real product attributes (material,
-   * capacity, color) that cleanup strips as noise but are valid in a
-   * ZATCA description. The LLM uses this as the primary signal; the
-   * cleaned form is supporting context.
+   * cleanup stripping). Supporting signal for brand names, product
+   * type/model, and merchant-stated attributes (capacity, SPF, gender)
+   * that cleanup may have stripped. The cleaned form is the primary
+   * signal for category/type.
    */
   rawDescription: string;
   /** The 12-digit HS code accepted by Stage 2 (Reconciliation). */
@@ -130,33 +125,6 @@ export async function generateSubmissionDescription(
     catalogPathAr,
     catalogPathEn,
   } = params;
-
-  const start = Date.now();
-
-  // Cache lookup. The lookup key is (catalog_path_ar, normalized
-  // raw+cleaned descriptions). path_ar is the semantic context the LLM
-  // conditions on; the key includes BOTH the raw merchant input and the
-  // cleaned form so two different raw descriptions that happen to clean
-  // to the same string still get distinct cache rows (different
-  // merchant attributes → different ZATCA description).
-  //
-  // Cache misses (DB hiccup, missing path_ar, never-seen input) silently
-  // fall through to the LLM call. Cache hits skip the LLM entirely and
-  // bump hit_count fire-and-forget.
-  const cleanedNorm = normalizeForCache(`${rawDescription}\u0001${cleanedDescription}`);
-  const cacheEnabled = env().SUBMISSION_DESCRIPTION_CACHE;
-  if (cacheEnabled && catalogPathAr && cleanedNorm) {
-    const hit = await findCached(catalogPathAr, cleanedNorm);
-    if (hit) {
-      void bumpHit(hit.id);
-      return {
-        invoked: 'cache',
-        descriptionAr: hit.descriptionAr,
-        latencyMs: Date.now() - start,
-        model: hit.model ?? undefined,
-      };
-    }
-  }
 
   const model = params.model ?? env().LLM_MODEL;
 
@@ -214,17 +182,6 @@ export async function generateSubmissionDescription(
       latencyMs: outcome.trace.latency_ms,
       model: outcome.trace.model,
     };
-  }
-
-  if (cacheEnabled && catalogPathAr && cleanedNorm) {
-    void upsertCached({
-      pathAr: catalogPathAr,
-      cleanedDescriptionNorm: cleanedNorm,
-      cleanedDescriptionRaw: cleanedDescription,
-      descriptionAr: cleaned,
-      source: 'llm',
-      model: outcome.trace.model ?? null,
-    });
   }
 
   return {
