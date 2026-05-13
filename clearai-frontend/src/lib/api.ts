@@ -525,18 +525,25 @@ export interface BatchItem {
   raw_merchant_code?: string | null;
   override_applied?: boolean;
   /**
-   * Per-line declared value + ISO-4217 currency code from the input CSV.
-   * Surfaces in the "Value" column. Optional so older payloads (and
-   * runs from before the backend started shipping these fields) render
-   * cleanly as "—".
+   * Per-line declared value, SAR-denominated. The backend converts the
+   * merchant's submitted value to SAR at parse time (fx_rates seed) and
+   * returns the SAR figure here. currency_code is "SAR" whenever the
+   * conversion ran; for legacy rows pre-FX migration it falls back to the
+   * merchant's original ISO-4217 code. Surfaces in the "Value" column.
    */
   value_amount?: number | null;
   currency_code?: string | null;
   /**
+   * The merchant's original (pre-conversion) figures, preserved for
+   * diff / operator review. Null when the row predates the FX migration.
+   */
+  value_amount_original?: number | null;
+  currency_code_original?: string | null;
+  /**
    * Declared value converted to SAR at parse time using the manually-seeded
-   * fx_rates table. ZATCA envelopes are SAR-only, so this is what the
-   * downstream renderer + sanity stage use. Always present after the
-   * 2026-05-13 FX migration; older rows may have it null.
+   * fx_rates table. Duplicates value_amount above when the conversion ran;
+   * kept as a separate field so consumers can audit "did this run through
+   * FX conversion at all?" without comparing currency_code strings.
    */
   value_amount_sar?: number | null;
   /** SAR-per-unit rate used for the conversion (1 for SAR itself). */

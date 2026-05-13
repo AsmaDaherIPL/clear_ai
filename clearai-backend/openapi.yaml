@@ -290,23 +290,46 @@ components:
         value_amount:
           type: number
           nullable: true
-          description: Declared value of the line item, in `currency_code`.
+          description: |
+            Declared value, SAR-denominated. The merchant's submitted value is
+            converted to SAR at parse time using the `fx_rates` table and
+            returned here. `currency_code` is `"SAR"` whenever the conversion
+            ran; legacy rows pre-FX migration fall through to the merchant's
+            original currency.
         currency_code:
           type: string
           nullable: true
           pattern: '^[A-Z]{3}$'
-          description: ISO 4217 3-letter currency code for value_amount.
+          description: |
+            ISO 4217 code for `value_amount`. Almost always `"SAR"` (ZATCA
+            envelopes are SAR-only and the API mirrors that). Falls back to
+            the merchant's original currency only for legacy pre-FX-migration
+            rows where conversion did not run.
+        value_amount_original:
+          type: number
+          nullable: true
+          description: |
+            The merchant's original submitted value before FX conversion.
+            Preserved so operators can diff "system saw X SAR (was Y AED)".
+            Null for legacy rows persisted before the FX migration.
+        currency_code_original:
+          type: string
+          nullable: true
+          pattern: '^[A-Z]{3}$'
+          description: ISO 4217 code for `value_amount_original` (the merchant's submitted currency).
         value_amount_sar:
           type: number
           nullable: true
           description: |
             Declared value converted to SAR at parse time (Asia/Riyadh date)
-            using the manually-seeded `fx_rates` table. ZATCA envelopes use
-            this value; sanity stage anchors retail bands against it.
+            using the manually-seeded `fx_rates` table. Duplicates
+            `value_amount` above when the conversion ran; surfaced as a
+            distinct field so callers can audit "did this row run through
+            FX conversion?" without parsing currency strings.
         fx_rate:
           type: number
           nullable: true
-          description: SAR-per-unit rate applied to value_amount (1 for SAR itself).
+          description: SAR-per-unit rate applied to the original merchant value (1 for SAR itself).
         fx_rate_as_of:
           type: string
           nullable: true

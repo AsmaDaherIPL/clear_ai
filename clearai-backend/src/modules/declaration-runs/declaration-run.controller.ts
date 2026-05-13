@@ -312,8 +312,22 @@ export async function handleListClassifications(
         override_applied: i.override_applied ?? false,
         raw_description: i.raw_description,
         effective_description: i.effective_description,
-        value_amount: i.value_amount !== null ? Number(i.value_amount) : null,
-        currency_code: i.currency_code,
+        // SAR-only on the wire. value_amount + currency_code expose the
+        // SAR-converted figure (ZATCA envelopes are SAR-only; SPA cells
+        // mirror that). The merchant's original figure stays available
+        // as value_amount_original + currency_code_original for diff
+        // and operator review. Legacy rows pre-FX migration may have
+        // value_amount_sar=null — surface the original in that case so
+        // the cell never renders blank.
+        value_amount:
+          i.value_amount_sar !== null
+            ? Number(i.value_amount_sar)
+            : i.value_amount !== null
+              ? Number(i.value_amount)
+              : null,
+        currency_code: i.value_amount_sar !== null ? 'SAR' : i.currency_code,
+        value_amount_original: i.value_amount !== null ? Number(i.value_amount) : null,
+        currency_code_original: i.currency_code,
         value_amount_sar: i.value_amount_sar !== null ? Number(i.value_amount_sar) : null,
         fx_rate: i.fx_rate !== null ? Number(i.fx_rate) : null,
         fx_rate_as_of: i.fx_rate_as_of,
