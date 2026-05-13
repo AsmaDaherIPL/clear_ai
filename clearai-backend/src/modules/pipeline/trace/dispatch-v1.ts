@@ -155,6 +155,7 @@ function buildDescriptionClassifierAction(
           no_fit: trackA.no_fit,
           interpretation_stage: trackA.interpretation_stage,
           effective_description: trackA.effective_description,
+          picker_confidence: trackA.picker_confidence,
         }
       : {},
   };
@@ -536,4 +537,13 @@ export function retrievalQueryFromTrace(trace: PipelineTrace): string | null {
 /** Derive ClassificationStatus from a PipelineTrace's verdict block. */
 export function classificationStatusFromTrace(trace: PipelineTrace): ClassificationStatus | null {
   return trace.verdict?.classification_status ?? null;
+}
+
+/**
+ * Pull `track_a.picker_confidence` out of a PipelineTrace for the
+ * classification_confidence column. Null when Track A produced no
+ * scoreable candidates (threshold_failed path).
+ */
+export function classificationConfidenceFromTrace(trace: PipelineTrace): number | null {
+  return trace.track_a?.picker_confidence ?? null;
 }

@@ -93,6 +93,28 @@ function trackAHasSignal(trackA: DescriptionClassifierResult): boolean {
  *   DRIFT beats AMBIGUOUS because heading-level agreement is a
  *   stronger signal than absence of signal.
  */
+/**
+ * Picker confidence threshold below which Track A loses the ability to
+ * override a corroborated merchant code via CONTRADICTION. Tuned starting
+ * value; expected to be re-tuned from audit_flag rate data after rollout.
+ *
+ * The threshold catches the row-135 class: 3-token descriptions ("TORY 45",
+ * "RESY", "4 KNOTS SFIFA") where the picker confidently picks a wrong-
+ * chapter leaf and Track A's CONTRADICTION rule overrides a correct
+ * merchant code. With picker_confidence well under 0.30 in these cases and
+ * the merchant code carrying a >=6-digit prefix hit, the gate fires and
+ * the row routes through AMBIGUOUS (merchant wins at LOW).
+ */
+const PICKER_CONFIDENCE_GATE = 0.30;
+
+/**
+ * Minimum merchant-code prefix length that buys Track B the right to
+ * override a low-confidence CONTRADICTION. 6 digits is HS6 (subheading),
+ * the level at which the merchant has committed to a real product family
+ * rather than just chapter intent.
+ */
+const MIN_RESOLVER_PREFIX_FOR_GATE = 6;
+
 export function classifyConflict(trackA: DescriptionClassifierResult, trackB: CodeResolverResult): ConflictType {
   const aHas = trackAHasSignal(trackA);
   const bHas = !!trackB.resolved_code;
@@ -100,6 +122,29 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
   // 1. ZERO_SIGNAL — neither track has anything we can act on
   if (!aHas && !bHas) {
     return 'ZERO_SIGNAL';
+  }
+
+  // 1a. LOW_CONFIDENCE_TRACK_A guard — when the picker is structurally
+  //     uncertain (thin description, large leaf-space, or sparse fits) AND
+  //     the merchant code carries at least an HS6 prefix hit, demote any
+  //     CONTRADICTION outcome to AMBIGUOUS so the merchant code wins at
+  //     LOW confidence rather than being overridden by a low-confidence
+  //     picker pick.
+  //
+  //     The classic miss: "TORY 45" picker landed on petroleum Ch 27 with
+  //     a confident-looking `fits`, merchant said 6404 (footwear).
+  //     picker_confidence is well under 0.30 because (a) 3-token
+  //     description triggers the thinness penalty and (b) Ch 27 has ~200
+  //     leaves so the fan-out penalty discounts the score further.
+  //     Pre-gate: CONTRADICTION → Track A's wrong-chapter pick wins.
+  //     Post-gate: AMBIGUOUS → merchant 6404 wins; row is auditable.
+  if (
+    bHas &&
+    trackA.picker_confidence !== null &&
+    trackA.picker_confidence < PICKER_CONFIDENCE_GATE &&
+    (trackB.valid_prefix?.length ?? 0) >= MIN_RESOLVER_PREFIX_FOR_GATE
+  ) {
+    return 'AMBIGUOUS';
   }
 
   // 2. CONTRADICTION — Track B subtree retrieval says the description

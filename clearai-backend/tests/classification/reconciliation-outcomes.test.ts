@@ -43,6 +43,7 @@ function trackA(opts: {
   candidates?: AnnotatedCandidate[];
   no_fit?: boolean;
   threshold_failed?: boolean;
+  picker_confidence?: number | null;
 }): DescriptionClassifierResult {
   return {
     annotated_candidates: opts.candidates ?? [],
@@ -54,6 +55,7 @@ function trackA(opts: {
     web_research: null,
     inferred_chapters: [],
     prefilter_aborted: false,
+    picker_confidence: opts.picker_confidence ?? null,
   };
 }
 

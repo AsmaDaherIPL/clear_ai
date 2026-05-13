@@ -122,6 +122,15 @@ export interface DescriptionClassifierResult {
    * picker results may be drifting away from the merchant's intent.
    */
   prefilter_aborted: boolean;
+  /**
+   * Picker confidence in [0, 1], or null when no candidates were scored
+   * (threshold_failed path with empty annotated_candidates). Computed by
+   * `computePickerConfidence` — a relative, fan-out-aware aggregate over
+   * the picker's annotated candidates. Used to gate reconciliation
+   * tiebreakers and audit_flag thresholds. NOT calibrated: only compare
+   * scores across rows, not against an absolute "correctness rate".
+   */
+  picker_confidence: number | null;
 }
 
 // ---------------------------------------------------------------------------

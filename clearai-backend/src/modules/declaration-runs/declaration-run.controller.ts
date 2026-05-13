@@ -250,6 +250,7 @@ export async function handleListClassifications(
     value_amount_sar: string | null;
     fx_rate: string | null;
     fx_rate_as_of: string | null;
+    picker_confidence: string | null;
   }>(
     `SELECT i.id,
             i.row_index,
@@ -280,7 +281,8 @@ export async function handleListClassifications(
             (i.trace -> 'meta' -> 'sanity' ->> 'verdict')           AS sanity_verdict,
             (i.trace -> 'meta' -> 'track_b' ->> 'raw_merchant_code') AS raw_merchant_code,
             (i.canonical ->> 'description')                         AS raw_description,
-            (i.trace -> 'meta' -> 'track_a' ->> 'effective_description') AS retrieval_query
+            (i.trace -> 'meta' -> 'track_a' ->> 'effective_description') AS retrieval_query,
+            (i.trace -> 'meta' -> 'track_a' ->> 'picker_confidence') AS picker_confidence
        FROM declaration_run_items i
        LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
       WHERE i.declaration_run_id = $1
@@ -357,7 +359,7 @@ export async function handleListClassifications(
         dutyInfo: enrichment?.duty_info ?? null,
         procedures: enrichment?.procedures ?? [],
         classificationStatus: (i.classification_status as VerdictClassificationStatus | null) ?? null,
-        classificationConfidence: null,
+        classificationConfidence: i.picker_confidence !== null ? Number(i.picker_confidence) : null,
         sanityVerdict: (i.sanity_verdict as SanityVerdict | null) ?? null,
         trace: includeTrace ? (i.trace as Record<string, unknown> | null) : null,
         error: i.error,

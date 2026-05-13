@@ -2,6 +2,12 @@ import { runResearcher, runWebResearcher, type ResearcherOutput } from './resear
 import { runRetrieval } from './retrieval/retrieval.js';
 import { runThreshold, DEFAULT_THRESHOLDS } from './threshold/threshold.js';
 import { runPicker } from './picker/picker.js';
+import {
+  computePickerConfidence,
+  countTokens,
+  pickedHeading,
+} from './picker/picker-confidence.js';
+import { leafCountUnderHeading } from './picker/leaf-count.js';
 import type {
   CleanupResult,
   DescriptionClassifierResult,
@@ -132,6 +138,7 @@ export async function runDescriptionClassifier(
             web_research: webResearchDetail,
             inferred_chapters: [],
             prefilter_aborted: false,
+            picker_confidence: null,
           },
           stages,
         };
@@ -247,6 +254,7 @@ export async function runDescriptionClassifier(
         web_research: webResearchDetail,
         inferred_chapters: [],
         prefilter_aborted: false,
+        picker_confidence: null,
       },
       stages,
     };
@@ -268,6 +276,19 @@ export async function runDescriptionClassifier(
     },
   });
 
+  // Picker confidence: relative score over the annotated candidates,
+  // penalised by leaf-space fan-out under the picked heading and by
+  // description thinness. Cheap to compute; used by reconciliation to
+  // gate CONTRADICTION overrides against thin-description low-confidence
+  // pickers (row-135 / TORY 45 class). Null when no positive verdict.
+  const heading = pickedHeading(picker.annotated_candidates);
+  const leafCount = heading ? await leafCountUnderHeading(heading) : null;
+  const picker_confidence = computePickerConfidence({
+    candidates: picker.annotated_candidates,
+    leafCountInPickedHeading: leafCount,
+    effectiveDescriptionTokens: countTokens(effective_description),
+  });
+
   return {
     result: {
       annotated_candidates: picker.annotated_candidates,
@@ -279,6 +300,7 @@ export async function runDescriptionClassifier(
       web_research: webResearchDetail,
       inferred_chapters: picker.prefilter?.inferred_chapters ?? [],
       prefilter_aborted: picker.prefilter?.aborted ?? false,
+      picker_confidence,
     },
     stages,
   };

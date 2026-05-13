@@ -23,6 +23,7 @@ import { stampFxFields, FxRateMissingError } from './parse/enrich-fx.js';
 import {
   assembleCanonicalItem,
   assembleDispatchV1,
+  classificationConfidenceFromTrace,
   classificationStatusFromTrace,
   retrievalQueryFromTrace,
 } from './trace/dispatch-v1.js';
@@ -226,7 +227,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       dutyInfo: enrichment.duty_info,
       procedures: enrichment.procedures,
       classificationStatus: classificationStatusFromTrace(result.trace),
-      classificationConfidence: null,
+      classificationConfidence: classificationConfidenceFromTrace(result.trace),
       sanityVerdict: result.sanity_verdict,
       trace: v1Response.trace,
       error: null,
@@ -324,7 +325,10 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
 
       const trace = row.trace as DispatchV1Response['trace'] | null;
       const dcAction = trace ? findActionInTrace(trace, 'description_classifier') : null;
-      const dcOutput = (dcAction?.output as { effective_description?: string } | undefined) ?? {};
+      const dcOutput =
+        (dcAction?.output as
+          | { effective_description?: string; picker_confidence?: number | null }
+          | undefined) ?? {};
       const submissionAction = trace ? findActionInTrace(trace, 'submission_description') : null;
       const submissionOutput = (submissionAction?.output as { description_ar?: string } | undefined) ?? {};
       const reconciliationAction = trace ? findActionInTrace(trace, 'reconciliation') : null;
@@ -353,7 +357,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
         dutyInfo: enrichment.duty_info,
         procedures: enrichment.procedures,
         classificationStatus: reconciliationOutput.classification_status ?? null,
-        classificationConfidence: null,
+        classificationConfidence: dcOutput.picker_confidence ?? null,
         sanityVerdict: (row.sanity_verdict as SanityVerdict | null) ?? null,
         trace: includeTrace ? (trace as Record<string, unknown> | null) : null,
         error: null,
