@@ -741,13 +741,24 @@ export default function ClassifyApp() {
           {authState === 'authenticated' && (
             <>
               {/*
+                ModeTabs stays mounted ALWAYS — even during a live batch run.
+                Hiding the mode pills during batch processing trapped the
+                user inside batch view with no visible way to pivot back
+                to Generate / Expand. Tabs are short and unobtrusive; the
+                result panel below still gets visual weight because only
+                the composer (the heavy textarea + dropzone block) collapses.
+              */}
+              <div className="flex flex-col items-center">
+                <ModeTabs mode={mode} onModeChange={setMode} />
+              </div>
+
+              {/*
                 Composer collapser. In batch mode, the moment a file
                 upload kicks off (`batchState.phase !== 'idle'`) we
-                collapse the entire ModeTabs + Composer block so the
-                result panel below gets the full visual weight. The
-                wrapper animates max-height + padding + opacity +
-                margin-top in lockstep on the same cubic-bezier so the
-                page reflow feels intentional, not janky.
+                collapse just the Composer so the result panel below
+                gets the full visual weight. The wrapper animates
+                max-height + opacity + margin-top in lockstep on the
+                same cubic-bezier so the page reflow feels intentional.
 
                 Generate / expand modes never collapse — those flows
                 expect the composer to stay editable while results
@@ -770,7 +781,6 @@ export default function ClassifyApp() {
                     aria-hidden={composerCollapsed}
                   >
                     <div className="flex flex-col items-center">
-                      <ModeTabs mode={mode} onModeChange={setMode} />
                       <Composer
                         mode={mode}
                         onSubmit={handleSubmit}
