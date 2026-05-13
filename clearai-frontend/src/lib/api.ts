@@ -501,6 +501,22 @@ export interface LocalizedString {
   value: string | null;
 }
 
+/**
+ * Pick the value for a target language from a polyglot LocalizedString[].
+ * Returns null when the array is missing the language entry or the entry's
+ * value is null. Used for fields like
+ *   `resolved_hs_code_description.full_hierarchy`
+ *   `resolved_hs_code_description.zatca_submission_description`
+ * which the backend ships as [{language: 'en', value: ...}, {language: 'ar', value: ...}].
+ */
+export function pickLang(
+  items: readonly LocalizedString[] | null | undefined,
+  language: 'en' | 'ar',
+): string | null {
+  if (!items) return null;
+  return items.find((p) => p.language === language)?.value ?? null;
+}
+
 /** Merchant-submitted values exactly as they appeared in the source row. */
 export interface DeclaredValue {
   hs_code: string | null;
@@ -728,9 +744,16 @@ export const api = {
       },
     ),
 
-  /** GET /classifications/{id} — fetch a persisted classification + feedback rows. */
+  /**
+   * GET /classifications/{id}?include_trace=true — fetch a persisted
+   * classification + its full trace blob (gated by include_trace so the
+   * standard /classifications/{id} call stays lightweight). Replaces the
+   * removed GET /classifications/trace/{id} endpoint.
+   */
   trace: (id: string) =>
-    request<TraceResponse>(`/classifications/${encodeURIComponent(id)}`),
+    request<TraceResponse>(
+      `/classifications/${encodeURIComponent(id)}?include_trace=true`,
+    ),
 
   /** GET /reference-data/currencies — ISO 4217 codes accepted by the pipeline. */
   listCurrencies: () =>

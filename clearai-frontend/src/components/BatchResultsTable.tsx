@@ -19,7 +19,7 @@ import { useMemo } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { type DeclarationRunItem } from '@/lib/api';
+import { pickLang, type DeclarationRunItem } from '@/lib/api';
 import { DataTable } from './DataTable';
 
 const ROW_HEIGHT = 90;
@@ -87,8 +87,7 @@ const BREAKDOWN_DESC_MAX = 38;
  */
 function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
   const resolved = item.classification_result?.resolved_hs_code ?? null;
-  const pathEn =
-    item.resolved_hs_code_description?.full_hierarchy.find((p) => p.language === 'en')?.value ?? null;
+  const pathEn = pickLang(item.resolved_hs_code_description?.full_hierarchy, 'en');
   const breakdown = useMemo(
     () => buildBreakdown(resolved, pathEn),
     [resolved, pathEn],
@@ -160,11 +159,11 @@ function MerchantCodeCell({ item }: { item: DeclarationRunItem }) {
 }
 
 /**
- * Merchant description cell — verbatim raw_description from the input
- * CSV, shown in full. Wraps freely; the row grows to fit. No clamp, no
- * line-clamp-3 — operators need to read the whole thing to verify the
- * classification is sensible, and the table is already virtualised so
- * variable row heights are cheap.
+ * Merchant description cell — verbatim declared_value.description from
+ * the input CSV, shown in full. Wraps freely; the row grows to fit. No
+ * clamp, no line-clamp-3 — operators need to read the whole thing to
+ * verify the classification is sensible, and the table is already
+ * virtualised so variable row heights are cheap.
  */
 function MerchantDescriptionCell({ item }: { item: DeclarationRunItem }) {
   const desc = item.declared_value?.description ?? null;
@@ -310,17 +309,15 @@ export default function BatchResultsTable({
       header: t('batch_col_zatca_submission' as TKey),
       enableSorting: false,
       accessorFn: (row) =>
-        row.resolved_hs_code_description?.zatca_submission_description.find(
-          (p) => p.language === 'ar',
-        )?.value ?? '',
+        pickLang(row.resolved_hs_code_description?.zatca_submission_description, 'ar') ?? '',
       size: 180,
       minSize: 140,
       maxSize: 320,
       cell: ({ row }) => {
-        const ar =
-          row.original.resolved_hs_code_description?.zatca_submission_description.find(
-            (p) => p.language === 'ar',
-          )?.value ?? null;
+        const ar = pickLang(
+          row.original.resolved_hs_code_description?.zatca_submission_description,
+          'ar',
+        );
         return (
           <div
             dir="rtl"

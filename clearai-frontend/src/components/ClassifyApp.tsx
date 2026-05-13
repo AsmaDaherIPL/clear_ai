@@ -14,6 +14,7 @@ import { useT } from '@/lib/i18n';
 import {
   api,
   ApiError,
+  pickLang,
   type DescribeResponse,
   type DispatchItem,
   type DeclarationRunSummary,
@@ -32,12 +33,8 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
   const sanity = d.classification_result?.sanity_verdict ?? null;
   const accepted = resolved !== null && sanity !== 'BLOCK';
 
-  const submissionAr =
-    d.resolved_hs_code_description?.zatca_submission_description.find((p) => p.language === 'ar')
-      ?.value ?? null;
-  const submissionEn =
-    d.resolved_hs_code_description?.zatca_submission_description.find((p) => p.language === 'en')
-      ?.value ?? null;
+  const submissionAr = pickLang(d.resolved_hs_code_description?.zatca_submission_description, 'ar');
+  const submissionEn = pickLang(d.resolved_hs_code_description?.zatca_submission_description, 'en');
 
   // Considered alternatives — top 3 from each track, with the chosen
   // resolved_hs_code filtered out. Trace is only present when the
