@@ -34,7 +34,13 @@ import { resolve as resolveOperator } from '../operators/operator-config.registr
 import { OperatorNotFoundError } from '../operators/operator.errors.js';
 import { isBreakerTripped, breakerStatus } from '../../inference/llm/breaker.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
-import type { PipelineResult } from './shared/pipeline.types.js';
+import type {
+  PipelineResult,
+  DispatchV1Response,
+  DispatchV1Action,
+  SanityVerdict,
+  ClassificationStatus,
+} from './shared/pipeline.types.js';
 
 // ---------------------------------------------------------------------------
 // POST /pipeline/dispatch
@@ -115,6 +121,7 @@ interface ClassificationEventTraceRow {
   operator_slug: string;
   status: string;
   final_code: string | null;
+  sanity_verdict: string | null;
   trace: unknown;
   created_at: Date;
 }
@@ -198,7 +205,6 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
 
     const canonical = assembleCanonicalItem({
       id: item.itemId,
-      operatorSlug: V1_OPERATOR_SLUG,
       declared: {
         hs_code: body.merchant_code ?? null,
         description: body.description,
@@ -264,52 +270,112 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       }
     })();
 
-    return reply.code(200).send(canonical);
-  });
-
-  // GET /pipeline/trace/:id
-  //
-  // classification_events is the single source of truth for traces —
-  // every classification (one-off /pipeline/dispatch and per-item batch
-  // processing) writes here via recordClassificationEvent. The id used
-  // is canonical: it's the same UUID that flows through
-  // declaration_run_items.id and the dispatch response's item_id.
-  app.get<{ Params: { id: string } }>('/classifications/trace/:id', async (req, reply) => {
-    const idParse = TraceIdSchema.safeParse(req.params.id);
-    if (!idParse.success) {
-      return reply.code(400).send({
-        error: { code: 'invalid_id', message: 'id must be a UUID.' },
-      });
-    }
-    const id = idParse.data;
-
-    const pool = getPool();
-    const r = await pool.query<ClassificationEventTraceRow & { request: unknown }>(
-      `SELECT id, operator_slug, status, final_code, trace, request, created_at
-         FROM classification_events
-        WHERE id = $1
-        LIMIT 1`,
-      [id],
-    );
-    if (r.rowCount === 0 || !r.rows[0]) {
-      return reply.code(404).send({
-        error: { code: 'trace_not_found', message: `No classification event for id ${id}.` },
-      });
-    }
-    const row = r.rows[0];
-    const enrichment = await enrichCode(row.final_code, req.log);
-    const request = (row.request as { value_amount?: number; currency_code?: string } | null) ?? {};
     return reply.code(200).send({
-      item_id: row.id,
-      operator_slug: row.operator_slug,
-      status: row.status,
-      final_code: row.final_code,
-      created_at: row.created_at.toISOString(),
-      value_amount: request.value_amount ?? null,
-      currency_code: request.currency_code ?? null,
-      duty_info: enrichment.duty_info,
-      procedures: enrichment.procedures,
-      trace: row.trace,
+      operator_slug: V1_OPERATOR_SLUG,
+      item: canonical,
     });
   });
+
+  // GET /classifications/:id?include_trace=true
+  //
+  // Fetches a single classification by item id and returns it in the
+  // canonical item shape. classification_events is the single source of
+  // truth — every classification (one-off /classifications/dispatch and
+  // per-item batch processing) writes here via recordClassificationEvent.
+  // The id is the same UUID used by declaration_run_items.id and the
+  // dispatch response's `id` field.
+  app.get<{ Params: { id: string }; Querystring: { include_trace?: string } }>(
+    '/classifications/:id',
+    async (req, reply) => {
+      const idParse = TraceIdSchema.safeParse(req.params.id);
+      if (!idParse.success) {
+        return reply.code(400).send({
+          error: { code: 'invalid_id', message: 'id must be a UUID.' },
+        });
+      }
+      const id = idParse.data;
+      const includeTrace = req.query.include_trace === 'true';
+
+      const pool = getPool();
+      const r = await pool.query<ClassificationEventTraceRow & { request: unknown }>(
+        `SELECT id, operator_slug, status, final_code, sanity_verdict, trace, request, created_at
+           FROM classification_events
+          WHERE id = $1
+          LIMIT 1`,
+        [id],
+      );
+      if (r.rowCount === 0 || !r.rows[0]) {
+        return reply.code(404).send({
+          error: { code: 'classification_not_found', message: `No classification for id ${id}.` },
+        });
+      }
+      const row = r.rows[0];
+      const enrichment = await enrichCode(row.final_code, req.log);
+      const catalogPath = row.final_code
+        ? await lookupCatalogPath(row.final_code)
+        : { path_en: null, path_ar: null };
+
+      const request = (row.request as {
+        value_amount?: number;
+        currency_code?: string;
+        description?: string;
+        merchant_code?: string;
+      } | null) ?? {};
+
+      const trace = row.trace as DispatchV1Response['trace'] | null;
+      const dcAction = trace ? findActionInTrace(trace, 'description_classifier') : null;
+      const dcOutput = (dcAction?.output as { effective_description?: string } | undefined) ?? {};
+      const submissionAction = trace ? findActionInTrace(trace, 'submission_description') : null;
+      const submissionOutput = (submissionAction?.output as { description_ar?: string } | undefined) ?? {};
+      const reconciliationAction = trace ? findActionInTrace(trace, 'reconciliation') : null;
+      const reconciliationOutput = (reconciliationAction?.output as { classification_status?: ClassificationStatus } | undefined) ?? {};
+
+      const canonical = assembleCanonicalItem({
+        id: row.id,
+        declared: {
+          hs_code: request.merchant_code ?? null,
+          description: request.description ?? null,
+          amount: request.value_amount ?? null,
+          currency: request.currency_code ?? null,
+        },
+        resolvedHsCode: row.final_code,
+        catalogPathEn: catalogPath.path_en,
+        catalogPathAr: catalogPath.path_ar,
+        submissionDescriptionAr: submissionOutput.description_ar ?? null,
+        submissionDescriptionEn: null,
+        retrievalQuery: dcOutput.effective_description ?? null,
+        valueSar: {
+          amount: request.value_amount ?? null,
+          currency: request.currency_code ?? null,
+        },
+        fxRate: null,
+        fxRateAsOf: null,
+        dutyInfo: enrichment.duty_info,
+        procedures: enrichment.procedures,
+        classificationStatus: reconciliationOutput.classification_status ?? null,
+        classificationConfidence: null,
+        sanityVerdict: (row.sanity_verdict as SanityVerdict | null) ?? null,
+        trace: includeTrace ? (trace as Record<string, unknown> | null) : null,
+        error: null,
+        includeTrace,
+      });
+
+      return reply.code(200).send({
+        operator_slug: row.operator_slug,
+        item: canonical,
+      });
+    },
+  );
+}
+
+function findActionInTrace(
+  trace: DispatchV1Response['trace'],
+  actionName: string,
+): DispatchV1Action | null {
+  for (const stage of trace.stages ?? []) {
+    for (const action of stage.actions ?? []) {
+      if (action.action === actionName) return action;
+    }
+  }
+  return null;
 }

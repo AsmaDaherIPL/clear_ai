@@ -450,7 +450,6 @@ export interface CanonicalClassificationResult {
 
 export interface CanonicalItem {
   id: string;
-  operator_slug: string;
   row_index?: number;
   declared_value: DeclaredValue;
   resolved_hs_code_description: ResolvedHsCodeDescription;
@@ -464,7 +463,6 @@ export interface CanonicalItem {
 
 export interface AssembleCanonicalParams {
   id: string;
-  operatorSlug: string;
   rowIndex?: number;
   declared: DeclaredValue;
   resolvedHsCode: string | null;
@@ -489,7 +487,6 @@ export interface AssembleCanonicalParams {
 export function assembleCanonicalItem(params: AssembleCanonicalParams): CanonicalItem {
   const base: CanonicalItem = {
     id: params.id,
-    operator_slug: params.operatorSlug,
     ...(params.rowIndex !== undefined ? { row_index: params.rowIndex } : {}),
     declared_value: params.declared,
     resolved_hs_code_description: {

@@ -388,15 +388,9 @@ export interface DispatchTraceMeta {
   } | null;
 }
 
-/**
- * /classifications/dispatch response — canonical item shape, identical
- * to one entry of `BatchItemsPage.items`. `row_index` is omitted on
- * standalone (not applicable). `trace` is present only when the caller
- * passed `?include_trace=true`.
- */
-export interface DispatchResponse {
+/** Per-item shape on the dispatch envelope. Same as one `BatchItemsPage.items` entry. */
+export interface DispatchItem {
   id: string;
-  operator_slug: string;
   declared_value: DeclaredValue;
   resolved_hs_code_description: ResolvedHsCodeDescription;
   value: CanonicalValue;
@@ -405,6 +399,17 @@ export interface DispatchResponse {
   classification_result: CanonicalClassificationResult;
   trace?: DispatchTrace & { meta?: DispatchTraceMeta };
   error: string | null;
+}
+
+/**
+ * Envelope returned by /classifications/dispatch (single-shot) and
+ * /classifications/{id} (single-item lookup). `operator_slug` sits at
+ * envelope level — it applies to the tenant, not the item. `trace` is
+ * on the item and only present when the caller passed `?include_trace=true`.
+ */
+export interface DispatchResponse {
+  operator_slug: string;
+  item: DispatchItem;
 }
 
 /** Lazy-loaded ZATCA submission description from POST /classifications/{id}/submission-description. */
@@ -539,7 +544,6 @@ export interface CanonicalClassificationResult {
  */
 export interface BatchItem {
   id: string;
-  operator_slug: string;
   row_index?: number;
   declared_value: DeclaredValue;
   resolved_hs_code_description: ResolvedHsCodeDescription;
@@ -556,6 +560,8 @@ export type DeclarationRunItem = BatchItem;
 /** GET /batches/:id/items */
 export interface BatchItemsPage {
   batch_id: string;
+  /** Operator the batch belongs to. Envelope-level; applies to all items. */
+  operator_slug: string;
   items: BatchItem[];
   /**
    * Phase-1 (classification) lifecycle, separate from the run-level

@@ -283,6 +283,7 @@ export async function handleListClassifications(
     // declaration_run_items.declaration_run_id; only the wire-format
     // name changed.
     batch_id: declarationRun.id,
+    operator_slug: operatorSlug,
     classification_phase: declarationRun.classificationStatus,
     total,
     limit,
@@ -300,7 +301,6 @@ export async function handleListClassifications(
       const valueCurrency = i.value_amount_sar !== null ? 'SAR' : i.currency_code;
       return assembleCanonicalItem({
         id: i.id,
-        operatorSlug,
         rowIndex: i.row_index,
         declared: {
           hs_code: i.raw_merchant_code,

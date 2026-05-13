@@ -377,7 +377,6 @@ components:
       type: object
       required:
         - id
-        - operator_slug
         - declared_value
         - resolved_hs_code_description
         - value
@@ -386,16 +385,16 @@ components:
         - classification_result
         - error
       description: |
-        Unified per-item shape returned by both /batches/{id}/items (batch
-        listing) and /classifications/dispatch (single-shot). `row_index` is
-        present only on batch responses; `trace` is present only when
-        `?include_trace=true`.
+        Unified per-item shape returned by /batches/{id}/items (batch listing),
+        /classifications/dispatch (single-shot), and /classifications/{id}
+        (single-item lookup). `row_index` is present only on batch responses;
+        `trace` is present only when `?include_trace=true`. `operator_slug`
+        is NOT on the item — it lives on the envelope (batch level for batch
+        endpoints, response root for standalone).
       properties:
         id:
           type: string
           format: uuid
-        operator_slug:
-          type: string
         row_index:
           type: integer
           description: 1-based row position. Batch listing only; omitted on standalone.
@@ -456,11 +455,17 @@ components:
 
     BatchItemsPage:
       type: object
-      required: [batch_id, classification_phase, total, limit, offset, has_more, next_offset, items]
+      required: [batch_id, operator_slug, classification_phase, total, limit, offset, has_more, next_offset, items]
       properties:
         batch_id:
           type: string
           format: uuid
+        operator_slug:
+          type: string
+          example: naqel
+          description: |
+            Operator the batch belongs to. Surfaced at envelope level
+            rather than per item — applies uniformly to every row.
         classification_phase:
           $ref: '#/components/schemas/ClassificationPhase'
         total:
@@ -563,52 +568,19 @@ components:
           description: ISO 4217 currency (e.g. SAR, USD).
 
     DispatchResponse:
-      allOf:
-        - $ref: '#/components/schemas/CanonicalItem'
-      description: |
-        Single-shot dispatch reuses the canonical per-item shape. `row_index`
-        is omitted (not applicable to standalone). `trace` is present only
-        when the caller included `?include_trace=true`.
-
-    # ---------- stored trace lookup ----------
-
-    TraceResult:
       type: object
-      required: [item_id, operator_slug, status, final_code, trace, created_at]
+      required: [operator_slug, item]
+      description: |
+        Envelope returned by both /classifications/dispatch (single-shot)
+        and /classifications/{id} (single-item lookup). The canonical item
+        rides on `item`; `operator_slug` sits on the envelope because it
+        applies to all operations on this tenant, not the item itself.
       properties:
-        item_id:
-          type: string
-          format: uuid
         operator_slug:
           type: string
-        status:
-          type: string
-        final_code:
-          type: string
-          nullable: true
-          pattern: '^\d{12}$'
-        created_at:
-          type: string
-          format: date-time
-        value_amount:
-          type: number
-          nullable: true
-          description: Echoes the original request's value_amount.
-        currency_code:
-          type: string
-          nullable: true
-          pattern: '^[A-Z]{3}$'
-        duty_info:
-          $ref: '#/components/schemas/DutyInfo'
-          nullable: true
-        procedures:
-          type: array
-          items:
-            $ref: '#/components/schemas/ProcedureInfo'
-        trace:
-          type: object
-          nullable: true
-          additionalProperties: true
+          example: naqel
+        item:
+          $ref: '#/components/schemas/CanonicalItem'
 
     # ---------- review queue ----------
 
@@ -1149,41 +1121,52 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
-  /classifications/trace/{id}:
+  /classifications/{id}:
     parameters:
       - name: id
         in: path
         required: true
-        description: classification_events.id (UUIDv7) — same id used by /classifications/dispatch.
+        description: classification_events.id (UUIDv7) — same id returned by /classifications/dispatch and used by /batches/{id}/items.
         schema:
           type: string
           format: uuid
 
     get:
-      operationId: get-classification-trace
+      operationId: get-classification
       tags: [classifications]
-      summary: Fetch a stored pipeline trace
+      summary: Fetch a stored classification by id
       description: |
         Reads a previously-classified item from `classification_events`
-        (single source of truth). Works for both single-shot dispatches
-        and per-item batch traces.
+        (single source of truth) and returns it in the canonical item
+        shape. Works for both single-shot dispatches and per-item batch
+        rows. Trace is omitted by default; set `?include_trace=true` to
+        include the full pipeline trace.
+
+        Replaces the legacy `/classifications/trace/{id}` endpoint which
+        used a different wire shape.
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
+      parameters:
+        - name: include_trace
+          in: query
+          required: false
+          description: When true, include the `trace` object on the canonical item. Off by default.
+          schema: { type: boolean, default: false }
       responses:
         '200':
-          description: Trace found.
+          description: Classification found.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TraceResult'
+                $ref: '#/components/schemas/DispatchResponse'
         '400':
           description: id is not a valid UUIDv7.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '404':
-          description: No trace with that id.
+          description: No classification with that id.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

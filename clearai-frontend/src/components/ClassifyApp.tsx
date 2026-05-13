@@ -15,7 +15,7 @@ import {
   api,
   ApiError,
   type DescribeResponse,
-  type DispatchResponse,
+  type DispatchItem,
   type DeclarationRunSummary,
   type DeclarationRunItem,
   type AlternativeLine,
@@ -27,7 +27,7 @@ import {
  * Plan B step 3 will replace this with a purpose-built renderer for the
  * cleaner trace shape.
  */
-function dispatchToDescribe(d: DispatchResponse): DescribeResponse {
+function dispatchToDescribe(d: DispatchItem): DescribeResponse {
   const resolved = d.classification_result?.resolved_hs_code ?? null;
   const sanity = d.classification_result?.sanity_verdict ?? null;
   const accepted = resolved !== null && sanity !== 'BLOCK';
@@ -613,7 +613,7 @@ export default function ClassifyApp() {
           },
           { includeTrace: true },
         );
-        res = dispatchToDescribe(dispatchRes);
+        res = dispatchToDescribe(dispatchRes.item);
       } else {
         // Batch mode submits via Composer's onPickFile callback into
         // handleBatchUpload(); the textarea-form submit path never
