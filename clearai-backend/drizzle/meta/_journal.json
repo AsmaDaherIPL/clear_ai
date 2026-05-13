@@ -540,6 +540,13 @@
       "when": 1778900000000,
       "tag": "0076_fx_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1778900100000,
+      "tag": "0077_pending_infra_batch_item_status",
+      "breakpoints": true
     }
   ]
 }

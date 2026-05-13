@@ -70,6 +70,7 @@ describe('dispatch — LLM circuit breaker guard', () => {
       sanity_verdict: 'PASS',
       trace: { stages: [], track_a: null, track_b: null, verdict: null, sanity: null },
       hitl: null,
+      infra_degraded: false,
     });
 
     await expect(dispatch(item)).resolves.toBeDefined();
@@ -126,6 +127,7 @@ describe('dispatch — LLM circuit breaker guard', () => {
       sanity_verdict: 'PASS',
       trace: { stages: [], track_a: null, track_b: null, verdict: null, sanity: null },
       hitl: null,
+      infra_degraded: false,
     });
 
     await expect(dispatch(item)).resolves.toBeDefined();

@@ -9,7 +9,7 @@
  * breaker — they are absorbed by retry + graceful degradation upstream.
  */
 import { env } from '../../config/env.js';
-import { recordLlmOutcome, classifyLlmOutcome } from './breaker.js';
+import { recordLlmOutcome, classifyLlmOutcome, breakerStatus } from './breaker.js';
 import type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
 export type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
 
@@ -53,6 +53,14 @@ export interface LlmCallParams {
 }
 
 /**
+ * Module-local flag for the transient-warn edge transition. We log on
+ * false -> true so a sustained warning state doesn't spam the log on every
+ * call. Reset back to false when the rolling window recovers below the
+ * threshold.
+ */
+let lastTransientWarning = false;
+
+/**
  * Single exit point for `callLlm`. Feeds the breaker and emits a WARN log
  * on every non-ok result so failures are visible in container logs without
  * having to read full pipeline traces. The result object is returned
@@ -68,6 +76,15 @@ function finalize(result: LlmCallResult): LlmCallResult {
     // eslint-disable-next-line no-console
     console.warn(msg);
   }
+  // Edge-triggered transient-rate warning. Only log on the false -> true
+  // transition so a sustained slow Foundry doesn't fill the log.
+  const bs = breakerStatus();
+  if (bs.transient_warning && !lastTransientWarning) {
+    const pct = Math.round(bs.transient_rate * 100);
+    // eslint-disable-next-line no-console
+    console.warn(`[llm] transient warning: rate=${pct}% over last ${bs.window_size} calls`);
+  }
+  lastTransientWarning = bs.transient_warning;
   return result;
 }
 
@@ -138,6 +155,11 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
       model,
     });
   }
+}
+
+/** Test-only reset hook for the edge-triggered transient-warn log flag. */
+export function __resetTransientWarningStateForTests(): void {
+  lastTransientWarning = false;
 }
 
 /** Call with simple retry on 429 / 5xx. Returns the last result either way. */

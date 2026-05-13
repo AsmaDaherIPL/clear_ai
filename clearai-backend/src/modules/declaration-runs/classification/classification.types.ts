@@ -10,7 +10,7 @@ import type { DispatchV1Response } from '../../pipeline/shared/pipeline.types.js
 
 export type SanityVerdict = 'PASS' | 'FLAG' | 'BLOCK';
 
-export type ClassificationOutcome = 'succeeded' | 'flagged' | 'blocked' | 'failed';
+export type ClassificationOutcome = 'succeeded' | 'flagged' | 'blocked' | 'failed' | 'pending_infra';
 
 export interface ItemTrace {
   /** Final pipeline path. Values defined by dispatch. */
@@ -47,6 +47,12 @@ export interface DispatchResult {
   /** dispatch-v1 wire response, pre-assembled so callers can record/enqueue. */
   v1: DispatchV1Response;
   trace: ItemTrace;
+  /**
+   * True when an LLM-backed stage exhausted its retry budget and the row
+   * is being recorded with an infrastructure-degraded marker. Drives the
+   * 'pending_infra' status downgrade in the classification service.
+   */
+  infraDegraded: boolean;
 }
 
 export interface ItemClassificationResult {
@@ -63,5 +69,7 @@ export interface PhaseClassificationSummary {
   flagged: number;
   blocked: number;
   failed: number;
+  /** Rows downgraded by an LLM-stage exhaustion rather than a real bad-data result. */
+  pending_infra: number;
   durationMs: number;
 }

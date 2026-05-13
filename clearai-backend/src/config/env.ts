@@ -50,6 +50,14 @@ const EnvSchema = z
     LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
 
     /**
+     * Rolling window size for the transient-rate soft-warn breaker. The
+     * last N LLM call outcomes are tracked; transient_rate is the share of
+     * those classified as 'transient'. Independent of the hard auth-class
+     * breaker — never trips, only warns on /health when sustained.
+     */
+    LLM_TRANSIENT_RATE_WINDOW: z.coerce.number().int().positive().default(100),
+
+    /**
      * Submission-description cache toggle. Off by default — the (path_ar,
      * cleaned_norm) key collapsed too aggressively (two distinct products
      * sharing a chapter/leaf path got the same cached Arabic line). Re-enable

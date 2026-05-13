@@ -124,6 +124,7 @@ export async function countItemsByStatus(
     succeeded: 0,
     flagged: 0,
     blocked: 0,
+    pending_infra: 0,
     failed: 0,
   };
   for (const r of rows) out[r.status as BatchItemStatus] = Number(r.n);

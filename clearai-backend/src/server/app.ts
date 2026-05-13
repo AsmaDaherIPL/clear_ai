@@ -14,6 +14,7 @@ import { registerErrorHandler } from './error-handler.js';
 import { warmEmbedder } from '../inference/embeddings/embedder.js';
 import { loadThresholds } from '../modules/reference-data/setup-meta.repository.js';
 import { loadPrompt } from '../inference/llm/structured-call.js';
+import { breakerStatus } from '../inference/llm/breaker.js';
 
 const e = env();
 
@@ -80,14 +81,36 @@ app.addHook('onRequest', async (req, reply) => {
 // Must register BEFORE routes so route throws map to the shared envelope.
 registerErrorHandler(app);
 
-/** Liveness probe. 200 while Node is alive and Postgres responds. */
+/**
+ * Liveness probe. 200 while Node is alive and Postgres responds.
+ *
+ * top-level status is 'degraded' when:
+ *   - Postgres query fails, OR
+ *   - the LLM circuit breaker is tripped, OR
+ *   - the soft-warn transient-rate threshold is met
+ * The probe still returns 200 in all three degraded cases — health probes
+ * should NOT take the container offline for these observability signals.
+ */
 app.get('/health', async () => {
+  const bs = breakerStatus();
+  const llmDegraded = bs.tripped || bs.transient_warning;
+  const llm = {
+    breaker_tripped: bs.tripped,
+    transient_warning: bs.transient_warning,
+    transient_rate: Number(bs.transient_rate.toFixed(4)),
+    window_size: bs.window_size,
+  };
   try {
     const r = await getPool().query<{ ok: number }>(`SELECT 1::int AS ok`);
-    return { status: 'ok', db: r.rows[0]?.ok === 1 };
+    const dbOk = r.rows[0]?.ok === 1;
+    return {
+      status: dbOk && !llmDegraded ? 'ok' : 'degraded',
+      db: dbOk,
+      llm,
+    };
   } catch (err) {
     app.log.error({ err }, 'health PG fail');
-    return { status: 'degraded', db: false };
+    return { status: 'degraded', db: false, llm };
   }
 });
 

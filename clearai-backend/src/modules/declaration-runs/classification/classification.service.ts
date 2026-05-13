@@ -34,20 +34,27 @@ export interface RunOptions {
   concurrency?: number;
 }
 
-function classifyOutcome(verdict: SanityVerdict, finalCode: string | null): ClassificationOutcome {
+function classifyOutcome(
+  verdict: SanityVerdict,
+  finalCode: string | null,
+  infraDegraded: boolean,
+): ClassificationOutcome {
   // declaration_run_items has a CHECK that final_code IS NOT NULL when
   // status IN ('succeeded','flagged'). Stage-2 escalate emits FLAG with
   // no code; that row goes to 'failed' here. The hitl_queue row is
   // already written by dispatch.use-case so the reviewer still sees it.
-  if (finalCode === null) return 'failed';
-  switch (verdict) {
-    case 'PASS':
-      return 'succeeded';
-    case 'FLAG':
-      return 'flagged';
-    case 'BLOCK':
-      return 'blocked';
+  //
+  // The infraDegraded marker downgrades the natural outcome to
+  // 'pending_infra' so the HITL queue can filter infra-only failures
+  // (which usually resolve on a Foundry retry) separately from real
+  // bad-data rows. BLOCK is preserved as-is — it's a parse / cleanup-
+  // unusable rejection, not an LLM-stage exhaustion.
+  if (verdict === 'BLOCK') return 'blocked';
+  if (finalCode === null) {
+    return infraDegraded ? 'pending_infra' : 'failed';
   }
+  const natural: ClassificationOutcome = verdict === 'PASS' ? 'succeeded' : 'flagged';
+  return infraDegraded ? 'pending_infra' : natural;
 }
 
 /**
@@ -67,7 +74,7 @@ export async function runClassificationPhase(
   const run = withSemaphore(concurrency);
 
   const pending = await listPendingItems(declarationRunId);
-  const counts = { succeeded: 0, flagged: 0, blocked: 0, failed: 0 };
+  const counts = { succeeded: 0, flagged: 0, blocked: 0, failed: 0, pending_infra: 0 };
 
   await Promise.all(
     pending.map((row) =>
@@ -103,14 +110,21 @@ export async function runClassificationPhase(
         await markItemClassifying(row.id);
         try {
           const result: DispatchResult = await opts.dispatch(item);
-          const outcome = classifyOutcome(result.sanityVerdict, result.finalCode);
+          const outcome = classifyOutcome(result.sanityVerdict, result.finalCode, result.infraDegraded);
           counts[outcome]++;
-          const succeededOrFlagged = outcome === 'succeeded' || outcome === 'flagged';
+          // pending_infra is allowed to carry final_code + goods_description_ar
+          // when the pipeline produced them (migration 0077 widens both
+          // consistency CHECKs). succeeded/flagged carry them as before;
+          // blocked/failed/pending_infra-without-code stay null.
+          const carriesCode =
+            outcome === 'succeeded' ||
+            outcome === 'flagged' ||
+            (outcome === 'pending_infra' && result.finalCode !== null);
           await recordItemResult({
             itemId: row.id,
             outcome,
-            finalCode: succeededOrFlagged ? result.finalCode : null,
-            goodsDescriptionAr: succeededOrFlagged ? result.goodsDescriptionAr : null,
+            finalCode: carriesCode ? result.finalCode : null,
+            goodsDescriptionAr: carriesCode ? result.goodsDescriptionAr : null,
             classificationResult: serialiseResult(result),
             trace: result.trace,
             error: outcome === 'failed' && result.finalCode === null
@@ -141,6 +155,7 @@ export async function runClassificationPhase(
     flagged: counts.flagged,
     blocked: counts.blocked,
     failed: counts.failed,
+    pending_infra: counts.pending_infra,
     durationMs: Date.now() - startMs,
   };
 }

@@ -433,6 +433,17 @@ export interface PipelineResult {
   trace: PipelineTrace;
   /** Set when the item should be enqueued for HITL review. Null otherwise. */
   hitl: HitlIntent | null;
+  /**
+   * True when an LLM-backed stage exhausted its retry budget and degraded
+   * (graceful_degrade) rather than producing a fresh judgement. Used by the
+   * classification service to downgrade the resulting row status from
+   * succeeded/flagged/failed to 'pending_infra' so the HITL queue can filter
+   * infra-only failures separately from real bad-data rows.
+   *
+   * Never true for legitimate ZERO_SIGNAL escalations (low_information),
+   * clean BLOCK, or healthy succeeded paths.
+   */
+  infra_degraded: boolean;
 }
 
 // ---------------------------------------------------------------------------

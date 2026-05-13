@@ -19,6 +19,7 @@ import { shouldEnqueue } from './review/review.js';
 import { buildTrace } from './trace/trace.js';
 import { getPool } from '../../db/client.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
+import { getLlmStagePolicy } from '../../inference/llm/policy.js';
 import type {
   PipelineResult,
   StageTrace,
@@ -60,6 +61,79 @@ export function shouldEscalateLowInformation(trackA: DescriptionClassifierResult
     .map((t) => t.replace(/[^A-Za-z0-9؀-ۿ]/g, ''))
     .filter((t) => t.length >= 2);
   return contentTokens.length <= LOW_INFO_TOKEN_THRESHOLD;
+}
+
+/**
+ * True when any LLM-backed stage exhausted its retry budget and degraded
+ * (graceful_degrade) rather than producing a fresh judgement. Signals to
+ * the classification service that the row should be recorded as
+ * 'pending_infra' rather than the usual 'succeeded' / 'flagged' / 'failed'.
+ *
+ * Inputs come from local state the orchestrator already has visibility
+ * into. We pass picker-stage details via the stage trace because the
+ * picker output is not propagated up onto DescriptionClassifierResult.
+ *
+ * Never trips on healthy paths or on real ZERO_SIGNAL low-information
+ * escalations — those carry no infra degradation marker.
+ */
+function detectInfraDegraded(input: {
+  cleanupDegraded: boolean;
+  sanityDegraded: boolean;
+  trackA: DescriptionClassifierResult | null;
+  pickerAttempts: number | null;
+  pickerNoFit: boolean | null;
+  retrievalCandidateCount: number | null;
+  submissionInvoked: string | null;
+}): boolean {
+  if (input.cleanupDegraded) return true;
+  if (input.sanityDegraded) return true;
+  if (
+    input.trackA?.research?.recognised === false &&
+    input.trackA.research.source === 'failed_passthrough'
+  ) {
+    return true;
+  }
+  const pickerMax = getLlmStagePolicy('picker').maxAttempts;
+  if (
+    input.pickerAttempts !== null &&
+    input.pickerAttempts >= pickerMax &&
+    input.pickerNoFit === true &&
+    (input.retrievalCandidateCount ?? 0) > 0
+  ) {
+    return true;
+  }
+  if (input.submissionInvoked === 'llm_failed') return true;
+  return false;
+}
+
+/** Pull picker detail off the stage trace (description-classifier writes it). */
+function readPickerStageDetail(stages: StageTrace[]): {
+  attempts: number | null;
+  noFit: boolean | null;
+  retrievalCandidateCount: number | null;
+} {
+  let attempts: number | null = null;
+  let noFit: boolean | null = null;
+  let retrievalCandidateCount: number | null = null;
+  for (const s of stages) {
+    if (s.name === 'track-a/picker' && s.detail && typeof s.detail === 'object') {
+      const d = s.detail as { attempts?: number; no_fit?: boolean };
+      if (typeof d.attempts === 'number') attempts = d.attempts;
+      if (typeof d.no_fit === 'boolean') noFit = d.no_fit;
+    }
+    if (
+      (s.name === 'track-a/retrieval' || s.name === 'track-a/retrieval-after-web') &&
+      s.detail &&
+      typeof s.detail === 'object'
+    ) {
+      const d = s.detail as { candidate_count?: number };
+      if (typeof d.candidate_count === 'number') {
+        // Last retrieval wins — that's the one the picker actually saw.
+        retrievalCandidateCount = d.candidate_count;
+      }
+    }
+  }
+  return { attempts, noFit, retrievalCandidateCount };
 }
 
 interface OperatorPipelineConfig {
@@ -162,6 +236,7 @@ export async function runPipeline(
       sanity_verdict: 'BLOCK',
       trace,
       hitl: null,
+      infra_degraded: false,
     };
   }
 
@@ -194,6 +269,12 @@ export async function runPipeline(
       sanity_verdict: 'BLOCK',
       trace,
       hitl: null,
+      // Cleanup degradation can leave clarity_verdict='unusable' even when
+      // the LLM exhausted retries (degraded=true forces a passthrough that
+      // the model may then mark unusable). Mark this row as infra-degraded
+      // when that's the cause; an unusable verdict from a healthy cleanup
+      // call is a real data issue.
+      infra_degraded: cleanup.degraded === true,
     };
   }
 
@@ -262,6 +343,9 @@ export async function runPipeline(
         reason: 'low_information',
         cleaned_description: cleanup.cleaned_description,
       },
+      // Real ZERO_SIGNAL — researcher tried, description was too thin.
+      // Not an infra fault; reviewer needs to enrich the input.
+      infra_degraded: false,
     };
   }
 
@@ -282,6 +366,7 @@ export async function runPipeline(
   // escalations both flow through verdict.decision === 'escalate'.
   if (verdict.decision === 'escalate') {
     const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity: null, stages: allStages });
+    const pickerDetail = readPickerStageDetail(allStages);
     return {
       final_code: null,
       goods_description_ar: null,
@@ -291,6 +376,15 @@ export async function runPipeline(
         reason: 'verdict_escalate',
         cleaned_description: cleanup.cleaned_description,
       },
+      infra_degraded: detectInfraDegraded({
+        cleanupDegraded: cleanup.degraded === true,
+        sanityDegraded: false,
+        trackA: trackAResult,
+        pickerAttempts: pickerDetail.attempts,
+        pickerNoFit: pickerDetail.noFit,
+        retrievalCandidateCount: pickerDetail.retrievalCandidateCount,
+        submissionInvoked: null,
+      }),
     };
   }
 
@@ -361,11 +455,21 @@ export async function runPipeline(
   // (lines ~85-115); the LLM never produces it.
   // The route handler writes hitl_queue after classification_events so
   // the FK from hitl_queue.classification_event_id is satisfied.
+  const pickerDetail = readPickerStageDetail(allStages);
   return {
     final_code: verdict.final_code,
     goods_description_ar: submission.descriptionAr,
     sanity_verdict: sanity.verdict,
     trace,
     hitl,
+    infra_degraded: detectInfraDegraded({
+      cleanupDegraded: cleanup.degraded === true,
+      sanityDegraded: sanity.degraded === true,
+      trackA: trackAResult,
+      pickerAttempts: pickerDetail.attempts,
+      pickerNoFit: pickerDetail.noFit,
+      retrievalCandidateCount: pickerDetail.retrievalCandidateCount,
+      submissionInvoked: submission.invoked,
+    }),
   };
 }

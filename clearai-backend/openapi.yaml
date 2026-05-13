@@ -143,8 +143,49 @@ components:
         status:
           type: string
           enum: [ok, degraded]
+          description: |
+            `ok` only when Postgres responds AND the LLM breaker is healthy
+            (not tripped, no transient-rate warning). `degraded` is returned
+            with HTTP 200 — the container is still alive. Probes should not
+            take the replica out of rotation on `degraded`; the signal is
+            purely observability.
         db:
           type: boolean
+        llm:
+          type: object
+          description: |
+            Optional LLM circuit-breaker status surface. Present when the
+            handler ran the breaker probe (always, in current implementation).
+            APIM short-circuits `/health` for external callers, so this is
+            visible only on the container-direct probe and in local dev.
+          required: [breaker_tripped, transient_warning, transient_rate, window_size]
+          properties:
+            breaker_tripped:
+              type: boolean
+              description: |
+                True after three consecutive auth-class HTTP failures
+                (401/403/404). Auto-resets on the next successful call.
+            transient_warning:
+              type: boolean
+              description: |
+                True when transient_rate >= 20% over the last 20+ calls.
+                Pure observability — does NOT trip the breaker. Indicates
+                Foundry is slow / rate-limiting; pipeline retry + graceful
+                degrade keep absorbing the errors.
+            transient_rate:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+              description: |
+                Fraction of the rolling window classified as 'transient'
+                (HTTP 429 / 5xx / timeout / network). 0 when window empty.
+            window_size:
+              type: integer
+              minimum: 0
+              description: |
+                Number of calls in the current rolling window. Caps at
+                LLM_TRANSIENT_RATE_WINDOW (default 100).
 
     Ready:
       type: object
@@ -189,7 +230,13 @@ components:
 
     BatchItemStatus:
       type: string
-      enum: [pending, classifying, succeeded, flagged, blocked, failed]
+      enum: [pending, classifying, succeeded, flagged, blocked, pending_infra, failed]
+      description: |
+        `pending_infra` flags rows whose result was downgraded because an
+        LLM-backed stage exhausted its retry budget (cleanup / sanity /
+        researcher / picker / submission_description). The HITL queue UI
+        filters these out by default — they typically resolve on a Foundry
+        retry rather than needing a human review.
 
     FinalCodeSource:
       type: string
@@ -213,7 +260,7 @@ components:
       type: object
       required:
         [id, operator_slug, mode, status, classification_status, declaration_status,
-         row_count, succeeded, flagged, blocked, failed, pending,
+         row_count, succeeded, flagged, blocked, failed, pending, pending_infra,
          started_at, completed_at, error]
       properties:
         id:
@@ -240,6 +287,12 @@ components:
         blocked: { type: integer }
         failed: { type: integer }
         pending: { type: integer }
+        pending_infra:
+          type: integer
+          description: |
+            Rows downgraded by an LLM-stage exhaustion (graceful_degrade)
+            rather than a real bad-data result. Surfaced separately so the
+            HITL UI can hide infra-only failures from the reviewer queue.
         started_at:
           type: string
           nullable: true

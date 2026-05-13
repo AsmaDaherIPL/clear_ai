@@ -168,6 +168,7 @@ const passDispatch: DispatchFn = async (item) => ({
     },
   },
   trace: { pathTaken: 'agree', stages: [] },
+  infraDegraded: false,
 });
 
 const CSV = Buffer.from(

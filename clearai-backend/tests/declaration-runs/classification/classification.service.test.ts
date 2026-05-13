@@ -155,6 +155,7 @@ describe('runClassificationPhase', () => {
       hitl: null,
       v1: v1Stub(item.itemId, '010121000000', 'PASS'),
       trace: { pathTaken: 'agree', stages: [], meta: { rowIndex: item.rowIndex } },
+      infraDegraded: false,
     });
 
     const summary = await runClassificationPhase(declarationRunId, { dispatch, concurrency: 2 });
@@ -185,6 +186,7 @@ describe('runClassificationPhase', () => {
         hitl: { reason: 'sanity_flag', cleaned_description: 'item' },
         v1: v1Stub(item.itemId, '010121000000', 'FLAG'),
         trace: { pathTaken: 'flag', stages: [] },
+        infraDegraded: false,
       };
       // BLOCK is emitted by the orchestrator's pre-classification path
       // (parse failure / cleanup unusable), not by the sanity LLM. Those
@@ -196,6 +198,7 @@ describe('runClassificationPhase', () => {
         hitl: null,
         v1: v1Stub(item.itemId, null, 'BLOCK'),
         trace: { pathTaken: 'block', stages: [] },
+        infraDegraded: false,
       };
       throw new Error('boom');
     };
@@ -234,6 +237,7 @@ describe('runClassificationPhase', () => {
         hitl: null,
         v1: v1Stub(item.itemId, '010121000000', 'PASS'),
         trace: { pathTaken: 'agree', stages: [] },
+        infraDegraded: false,
       };
     };
     await runClassificationPhase(declarationRunId, { dispatch, concurrency: 2 });
@@ -266,6 +270,7 @@ describe('runClassificationPhase', () => {
       hitl: null,
       v1: v1Stub(item.itemId, '010121000000', 'PASS'),
       trace: { pathTaken: 'agree', stages: [] },
+      infraDegraded: false,
     });
     const summary = await runClassificationPhase(declarationRunId, { dispatch });
     expect(summary.succeeded).toBe(1);
@@ -283,6 +288,7 @@ describe('runClassificationPhase', () => {
       hitl: null,
       v1: v1Stub(item.itemId, 'x', 'PASS'),
       trace: { pathTaken: '', stages: [] },
+      infraDegraded: false,
     });
     const summary = await runClassificationPhase(declarationRunId, { dispatch });
     expect(summary.total).toBe(0);

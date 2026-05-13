@@ -153,6 +153,7 @@ export async function handleGetBatch(req: FastifyRequest<{ Params: { id: string 
     blocked: counts.blocked,
     failed: counts.failed,
     pending: counts.pending + counts.classifying,
+    pending_infra: counts.pending_infra,
     started_at: declarationRun.startedAt?.toISOString() ?? null,
     completed_at: declarationRun.completedAt?.toISOString() ?? null,
     error: declarationRun.error,

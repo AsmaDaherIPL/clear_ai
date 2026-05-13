@@ -33,6 +33,7 @@ export type BatchItemStatus =
   | 'succeeded'
   | 'flagged'
   | 'blocked'
+  | 'pending_infra'
   | 'failed';
 
 export const declarationRunItems = pgTable(

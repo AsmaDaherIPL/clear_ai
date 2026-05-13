@@ -124,5 +124,6 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     hitl: result.hitl,
     v1: v1Response,
     trace: itemTrace,
+    infraDegraded: result.infra_degraded,
   };
 }

@@ -33,6 +33,8 @@ export interface BatchSummary {
   blocked: number;
   failed: number;
   pending: number;
+  /** Rows downgraded by an LLM-stage exhaustion rather than a real data issue. */
+  pending_infra: number;
   started_at: string | null;
   completed_at: string | null;
   error: string | null;

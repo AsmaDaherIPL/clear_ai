@@ -19,7 +19,17 @@
  *
  * Auto-reset on first successful LLM call. Per-process state — each
  * container revision starts clean.
+ *
+ * Soft-warn transient-rate signal:
+ *   A separate rolling window of the last N call outcome classes is kept
+ *   alongside the hard breaker. When at least TRANSIENT_RATE_MIN_SAMPLES
+ *   entries are present AND the share of 'transient' classes meets
+ *   TRANSIENT_RATE_WARN_THRESHOLD, `transient_warning` flips true on
+ *   BreakerStatus. The warning does NOT trip the breaker — dispatch routes
+ *   keep accepting work. /health surfaces the signal so operators see
+ *   "Foundry is slow right now" without service refusing requests.
  */
+import { env } from '../../config/env.js';
 import type { LlmCallResult } from './client.js';
 
 /**
@@ -55,18 +65,48 @@ export function classifyLlmOutcome(result: LlmCallResult): LlmFailureClass {
   return 'other';
 }
 
+interface TransientRateWindow {
+  size: number;
+  entries: LlmFailureClass[];
+  head: number;
+  /** True once the buffer has wrapped — entries.length === size from here on. */
+  filled: boolean;
+}
+
 interface BreakerState {
   consecutiveAuthFailures: number;
   trippedAt: number | null;
   lastErrorMessage: string | null;
+  window: TransientRateWindow;
 }
 
 const TRIP_THRESHOLD = 3;
+
+/** Share of the rolling window classified as 'transient' that flips the soft warning. */
+const TRANSIENT_RATE_WARN_THRESHOLD = 0.20;
+
+/** Minimum window fill before transient_warning may go true (don't fire on tiny N). */
+const TRANSIENT_RATE_MIN_SAMPLES = 20;
+
+function readWindowSize(): number {
+  try {
+    return env().LLM_TRANSIENT_RATE_WINDOW;
+  } catch {
+    // env() throws when the config schema hasn't been parsed (unit tests
+    // that import this module directly). Fall back to a safe default.
+    return 100;
+  }
+}
+
+function makeWindow(): TransientRateWindow {
+  return { size: readWindowSize(), entries: [], head: 0, filled: false };
+}
 
 const state: BreakerState = {
   consecutiveAuthFailures: 0,
   trippedAt: null,
   lastErrorMessage: null,
+  window: makeWindow(),
 };
 
 export interface BreakerStatus {
@@ -76,14 +116,53 @@ export interface BreakerStatus {
   /** Most recent auth-class error message (truncated). For diagnostics only. */
   last_error: string | null;
   consecutive_auth_failures: number;
+  /** Number of LLM calls in the current rolling window (≤ configured size). */
+  window_size: number;
+  /** Fraction of the window classified as 'transient'. 0 when window empty. */
+  transient_rate: number;
+  /**
+   * True when transient_rate >= TRANSIENT_RATE_WARN_THRESHOLD over a window
+   * of >= TRANSIENT_RATE_MIN_SAMPLES calls. Pure observability — does NOT
+   * cause the breaker to trip; dispatch keeps accepting work.
+   */
+  transient_warning: boolean;
+}
+
+function computeTransientRate(w: TransientRateWindow): number {
+  if (w.entries.length === 0) return 0;
+  let transient = 0;
+  for (const c of w.entries) {
+    if (c === 'transient') transient++;
+  }
+  return transient / w.entries.length;
+}
+
+function pushWindow(w: TransientRateWindow, cls: LlmFailureClass): void {
+  if (!w.filled) {
+    w.entries.push(cls);
+    if (w.entries.length >= w.size) {
+      w.filled = true;
+      w.head = 0;
+    }
+    return;
+  }
+  w.entries[w.head] = cls;
+  w.head = (w.head + 1) % w.size;
 }
 
 export function breakerStatus(): BreakerStatus {
+  const transient_rate = computeTransientRate(state.window);
+  const transient_warning =
+    state.window.entries.length >= TRANSIENT_RATE_MIN_SAMPLES &&
+    transient_rate >= TRANSIENT_RATE_WARN_THRESHOLD;
   return {
     tripped: state.trippedAt !== null,
     tripped_at_ms: state.trippedAt,
     last_error: state.lastErrorMessage,
     consecutive_auth_failures: state.consecutiveAuthFailures,
+    window_size: state.window.entries.length,
+    transient_rate,
+    transient_warning,
   };
 }
 
@@ -99,9 +178,12 @@ export function isBreakerTripped(): boolean {
  * Side effects:
  *   ok          → reset breaker
  *   auth_class  → increment counter; trip when ≥ TRIP_THRESHOLD
- *   transient   → no-op (counter not advanced, breaker not reset either —
- *                 a 5xx storm shouldn't paper over an underlying auth issue)
- *   other       → no-op
+ *   transient   → no-op for the hard breaker (counter not advanced, breaker
+ *                 not reset — a 5xx storm shouldn't paper over an
+ *                 underlying auth issue) but feeds the soft-warn window.
+ *   other       → no-op for hard breaker
+ *
+ * Always pushes the call class into the soft-warn rolling window.
  */
 export function recordLlmOutcome(result: LlmCallResult): void {
   const cls = classifyLlmOutcome(result);
@@ -109,6 +191,7 @@ export function recordLlmOutcome(result: LlmCallResult): void {
     state.consecutiveAuthFailures = 0;
     state.trippedAt = null;
     state.lastErrorMessage = null;
+    pushWindow(state.window, cls);
     return;
   }
   if (cls === 'auth_class') {
@@ -118,7 +201,8 @@ export function recordLlmOutcome(result: LlmCallResult): void {
       state.trippedAt = Date.now();
     }
   }
-  // transient / other: no breaker state change.
+  // transient / other: no hard breaker state change. Window always updates.
+  pushWindow(state.window, cls);
 }
 
 /**
@@ -129,4 +213,5 @@ export function __resetBreakerForTests(): void {
   state.consecutiveAuthFailures = 0;
   state.trippedAt = null;
   state.lastErrorMessage = null;
+  state.window = makeWindow();
 }
