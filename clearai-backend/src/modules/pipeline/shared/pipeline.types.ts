@@ -65,6 +65,15 @@ export interface CleanupResult {
    * description-cleanup.md prompt §identity_tokens.
    */
   identity_tokens: string[];
+  /**
+   * 2-digit HS chapter hint from the curated brand→chapter lookup table
+   * (PR5 / Layer 4). Empty when no known brand matched. Used by
+   * description-classifier as a backup family hint when web research
+   * didn't run or didn't emit one. Same plumbing as the web-research
+   * family_chapter — passed to retrieval, which widens the pool only
+   * if the unconstrained pass missed that chapter entirely.
+   */
+  brand_chapter: string;
   /** Total LLM attempts including the first call. 0 when short-circuited. */
   attempts: number;
   /** Reason recorded for each attempt that triggered a parse retry. */

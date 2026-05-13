@@ -13,6 +13,7 @@ import {
   cleanDescription,
   looksClean,
 } from './description-cleanup.js';
+import { lookupBrandChapter } from './brand-chapter-map.js';
 import type { CleanupResult, ClarityVerdict } from '../shared/pipeline.types.js';
 import type { DescriptionCleanupKind } from '../shared/domain.types.js';
 
@@ -49,6 +50,12 @@ export async function runCleanup(
     .filter((t) => t.length > 1)
     .slice(0, 16);
 
+  // PR5 / Layer 4: brand-to-chapter lookup. Consult the curated map
+  // against the raw input (LLM may strip the brand into `stripped`, but
+  // we want to recover the chapter hint even when it does). Empty
+  // string when no known brand matched.
+  const brand_chapter = lookupBrandChapter(raw_description);
+
   return {
     cleaned_description: result.effective,
     language: 'unk',  // language detection is not yet wired; placeholder
@@ -58,6 +65,7 @@ export async function runCleanup(
     latency_ms: degraded ? result.latencyMs : result.latencyMs,
     tariff_expansion_en: result.tariffExpansionEn,
     identity_tokens: result.identityTokens,
+    brand_chapter,
     attempts: result.attempts,
     retried_reasons: result.retriedReasons,
   };

@@ -70,7 +70,13 @@ export async function runDescriptionClassifier(
   let webResearchDetail: DescriptionClassifierResearchDetail | null = null;
   // PR3 / Layer 5: family hint carried forward from web research to the
   // main retrieval call. Empty string when no hint is available.
-  let pendingFamilyChapter = '';
+  //
+  // PR5 / Layer 4: seed from the cleanup-time brand→chapter lookup so
+  // recognised brand inputs widen retrieval even when web research
+  // doesn't run. Web research overrides this when it produces its own
+  // family_chapter (snippets are stronger evidence than a static brand
+  // table).
+  let pendingFamilyChapter = cleanup.brand_chapter ?? '';
 
   if (cleanup.clarity_verdict === 'needs_research') {
     const t0 = Date.now();
