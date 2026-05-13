@@ -33,7 +33,18 @@ import type {
   DeclarationStatus,
   BatchMode,
   BatchStatus,
+  BatchItemStatus,
 } from '../../db/schema.js';
+
+const VALID_ITEM_STATUSES: readonly BatchItemStatus[] = [
+  'pending',
+  'classifying',
+  'succeeded',
+  'flagged',
+  'blocked',
+  'pending_infra',
+  'failed',
+];
 
 const ACCEPTED_EXTS: Record<string, UploadKind> = {
   csv: 'csv',
@@ -164,7 +175,7 @@ export async function handleGetBatch(req: FastifyRequest<{ Params: { id: string 
 export async function handleListClassifications(
   req: FastifyRequest<{
     Params: { id: string };
-    Querystring: { limit?: string; offset?: string; include_trace?: string };
+    Querystring: { limit?: string; offset?: string; include_trace?: string; status?: string };
   }>,
   reply: FastifyReply,
 ): Promise<unknown> {
@@ -190,6 +201,22 @@ export async function handleListClassifications(
   }
   const includeTrace = req.query.include_trace === 'true' || req.query.include_trace === '1';
 
+  const statusRaw = req.query.status;
+  let statusFilter: BatchItemStatus[] | null = null;
+  if (statusRaw !== undefined && statusRaw !== '') {
+    const requested = statusRaw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    const invalid = requested.filter(
+      (s): s is string => !(VALID_ITEM_STATUSES as readonly string[]).includes(s),
+    );
+    if (invalid.length > 0) {
+      throw new BatchValidationError(
+        `status must be a comma-separated list of: ${VALID_ITEM_STATUSES.join(', ')}`,
+        { received: statusRaw, invalid },
+      );
+    }
+    statusFilter = requested as BatchItemStatus[];
+  }
+
   // Returns whatever items are in flight RIGHT NOW so the SPA's
   // BatchResultsTable can paint rows progressively as Phase 1 completes
   // them. Frontend uses the top-level `classification_phase` flag below
@@ -200,6 +227,9 @@ export async function handleListClassifications(
   // is only selected when include_trace=true to keep paging cheap.
   const pool = getPool();
   const traceColumn = includeTrace ? 'i.trace' : 'NULL::jsonb';
+  const statusClause = statusFilter ? 'AND i.status = ANY($4::text[])' : '';
+  const listParams: unknown[] = [declarationRun.id, limit, offset];
+  if (statusFilter) listParams.push(statusFilter);
   const r = await pool.query<{
     id: string;
     row_index: number;
@@ -254,17 +284,23 @@ export async function handleListClassifications(
        FROM declaration_run_items i
        LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
       WHERE i.declaration_run_id = $1
+        ${statusClause}
       ORDER BY i.row_index
       LIMIT $2 OFFSET $3`,
-    [declarationRun.id, limit, offset],
+    listParams,
   );
   // Run total in parallel for the response envelope. Re-running the
   // count on every poll tick is wasteful but tiny (it's just a COUNT(*)
   // on the indexed declaration_run_id); short-circuiting would require
   // caching and complicate the freshness story during live ingestion.
+  const countParams: unknown[] = [declarationRun.id];
+  if (statusFilter) countParams.push(statusFilter);
   const totalRes = await pool.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM declaration_run_items WHERE declaration_run_id = $1`,
-    [declarationRun.id],
+    `SELECT COUNT(*)::text AS count
+       FROM declaration_run_items
+      WHERE declaration_run_id = $1
+        ${statusFilter ? 'AND status = ANY($2::text[])' : ''}`,
+    countParams,
   );
   const total = Number(totalRes.rows[0]?.count ?? 0);
   const itemsFetchedSoFar = offset + r.rows.length;
