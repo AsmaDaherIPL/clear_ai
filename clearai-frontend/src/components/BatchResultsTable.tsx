@@ -1,19 +1,13 @@
 /**
- * Batch results — virtualized presentational table.
+ * Batch results — non-virtualized table using shadcn/ui primitives via
+ * the generic <DataTable />.
  *
- * v3.3 changes (on top of v3.2):
- *   - Wires `tableId="batch-results-v1"` so column prefs persist in localStorage.
- *   - Column widths moved entirely to TanStack `size` / `minSize` on each column
- *     def. The old Tailwind width utilities on meta.cellClassName are gone —
- *     they were a static-layout workaround that is incompatible with
- *     user-resizable columns. meta.cellClassName / meta.headerClassName are
- *     now used only for non-width appearance classes (text colour, alignment,
- *     font variant, etc.).
+ * Column order (left → right):
+ *   Line | Merchant code | Merchant description | Value | Classified code |
+ *   Classified code breakdown | ZATCA declaration | Value plausibility verdict
  *
- * v3.2 column order (left → right):
- *   Line | Merchant code | Merchant description | Classified code |
- *   Classified code breakdown | Classification status | ZATCA declaration |
- *   Value plausibility verdict
+ * value_plausibility_verdict ships hidden by default; togglable from the
+ * Columns menu in the footer.
  */
 import { useMemo } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -22,12 +16,14 @@ import { cn } from '@/lib/utils';
 import { pickLang, type DeclarationRunItem } from '@/lib/api';
 import { DataTable } from './DataTable';
 
-const ROW_HEIGHT = 90;
+// ---------------------------------------------------------------------------
+// Pill colour maps + helpers
+// ---------------------------------------------------------------------------
 
 const VERDICT_BADGE: Record<string, string> = {
   pass:    'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
-  fail:    'bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]',
-  warn:    'bg-[oklch(0.93_0.10_60)] text-[oklch(0.40_0.15_60)]',
+  fail:    'bg-[oklch(0.92_0.07_25)]  text-[oklch(0.40_0.12_25)]',
+  warn:    'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',
   skipped: 'bg-[var(--line-2)] text-[var(--ink-3)]',
   unknown: 'bg-[var(--line-2)] text-[var(--ink-3)]',
 };
@@ -54,6 +50,10 @@ function normaliseVerdict(raw: string): 'pass' | 'fail' | 'warn' | 'skipped' | '
   return 'unknown';
 }
 
+// ---------------------------------------------------------------------------
+// Code breakdown — Chapter / Heading / Subheading / Tariff rows
+// ---------------------------------------------------------------------------
+
 interface BuildBreakdownRow {
   code: string;
   label: string;
@@ -74,24 +74,16 @@ function buildBreakdown(finalCode: string | null, pathEn: string | null): BuildB
 const BREAKDOWN_DESC_MAX = 38;
 
 /**
- * Code breakdown cell — four-row hierarchy showing how the 12-digit code
- * decomposes into Chapter / Heading / Subheading / Tariff with the
- * matching catalog description on each row.
+ * Code breakdown cell — four-row hierarchy, three inner columns:
+ *   [code (mono tabular)]  [LEVEL (small caps)]  [description (truncated)]
  *
- * Layout (matches the Landing Page batch reference):
- *   [code (mono, tabular)]  [LEVEL (small caps)]  [description (truncated)]
- *
- * The Tariff row (last) is the "answer" row, so its code AND its level
- * label are rendered in the accent-orange ink to draw the eye there
- * first; the upper three rows are subdued so they read as context.
+ * Tariff (last) row uses accent ink on the code + label so the eye lands
+ * on the answer; upper rows are subdued context.
  */
 function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
   const resolved = item.classification_result?.resolved_hs_code ?? null;
   const pathEn = pickLang(item.resolved_hs_code_description?.full_hierarchy, 'en');
-  const breakdown = useMemo(
-    () => buildBreakdown(resolved, pathEn),
-    [resolved, pathEn],
-  );
+  const breakdown = useMemo(() => buildBreakdown(resolved, pathEn), [resolved, pathEn]);
 
   if (breakdown.length === 0) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
@@ -99,13 +91,7 @@ function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
 
   return (
     <div
-      className={cn(
-        'grid gap-y-1 text-[13px] leading-[1.5]',
-        // 3-col inner grid: code · level · text
-        // minmax keeps the code column from collapsing when text wraps,
-        // and the level column stays a stable width across all four rows
-        // so the eye can scan it as a single vertical strip.
-      )}
+      className="grid gap-y-1 text-[13px] leading-[1.5]"
       style={{ gridTemplateColumns: 'auto 72px minmax(0, 1fr)' }}
     >
       {breakdown.map((b, i) => {
@@ -144,26 +130,25 @@ function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Simple cells
+// ---------------------------------------------------------------------------
+
 function MerchantCodeCell({ item }: { item: DeclarationRunItem }) {
   const merchantCode = item.declared_value?.hs_code ?? null;
   if (!merchantCode) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   }
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="font-mono text-[12.5px] text-[var(--ink-3)] whitespace-nowrap">
-        {merchantCode}
-      </span>
-    </div>
+    <span className="font-mono text-[12.5px] text-[var(--ink-3)] whitespace-nowrap">
+      {merchantCode}
+    </span>
   );
 }
 
 /**
- * Merchant description cell — verbatim declared_value.description from
- * the input CSV, shown in full. Wraps freely; the row grows to fit. No
- * clamp, no line-clamp-3 — operators need to read the whole thing to
- * verify the classification is sensible, and the table is already
- * virtualised so variable row heights are cheap.
+ * Merchant description — verbatim declared_value.description, full text,
+ * wraps freely. No truncation; the row grows to fit.
  */
 function MerchantDescriptionCell({ item }: { item: DeclarationRunItem }) {
   const desc = item.declared_value?.description ?? null;
@@ -176,10 +161,9 @@ function MerchantDescriptionCell({ item }: { item: DeclarationRunItem }) {
 }
 
 /**
- * Value cell — declared per-line value + ISO-4217 currency.
- * Renders as `<amount> <currency>` with the amount in monospace tabular
- * digits (so amounts align vertically across rows) and the currency in
- * muted small-caps mono. Falls back to "—" when either field is missing.
+ * Value cell — SAR-denominated amount + currency code from value.amount.
+ * 2-decimal formatting with thousands separators; mono tabular for vertical
+ * alignment across rows; muted small-caps currency.
  */
 function ValueCell({ item }: { item: DeclarationRunItem }) {
   const amount = item.value?.amount?.value ?? null;
@@ -187,8 +171,6 @@ function ValueCell({ item }: { item: DeclarationRunItem }) {
   if (amount === null || amount === undefined || !Number.isFinite(amount)) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   }
-  // 2-decimal display with thousands separators, e.g. 106.96 → "106.96",
-  // 1234.5 → "1,234.50". Reads as money even when the input had no decimal.
   const formatted = new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -207,6 +189,10 @@ function ValueCell({ item }: { item: DeclarationRunItem }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 interface BatchResultsTableProps {
   expectedRowCount?: number;
   items: DeclarationRunItem[];
@@ -221,20 +207,11 @@ export default function BatchResultsTable({
   const t = useT();
 
   const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
-    // Column sizes are proportional hints (the table fills container width
-    // via tableLayout:fixed, so what matters is the ratio between sizes,
-    // not their absolute pixel values). Approximate ratios at default:
-    //   line: 4%, merchant_code: 10%, merchant_description: 16%,
-    //   classified_code: 11%, breakdown: 25%, classification: 11%,
-    //   submission_ar: 16%, verdict: 11%   (sum ≈ 100%, ~1100px equivalent)
     {
       id: 'line',
       accessorKey: 'row_index',
       header: t('batch_col_line' as TKey),
       enableSorting: true,
-      size: 48,
-      minSize: 40,
-      maxSize: 72,
       cell: ({ getValue }) => (
         <span className="font-mono text-[12px] text-[var(--ink-2)]">{String(getValue())}</span>
       ),
@@ -244,11 +221,6 @@ export default function BatchResultsTable({
       header: t('batch_col_merchant_code' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.declared_value?.hs_code ?? '',
-      // Bumped to 140/120 so 12-digit codes (e.g. 851830900000) fit without
-      // overflow-clipping into the next column.
-      size: 140,
-      minSize: 120,
-      maxSize: 220,
       cell: ({ row }) => <MerchantCodeCell item={row.original} />,
     },
     {
@@ -256,12 +228,6 @@ export default function BatchResultsTable({
       header: t('batch_col_merchant_description' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.declared_value?.description ?? '',
-      // Wider default so the full description fits without wrapping in the
-      // common case. Cell wraps freely when content exceeds width — row
-      // grows to fit (no truncation).
-      size: 260,
-      minSize: 160,
-      maxSize: 520,
       cell: ({ row }) => <MerchantDescriptionCell item={row.original} />,
     },
     {
@@ -269,9 +235,6 @@ export default function BatchResultsTable({
       header: t('batch_col_value' as TKey),
       enableSorting: true,
       accessorFn: (row) => row.value?.amount?.value ?? 0,
-      size: 130,
-      minSize: 100,
-      maxSize: 200,
       cell: ({ row }) => <ValueCell item={row.original} />,
     },
     {
@@ -279,9 +242,6 @@ export default function BatchResultsTable({
       header: t('batch_col_classified_code' as TKey),
       enableSorting: true,
       accessorFn: (row) => row.classification_result?.resolved_hs_code ?? '',
-      size: 120,
-      minSize: 100,
-      maxSize: 180,
       cell: ({ row }) => {
         const fc = row.original.classification_result?.resolved_hs_code ?? null;
         if (!fc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
@@ -297,11 +257,6 @@ export default function BatchResultsTable({
       header: t('batch_col_classified_code_breakdown' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.classification_result?.resolved_hs_code ?? '',
-      // Widened: the new 3-column inner grid (code · level · text) needs
-      // room for the 72px level strip plus a usable text width on the right.
-      size: 340,
-      minSize: 280,
-      maxSize: 500,
       cell: ({ row }) => <CodeBreakdownCell item={row.original} />,
     },
     {
@@ -310,9 +265,6 @@ export default function BatchResultsTable({
       enableSorting: false,
       accessorFn: (row) =>
         pickLang(row.resolved_hs_code_description?.zatca_submission_description, 'ar') ?? '',
-      size: 180,
-      minSize: 140,
-      maxSize: 320,
       cell: ({ row }) => {
         const ar = pickLang(
           row.original.resolved_hs_code_description?.zatca_submission_description,
@@ -321,7 +273,7 @@ export default function BatchResultsTable({
         return (
           <div
             dir="rtl"
-            className="text-[12.5px] text-[var(--ink-2)] line-clamp-3 break-words"
+            className="text-[12.5px] text-[var(--ink-2)] leading-[1.6] break-words"
             style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
             title={ar ?? undefined}
           >
@@ -338,9 +290,6 @@ export default function BatchResultsTable({
         const raw = readVerdict(row);
         return raw ? normaliseVerdict(raw) : '';
       },
-      size: 130,
-      minSize: 100,
-      maxSize: 200,
       filterFn: (row, _id, value) => {
         const raw = readVerdict(row.original);
         if (!raw) return false;
@@ -366,55 +315,29 @@ export default function BatchResultsTable({
     },
   ], [t]);
 
-  // Skeleton row spans full colSpan so it is unaffected by column resizing.
-  // The 8-column internal grid is intentionally dropped — a full-width pulse
-  // bar is layout-shift-free and avoids having to keep a duplicate grid in
-  // sync with the resizable column widths.
+  // Simple skeleton row — single full-width pulse bar. Avoids encoding any
+  // specific column geometry so it survives column show/hide automatically.
   const renderSkeletonRow = useMemo(() => {
     return (_i: number) => (
-      <div className="flex items-center gap-3.5 px-3.5" style={{ height: ROW_HEIGHT }}>
-        {/* Line */}
-        <span className="h-3 w-8 bg-[var(--line-2)] animate-pulse rounded shrink-0" />
-        {/* Merchant code */}
-        <span className="h-3 w-[100px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
-        {/* Merchant description */}
-        <span className="h-3 w-[160px] bg-[var(--line-2)] animate-pulse rounded" />
-        {/* Value */}
-        <span className="h-3 w-[80px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
-        {/* Classified code */}
-        <span className="h-3.5 w-[120px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
-        {/* Code breakdown — 4 stacked rows */}
-        <div className="flex flex-col gap-1.5 py-1 flex-1">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="h-2.5 w-[88px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
-              <span className="h-2.5 flex-1 bg-[var(--line-2)] animate-pulse rounded" />
-            </div>
-          ))}
-        </div>
-        {/* ZATCA submission */}
-        <span className="h-3 w-[120px] bg-[var(--line-2)] animate-pulse rounded shrink-0" />
-        {/* Verdict pill */}
-        <span className="h-4 w-14 bg-[var(--line-2)] animate-pulse rounded-full shrink-0" />
+      <div className="px-[18px] py-[18px] flex items-center gap-3">
+        <span className="h-3 w-1/3 bg-[var(--line-2)] animate-pulse rounded" />
+        <span className="h-3 w-1/4 bg-[var(--line-2)] animate-pulse rounded" />
+        <span className="h-3 flex-1 bg-[var(--line-2)] animate-pulse rounded" />
       </div>
     );
   }, []);
 
   return (
     <DataTable
-      // Bumped to v4 because the classification_status column was fully
-      // removed in this iteration. Bumping the key invalidates any
-      // persisted column prefs that referenced the removed column, so
-      // returning users don't carry a phantom hidden slot.
-      tableId="batch-results-v4"
-      // value_plausibility_verdict ships hidden by default — it's noisy
-      // and most operators don't act on it. Power users can opt in via
-      // the Columns dropdown in the footer. Once they toggle it, the
-      // persisted state takes over from this default.
+      // v5 because the storage shape changed (columnSizing field retired
+      // along with column resizing). Bumping the key invalidates any
+      // persisted prefs from earlier table iterations.
+      tableId="batch-results-v5"
+      // value_plausibility_verdict ships hidden by default — togglable
+      // from the Columns menu in the footer.
       defaultColumnVisibility={{ value_plausibility_verdict: false }}
       data={items}
       columns={columns}
-      estimatedRowHeight={ROW_HEIGHT}
       expectedRowCount={expectedRowCount}
       renderSkeletonRow={renderSkeletonRow}
       enableGlobalSearch
