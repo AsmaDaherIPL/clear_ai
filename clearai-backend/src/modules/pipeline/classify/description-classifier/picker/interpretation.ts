@@ -1,5 +1,5 @@
 /** Builds the "interpretation" block surfaced to the user — what cleanup / researcher did to the input. */
-import type { ResearchOutcome } from '../researcher/research.js';
+import type { ResearchOutcome } from '../researcher/researcher.js';
 import type { DescriptionCleanupResult } from '../../../cleanup/description-cleanup.js';
 import type { InterpretationStage, DescriptionCleanupKind } from '../../../shared/domain.types.js';
 export type { InterpretationStage } from '../../../shared/domain.types.js';
