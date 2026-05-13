@@ -40,6 +40,7 @@ import {
   useReactTable,
   type ColumnDef,
   type ColumnFiltersState,
+  type ColumnSizingState,
   type PaginationState,
   type SortingState,
   type VisibilityState,
@@ -95,6 +96,8 @@ const DEFAULT_PAGE_SIZE = 10;
 
 interface TablePrefs {
   columnVisibility: VisibilityState;
+  /** Per-column pixel widths from drag-resize. */
+  columnSizing?: ColumnSizingState;
 }
 
 function loadPrefs(tableId: string): Partial<TablePrefs> {
@@ -177,6 +180,39 @@ export interface DataTableProps<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Column resizer — thin drag handle at the inline-end edge of resizable <th>.
+// Handler prop typed as (e: unknown) so it accepts TanStack's getResizeHandler
+// return type (works for both mouse and touch).
+// ---------------------------------------------------------------------------
+
+function ColumnResizer({
+  onPointerDown,
+  isResizing,
+}: {
+  onPointerDown: (e: unknown) => void;
+  isResizing: boolean;
+}) {
+  return (
+    <div
+      onMouseDown={onPointerDown as React.MouseEventHandler}
+      onTouchStart={onPointerDown as React.TouchEventHandler}
+      onClick={(e) => e.stopPropagation()}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize column"
+      className={cn(
+        'group absolute end-0 top-0 h-full w-[8px] cursor-col-resize touch-none select-none',
+        'flex items-center justify-center',
+        'after:block after:h-[60%] after:rounded-full after:transition-all after:duration-100',
+        isResizing
+          ? 'after:w-[2px] after:bg-[var(--accent)] after:h-full'
+          : 'after:w-px after:bg-[var(--line)] hover:after:w-[2px] hover:after:bg-[var(--ink-3)]',
+      )}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // DataTable
 // ---------------------------------------------------------------------------
 
@@ -203,6 +239,9 @@ export function DataTable<T extends object>({
     const persisted = loadPrefs(tableId).columnVisibility;
     return persisted ?? defaultColumnVisibility ?? {};
   });
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() => {
+    return loadPrefs(tableId).columnSizing ?? {};
+  });
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: DEFAULT_PAGE_SIZE,
@@ -218,8 +257,8 @@ export function DataTable<T extends object>({
       didMountRef.current = true;
       return;
     }
-    debouncedSave({ columnVisibility });
-  }, [columnVisibility, debouncedSave]);
+    debouncedSave({ columnVisibility, columnSizing });
+  }, [columnVisibility, columnSizing, debouncedSave]);
 
   // Clamp pageIndex when filtered data shrinks below current page boundary.
   useEffect(() => {
@@ -239,16 +278,28 @@ export function DataTable<T extends object>({
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, columnFilters, globalFilter, columnVisibility, pagination },
+    state: {
+      sorting,
+      columnFilters,
+      globalFilter,
+      columnVisibility,
+      columnSizing,
+      pagination,
+    },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: setColumnVisibility,
+    onColumnSizingChange: setColumnSizing,
     onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    enableColumnResizing: true,
+    // onChange = live feedback during drag. Switch to 'onEnd' only if
+    // perf degrades on very wide tables.
+    columnResizeMode: 'onChange',
   });
 
   // -------------------------------------------------------------------------
@@ -379,17 +430,26 @@ export function DataTable<T extends object>({
       {/* ------------------------------------------------------------- */}
       {/* Table                                                          */}
       {/* ------------------------------------------------------------- */}
-      <Table className="border-separate border-spacing-0">
+      {/*
+        tableLayout: fixed + width: 100% is required for column resizing.
+        Cell widths are read from getSize() and applied inline. Default
+        collapse layout from the shadcn Table primitive preserves the
+        row-bottom borders via [&_tr]:border-b on TableHeader and our
+        border-b on each body row (shadcn docs pattern).
+      */}
+      <Table style={{ tableLayout: 'fixed', width: '100%' }}>
         <TableHeader>
           {table.getHeaderGroups().map((hg) => (
-            <TableRow key={hg.id} className="hover:bg-transparent border-b border-[var(--line)]">
+            <TableRow key={hg.id} className="hover:bg-transparent">
               {hg.headers.map((header) => {
                 const canSort = header.column.getCanSort();
                 const sortDir = header.column.getIsSorted();
+                const isResizing = header.column.getIsResizing();
+                const resizeHandler = header.getResizeHandler();
                 return (
                   <TableHead
                     key={header.id}
-                    onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                    style={{ width: header.getSize(), position: 'relative' }}
                     aria-sort={
                       sortDir === 'asc'
                         ? 'ascending'
@@ -401,17 +461,30 @@ export function DataTable<T extends object>({
                       'h-auto px-[18px] py-3.5 align-middle',
                       'font-mono text-[10.5px] font-medium tracking-[0.10em] uppercase text-[var(--ink-3)]',
                       'bg-[var(--line-2)] select-none',
-                      canSort && 'cursor-pointer hover:text-[var(--ink-2)]',
                     )}
                   >
-                    <span className="inline-flex items-center gap-1.5">
+                    <span
+                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                      // Block a 0-distance drag from firing a sort click
+                      onMouseDown={(e) => isResizing && e.preventDefault()}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 overflow-hidden',
+                        canSort && 'cursor-pointer hover:text-[var(--ink-2)]',
+                      )}
+                    >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {canSort && (
-                        <span className="text-[var(--ink-3)] text-[9px]" aria-hidden>
+                        <span className="text-[var(--ink-3)] text-[9px] shrink-0" aria-hidden>
                           {sortDir === 'asc' ? '▲' : sortDir === 'desc' ? '▼' : '·'}
                         </span>
                       )}
                     </span>
+                    {header.column.getCanResize() && (
+                      <ColumnResizer
+                        isResizing={isResizing}
+                        onPointerDown={resizeHandler}
+                      />
+                    )}
                   </TableHead>
                 );
               })}
@@ -433,23 +506,25 @@ export function DataTable<T extends object>({
               {pageRows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className={cn(
-                    'border-b border-[var(--line-2)] align-top',
-                    'hover:bg-[oklch(0.985_0.006_70)] transition-colors duration-100',
-                  )}
+                  // shadcn-docs pattern: border-b from the primitive + a
+                  // bright hover background. We override the default
+                  // hover:bg-muted/50 with our own cream tint so it sits
+                  // closer to the editorial palette.
+                  className="align-top hover:bg-[oklch(0.985_0.006_70)] transition-colors duration-100"
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="px-[18px] py-[18px] align-top">
+                    <TableCell
+                      key={cell.id}
+                      style={{ width: cell.column.getSize() }}
+                      className="px-[18px] py-[18px] align-top overflow-hidden"
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
                 </TableRow>
               ))}
               {Array.from({ length: skeletonCount }).map((_, i) => (
-                <TableRow
-                  key={`skeleton-${i}`}
-                  className="hover:bg-transparent border-b border-[var(--line-2)]"
-                >
+                <TableRow key={`skeleton-${i}`} className="hover:bg-transparent">
                   <TableCell colSpan={table.getVisibleLeafColumns().length} className="p-0">
                     {renderSkeletonRow ? (
                       renderSkeletonRow(i)

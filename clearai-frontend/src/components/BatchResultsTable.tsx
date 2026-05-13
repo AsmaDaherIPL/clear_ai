@@ -207,11 +207,17 @@ export default function BatchResultsTable({
   const t = useT();
 
   const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
+    // size = initial pixel width consumed by TanStack columnSizing state.
+    // Users can drag the column edge to override; their widths persist
+    // to localStorage. minSize/maxSize clamp the drag.
     {
       id: 'line',
       accessorKey: 'row_index',
       header: t('batch_col_line' as TKey),
       enableSorting: true,
+      size: 56,
+      minSize: 40,
+      maxSize: 96,
       cell: ({ getValue }) => (
         <span className="font-mono text-[12px] text-[var(--ink-2)]">{String(getValue())}</span>
       ),
@@ -221,6 +227,9 @@ export default function BatchResultsTable({
       header: t('batch_col_merchant_code' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.declared_value?.hs_code ?? '',
+      size: 140,
+      minSize: 120,
+      maxSize: 240,
       cell: ({ row }) => <MerchantCodeCell item={row.original} />,
     },
     {
@@ -228,6 +237,9 @@ export default function BatchResultsTable({
       header: t('batch_col_merchant_description' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.declared_value?.description ?? '',
+      size: 260,
+      minSize: 160,
+      maxSize: 600,
       cell: ({ row }) => <MerchantDescriptionCell item={row.original} />,
     },
     {
@@ -235,6 +247,9 @@ export default function BatchResultsTable({
       header: t('batch_col_value' as TKey),
       enableSorting: true,
       accessorFn: (row) => row.value?.amount?.value ?? 0,
+      size: 130,
+      minSize: 100,
+      maxSize: 220,
       cell: ({ row }) => <ValueCell item={row.original} />,
     },
     {
@@ -242,6 +257,9 @@ export default function BatchResultsTable({
       header: t('batch_col_classified_code' as TKey),
       enableSorting: true,
       accessorFn: (row) => row.classification_result?.resolved_hs_code ?? '',
+      size: 130,
+      minSize: 100,
+      maxSize: 200,
       cell: ({ row }) => {
         const fc = row.original.classification_result?.resolved_hs_code ?? null;
         if (!fc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
@@ -257,6 +275,9 @@ export default function BatchResultsTable({
       header: t('batch_col_classified_code_breakdown' as TKey),
       enableSorting: false,
       accessorFn: (row) => row.classification_result?.resolved_hs_code ?? '',
+      size: 340,
+      minSize: 240,
+      maxSize: 560,
       cell: ({ row }) => <CodeBreakdownCell item={row.original} />,
     },
     {
@@ -265,6 +286,9 @@ export default function BatchResultsTable({
       enableSorting: false,
       accessorFn: (row) =>
         pickLang(row.resolved_hs_code_description?.zatca_submission_description, 'ar') ?? '',
+      size: 200,
+      minSize: 140,
+      maxSize: 360,
       cell: ({ row }) => {
         const ar = pickLang(
           row.original.resolved_hs_code_description?.zatca_submission_description,
@@ -290,6 +314,9 @@ export default function BatchResultsTable({
         const raw = readVerdict(row);
         return raw ? normaliseVerdict(raw) : '';
       },
+      size: 140,
+      minSize: 100,
+      maxSize: 220,
       filterFn: (row, _id, value) => {
         const raw = readVerdict(row.original);
         if (!raw) return false;
@@ -329,10 +356,10 @@ export default function BatchResultsTable({
 
   return (
     <DataTable
-      // v5 because the storage shape changed (columnSizing field retired
-      // along with column resizing). Bumping the key invalidates any
-      // persisted prefs from earlier table iterations.
-      tableId="batch-results-v5"
+      // v6 because column resizing came back; storage shape now includes
+      // columnSizing again. Bumping the key invalidates v5 prefs (visibility
+      // only) so returning users start with the new default widths once.
+      tableId="batch-results-v6"
       // value_plausibility_verdict ships hidden by default — togglable
       // from the Columns menu in the footer.
       defaultColumnVisibility={{ value_plausibility_verdict: false }}
