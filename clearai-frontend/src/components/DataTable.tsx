@@ -303,16 +303,12 @@ export function DataTable<T extends object>({
   });
 
   // -------------------------------------------------------------------------
-  // Filter-chip helpers (clear filter when its column is hidden mid-session).
+  // Filter-chip helpers.
+  // Note: we deliberately do NOT clear the filter when the chip column is
+  // hidden. The filter chips are an independent UI affordance — hiding the
+  // display column (e.g. value_plausibility_verdict) must not wipe the
+  // active "Fail" or "Warn" filter the user just set.
   // -------------------------------------------------------------------------
-  const chipColumnVisible = filterChips
-    ? table.getColumn(filterChips.columnId)?.getIsVisible() ?? true
-    : true;
-  useEffect(() => {
-    if (!filterChips || chipColumnVisible) return;
-    setColumnFilters((prev) => prev.filter((cf) => cf.id !== filterChips.columnId));
-  }, [chipColumnVisible, filterChips]);
-
   const activeChipValue = filterChips
     ? columnFilters.find((cf) => cf.id === filterChips.columnId)?.value
     : undefined;
@@ -370,7 +366,7 @@ export function DataTable<T extends object>({
       {/* ------------------------------------------------------------- */}
       {/* Toolbar: search + verdict chips                                */}
       {/* ------------------------------------------------------------- */}
-      {(enableGlobalSearch || (filterChips && chipColumnVisible)) && (
+      {(enableGlobalSearch || filterChips) && (
         <div className="flex items-center gap-3 flex-wrap px-[22px] py-3 border-b border-[var(--line-2)]">
           {enableGlobalSearch && (
             <div className="relative flex-1 min-w-[200px] max-w-[420px]">
@@ -395,7 +391,7 @@ export function DataTable<T extends object>({
             </div>
           )}
 
-          {filterChips && chipColumnVisible && (
+          {filterChips && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-1">
                 {filterChips.label}

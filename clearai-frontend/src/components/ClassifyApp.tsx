@@ -388,18 +388,17 @@ export default function ClassifyApp() {
         return;
       }
       try {
-        // One-time summary fetch on first tick so the table can render
-        // skeleton rows for the expected count. After this, the per-item
-        // table draws itself from the classifications response only.
-        if (!summaryFetched) {
+        // Fetch the run summary on every tick (cheap GET) so the header
+        // stat chips (succeeded / flagged / failed) stay accurate
+        // throughout the run. The first fetch also seeds `row_count` so
+        // the skeleton table knows how many lines to pre-render.
+        try {
+          const summary = await api.getDeclarationRun(runId);
+          setBatchState((s) => ({ ...s, summary }));
           summaryFetched = true;
-          try {
-            const summary = await api.getDeclarationRun(runId);
-            setBatchState((s) => ({ ...s, summary }));
-          } catch {
-            // Non-fatal: skeleton-count won't render, but the items
-            // table still works. Don't trip the outer catch.
-          }
+        } catch {
+          // Non-fatal: summary chips will be stale/empty but the items
+          // table still works. Don't trip the outer catch.
         }
 
         // Active polling: ONE page only, merged by id into existing
@@ -418,26 +417,17 @@ export default function ClassifyApp() {
           // Final all-pages fetch so the reconciled table is complete
           // regardless of how many pages exist. Merge by ID rather than
           // wholesale replace so row identity stays stable across the
-          // terminal transition — the virtualizer keeps measured row
-          // heights and the user's scroll offset doesn't jump.
+          // terminal transition.
           try {
             const finalCls = await fetchAllClassifications(runId);
             setBatchState((s) => ({ ...s, items: mergeItemsById(s.items, finalCls.items) }));
           } catch {
             /* swallow — keep whatever's already in state */
           }
-          // Final summary fetch so the per-status counts are accurate
-          // at terminal. The poll loop never reads `summary.status`
-          // again after this point.
-          if (!finalSummaryFetched) {
-            finalSummaryFetched = true;
-            try {
-              const finalSummary = await api.getDeclarationRun(runId);
-              setBatchState((s) => ({ ...s, summary: finalSummary }));
-            } catch {
-              /* swallow — best-effort */
-            }
-          }
+          // The summary was already refreshed above on this terminal tick.
+          // No separate final-summary fetch needed; mark it done so the
+          // variable stays in-scope without lint warnings.
+          finalSummaryFetched = true;
           setBatchState((s) => ({ ...s, phase: 'done' }));
           return;
         }
