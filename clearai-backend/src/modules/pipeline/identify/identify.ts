@@ -305,7 +305,13 @@ export async function runIdentify(raw_description: string): Promise<IdentifyResu
       system,
       user: trimmed,
       model: env().LLM_MODEL_STRONG,
-      maxTokens: 600,
+      // PR-A-5.5: bumped 600 -> 1500. With web_search enabled, Sonnet
+      // narrates across multiple text blocks before producing the JSON
+      // (see PR-A-5.4). Multi-product inputs (e.g. 6-item kits) can
+      // exhaust 600 tokens mid-narration, hitting stop_reason='max_tokens'
+      // before any JSON is emitted. 1500 gives headroom; the JSON itself
+      // is ~200 tokens so the rest is breathing room for narration.
+      maxTokens: 1500,
       temperature: 0,
       timeoutMs: policy.timeoutMs,
       // One web search per identification. The model decides whether
