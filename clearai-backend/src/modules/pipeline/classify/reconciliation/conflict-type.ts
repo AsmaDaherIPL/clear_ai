@@ -54,14 +54,25 @@ function topFitOrPartial(candidates: AnnotatedCandidate[]): AnnotatedCandidate |
 }
 
 /**
- * Has Track A produced any candidate with a positive fit? `fits`,
- * `partial_family` (incl. legacy `partial`), and `chapter_adjacent` all
- * count — `chapter_adjacent` means "we recognised the family, just not in
- * this chapter", which is positive signal for reconciliation.
+ * Has Track A produced any candidate with a LEAF-LEVEL positive fit?
+ *
+ * `fits` and `partial_family` (incl. legacy `partial`) qualify — the
+ * picker has endorsed a specific leaf as a possible final answer.
+ *
+ * `chapter_adjacent` does NOT qualify. It is family-level evidence —
+ * "I see the family but the right chapter isn't this candidate's
+ * chapter". Alone, without a merchant code to disambiguate which
+ * chapter is correct, it produces no defensible final code. Rows in
+ * this state must escalate (ZERO_SIGNAL), not route to AGREEMENT and
+ * then crash in handleAgreement when it can't find a positive leaf.
+ *
+ * Fixed 2026-05-14 after PR4 incorrectly counted chapter_adjacent here,
+ * causing row 17 (Noctua CPU Cooler, no merchant) to crash with
+ * "AGREEMENT classified but no positive candidate found".
  */
 function trackAHasSignal(trackA: DescriptionClassifierResult): boolean {
   return trackA.annotated_candidates.some(
-    (c) => c.fit === 'fits' || isPartialFamily(c.fit) || c.fit === 'chapter_adjacent',
+    (c) => c.fit === 'fits' || isPartialFamily(c.fit),
   );
 }
 
@@ -77,48 +88,98 @@ function topChapterAdjacent(candidates: AnnotatedCandidate[]): AnnotatedCandidat
 }
 
 /**
- * Classify the (Track A, Track B) state into one of the six conflict types.
+ * Classify the (Track A, Track B) state into one of the conflict types.
  *
- * Precedence is critical — the classifier returns the FIRST matching rule
- * in this order:
+ * Precedence is critical — the classifier returns the FIRST matching rule.
+ * Rules are evaluated in this order (post 2026-05-14 reorder):
  *
- *   1. ZERO_SIGNAL          (both tracks empty)
- *   2. CONTRADICTION        (any of:
- *                            2a. Track B's PR 5 subtree retrieval flagged
- *                                an unanchored top-1 outside the merchant
- *                                heading (consistency_verdict='contradicts');
- *                            2b. Track A's top fit is in a different CHAPTER
- *                                than the resolver code;
- *                            2c. Track A's top fit is in a different HEADING
- *                                than the resolver code AND the resolver
- *                                code is NOT itself `fits` in Track A
- *                                — asymmetric-confidence guard prevents
- *                                false CONTRADICTION on AGREEMENT-shaped
- *                                states)
- *   3. AGREEMENT            (resolver code is in Track A's fits set,
- *                            OR single_a top is fits)
- *   4. DRIFT                (heading-level agreement, leaf-level disagreement)
- *   5. AMBIGUOUS            (default fall-through: either Track A retrieval
- *                            uninformative, OR signals exist on both sides
- *                            but no positive corroboration. Resolver code
- *                            wins at LOW confidence either way.)
+ *   1.  ZERO_SIGNAL          neither track has anything actionable.
+ *                            Track A "has signal" requires LEAF-LEVEL fit
+ *                            (fits or partial_family). chapter_adjacent
+ *                            alone does NOT satisfy — it is family-level
+ *                            evidence that requires a merchant code to
+ *                            disambiguate the correct chapter.
  *
- * Each rule is exclusive — a state can satisfy multiple, but earlier rules
- * win. Rationale per type:
+ *   1a. AGREEMENT (chapter-family)
+ *                            Track A explicitly marked a candidate
+ *                            `chapter_adjacent` AND merchant code is in
+ *                            a DIFFERENT chapter than that candidate.
+ *                            Three guards (all required):
+ *                              G1. no leaf-level signal (fits or
+ *                                  partial_family) in resolver chapter
+ *                              G2. no `fits` anywhere in Track A. A leaf-
+ *                                  level `fits` is the picker's strongest
+ *                                  signal and must reach the leaf-based
+ *                                  rules below (3 / 2b) regardless of
+ *                                  which chapter it sits in
+ *                              G3. trackB.consistency_verdict !== 'contradicts'
+ *                            Merchant code wins. Source: code_resolver.
  *
- *   ZERO_SIGNAL is checked first because it short-circuits — no point asking
- *   "is this a contradiction?" when there's nothing to contradict.
+ *   1b. AMBIGUOUS (confidence gate)
+ *                            picker_confidence < PICKER_CONFIDENCE_GATE
+ *                            AND merchant valid_prefix length >= 6.
+ *                            Demotes what would otherwise be CONTRADICTION
+ *                            to AMBIGUOUS so a low-confidence Track A
+ *                            cannot override a corroborated merchant code.
  *
- *   CONTRADICTION beats AGREEMENT because trackB.consistency_verdict
- *   ='contradicts' means the description pulls toward a different chapter
- *   entirely — even if Track A happens to share the resolver's code, the
- *   subtree retrieval already flagged a chapter mismatch.
+ *   2.  CONTRADICTION        Track B's PR 5 subtree retrieval flagged
+ *                            consistency_verdict='contradicts' AND Track A
+ *                            has at least one positive leaf signal.
+ *                            Geomag guard: if Track A's pick disagrees
+ *                            with cleanup's inferred_chapters AND merchant
+ *                            agrees, demote to AMBIGUOUS.
  *
- *   AGREEMENT beats DRIFT because if the resolver's exact code is in the
- *   fits set, there's no leaf dispute to resolve.
+ *   2b. CONTRADICTION (chapter-cross)
+ *                            Track A's top fit is in a different CHAPTER
+ *                            than the resolver code (and was `fits`, not
+ *                            partial). Same Geomag guard.
  *
- *   DRIFT beats AMBIGUOUS because heading-level agreement is a
- *   stronger signal than absence of signal.
+ *   2c. CONTRADICTION (heading-cross, asymmetric)
+ *                            Track A's top fit is in a different HEADING
+ *                            than the resolver code AND the resolver code
+ *                            is NOT itself `fits` in Track A.
+ *
+ *   3.  AGREEMENT (resolver-in-fits)
+ *                            resolver code appears in Track A's fits set.
+ *
+ *   3b. AGREEMENT (single_a)
+ *                            no resolver code AND Track A has any leaf-
+ *                            level positive (fits or partial_family).
+ *
+ *   4.  DRIFT                both tracks have a code, same heading, but
+ *                            different leaves. LLM-resolved.
+ *
+ *   5/6.AMBIGUOUS (fall-through)
+ *                            default terminal. Merchant code wins at LOW
+ *                            confidence when present; escalates otherwise.
+ *
+ * Precedence rationale:
+ *
+ *   - ZERO_SIGNAL first: short-circuits, no point asking "is this a
+ *     contradiction?" when there's nothing to contradict.
+ *
+ *   - Chapter-family AGREEMENT (1a) BEFORE the confidence gate (1b)
+ *     because the picker's explicit family endorsement is *evidence*,
+ *     not low-confidence noise. Pre-reorder: row 8 (GPU) was demoted
+ *     to AMBIGUOUS LOW even though Track A clearly identified the
+ *     computer-stack family.
+ *
+ *   - Chapter-family AGREEMENT (1a) ALSO before CONTRADICTION (2) for
+ *     the narrow case where Track A picked candidates in a chapter
+ *     adjacent to the merchant's. This INVERTS the older "CONTRADICTION
+ *     beats AGREEMENT" rule — guard G3 ensures the inversion only
+ *     applies when Track B's own subtree retrieval has not already
+ *     declared its own merchant code self-inconsistent.
+ *
+ *   - CONTRADICTION (2/2b/2c) beats AGREEMENT (3) for non-family cases:
+ *     if trackB.consistency_verdict='contradicts' the description pulls
+ *     toward a different chapter entirely.
+ *
+ *   - AGREEMENT (3) beats DRIFT (4): if resolver code is in fits set,
+ *     no leaf dispute to resolve.
+ *
+ *   - DRIFT (4) beats AMBIGUOUS (5/6): heading-level agreement is a
+ *     stronger signal than absence of signal.
  */
 /**
  * Picker confidence threshold below which Track A loses the ability to
@@ -143,15 +204,93 @@ const PICKER_CONFIDENCE_GATE = 0.30;
 const MIN_RESOLVER_PREFIX_FOR_GATE = 6;
 
 export function classifyConflict(trackA: DescriptionClassifierResult, trackB: CodeResolverResult): ConflictType {
-  const aHas = trackAHasSignal(trackA);
+  const aHasLeaf = trackAHasSignal(trackA);
   const bHas = !!trackB.resolved_code;
 
-  // 1. ZERO_SIGNAL — neither track has anything we can act on
-  if (!aHas && !bHas) {
+  // 1. ZERO_SIGNAL — Track A has no LEAF-LEVEL fit AND Track B has no
+  //    merchant code. Family-only signal (chapter_adjacent) alone is
+  //    not actionable without a merchant code to disambiguate the
+  //    correct chapter — covered by this same branch because
+  //    trackAHasSignal returns false for family-only Track A
+  //    (chapter_adjacent does not satisfy "has signal").
+  //
+  //    Without this gate, a chapter_adjacent-only Track A + no merchant
+  //    would route to AGREEMENT and handleAgreement would crash trying
+  //    to find a positive leaf — bug fixed 2026-05-14 (row 17 Noctua
+  //    CPU Cooler).
+  if (!aHasLeaf && !bHas) {
     return 'ZERO_SIGNAL';
   }
 
-  // 1a. LOW_CONFIDENCE_TRACK_A guard — when the picker is structurally
+  // 1a. CHAPTER-FAMILY AGREEMENT — Track A explicitly marked a candidate
+  //     `chapter_adjacent` AND Track B's resolved code lands in a chapter
+  //     different from Track A's adjacent-marked candidate. The picker has
+  //     stated "I see the same product family, just split across chapters
+  //     by HS convention" — that's a family match, not a CONTRADICTION
+  //     and not an AMBIGUOUS LOW.
+  //
+  //     This rule runs BEFORE the low-confidence gate (1b) because the
+  //     picker's explicit family endorsement is *evidence*, not noise.
+  //     The original ordering (gate first, family rule second) caused
+  //     row 8 (GPU graphics card) to be demoted to AMBIGUOUS LOW even
+  //     though Track A had clearly identified the computer-stack family.
+  //     Reordered 2026-05-14.
+  //
+  //     Rescues row 8 (GPU: Track A Ch 85 monitors/ICs as
+  //     chapter_adjacent, merchant Ch 84 computer parts), row 23
+  //     (Babybjorn: Ch 63 textile cradle ↔ Ch 94 seats), row 108
+  //     (Joolz cot: same shape).
+  //
+  //     Three guards (all required, added 2026-05-14 v2 after peer review):
+  //
+  //     G1. NO leaf-level signal exists in the resolver's chapter
+  //         (neither `fits` nor `partial_family`). If Track A has a leaf
+  //         endorsement in the resolver's chapter, AGREEMENT/AMBIGUOUS
+  //         rules below handle it — family-level signal must not
+  //         short-circuit a leaf-level one.
+  //
+  //     G2. NO leaf-level `fits` exists ANYWHERE in Track A (not just
+  //         in other chapters). A `fits` is the picker's strongest
+  //         signal — it endorses a specific leaf as the answer.
+  //         Family-level evidence (`chapter_adjacent`) must NEVER bury
+  //         a leaf-level endorsement, regardless of which chapter the
+  //         fits sits in. Known limitation: this is binary and unscored,
+  //         so a low-score `fits` (e.g. rrf 0.05 RAG noise) inhibits 1a
+  //         the same as a high-score one. If audit shows legitimate
+  //         chapter-family rows being demoted by junk-tier fits, tier-
+  //         gate on rrf_score or fits-count. Documented 2026-05-14 v2.
+  //
+  //     G3. Track B's consistency_verdict is NOT 'contradicts'. Track B's
+  //         own subtree retrieval saying "my description doesn't pull
+  //         toward my own chapter" already disqualifies the merchant
+  //         code from carrying AGREEMENT. Track A's family signal must
+  //         not rescue a self-contradicting merchant code.
+  if (bHas && trackB.consistency_verdict !== 'contradicts') {
+    const adjacent = topChapterAdjacent(trackA.annotated_candidates);
+    if (adjacent) {
+      const bCh = chapter(trackB.resolved_code);
+      const aCh = chapter(adjacent.code);
+      if (bCh && aCh && bCh !== aCh) {
+        // G1: no leaf signal in the resolver's chapter.
+        const hasLeafInResolverChapter = trackA.annotated_candidates.some(
+          (c) =>
+            (c.fit === 'fits' || isPartialFamily(c.fit)) && chapter(c.code) === bCh,
+        );
+        // G2: no `fits` anywhere else. partial_family elsewhere does NOT
+        //     block 1a — partial is a hedge, not a confident endorsement.
+        //     A leaf fits in any chapter is the picker's strongest signal
+        //     and beats family-level evidence.
+        const hasFitsAnyChapter = trackA.annotated_candidates.some(
+          (c) => c.fit === 'fits',
+        );
+        if (!hasLeafInResolverChapter && !hasFitsAnyChapter) {
+          return 'AGREEMENT';
+        }
+      }
+    }
+  }
+
+  // 1b. LOW_CONFIDENCE_TRACK_A guard — when the picker is structurally
   //     uncertain (thin description, large leaf-space, or sparse fits) AND
   //     the merchant code carries at least an HS6 prefix hit, demote any
   //     CONTRADICTION outcome to AMBIGUOUS so the merchant code wins at
@@ -165,42 +304,17 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
   //     leaves so the fan-out penalty discounts the score further.
   //     Pre-gate: CONTRADICTION → Track A's wrong-chapter pick wins.
   //     Post-gate: AMBIGUOUS → merchant 6404 wins; row is auditable.
+  //
+  //     Runs AFTER chapter-family (1a) so the picker's explicit family
+  //     endorsement isn't drowned by a low-confidence number.
   if (
     bHas &&
     trackA.picker_confidence !== null &&
     trackA.picker_confidence < PICKER_CONFIDENCE_GATE &&
-    (trackB.valid_prefix?.length ?? 0) >= MIN_RESOLVER_PREFIX_FOR_GATE
+    trackB.valid_prefix !== null &&
+    trackB.valid_prefix.length >= MIN_RESOLVER_PREFIX_FOR_GATE
   ) {
     return 'AMBIGUOUS';
-  }
-
-  // 1b. CHAPTER-FAMILY AGREEMENT — Track A explicitly marked a candidate
-  //     `chapter_adjacent` AND Track B's resolved code lands in a chapter
-  //     different from Track A's adjacent-marked candidate. The picker has
-  //     stated "I see the same product family, just split across chapters
-  //     by HS convention" — that's a family match, not a CONTRADICTION.
-  //     Route to AGREEMENT so Track B's chapter-correct code wins.
-  //
-  //     Rescues row-23 (Babybjorn bouncer: Track A picked 6307 textile
-  //     cradle as chapter_adjacent, merchant 9401 seats — same family),
-  //     row-108 (Joolz cot: same shape), row-8 (GPU: Track A 8542 ICs as
-  //     chapter_adjacent, merchant 8471 computer parts).
-  //
-  //     Guard: only fires when no `fits` candidate exists in the resolver's
-  //     chapter — otherwise the normal AGREEMENT rule (3) handles it
-  //     correctly and we don't want to short-circuit a clean fits.
-  if (bHas) {
-    const adjacent = topChapterAdjacent(trackA.annotated_candidates);
-    const bCh = chapter(trackB.resolved_code);
-    const aCh = chapter(adjacent?.code);
-    if (adjacent && bCh && aCh && bCh !== aCh) {
-      const hasFitsInResolverChapter = trackA.annotated_candidates.some(
-        (c) => c.fit === 'fits' && chapter(c.code) === bCh,
-      );
-      if (!hasFitsInResolverChapter) {
-        return 'AGREEMENT';
-      }
-    }
   }
 
   // 2. CONTRADICTION — Track B subtree retrieval says the description
@@ -217,7 +331,7 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
   //    Demote partial-only CONTRADICTION to AMBIGUOUS so the resolver
   //    carries the row at low confidence (the merchant's code stays
   //    visible in HITL for human review).
-  if (trackB.consistency_verdict === 'contradicts' && aHas) {
+  if (trackB.consistency_verdict === 'contradicts' && aHasLeaf) {
     const topPositive = topFitOrPartial(trackA.annotated_candidates);
     if (topPositive?.fit === 'fits') {
       // Geomag-class guard (2026-05-13): when the chapter-coherence
@@ -246,7 +360,7 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
   // 2b. CONTRADICTION (chapter-level cross-track) — Track A's strongest
   //     positive candidate sits in a different chapter than the resolver code.
   //     Same guard: Track A must have positive signal for this to fire.
-  if (aHas && bHas) {
+  if (aHasLeaf && bHas) {
     const top = topFitOrPartial(trackA.annotated_candidates);
     const aCh = chapter(top?.code);
     const bCh = chapter(trackB.resolved_code);
@@ -281,7 +395,7 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
   //       Resolver code        = 851830900003  (heading 8518, partial in A)
   //       Pre-fix verdict      = AMBIGUOUS  (low confidence)
   //       Post-fix verdict     = CONTRADICTION       (medium confidence, A wins)
-  if (aHas && bHas) {
+  if (aHasLeaf && bHas) {
     const top = topFitOrPartial(trackA.annotated_candidates);
     const aHd = heading(top?.code);
     const bHd = heading(trackB.resolved_code);
@@ -310,12 +424,12 @@ export function classifyConflict(trackA: DescriptionClassifierResult, trackB: Co
   //     AGREEMENT and let the handler pick the top candidate as the result.
   //     (The handler distinguishes `fits` vs `partial` in its rationale
   //     string, so trace readers can still tell the two cases apart.)
-  if (aHas && !bHas) {
+  if (aHasLeaf && !bHas) {
     return 'AGREEMENT';
   }
 
   // 4. DRIFT — both tracks have a code, headings match, but leaves disagree
-  if (aHas && bHas) {
+  if (aHasLeaf && bHas) {
     const top = topFitOrPartial(trackA.annotated_candidates);
     const aHd = heading(top?.code);
     const bHd = heading(trackB.resolved_code);

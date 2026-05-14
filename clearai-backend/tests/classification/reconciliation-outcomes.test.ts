@@ -45,10 +45,18 @@ function trackA(opts: {
   threshold_failed?: boolean;
   picker_confidence?: number | null;
 }): DescriptionClassifierResult {
+  const cands = opts.candidates ?? [];
+  // no_fit means "picker found nothing the description sits in". Under the
+  // PR4 taxonomy, that's true iff there is no `fits`, no `partial_family`,
+  // and no legacy `partial`. chapter_adjacent on its own does NOT defeat
+  // no_fit — it's a family hint, not a leaf endorsement.
+  const hasLeafFit = cands.some(
+    (c) => c.fit === 'fits' || c.fit === 'partial_family' || c.fit === 'partial',
+  );
   return {
-    annotated_candidates: opts.candidates ?? [],
+    annotated_candidates: cands,
     threshold_failed: opts.threshold_failed ?? false,
-    no_fit: opts.no_fit ?? !(opts.candidates ?? []).some((c) => c.fit === 'fits' || c.fit === 'partial'),
+    no_fit: opts.no_fit ?? !hasLeafFit,
     interpretation_stage: 'cleaned',
     effective_description: 'test',
     research: null,
@@ -409,5 +417,287 @@ describe('runReconciliation — V1 classification_status surface collapse', () =
     if (v.decision === 'escalate') {
       expect(v.classification_status).toBe('ZERO_SIGNAL');
     }
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR1.1 + PR4.1 — chapter_adjacent precedence and single-track safety
+  //
+  // Two production bugs surfaced in the 2026-05-14 batch (150 rows):
+  //
+  //   1. Row 17 (Noctua CPU Cooler, no merchant code) CRASHED with
+  //      "AGREEMENT classified but no positive candidate found". Root
+  //      cause: PR4 made `chapter_adjacent` count as positive signal in
+  //      trackAHasSignal(), so an adjacent-only Track A routed to
+  //      AGREEMENT. handleAgreement's Path 2 (single_a, no merchant)
+  //      called topFitCandidate() which doesn't look at chapter_adjacent
+  //      → null → throw.
+  //
+  //   2. Row 8 (GPU graphics card, merchant 8471804000): PR4's
+  //      chapter-family AGREEMENT rule should have fired (Track A marked
+  //      Ch 8528 monitors / Ch 8542 ICs as chapter_adjacent, merchant in
+  //      Ch 8471). Instead the PR1 confidence gate fired FIRST and
+  //      demoted to AMBIGUOUS LOW. Track A's family signal was
+  //      silently discarded.
+  //
+  // Tests below pin the corrected behaviour:
+  // ────────────────────────────────────────────────────────────────────
+
+  it('row-17 class: chapter_adjacent-only Track A + no merchant → escalate (does NOT throw)', async () => {
+    // No merchant code at all. Picker found family signal in adjacent
+    // chapters but no leaf-level fit. Without a merchant code to anchor
+    // the chapter, we have no defensible final code — escalate.
+    //
+    // Pre-fix: classifyConflict returns AGREEMENT, handleAgreement
+    // throws because topFitCandidate returns null.
+    // Post-fix: classifyConflict returns ZERO_SIGNAL → escalate.
+    const a = trackA({
+      candidates: [
+        ac('852852000000', 'chapter_adjacent', 0.08, 'GIR 3(a): monitors are output peripherals'),
+        ac('852842000000', 'chapter_adjacent', 0.06, 'GIR 3(a): CRT monitors are output peripherals'),
+        ac('900490900001', 'does_not_fit', 0.04, 'spectacles unrelated'),
+      ],
+      picker_confidence: 0.1,
+    });
+    const b = trackB({ resolved_code: null });
+    const v = await runReconciliation(a, b, 'noctua cpu cooler');
+    expect(v.decision).toBe('escalate');
+    if (v.decision === 'escalate') {
+      expect(v.classification_status).toBe('ZERO_SIGNAL');
+    }
+  });
+
+  it('row-17 class (no candidates either): still ZERO_SIGNAL, still does not throw', async () => {
+    // Defensive: even if Track A is completely empty, no merchant
+    // code, no candidates — must escalate, not throw.
+    const a = trackA({ candidates: [], threshold_failed: true });
+    const b = trackB({ resolved_code: null });
+    const v = await runReconciliation(a, b, 'something');
+    expect(v.decision).toBe('escalate');
+  });
+
+  it('chapter_adjacent + ONE fits leaf + no merchant → AGREEMENT, returns the fits leaf', async () => {
+    // Sanity guard: when Track A has both adjacent AND a real fits,
+    // the fits wins via single_a path. AGREEMENT, no throw.
+    const a = trackA({
+      candidates: [
+        ac('852852000000', 'chapter_adjacent', 0.08),
+        ac('847330000000', 'fits', 0.20, 'computer parts'),
+      ],
+      picker_confidence: 0.7,
+    });
+    const b = trackB({ resolved_code: null });
+    const v = (await runReconciliation(a, b, 'graphics card')) as VerdictResult;
+    expect(v.conflict_type).toBe('AGREEMENT');
+    expect(v.final_code).toBe('847330000000');
+    expect(v.source).toBe('description_classifier');
+  });
+
+  it('PR4.1 (row-8 GPU): chapter_adjacent + cross-chapter merchant code BEATS the confidence gate', async () => {
+    // Production row 8: GPU graphics card, merchant 8471804000 (computer
+    // parts, Ch 84). Track A correctly marked 852852 / 852842 etc as
+    // chapter_adjacent (monitors are peripherals, ICs are components —
+    // both in Ch 85, but adjacent to the Ch 84 computer-parts heading
+    // the merchant points at). picker_confidence is ~0 because there
+    // are no `fits` in Track A — only does_not_fit + chapter_adjacent.
+    //
+    // Pre-fix: PR1 confidence gate fires FIRST → demotes to AMBIGUOUS
+    // LOW. The picker's explicit family signal is wasted.
+    // Post-fix: chapter-family rule runs BEFORE the confidence gate.
+    // Track A explicitly endorsed the family across an HS chapter
+    // split — that's AGREEMENT, not AMBIGUOUS.
+    const a = trackA({
+      candidates: [
+        ac('852852000000', 'chapter_adjacent', 0.08, 'GIR 3(a): monitors are output peripherals'),
+        ac('852842000000', 'chapter_adjacent', 0.06, 'GIR 3(a): CRT monitors are output peripherals'),
+        ac('382759000009', 'does_not_fit', 0.05, 'refrigerant gases'),
+      ],
+      // Confidence is below the 0.30 gate — pre-fix this would trigger
+      // the demotion. The fix is that chapter-family wins anyway.
+      picker_confidence: 0.05,
+    });
+    const b = trackB({
+      resolved_code: '847180000000', // Ch 84 computer parts
+      // valid_prefix length >= 6 is the gate's threshold; we use 8.
+    });
+    const v = (await runReconciliation(a, b, 'GPU graphics card')) as VerdictResult;
+    expect(v.conflict_type).toBe('AGREEMENT');
+    expect(v.classification_status).toBe('AGREEMENT');
+    expect(v.final_code).toBe('847180000000');
+    expect(v.source).toBe('code_resolver');
+    expect(v.rationale).toMatch(/chapter-family/i);
+  });
+
+  it('PR4.1 (row-23 Babybjorn): chapter_adjacent textile cradle + Ch 94 furniture merchant → AGREEMENT', async () => {
+    // Babybjorn bouncer: Track A picked 6307 textile cradle as
+    // chapter_adjacent, merchant 9401 seats (furniture). Different
+    // chapters, same family. Track B's chapter-correct code wins.
+    const a = trackA({
+      candidates: [
+        ac('630790950000', 'chapter_adjacent', 0.12, 'GIR 2(a) textile cover, primary class is seats'),
+      ],
+      picker_confidence: 0.20,
+    });
+    const b = trackB({ resolved_code: '940171000000' });
+    const v = (await runReconciliation(a, b, 'babybjorn bouncer')) as VerdictResult;
+    expect(v.conflict_type).toBe('AGREEMENT');
+    expect(v.final_code).toBe('940171000000');
+    expect(v.source).toBe('code_resolver');
+  });
+
+  it('PR1 confidence gate still fires when there is NO chapter_adjacent signal (TORY 45 class)', async () => {
+    // Sanity guard: the reordering must not break the row-135 fix.
+    // Track A has a confident-looking `fits` on the wrong chapter
+    // (no chapter_adjacent), merchant code carries 6+ digits, picker
+    // confidence is below 0.30 — gate must fire → AMBIGUOUS → merchant
+    // wins.
+    const a = trackA({
+      candidates: [ac('271019950005', 'fits', 0.30, 'matched petroleum')],
+      picker_confidence: 0.05,
+    });
+    const b = trackB({ resolved_code: '640420000000' });
+    const v = (await runReconciliation(a, b, 'TORY 45')) as VerdictResult;
+    expect(v.conflict_type).toBe('AMBIGUOUS');
+    expect(v.final_code).toBe('640420000000');
+    expect(v.source).toBe('code_resolver');
+  });
+
+  it('PR1 gate fires when chapter_adjacent exists but is in the SAME chapter as merchant', async () => {
+    // Edge case: picker emitted chapter_adjacent but the candidate
+    // chapter equals the merchant chapter. That's degenerate — the
+    // chapter-family rule must NOT fire (not actually cross-chapter),
+    // and the confidence gate must still fire on the low-confidence
+    // picker output.
+    const a = trackA({
+      candidates: [
+        ac('640420900000', 'chapter_adjacent', 0.10), // same Ch 64 as merchant
+      ],
+      picker_confidence: 0.05,
+    });
+    const b = trackB({ resolved_code: '640420000000' });
+    const v = (await runReconciliation(a, b, 'footwear')) as VerdictResult;
+    expect(v.conflict_type).toBe('AMBIGUOUS');
+  });
+
+  it('chapter-family AGREEMENT requires that adjacent candidate be in a DIFFERENT chapter from resolver', async () => {
+    // Same-chapter chapter_adjacent should not trigger chapter-family
+    // AGREEMENT. Falls through to existing rules.
+    const a = trackA({
+      candidates: [ac('847330000000', 'chapter_adjacent', 0.20)],
+      picker_confidence: 0.5,
+    });
+    const b = trackB({ resolved_code: '847180000000' }); // same Ch 84
+    const v = await runReconciliation(a, b, 'computer part');
+    // Should NOT be AGREEMENT-chapter-family; will fall through to
+    // CONTRADICTION/AMBIGUOUS path. The key assertion is the
+    // chapter-family rule did not capture it.
+    if (v.decision === 'accept') {
+      expect(v.rationale).not.toMatch(/chapter-family/i);
+    }
+  });
+
+  it('chapter-family AGREEMENT does NOT fire when Track A has fits in resolver chapter', async () => {
+    // Guard: if Track A has a `fits` IN the resolver's chapter, the
+    // normal AGREEMENT rule (3) handles it. chapter-family must not
+    // short-circuit clean fits.
+    const a = trackA({
+      candidates: [
+        ac('847180000000', 'fits', 0.30, 'fits computer parts'),    // matches resolver chapter Ch 84
+        ac('852852000000', 'chapter_adjacent', 0.10),
+      ],
+      picker_confidence: 0.7,
+    });
+    const b = trackB({ resolved_code: '847180000000' });
+    const v = (await runReconciliation(a, b, 'computer part')) as VerdictResult;
+    expect(v.conflict_type).toBe('AGREEMENT');
+    expect(v.final_code).toBe('847180000000');
+    expect(v.rationale).not.toMatch(/chapter-family/i);
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR1.1+PR4.1 v2 — reviewer-blocker tests (2026-05-14)
+  //
+  // Peer reviewers flagged three precedence holes in the chapter-family
+  // AGREEMENT rule (1a). Each test below names one and pins the
+  // intended behaviour.
+  // ────────────────────────────────────────────────────────────────────
+
+  it("rule 1a must NOT fire when Track B's consistency_verdict is 'contradicts'", async () => {
+    // architect-reviewer finding 4: when Track B's subtree retrieval has
+    // already declared "my own description does not pull toward my own
+    // chapter" (consistency_verdict='contradicts'), the merchant code is
+    // discredited from Track B's own side. Track A saying "I see a related
+    // family" must NOT rescue a self-contradicting merchant code into
+    // AGREEMENT. Should fall through to the CONTRADICTION path (rule 2).
+    //
+    // Setup: Track A has a `fits` in a DIFFERENT chapter from the
+    // resolver, plus a `chapter_adjacent` ALSO in a different chapter
+    // from the resolver. Without the contradicts-guard, rule 1a fires
+    // → AGREEMENT to merchant. With the guard + rule 2, CONTRADICTION
+    // fires → Track A's fits wins.
+    const a = trackA({
+      candidates: [
+        ac('630790950000', 'chapter_adjacent', 0.12, 'GIR 2(a) textile cradle'),
+        ac('300490000000', 'fits', 0.30, 'medicament — Track A clearly disagrees'),
+      ],
+      picker_confidence: 0.6,
+    });
+    const b = trackB({
+      resolved_code: '940171000000',
+      consistency_verdict: 'contradicts', // Track B's own retrieval contradicts its merchant
+    });
+    const v = (await runReconciliation(a, b, 'baby bouncer')) as VerdictResult;
+    expect(v.conflict_type).toBe('CONTRADICTION');
+    expect(v.rationale).not.toMatch(/chapter-family/i);
+  });
+
+  it("rule 1a must NOT fire when Track A has partial_family in resolver's chapter", async () => {
+    // architect-reviewer finding 7: a partial_family leaf in the resolver
+    // chapter is leaf-level signal that should resolve via the normal
+    // AMBIGUOUS rule. chapter-family must not bury a leaf endorsement
+    // under a family-level one.
+    //
+    // Setup choice: partial_family code is in resolver chapter (Ch 94)
+    // but a DIFFERENT heading (9403 furniture vs 9401 seats) so we
+    // route to AMBIGUOUS (rule 5/6), not DRIFT (which needs the LLM
+    // mocked). The point being tested is that rule 1a doesn't fire,
+    // which is independent of the DRIFT-vs-AMBIGUOUS terminal.
+    const a = trackA({
+      candidates: [
+        ac('940360100000', 'partial_family', 0.20, 'wooden furniture — material silent'),
+        ac('630790950000', 'chapter_adjacent', 0.10),
+      ],
+      picker_confidence: 0.5,
+    });
+    const b = trackB({ resolved_code: '940171000000' });
+    const v = (await runReconciliation(a, b, 'baby seat')) as VerdictResult;
+    // Should NOT cite chapter-family in the rationale (would prove rule
+    // 1a fired). Asserting the rationale is the discriminator —
+    // conflict_type can be either AMBIGUOUS (no convergence) or
+    // CONTRADICTION-via-confidence-demotion, both of which are fine;
+    // what matters is that rule 1a was skipped.
+    expect(v.rationale).not.toMatch(/chapter-family/i);
+  });
+
+  it("rule 1a must NOT fire when Track A has fits in a DIFFERENT chapter from both adjacent and resolver", async () => {
+    // code-reviewer issue 4: Track A has a fits in Ch 90, chapter_adjacent
+    // pointing at a different chapter, resolver in yet another chapter.
+    // Track A's leaf-level fits is the strongest signal — it should not
+    // be silently buried by a family-level adjacent endorsement of a
+    // different chapter.
+    const a = trackA({
+      candidates: [
+        ac('900490100001', 'fits', 0.30, 'optical instruments'),     // Ch 90
+        ac('852852000000', 'chapter_adjacent', 0.10),                  // Ch 85, adjacent to Ch 84 merchant
+      ],
+      picker_confidence: 0.6,
+    });
+    const b = trackB({ resolved_code: '847180000000' });               // Ch 84
+    const v = (await runReconciliation(a, b, 'optical sensor')) as VerdictResult;
+    // Track A's leaf fits in Ch 90 must win the precedence; rule 1a
+    // would have routed to AGREEMENT-merchant-Ch-84. Must reach the
+    // CONTRADICTION path (rule 2) where Track A's leaf wins.
+    expect(v.decision).toBe('accept');
+    expect(v.conflict_type).toBe('CONTRADICTION');
+    expect(v.rationale).not.toMatch(/chapter-family/i);
   });
 });
