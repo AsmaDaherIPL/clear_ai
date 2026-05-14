@@ -20,7 +20,12 @@ export type LlmStage =
   // alongside the legacy stages in PR-A-8 cleanup (the legacy stages
   // are deleted but `identify` survives as the anchored pipeline's
   // entry point).
-  | 'identify';
+  | 'identify'
+  // PR-A-3: anchored-pipeline constrain stage. Used for both the
+  // multi-replacement disambiguation and the prefix-walk leaf pick
+  // (both are small picker-style LLM calls). Same retry/budget
+  // profile as the legacy 'code_resolver' stage which it replaces.
+  | 'constrain_pick';
 
 export type OnExhausted = 'escalate' | 'graceful_degrade' | 'fail_hard';
 
@@ -55,6 +60,11 @@ const POLICIES: Record<LlmStage, LlmStagePolicy> = {
   // shape as researcher_web (1 attempt, 30s, web latency dominates;
   // the circuit breaker handles repeated transport failures).
   identify:               { stage: 'identify',               maxAttempts: 1, timeoutMs: 30000, retryOnParseFailure: false, totalBudgetMs: 30000, onExhausted: 'graceful_degrade' },
+  // PR-A-3: anchored-pipeline constrain LLM picks (multi-replacement
+  // disambiguation + prefix-walk leaf pick). Mirrors legacy
+  // code_resolver shape (3 attempts, 10s) — same operation, just
+  // labelled to the new architecture for observability split.
+  constrain_pick:         { stage: 'constrain_pick',         maxAttempts: 3, timeoutMs: 10000, retryOnParseFailure: true,  totalBudgetMs: 30000, onExhausted: 'graceful_degrade' },
 };
 
 export function getLlmStagePolicy(stage: LlmStage): LlmStagePolicy {
