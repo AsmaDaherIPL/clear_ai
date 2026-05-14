@@ -54,6 +54,12 @@ export async function submissionDescriptionRoute(app: FastifyInstance): Promise<
     // Standalone endpoint: the caller supplies a single `description`
     // (no separate raw/cleaned forms). Pass it as both — the LLM treats
     // them as the same source.
+    //
+    // identityTokens (PR6) is intentionally NOT passed here. Cleanup
+    // does not run on this surface — callers don't have identity_tokens
+    // to supply. Submission output for book / pharma / brand-as-chapter
+    // cases will fall back to bare-noun behaviour. Use the full pipeline
+    // (/classifications) if you need identity recovery.
     const result = await generateSubmissionDescription({
       cleanedDescription: description,
       rawDescription: description,

@@ -402,6 +402,10 @@ export async function runPipeline(
     catalogLeafEn: catalog.leafEn,
     catalogPathAr: catalog.pathAr,
     catalogPathEn: catalog.pathEn,
+    // PR6: thread cleanup's identity_tokens through so the submission
+    // prompt can preserve book titles, ingredient names, brand-as-
+    // chapter identifiers in the ZATCA goods description.
+    identityTokens: cleanup.identity_tokens,
   });
   allStages.push({
     name: 'stage-2.5/submission-description',

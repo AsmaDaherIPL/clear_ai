@@ -164,6 +164,81 @@ describe('generateSubmissionDescription', () => {
     expect(r.invoked).toBe('fallback');
     expect(r.descriptionAr.length).toBeGreaterThan(0);
   });
+
+  // ────────────────────────────────────────────────────────────────────
+  // PR6 — identity_tokens plumbing
+  //
+  // Cleanup (PR2) emits identity_tokens for product-identifying signals
+  // that cleanup deliberately preserved despite stripping the surrounding
+  // noise — book titles, active ingredient names, brand-as-chapter
+  // identifiers, foreign-language customs nouns. The submission stage
+  // must thread these to the LLM so the goods description for a book
+  // says "كتاب: مزرعة الحيوان (Animal Farm)" not just "كتاب".
+  //
+  // The mockedCall captures the user string passed to structuredLlmCall;
+  // we assert presence/absence of identity_tokens in that payload.
+  // ────────────────────────────────────────────────────────────────────
+
+  it('passes identity_tokens through to the LLM input when present', async () => {
+    mockedCall.mockResolvedValueOnce({
+      kind: 'ok',
+      data: { description_ar: 'كريم مرطب بمادة البانثينول 50 جرام' },
+      trace: { latency_ms: 50, model: 'mock-haiku', stage: 'submission_description', status: 'ok' },
+    });
+
+    await generateSubmissionDescription({
+      ...baseCtx,
+      cleanedDescription: 'moisturising cream',
+      rawDescription: 'Panthenol cream بانثينول 2% كريم مرطب 50 جرام B0DCT3X5QY',
+      identityTokens: ['panthenol', 'بانثينول'],
+    });
+
+    expect(mockedCall).toHaveBeenCalledTimes(1);
+    const userArg = mockedCall.mock.calls[0]![0].user;
+    const parsed = JSON.parse(userArg) as Record<string, unknown>;
+    expect(parsed.identity_tokens).toEqual(['panthenol', 'بانثينول']);
+  });
+
+  it('omits identity_tokens from the LLM input when not provided', async () => {
+    // Backwards compatibility: the field is optional. Callers without
+    // identity_tokens (e.g. the standalone /submission_descriptions
+    // route) must continue to work and must NOT see a stray empty array
+    // or `null` field in the payload.
+    mockedCall.mockResolvedValueOnce({
+      kind: 'ok',
+      data: { description_ar: 'سماعات بلوتوث' },
+      trace: { latency_ms: 50, model: 'mock-haiku', stage: 'submission_description', status: 'ok' },
+    });
+
+    await generateSubmissionDescription(baseCtx);
+
+    expect(mockedCall).toHaveBeenCalledTimes(1);
+    const userArg = mockedCall.mock.calls[0]![0].user;
+    const parsed = JSON.parse(userArg) as Record<string, unknown>;
+    expect(parsed).not.toHaveProperty('identity_tokens');
+  });
+
+  it('omits identity_tokens when an empty array is supplied (no payload bloat)', async () => {
+    // Cleanup will sometimes return identity_tokens: []. The submission
+    // stage should NOT forward an empty array — that just wastes input
+    // tokens and confuses the prompt. Treat empty array the same as
+    // undefined.
+    mockedCall.mockResolvedValueOnce({
+      kind: 'ok',
+      data: { description_ar: 'سماعات بلوتوث' },
+      trace: { latency_ms: 50, model: 'mock-haiku', stage: 'submission_description', status: 'ok' },
+    });
+
+    await generateSubmissionDescription({
+      ...baseCtx,
+      identityTokens: [],
+    });
+
+    expect(mockedCall).toHaveBeenCalledTimes(1);
+    const userArg = mockedCall.mock.calls[0]![0].user;
+    const parsed = JSON.parse(userArg) as Record<string, unknown>;
+    expect(parsed).not.toHaveProperty('identity_tokens');
+  });
 });
 
 describe('submission_descriptions cache', () => {

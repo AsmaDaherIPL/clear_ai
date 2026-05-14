@@ -114,6 +114,16 @@ export interface GenerateSubmissionParams {
   catalogPathAr: string | null;
   /** zatca_hs_code_display.path_en — same path, English. */
   catalogPathEn: string | null;
+  /**
+   * PR2 cleanup output: identity-anchor tokens the cleanup stage deliberately
+   * preserved despite stripping the surrounding noise — book titles,
+   * active ingredient names, brand-as-chapter identifiers, foreign-
+   * language customs nouns. When non-empty, the submission prompt
+   * receives them so the goods description for "Animal Farm" can read
+   * "كتاب: مزرعة الحيوان" instead of just "كتاب". Empty array and
+   * undefined are treated identically (omitted from the LLM payload).
+   */
+  identityTokens?: string[];
   /** Override model. Defaults to lightweight env LLM_MODEL. */
   model?: string;
 }
@@ -129,11 +139,17 @@ export async function generateSubmissionDescription(
     catalogLeafEn,
     catalogPathAr,
     catalogPathEn,
+    identityTokens,
   } = params;
 
   const model = params.model ?? env().LLM_MODEL;
 
-  const user = JSON.stringify({
+  // identity_tokens (PR6): include the field only when non-empty.
+  // Forwarding `[]` or `null` would bloat the prompt input and confuse
+  // the LLM into treating an empty array as a deliberate "no identity"
+  // signal. Omission is the clearer no-op.
+  const hasIdentityTokens = identityTokens !== undefined && identityTokens.length > 0;
+  const userPayload: Record<string, unknown> = {
     item_description: rawDescription,
     cleaned_description: cleanedDescription,
     hs_code: chosenCode,
@@ -142,7 +158,11 @@ export async function generateSubmissionDescription(
     catalog_path_ar: catalogPathAr,
     catalog_path_en: catalogPathEn,
     max_chars: MAX_CHARS,
-  });
+  };
+  if (hasIdentityTokens) {
+    userPayload.identity_tokens = identityTokens;
+  }
+  const user = JSON.stringify(userPayload);
 
   const policy = getLlmStagePolicy('submission_description');
   const outcome = await structuredLlmCall({
