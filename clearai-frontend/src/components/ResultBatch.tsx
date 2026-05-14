@@ -154,8 +154,14 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
   // partial output even if Phase 2 (declaration assembly) failed. The
   // download endpoint already returns whatever blobs exist. Keep
   // disabled only when the run failed AND nothing useful landed.
+  // canReset gates the "Start a new batch" off-ramp. Shown in any terminal
+  // user-perceived state: the run finished normally (completed/failed via
+  // the polling path), OR the phase reached the error state (upload itself
+  // failed, polling tripped a 5xx, etc.). Without the error branch the user
+  // could land on "Upload failed" with no way to dismiss and try again.
   const runFinished =
     state.summary?.status === 'completed' || state.summary?.status === 'failed';
+  const canReset = runFinished || state.phase === 'error';
   const partialOutput =
     (state.summary?.succeeded ?? 0) + (state.summary?.flagged ?? 0) > 0;
   const runDone = runFinished && partialOutput;
@@ -352,7 +358,7 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                 aria-hidden
               />
             )}
-            {runFinished && onReset && (
+            {canReset && onReset && (
               <button
                 type="button"
                 onClick={onReset}
