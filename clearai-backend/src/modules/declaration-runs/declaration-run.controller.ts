@@ -267,6 +267,7 @@ export async function handleListClassifications(
             (i.canonical ->> 'fxRate')::numeric         AS fx_rate,
             (i.canonical ->> 'fxRateAsOf')              AS fx_rate_as_of,
             COALESCE(
+              -- Legacy: verdict.classification_status / conflict_type
               i.trace -> 'meta' -> 'verdict' ->> 'classification_status',
               CASE i.trace -> 'meta' -> 'verdict' ->> 'conflict_type'
                 WHEN 'AGREEMENT' THEN 'AGREEMENT'
@@ -276,13 +277,54 @@ export async function handleListClassifications(
                 WHEN 'AMBIGUOUS_MATERIAL' THEN 'DRIFT'
                 WHEN 'SPARSE_DESCRIPTION' THEN 'DRIFT'
                 ELSE NULL
+              END,
+              -- Anchored (PR-A-5.1): mirror classificationStatusFromTrace
+              -- in src/modules/pipeline/trace/dispatch-v1.ts. pick.escalate
+              -- → ZERO_SIGNAL; pick.accepted + identify.clean_product +
+              -- fit=fits → AGREEMENT; any other accepted shape → DRIFT.
+              CASE
+                WHEN (i.trace -> 'meta' -> 'anchored_pick' ->> 'kind') = 'escalate'
+                  THEN 'ZERO_SIGNAL'
+                WHEN (i.trace -> 'meta' -> 'anchored_pick' ->> 'kind') = 'accepted'
+                  AND (i.trace -> 'meta' -> 'anchored_identify' ->> 'kind') = 'clean_product'
+                  AND (i.trace -> 'meta' -> 'anchored_pick' ->> 'fit') = 'fits'
+                  THEN 'AGREEMENT'
+                WHEN (i.trace -> 'meta' -> 'anchored_pick' ->> 'kind') = 'accepted'
+                  THEN 'DRIFT'
+                ELSE NULL
               END
             )                                                       AS classification_status,
             (i.trace -> 'meta' -> 'sanity' ->> 'verdict')           AS sanity_verdict,
-            (i.trace -> 'meta' -> 'track_b' ->> 'raw_merchant_code') AS raw_merchant_code,
+            -- raw_merchant_code: read directly from the canonical JSONB
+            -- (the merchant-supplied verbatim digits). Architecture-
+            -- agnostic; the legacy path via track_b.raw_merchant_code
+            -- went stale under anchored where track_b is null. The
+            -- canonical column has been the source of truth all along.
+            (i.canonical ->> 'merchantHsCode')                      AS raw_merchant_code,
             (i.canonical ->> 'description')                         AS raw_description,
-            (i.trace -> 'meta' -> 'track_a' ->> 'effective_description') AS retrieval_query,
-            (i.trace -> 'meta' -> 'track_a' ->> 'picker_confidence') AS picker_confidence
+            -- retrieval_query: under legacy, track_a.effective_description;
+            -- under anchored, identify.canonical when identify produced
+            -- a clean_product. Mirrors retrievalQueryFromTrace in
+            -- dispatch-v1.ts.
+            COALESCE(
+              i.trace -> 'meta' -> 'track_a' ->> 'effective_description',
+              CASE
+                WHEN (i.trace -> 'meta' -> 'anchored_identify' ->> 'kind') = 'clean_product'
+                  THEN (i.trace -> 'meta' -> 'anchored_identify' ->> 'canonical')
+                ELSE NULL
+              END
+            )                                                       AS retrieval_query,
+            -- picker_confidence: legacy track_a.picker_confidence; anchored
+            -- pick.confidence when pick accepted. Mirrors
+            -- classificationConfidenceFromTrace in dispatch-v1.ts.
+            COALESCE(
+              i.trace -> 'meta' -> 'track_a' ->> 'picker_confidence',
+              CASE
+                WHEN (i.trace -> 'meta' -> 'anchored_pick' ->> 'kind') = 'accepted'
+                  THEN (i.trace -> 'meta' -> 'anchored_pick' ->> 'confidence')
+                ELSE NULL
+              END
+            )                                                       AS picker_confidence
        FROM declaration_run_items i
        LEFT JOIN zatca_hs_code_display d ON d.code = i.final_code
       WHERE i.declaration_run_id = $1
