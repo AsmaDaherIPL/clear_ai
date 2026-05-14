@@ -16,6 +16,12 @@ export function buildTrace(params: {
   verdict: StageVerdictOutput | null;
   sanity: SanityResult | null;
   stages: StageTrace[];
+  /**
+   * Which pipeline implementation produced this trace. Required so
+   * shadow-mode validation can SQL-filter classification_events by
+   * architecture. See PipelineTrace.pipeline_architecture.
+   */
+  pipelineArchitecture: 'legacy' | 'anchored';
 }): PipelineTrace {
   return {
     track_a: params.trackA,
@@ -23,5 +29,6 @@ export function buildTrace(params: {
     verdict: params.verdict,
     sanity: params.sanity,
     stages: params.stages,
+    pipeline_architecture: params.pipelineArchitecture,
   };
 }

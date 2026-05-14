@@ -457,6 +457,18 @@ export interface PipelineTrace {
   verdict: StageVerdictOutput | null;
   sanity: SanityResult | null;
   stages: StageTrace[];
+  /**
+   * Which pipeline implementation produced this trace.
+   *
+   * PR-A-1 landed this field so shadow-mode validation (PR-A-6) can SQL-
+   * filter `classification_events` by architecture without backfilling.
+   * Pre-PR-A-1 rows do not carry this field; queries should default
+   * those to 'legacy' via COALESCE.
+   *
+   * After the cleanup PR (PR-A-8) deletes the legacy pipeline, this
+   * field becomes redundant and can be removed.
+   */
+  pipeline_architecture: 'legacy' | 'anchored';
 }
 
 // ---------------------------------------------------------------------------

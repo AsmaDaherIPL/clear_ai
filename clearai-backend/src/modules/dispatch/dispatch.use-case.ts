@@ -47,7 +47,9 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
 
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
-  const result = await runPipeline(item, operatorSlug, itemId);
+  // Batch path always uses the env-configured architecture; no
+  // per-call override here (see RunPipelineOptions JSDoc).
+  const result = await runPipeline(item, operatorSlug, itemId, {});
   const completedAt = new Date().toISOString();
 
   const v1Response = assembleDispatchV1({

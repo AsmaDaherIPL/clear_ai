@@ -18,6 +18,8 @@ import { runSanity } from './sanity/sanity.js';
 import { shouldEnqueue } from './review/review.js';
 import { buildTrace } from './trace/trace.js';
 import { getPool } from '../../db/client.js';
+import { env } from '../../config/env.js';
+import { runAnchoredPipeline } from './anchored-orchestrator.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import { getLlmStagePolicy } from '../../inference/llm/policy.js';
 import type {
@@ -27,6 +29,29 @@ import type {
   StageVerdictOutput,
   DescriptionClassifierResult,
 } from './shared/pipeline.types.js';
+
+/**
+ * Pipeline architecture selector. Used by runPipeline to branch between
+ * the legacy parallel-tracks design and the anchored three-stage design
+ * during the migration window. Mirrors env.PIPELINE_ARCHITECTURE.
+ */
+export type PipelineArchitecture = 'legacy' | 'anchored';
+
+export interface RunPipelineOptions {
+  /**
+   * Per-call architecture override. When set, wins over the env flag
+   * env.PIPELINE_ARCHITECTURE. Used by /classifications/dispatch's
+   * `?architecture=...` query param so a single classification can be
+   * routed to the anchored pipeline for ad-hoc testing without
+   * flipping the global default.
+   *
+   * Batch dispatch (modules/dispatch/dispatch.use-case.ts) deliberately
+   * does NOT surface this option — batches consume the env flag for
+   * consistent semantics across all rows in the same upload. Per-call
+   * override is for ad-hoc single-shot testing only.
+   */
+  architectureOverride?: PipelineArchitecture;
+}
 
 /** Token count for the low-info gate. ≤ this many → too thin to retrieve. */
 const LOW_INFO_TOKEN_THRESHOLD = 4;
@@ -194,7 +219,47 @@ async function lookupCatalogContext(code: string): Promise<CatalogContext> {
   };
 }
 
+/**
+ * Public pipeline entry. Branches on the configured architecture:
+ * 'legacy' runs the existing parallel-tracks pipeline; 'anchored' delegates
+ * to runAnchoredPipeline (stub until PR-A-5).
+ *
+ * Per-call override (opts.architectureOverride) wins over the env flag.
+ * `opts` is required so both call sites — single-shot
+ * /classifications/dispatch and batch dispatch.use-case — state intent
+ * explicitly (per the codebase's no-defensive-defaults rule). Pass `{}`
+ * to inherit the env flag.
+ */
 export async function runPipeline(
+  item: CanonicalLineItem,
+  operatorSlug: string,
+  itemId: string,
+  opts: RunPipelineOptions,
+): Promise<PipelineResult> {
+  const architecture: PipelineArchitecture =
+    opts.architectureOverride ?? env().PIPELINE_ARCHITECTURE;
+
+  if (architecture === 'anchored') {
+    return runAnchoredPipeline(item, operatorSlug, itemId);
+  }
+
+  return runLegacyPipeline(item, operatorSlug, itemId);
+}
+
+/**
+ * @internal — must not be exported outside this module.
+ * Routing through `runPipeline` is the only valid entry to the legacy
+ * pipeline; bypassing it silently skips the architecture flag check.
+ */
+
+/**
+ * Legacy pipeline body. Kept under its own name so the new
+ * `runPipeline` can route to it without losing the existing call shape.
+ * After the anchored-pipeline cutover (PR-A-7) and cleanup (PR-A-8),
+ * this function is deleted and `runPipeline` becomes the anchored
+ * implementation directly.
+ */
+async function runLegacyPipeline(
   item: CanonicalLineItem,
   operatorSlug: string,
   _itemId: string,
@@ -229,7 +294,7 @@ export async function runPipeline(
   });
 
   if (parsed.rejected) {
-    const trace = buildTrace({ trackA: null, trackB: null, verdict: null, sanity: null, stages: allStages });
+    const trace = buildTrace({ trackA: null, trackB: null, verdict: null, sanity: null, stages: allStages, pipelineArchitecture: 'legacy' });
     return {
       final_code: null,
       goods_description_ar: null,
@@ -265,7 +330,7 @@ export async function runPipeline(
 
   // Unusable description — reject before tracks.
   if (cleanup.clarity_verdict === 'unusable') {
-    const trace = buildTrace({ trackA: null, trackB: null, verdict: null, sanity: null, stages: allStages });
+    const trace = buildTrace({ trackA: null, trackB: null, verdict: null, sanity: null, stages: allStages, pipelineArchitecture: 'legacy' });
     return {
       final_code: null,
       goods_description_ar: null,
@@ -336,6 +401,7 @@ export async function runPipeline(
       verdict: escalateVerdict,
       sanity: null,
       stages: allStages,
+      pipelineArchitecture: 'legacy',
     });
     return {
       final_code: null,
@@ -368,7 +434,7 @@ export async function runPipeline(
   // removed in 0072_drop_confidence_band. ZERO_SIGNAL and degenerate-DRIFT
   // escalations both flow through verdict.decision === 'escalate'.
   if (verdict.decision === 'escalate') {
-    const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity: null, stages: allStages });
+    const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity: null, stages: allStages, pipelineArchitecture: 'legacy' });
     const pickerDetail = readPickerStageDetail(allStages);
     return {
       final_code: null,
@@ -449,7 +515,7 @@ export async function runPipeline(
     },
   });
 
-  const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity, stages: allStages });
+  const trace = buildTrace({ trackA: trackAResult, trackB: trackBResult, verdict, sanity, stages: allStages, pipelineArchitecture: 'legacy' });
 
   const hitl: HitlIntent | null = shouldEnqueue(verdict, sanity)
     ? { reason: 'sanity_flag', cleaned_description: cleanup.cleaned_description }

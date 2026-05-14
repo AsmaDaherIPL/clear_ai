@@ -117,6 +117,11 @@ const TraceIdSchema = z
     message: 'id must be a UUIDv7',
   });
 
+// PR-A-1: validates the ?architecture=... query param against the same
+// enum env.PIPELINE_ARCHITECTURE accepts. Optional — when omitted, the
+// env flag wins. Rejects typos (e.g. ?architecture=ancored) with 400.
+const ArchitectureQuery = z.enum(['legacy', 'anchored']).optional();
+
 interface ClassificationEventTraceRow {
   id: string;
   operator_slug: string;
@@ -133,7 +138,9 @@ interface ClassificationEventTraceRow {
 
 export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
   // POST /pipeline/dispatch
-  app.post<{ Querystring: { include_trace?: string } }>('/classifications/dispatch', async (req, reply) => {
+  app.post<{
+    Querystring: { include_trace?: string; architecture?: string };
+  }>('/classifications/dispatch', async (req, reply) => {
     const parsed = DispatchBody.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({
@@ -142,6 +149,23 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     }
     const body = parsed.data;
     const includeTrace = req.query.include_trace === 'true' || req.query.include_trace === '1';
+
+    // PR-A-1: per-call architecture override. When set to 'anchored' or
+    // 'legacy', this single classification ignores env.PIPELINE_ARCHITECTURE.
+    // Invalid values are rejected loudly (typo ?architecture=ancored
+    // would otherwise mask user intent). The closed enum is identical
+    // to env.PIPELINE_ARCHITECTURE — defined once in the env schema.
+    const archResult = ArchitectureQuery.safeParse(req.query.architecture);
+    if (!archResult.success) {
+      return reply.code(400).send({
+        error: {
+          code: 'invalid_architecture',
+          message: 'architecture query param must be omitted, "legacy", or "anchored"',
+          details: archResult.error.flatten(),
+        },
+      });
+    }
+    const architectureOverride = archResult.data;
 
     // Refuse to start a classification when the LLM circuit breaker is tripped.
     // Sustained auth-class failures (401/403/404) mean the env is broken — every
@@ -190,7 +214,12 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     }
     const startedAtMs = Date.now();
     const startedAt = new Date(startedAtMs).toISOString();
-    const result: PipelineResult = await runPipeline(item, V1_OPERATOR_SLUG, item.itemId);
+    const result: PipelineResult = await runPipeline(
+      item,
+      V1_OPERATOR_SLUG,
+      item.itemId,
+      { architectureOverride },
+    );
     const completedAt = new Date().toISOString();
 
     const v1Response = assembleDispatchV1({
