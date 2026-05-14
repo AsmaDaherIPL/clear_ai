@@ -327,5 +327,16 @@
   "review_open_button": "Review",
   "review_outcome_accepted": "Accepted",
   "review_outcome_dismissed": "Dismissed",
-  "review_outcome_picked": "Picked"
+  "review_outcome_picked": "Picked",
+  "res_sanity_flag_label": "Value plausibility flag",
+  "res_sanity_block_label": "Cannot classify",
+  "res_sanity_block_body": "Invalid input — cannot classify.",
+  "res_alts_candidates_evaluated": "candidates evaluated",
+  "res_alts_fits": "fits",
+  "res_alts_partial": "partial",
+  "res_alts_does_not_fit": "does not fit",
+  "res_alts_selected_via": "Selected via",
+  "res_pill_reviewed_ai": "Reviewed by AI",
+  "res_track_identify": "Product identification",
+  "res_track_resolve": "Codebook lookup"
 }

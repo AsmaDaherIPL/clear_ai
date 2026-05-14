@@ -327,5 +327,16 @@
   "review_open_button": "مراجعة",
   "review_outcome_accepted": "مقبول",
   "review_outcome_dismissed": "مرفوض",
-  "review_outcome_picked": "تم الاختيار"
+  "review_outcome_picked": "تم الاختيار",
+  "res_sanity_flag_label": "تنبيه معقولية القيمة",
+  "res_sanity_block_label": "تعذّر التصنيف",
+  "res_sanity_block_body": "مدخلات غير صالحة — تعذّر التصنيف.",
+  "res_alts_candidates_evaluated": "مرشح قيد التقييم",
+  "res_alts_fits": "مطابق",
+  "res_alts_partial": "جزئي",
+  "res_alts_does_not_fit": "غير مطابق",
+  "res_alts_selected_via": "تم الاختيار عبر",
+  "res_pill_reviewed_ai": "مراجعة AI",
+  "res_track_identify": "التعريف بالمنتج",
+  "res_track_resolve": "البحث في كتيب الرموز"
 }

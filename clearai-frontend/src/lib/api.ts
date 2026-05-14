@@ -209,6 +209,25 @@ export interface DecisionEnvelopeBase {
   review_reason?: string;
   /** @deprecated Fetch via POST /classifications/{id}/submission-description. */
   submission_description?: SubmissionDescription;
+  /**
+   * Sanity-check verdict and rationale, populated by dispatchToDescribe
+   * when the trace carries a sanity stage with FLAG/BLOCK outcome.
+   * ResultSingle renders a warning banner when this is present.
+   */
+  sanity_verdict?: 'PASS' | 'FLAG' | 'BLOCK' | null;
+  sanity_rationale?: string | null;
+  /**
+   * Anchored-pipeline aggregate candidate summary. Set by dispatchToDescribe
+   * when `pipeline_architecture === 'anchored'` and per-candidate data is
+   * not yet on the wire. ResultSingle renders aggregate counts in the
+   * alternatives section.
+   */
+  anchored_candidate_summary?: AnchoredCandidateSummary | null;
+  /**
+   * Human-readable retrieval query used by the pipeline.
+   * Under anchored: `identify.canonical`. Under legacy: effective_description.
+   */
+  retrieval_query?: string | null;
   model: ModelInfo;
 }
 
@@ -269,7 +288,11 @@ export type DispatchActionName =
   | 'code_resolver'
   | 'reconciliation'
   | 'submission_description'
-  | 'sanity_check';
+  | 'sanity_check'
+  // anchored-pipeline actions (PR-A-5+)
+  | 'identify'
+  | 'constrain'
+  | 'pick';
 export type DispatchStepName =
   | 'researcher'
   | 'retrieval'
@@ -279,7 +302,13 @@ export type DispatchStepName =
   | 'threshold_after_web'
   | 'picker'
   | 'operator_override_lookup'
-  | 'codebook_lookup';
+  | 'codebook_lookup'
+  // anchored steps
+  | 'identify_llm'
+  | 'constrain_codebook_walk'
+  | 'constrain_scope_select'
+  | 'pick_retrieval'
+  | 'pick_llm';
 
 export interface DispatchStep {
   step: DispatchStepName;
@@ -312,15 +341,23 @@ export interface DispatchStage {
 }
 
 export interface DispatchSummary {
+  /** 'legacy' = track_a/track_b; 'anchored' = identify/constrain/pick. Default legacy when absent. */
+  pipeline_architecture?: 'legacy' | 'anchored';
   merchant_code_state: string | null;
-  description_classifier_code: string | null;
-  code_resolver_code: string | null;
-  reconciliation:
+  // Legacy fields
+  description_classifier_code?: string | null;
+  code_resolver_code?: string | null;
+  reconciliation?:
     | 'description_classifier'
     | 'code_resolver'
     | 'reconciled'
     | 'escalated'
     | null;
+  // Anchored fields (PR-A-5+)
+  identify_kind?: string | null;
+  scope_kind?: string | null;
+  pick_fit?: string | null;
+  pick_escalate_reason?: string | null;
   operator_override_applied: boolean;
   final_code: string | null;
   sanity_verdict: 'PASS' | 'FLAG' | 'BLOCK' | null;
@@ -350,6 +387,52 @@ export interface DispatchAnnotatedCandidate {
   rrf_score?: number;
   description_en?: string | null;
   description_ar?: string | null;
+}
+
+/**
+ * Anchored-pipeline pick action output (PR-A-5+).
+ * The aggregate verdict counts replace the per-candidate annotated_candidates
+ * array from the legacy track_a path. Per-candidate verdicts are NOT yet
+ * on the wire — only the aggregate.
+ */
+export interface AnchoredPickOutput {
+  kind?: string;
+  final_code?: string | null;
+  fit?: string;
+  confidence?: number;
+  gir_applied?: string;
+  verdict_population?: {
+    fits: number;
+    partial: number;
+    does_not_fit: number;
+  };
+  audit_flag?: boolean;
+}
+
+/**
+ * Anchored identify action output (PR-A-5+).
+ */
+export interface AnchoredIdentifyOutput {
+  kind?: string;
+  canonical?: string;
+  family_chapter?: string;
+  identity_tokens?: string[];
+  confidence?: number;
+  evidence?: string;
+  evidence_mismatch?: boolean;
+}
+
+/**
+ * A synthetic alternatives-summary shape for the anchored pipeline.
+ * The UI renders aggregate counts when per-candidate data isn't on the wire.
+ */
+export interface AnchoredCandidateSummary {
+  kind: 'aggregate';
+  candidate_count: number;
+  fits: number;
+  partial: number;
+  does_not_fit: number;
+  gir_applied?: string;
 }
 
 /**

@@ -8,8 +8,10 @@ import {
   type DecisionStatus,
   type DecisionReason,
   type AlternativeLine,
+  type AnchoredCandidateSummary,
   reasonLabel,
   remediationHint,
+  pickLang,
 } from '@/lib/api';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
 import RequiredProcedures from './RequiredProcedures';
@@ -678,19 +680,35 @@ export default function ResultSingle({
     data.decision_status === 'accepted' &&
     (data.classification_status === 'AGREEMENT' || data.classification_status == null);
 
+  // Sanity flag/block: surface the banner when FLAG or BLOCK.
+  const sanityVerdict = data.sanity_verdict ?? null;
+  const sanityRationale = data.sanity_rationale ?? null;
+  const showSanityFlag  = sanityVerdict === 'FLAG';
+  const showSanityBlock = sanityVerdict === 'BLOCK';
+
+  // Classification confidence (0-1 → "85%").
+  const confidencePct =
+    r && typeof (r as any).classification_confidence === 'number'
+      ? `${Math.round((r as any).classification_confidence * 100)}%`
+      : null;
+
   // Build the ReviewItem for the dialog from this DescribeResponse.
   const reviewItem: ReviewItem = {
     id: data.request_id ?? 'single-shot',
     description: data.interpretation?.rewritten_as ?? data.interpretation?.cleaned_as ?? '',
     currentCode: r?.code ?? null,
     currentLabel: r?.description_en ?? (r as any)?.label_en ?? null,
-    verdict: null, // single-shot doesn't carry a sanity_verdict on the envelope
+    verdict: sanityVerdict,
     alternatives: data.alternatives ?? [],
   };
 
   // Visible alternatives: drop the chosen leaf so it doesn't show as
   // both the picked code (left column) and a sibling (right column).
   const altRows = (data.alternatives ?? []).filter((a) => a.code !== r.code);
+
+  // Anchored candidate summary (when per-candidate data not on wire).
+  const anchoredSummary: AnchoredCandidateSummary | null =
+    data.anchored_candidate_summary ?? null;
 
   // Duty rendering: `r.duty.rate_percent` for numeric rate, fallback
   // to `dutyStatusLabel` for prohibited/exempt enums.
@@ -747,18 +765,35 @@ export default function ResultSingle({
                   </button>
                 )}
               </div>
-              {showStrongMatch && (
-                <span
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-mono text-[11.5px] font-medium uppercase tracking-[0.06em]"
-                  style={{ background: 'oklch(0.94 0.06 155)', color: 'oklch(0.36 0.13 155)' }}
-                  title={`Decision: ${data.decision_status} · ${data.decision_reason}`}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M5 12.5l4.5 4.5L19 7" />
-                  </svg>
-                  {t('res_pill_strong_match')}
-                </span>
-              )}
+              <div className="flex flex-wrap items-start gap-2">
+                {showStrongMatch && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-mono text-[11.5px] font-medium uppercase tracking-[0.06em]"
+                    style={{ background: 'oklch(0.94 0.06 155)', color: 'oklch(0.36 0.13 155)' }}
+                    title={`Decision: ${data.decision_status} · ${data.decision_reason}`}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M5 12.5l4.5 4.5L19 7" />
+                    </svg>
+                    {t('res_pill_strong_match')}
+                  </span>
+                )}
+                {/* DRIFT pill */}
+                {data.classification_status === 'DRIFT' && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-mono text-[11.5px] font-medium uppercase tracking-[0.06em]"
+                    style={{ background: 'oklch(0.94 0.07 75)', color: 'oklch(0.42 0.14 60)' }}
+                  >
+                    {t('res_pill_reviewed_ai' as TKey)}
+                  </span>
+                )}
+                {/* Confidence percentage */}
+                {confidencePct && (
+                  <span className="inline-flex items-center px-2.5 py-1.5 rounded-md font-mono text-[11.5px] text-[var(--ink-3)] bg-[var(--line-2)] border border-[var(--line)]">
+                    {confidencePct}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Chosen-leaf label (cleaned EN above AR), small under code. */}
@@ -777,7 +812,53 @@ export default function ResultSingle({
                 )}
               </div>
             )}
+
+            {/* Catalog breadcrumb — full_hierarchy path from DispatchItem. */}
+            {(r.path_ar || r.path_en) && (
+              <div className="mt-3 flex flex-col gap-1 px-3.5 py-2.5 rounded-[var(--radius)] bg-[var(--line-2)] border border-[var(--line)]">
+                {r.path_ar && (
+                  <div
+                    dir="rtl"
+                    lang="ar"
+                    className="text-[12.5px] text-[var(--ink)] leading-[1.5] break-words text-end"
+                    style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
+                  >
+                    {r.path_ar}
+                  </div>
+                )}
+                {r.path_en && (
+                  <div className="text-[11.5px] text-[var(--ink-3)] leading-[1.5] break-words">
+                    {r.path_en}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* §1.5 SANITY BANNER — value plausibility FLAG or BLOCK. */}
+          {(showSanityFlag || showSanityBlock) && (
+            <div
+              className={cn(
+                'px-4 py-3 rounded-[var(--radius)] border',
+                showSanityBlock
+                  ? 'bg-[oklch(0.95_0.04_25)] border-[oklch(0.80_0.08_25)] text-[oklch(0.38_0.14_25)]'
+                  : 'bg-[oklch(0.96_0.06_75)] border-[oklch(0.82_0.10_75)] text-[oklch(0.40_0.13_60)]',
+              )}
+              role="alert"
+            >
+              <div className="font-mono text-[10.5px] uppercase tracking-[0.08em] mb-1 font-semibold">
+                {showSanityBlock
+                  ? t('res_sanity_block_label' as TKey)
+                  : t('res_sanity_flag_label' as TKey)}
+              </div>
+              {sanityRationale && (
+                <div className="text-[13px] leading-[1.55]">{sanityRationale}</div>
+              )}
+              {showSanityBlock && !sanityRationale && (
+                <div className="text-[13px] leading-[1.55]">{t('res_sanity_block_body' as TKey)}</div>
+              )}
+            </div>
+          )}
 
           {/* §2 INTERPRETATION ROW (only when researcher rewrote the input). */}
           {interp && interp.stage !== 'passthrough' && (interp.cleaned_as || interp.rewritten_as) && (
@@ -903,13 +984,12 @@ export default function ResultSingle({
           )}
 
           {/*
-            CONSIDERED ALTERNATIVES — grouped by track.
-            Track A (description_classifier / annotated_candidates): RRF-
-            ranked picker output. Track B (code_resolver / subtree_candidates):
-            merchant-prefix-anchored. When only one track returned items,
-            we render a single ungrouped list (no empty section header).
+            CONSIDERED ALTERNATIVES.
+            Anchored pipeline: per-candidate data not on wire yet — render
+            aggregate verdict counts + GIR rule as a summary line.
+            Legacy pipeline: union track_a / track_b per-candidate rows.
           */}
-          {altRows.length > 0 && (() => {
+          {(anchoredSummary || altRows.length > 0) && (() => {
             const trackARows = altRows.filter((a) => a.track === 'track_a');
             const trackBRows = altRows.filter((a) => a.track === 'track_b');
             const groupless = altRows.filter((a) => !a.track);
@@ -920,12 +1000,56 @@ export default function ResultSingle({
                   {t('res_sidebar_alternatives')}
                 </div>
 
+                {/* Anchored aggregate summary */}
+                {anchoredSummary && (
+                  <div className="flex flex-col gap-1.5 py-1">
+                    {/* Verdict spread bar */}
+                    <div className="flex items-center gap-0 rounded overflow-hidden h-1.5 mb-1">
+                      {anchoredSummary.fits > 0 && (
+                        <div
+                          className="h-full bg-[oklch(0.60_0.14_155)]"
+                          style={{ flex: anchoredSummary.fits }}
+                          title={`${anchoredSummary.fits} fits`}
+                        />
+                      )}
+                      {anchoredSummary.partial > 0 && (
+                        <div
+                          className="h-full bg-[oklch(0.72_0.14_75)]"
+                          style={{ flex: anchoredSummary.partial }}
+                          title={`${anchoredSummary.partial} partial`}
+                        />
+                      )}
+                      {anchoredSummary.does_not_fit > 0 && (
+                        <div
+                          className="h-full bg-[var(--line-2)]"
+                          style={{ flex: anchoredSummary.does_not_fit }}
+                          title={`${anchoredSummary.does_not_fit} does not fit`}
+                        />
+                      )}
+                    </div>
+                    <div className="text-[12.5px] text-[var(--ink-2)] leading-[1.5]">
+                      {anchoredSummary.candidate_count} {t('res_alts_candidates_evaluated' as TKey)}
+                      {' — '}
+                      <span className="text-[oklch(0.45_0.14_155)]">{anchoredSummary.fits} {t('res_alts_fits' as TKey)}</span>
+                      {', '}
+                      <span className="text-[oklch(0.50_0.13_75)]">{anchoredSummary.partial} {t('res_alts_partial' as TKey)}</span>
+                      {', '}
+                      <span className="text-[var(--ink-3)]">{anchoredSummary.does_not_fit} {t('res_alts_does_not_fit' as TKey)}</span>
+                    </div>
+                    {anchoredSummary.gir_applied && (
+                      <div className="text-[11.5px] text-[var(--ink-3)] leading-[1.4]">
+                        {t('res_alts_selected_via' as TKey)} {anchoredSummary.gir_applied}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Track A — only label when both tracks present (else no header noise) */}
                 {trackARows.length > 0 && (
                   <>
                     {hasBothTracks && (
                       <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase mt-1 mb-1.5">
-                        Track A — description
+                        {t('res_track_identify' as TKey)}
                       </div>
                     )}
                     <div className="flex flex-col divide-y divide-[var(--line-2)]">
@@ -946,7 +1070,7 @@ export default function ResultSingle({
                 {trackBRows.length > 0 && (
                   <>
                     <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase mt-3 mb-1.5">
-                      Track B — merchant code
+                      {t('res_track_resolve' as TKey)}
                     </div>
                     <div className="flex flex-col divide-y divide-[var(--line-2)]">
                       {trackBRows.map((a, i) => (

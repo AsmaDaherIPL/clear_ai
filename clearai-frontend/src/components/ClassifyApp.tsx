@@ -20,6 +20,8 @@ import {
   type DeclarationRunSummary,
   type DeclarationRunItem,
   type AlternativeLine,
+  type AnchoredPickOutput,
+  type AnchoredCandidateSummary,
 } from '@/lib/api';
 
 /**
@@ -36,47 +38,96 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
   const submissionAr = pickLang(d.resolved_hs_code_description?.zatca_submission_description, 'ar');
   const submissionEn = pickLang(d.resolved_hs_code_description?.zatca_submission_description, 'en');
 
-  // Considered alternatives — top 3 from each track, with the chosen
-  // resolved_hs_code filtered out. Trace is only present when the
-  // caller asked for it; without it the sidebar shows no alternatives.
+  // Pull the sanity rationale directly from the trace when FLAG/BLOCK.
+  // This gives the user the value-too-low / value-too-high reason inline.
+  const sanityRationale: string | null = (() => {
+    if (!d.trace || !sanity || sanity === 'PASS') return null;
+    const sanityStage = (d.trace.stages ?? []).find((s) => s.stage === 'sanity');
+    const sanityAction = sanityStage?.actions?.[0];
+    return (sanityAction?.output as { rationale?: string } | undefined)?.rationale ?? null;
+  })();
+
+  // Detect pipeline architecture from trace summary.
+  const arch = d.trace?.summary?.pipeline_architecture ?? 'legacy';
   const meta = d.trace?.meta;
-  const trackA = (meta?.track_a?.annotated_candidates ?? [])
-    .filter((c) => c.code !== resolved)
-    .slice(0, 3)
-    .map<AlternativeLine>((c) => ({
-      code: c.code,
-      description_en: c.description_en ?? null,
-      description_ar: c.description_ar ?? null,
-      retrieval_score: typeof c.rrf_score === 'number' ? c.rrf_score : null,
-      fit: normaliseFit(c.fit),
-      reason: c.rationale,
-      track: 'track_a',
-    }));
-  const trackB = (meta?.track_b?.subtree_candidates ?? [])
-    .filter((c) => c.code !== resolved)
-    .slice(0, 3)
-    .map<AlternativeLine>((c) => ({
-      code: c.code,
-      description_en: c.description_en ?? null,
-      description_ar: c.description_ar ?? null,
-      retrieval_score: typeof c.rrf_score === 'number' ? c.rrf_score : null,
-      fit: normaliseFit(c.fit),
-      reason: c.rationale,
-      track: 'track_b',
-    }));
-  const alternatives = [...trackA, ...trackB];
+
+  let alternatives: AlternativeLine[] = [];
+  let anchoredCandidateSummary: AnchoredCandidateSummary | null = null;
+  let retrievalQuery: string | null = d.resolved_hs_code_description?.retrieval_query ?? null;
+
+  if (arch === 'anchored') {
+    // Anchored: per-candidate verdicts not yet on wire — read aggregate counts
+    // from the pick action output inside the classify stage.
+    const classifyStage = (d.trace?.stages ?? []).find((s) => s.stage === 'classify');
+    const pickAction = classifyStage?.actions?.find((a) => a.action === 'pick');
+    const pickOut = pickAction?.output as AnchoredPickOutput | undefined;
+
+    if (pickOut?.verdict_population) {
+      const p = pickOut.verdict_population;
+      anchoredCandidateSummary = {
+        kind: 'aggregate',
+        candidate_count: p.fits + p.partial + p.does_not_fit,
+        fits: p.fits,
+        partial: p.partial,
+        does_not_fit: p.does_not_fit,
+        gir_applied: pickOut.gir_applied,
+      };
+    }
+
+    // Retrieval query = identify.canonical under anchored.
+    const identifyAction = classifyStage?.actions?.find((a) => a.action === 'identify');
+    const identifyOut = identifyAction?.output as { canonical?: string } | undefined;
+    retrievalQuery = identifyOut?.canonical ?? retrievalQuery;
+
+    // alternatives[] stays empty — no per-candidate data on the wire yet.
+    alternatives = [];
+  } else {
+    // Legacy: union track_a + track_b candidates, top 3 each, chosen code excluded.
+    const trackA = (meta?.track_a?.annotated_candidates ?? [])
+      .filter((c) => c.code !== resolved)
+      .slice(0, 3)
+      .map<AlternativeLine>((c) => ({
+        code: c.code,
+        description_en: c.description_en ?? null,
+        description_ar: c.description_ar ?? null,
+        retrieval_score: typeof c.rrf_score === 'number' ? c.rrf_score : null,
+        fit: normaliseFit(c.fit),
+        reason: c.rationale,
+        track: 'track_a',
+      }));
+    const trackB = (meta?.track_b?.subtree_candidates ?? [])
+      .filter((c) => c.code !== resolved)
+      .slice(0, 3)
+      .map<AlternativeLine>((c) => ({
+        code: c.code,
+        description_en: c.description_en ?? null,
+        description_ar: c.description_ar ?? null,
+        retrieval_score: typeof c.rrf_score === 'number' ? c.rrf_score : null,
+        fit: normaliseFit(c.fit),
+        reason: c.rationale,
+        track: 'track_b',
+      }));
+    alternatives = [...trackA, ...trackB];
+  }
 
   return {
     request_id: d.id,
     decision_status: accepted ? 'accepted' : 'needs_clarification',
     decision_reason: accepted ? 'strong_match' : 'ambiguous_top_candidates',
     classification_status: d.classification_result?.classification_status ?? undefined,
+    sanity_verdict: sanity,
+    sanity_rationale: sanityRationale,
     alternatives,
+    anchored_candidate_summary: anchoredCandidateSummary,
+    retrieval_query: retrievalQuery,
     result: accepted
       ? {
           code: resolved as string,
           description_en: null,
           description_ar: submissionAr,
+          // Catalog hierarchy breadcrumbs for the result card.
+          path_en: pickLang(d.resolved_hs_code_description?.full_hierarchy, 'en'),
+          path_ar: pickLang(d.resolved_hs_code_description?.full_hierarchy, 'ar'),
           duty: d.duty_info ?? null,
           procedures: d.procedures ?? [],
         }
