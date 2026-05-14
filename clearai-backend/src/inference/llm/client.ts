@@ -188,10 +188,20 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
       );
     }
     const json = (await res.json()) as AnthropicResponse;
-    const text =
-      json.content?.find((b) => b.type === 'text')?.text ??
-      (json.content && json.content[0]?.text) ??
-      null;
+    // Concatenate ALL text blocks. The Anthropic API can split a single
+    // logical response into multiple `text` blocks when the model uses
+    // tools (web_search), produces narration before its final answer,
+    // or simply emits long output. Taking only the first text block
+    // (the pre-PR-A-5.4 behavior) silently dropped the JSON in those
+    // multi-block responses, surfacing as cause='parse' / reason='no_json'
+    // on rows where the model actually produced valid output.
+    //
+    // For single-text-block responses (Haiku without tools, simple
+    // prompts), join('\n') on a one-element array is identical to the
+    // old behavior — no regression for the common case.
+    const textBlocks =
+      json.content?.filter((b) => b.type === 'text').map((b) => b.text ?? '') ?? [];
+    const text = textBlocks.length > 0 ? textBlocks.join('\n') : null;
     return finalize(
       {
         status: 'ok',

@@ -261,6 +261,15 @@ function parseIdentifyReply(result: LlmCallResult): IdentifyResult {
   }
   const extracted = extractJson(result.text, IdentifyOutputSchema);
   if (!extracted.ok) {
+    // PR-A-5.4: surface a sample of the unparseable response so future
+    // parse failures can be diagnosed from logs without spelunking the
+    // container's ephemeral console. Truncated; the reason field on
+    // the persisted trace stays short for SPA rendering.
+    const sample = (result.text ?? '').slice(0, 400).replace(/\s+/g, ' ');
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[identify] parse-fail reason=${extracted.reason} text_length=${result.text?.length ?? 0} sample=${JSON.stringify(sample)}`,
+    );
     return uninformative(
       `LLM output unparseable: ${extracted.reason}`,
       'parse',
