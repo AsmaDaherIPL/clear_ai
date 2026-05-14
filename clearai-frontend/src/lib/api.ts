@@ -112,6 +112,12 @@ export interface ResultLine {
   path_en?: string | null;
   path_ar?: string | null;
   retrieval_score?: number | null;
+  /**
+   * Pipeline confidence score (0-1 fraction). Populated by dispatchToDescribe
+   * from CanonicalClassificationResult.classification_confidence.
+   * ResultSingle renders this as e.g. "85%".
+   */
+  classification_confidence?: number | null;
   duty?: DutyInfo | null;
   /** Order is meaningful — first item is the most blocking. Do not re-sort. */
   procedures?: ProcedureRef[];

@@ -688,8 +688,8 @@ export default function ResultSingle({
 
   // Classification confidence (0-1 → "85%").
   const confidencePct =
-    r && typeof (r as any).classification_confidence === 'number'
-      ? `${Math.round((r as any).classification_confidence * 100)}%`
+    r && typeof r.classification_confidence === 'number'
+      ? `${Math.round(r.classification_confidence * 100)}%`
       : null;
 
   // Build the ReviewItem for the dialog from this DescribeResponse.

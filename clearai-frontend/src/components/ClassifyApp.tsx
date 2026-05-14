@@ -110,10 +110,23 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
     alternatives = [...trackA, ...trackB];
   }
 
+  // Map pick.fit to a decision_reason so ResultSingle shows the right pill.
+  // 'fits' → strong_match, 'partial' → heading_level_match (family), else strong_match.
+  const pickFitReason = (() => {
+    if (!accepted) return 'ambiguous_top_candidates' as const;
+    const classifyStageForFit = (d.trace?.stages ?? []).find((s) => s.stage === 'classify');
+    const pickActionFit = classifyStageForFit?.actions?.find((a) => a.action === 'pick');
+    const fit = (pickActionFit?.output as { fit?: string } | undefined)?.fit;
+    if (fit === 'partial') return 'heading_level_match' as const;
+    return 'strong_match' as const;
+  })();
+
+  const confidence = d.classification_result?.classification_confidence ?? null;
+
   return {
     request_id: d.id,
     decision_status: accepted ? 'accepted' : 'needs_clarification',
-    decision_reason: accepted ? 'strong_match' : 'ambiguous_top_candidates',
+    decision_reason: pickFitReason,
     classification_status: d.classification_result?.classification_status ?? undefined,
     sanity_verdict: sanity,
     sanity_rationale: sanityRationale,
@@ -128,6 +141,7 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
           // Catalog hierarchy breadcrumbs for the result card.
           path_en: pickLang(d.resolved_hs_code_description?.full_hierarchy, 'en'),
           path_ar: pickLang(d.resolved_hs_code_description?.full_hierarchy, 'ar'),
+          classification_confidence: confidence,
           duty: d.duty_info ?? null,
           procedures: d.procedures ?? [],
         }
