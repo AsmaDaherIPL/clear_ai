@@ -17,7 +17,7 @@
   "value_hint": "سعر الوحدة، القيمة الجمركية",
   "lang_hint": "EN أو AR",
   "drop_title": "أفلِت ملف الفاتورة CSV هنا",
-  "drop_hint": "…أو انقر للتصفح · CSV فقط",
+  "drop_hint": "…أو انقر للتصفح · CSV أو Excel",
   "drop_browse": "اختر ملفاً",
   "res_expanded": "موسّع · ٦ ← ١٢ خانة",
   "res_batch": "دفعة · invoice.csv",

@@ -17,7 +17,7 @@
   "value_hint": "unit price, customs value",
   "lang_hint": "EN or AR",
   "drop_title": "Drop your invoice CSV here",
-  "drop_hint": "…or click to browse · CSV only",
+  "drop_hint": "…or click to browse · CSV or Excel accepted",
   "drop_browse": "Choose file",
   "res_expanded": "Expanded · 6 → 12 digits",
   "res_batch": "Batch · invoice.csv",
