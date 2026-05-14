@@ -60,41 +60,69 @@ describe('pickRetryDelayMs', () => {
     }
   }
 
-  it('respects the 429 wait hint, clamped to FLOOR/CEILING', () => {
-    withFrozenRandom(0.5, () => {
-      // 0.5 → jitter = 0 (centered)
+  it('respects the 429 wait hint as a lower bound (Math.random=0 → exactly the hint)', () => {
+    // Math.random() = 0 → extra = 0 → return exactly the clamped hint.
+    // This is the lower bound; the hint is a hard floor, not a target.
+    withFrozenRandom(0.0, () => {
       const err = 'HTTP 429: Please wait 23 seconds before retrying.';
-      const delay = pickRetryDelayMs(err, 0);
-      // 23000 ms exactly under the 30s ceiling.
-      expect(delay).toBe(23_000);
+      expect(pickRetryDelayMs(err, 0)).toBe(23_000);
     });
   });
 
-  it('clamps an over-ceiling wait hint to the 30s max', () => {
-    withFrozenRandom(0.5, () => {
+  it('clamps an over-ceiling wait hint to the 40s max', () => {
+    withFrozenRandom(0.0, () => {
+      // PR-A-5.3: ceiling raised 30s → 40s so additive jitter still
+      // fits inside one 60s Foundry window.
       const err = 'HTTP 429: Please wait 90 seconds before retrying.';
-      expect(pickRetryDelayMs(err, 0)).toBe(30_000);
+      expect(pickRetryDelayMs(err, 0)).toBe(40_000);
     });
   });
 
   it('clamps an absurdly-low wait hint to the 500ms floor', () => {
-    withFrozenRandom(0.5, () => {
+    withFrozenRandom(0.0, () => {
       const err = 'HTTP 429: Please wait 0 seconds before retrying.';
       expect(pickRetryDelayMs(err, 0)).toBe(500);
     });
   });
 
-  it('adds bounded jitter (±10%) to a hinted wait', () => {
-    // Math.random() = 1.0 → jitter coefficient = +0.1 (10% above)
+  it('adds additive upward jitter [0, +50%] to a hinted wait (never below the hint)', () => {
+    // Math.random() = 1.0 → extra = clamped × 0.5 → upper bound is +50%.
+    // 10s hint × 1.5 = 15s.
     withFrozenRandom(1.0, () => {
       const err = 'HTTP 429: Please wait 10 seconds before retrying.';
-      expect(pickRetryDelayMs(err, 0)).toBe(11_000);
+      expect(pickRetryDelayMs(err, 0)).toBe(15_000);
     });
-    // Math.random() = 0.0 → jitter coefficient = -0.1 (10% below)
+    // Math.random() = 0.5 → extra = clamped × 0.25 → +25%.
+    withFrozenRandom(0.5, () => {
+      const err = 'HTTP 429: Please wait 10 seconds before retrying.';
+      expect(pickRetryDelayMs(err, 0)).toBe(12_500);
+    });
+    // Lower bound is the hint itself (additive upward only — we never
+    // wait less than Foundry asked).
     withFrozenRandom(0.0, () => {
       const err = 'HTTP 429: Please wait 10 seconds before retrying.';
-      expect(pickRetryDelayMs(err, 0)).toBe(9_000);
+      expect(pickRetryDelayMs(err, 0)).toBe(10_000);
     });
+  });
+
+  it('jitter spread is wide enough to mitigate thundering herd', () => {
+    // With 30 concurrent callers all reading "wait 17s", the additive
+    // upward jitter [0, 50%] of 17s spreads them across an 8.5-second
+    // window (17s to 25.5s). Pre-PR-A-5.3's ±10% gave a 3.4s spread,
+    // which was too narrow to prevent re-saturating the next window.
+    const err = 'HTTP 429: Please wait 17 seconds before retrying.';
+    const samples: number[] = [];
+    for (let i = 0; i < 100; i++) samples.push(pickRetryDelayMs(err, 0));
+    const min = Math.min(...samples);
+    const max = Math.max(...samples);
+    // Min must be at least the hint itself (no callers wait less).
+    expect(min).toBeGreaterThanOrEqual(17_000);
+    // Max should approach the 50% upper bound. With 100 samples we'll
+    // very rarely see Math.random() = 1.0, so check >= +20% as a
+    // statistical floor.
+    expect(max).toBeGreaterThanOrEqual(17_000 + 17_000 * 0.2);
+    // And not exceed the +50% cap.
+    expect(max).toBeLessThanOrEqual(17_000 + 17_000 * 0.5 + 1);
   });
 
   it('falls back to ladder when no 429 hint present (5xx / timeout)', () => {

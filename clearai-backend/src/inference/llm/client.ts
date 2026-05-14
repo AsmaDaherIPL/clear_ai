@@ -130,7 +130,17 @@ function finalize(
   return result;
 }
 
-export async function callLlm(params: LlmCallParams, attempt = 1): Promise<LlmCallResult> {
+/**
+ * Single attempt against Foundry. Issues the HTTP POST, feeds the
+ * breaker, writes the per-attempt metric row. Does NOT retry.
+ *
+ * Extracted so callLlm can wrap it with a mandatory 429-only retry
+ * loop without duplicating the request body, AbortController plumbing,
+ * or finalize() side-effects. Stage call sites (identify, pick) call
+ * callLlm — they get free 429 handling without changing their
+ * "retries=0" intent for timeouts/5xx.
+ */
+async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmCallResult> {
   const { ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } = env();
   const model = params.model ?? LLM_MODEL;
   const t0 = Date.now();
@@ -211,15 +221,68 @@ export async function callLlm(params: LlmCallParams, attempt = 1): Promise<LlmCa
   }
 }
 
+/** Max 429 retries inside callLlm. A single Foundry 60s rate-limit
+ *  window can be ridden out in 2 retries × up to 40s waits ≈ 80s. */
+const INNER_429_MAX_RETRIES = 2;
+
+/** Total wall-clock budget for the inner 429 retry loop. Stops the loop
+ *  from pinning a request indefinitely when Foundry's quota is exhausted
+ *  beyond a single window. */
+const INNER_429_BUDGET_MS = 90_000;
+
+/**
+ * Call Foundry, automatically retrying 429s up to INNER_429_MAX_RETRIES
+ * times respecting the "Please wait N seconds" hint.
+ *
+ * Why retry 429 *inside* callLlm rather than in callLlmWithRetry?
+ *   Several stages (identify, pick) deliberately pass `retries=0` to
+ *   callLlmWithRetry because their own designs don't want to compound
+ *   tail latency on transport failures or want the circuit breaker to
+ *   handle sustained outages. That choice is correct for timeout/5xx
+ *   but **wrong for 429**: a 429 is not a failure, it's a provider
+ *   signal saying "you'll succeed if you wait." Honoring that signal
+ *   should be the default behavior of every Foundry call, not opt-in.
+ *
+ *   Pushing the 429 handling here gives every caller automatic
+ *   recovery without changing the "retries" semantics they depend on.
+ *
+ * Non-429 errors (timeout, 5xx, network) pass through unchanged so
+ * callers retain full control over those failure modes via
+ * callLlmWithRetry.
+ */
+export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
+  const startedAt = Date.now();
+  let last: LlmCallResult | null = null;
+  for (let attempt = 1; attempt <= INNER_429_MAX_RETRIES + 1; attempt++) {
+    last = await callLlmOnce(params, attempt);
+    // Success or non-429 failure → return immediately.
+    if (last.status === 'ok') return last;
+    const errStr = last.error ?? '';
+    const is429 = /HTTP 429/.test(errStr);
+    if (!is429) return last;
+    // Exhausted the 429 retry quota → surface the last 429 to the caller.
+    if (attempt > INNER_429_MAX_RETRIES) return last;
+    // Compute wait time from the hint, with jitter to spread concurrent
+    // callers across the next rate-limit window. If the next sleep would
+    // exhaust the budget, give up and return the 429.
+    const delay = pickRetryDelayMs(errStr, attempt - 1);
+    if (Date.now() - startedAt + delay > INNER_429_BUDGET_MS) {
+      return last;
+    }
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  return last!;
+}
+
 /** Test-only reset hook for the edge-triggered transient-warn log flag. */
 export function __resetTransientWarningStateForTests(): void {
   lastTransientWarning = false;
 }
 
 /** Hard ceiling on the wait time we honor from a Foundry 429 body. Foundry's
- *  rate-limit windows are 60s, so any value beyond ~30s is either malformed
- *  or means we're better off escalating than blocking the request. */
-const RATE_LIMIT_WAIT_CEILING_MS = 30_000;
+ *  rate-limit windows are 60s. We cap at 40s to leave room for the jitter
+ *  upper bound (+50%) to still fit inside one window. */
+const RATE_LIMIT_WAIT_CEILING_MS = 40_000;
 
 /** Floor on a parsed 429 wait so we don't busy-spin on a malformed "wait 0". */
 const RATE_LIMIT_WAIT_FLOOR_MS = 500;
@@ -248,13 +311,22 @@ export function parseRateLimitWaitMs(errString: string | undefined): number | nu
  * Pick the wait-before-retry duration for a transient failure.
  *
  *   - 429 with parseable wait hint  → respect the hint, clamped to
- *                                     [FLOOR, CEILING], plus ±10% jitter so
- *                                     N concurrent callers don't wake up
- *                                     and all hit the next rate-limit
- *                                     window at the same instant.
- *   - 429 without hint              → use the same backoff ladder as 5xx.
- *   - 5xx / timeout / network       → exponential backoff with jitter from
- *                                     a fixed ladder.
+ *                                     [FLOOR, CEILING], then ADD uniform
+ *                                     [0, 50%] jitter on top so N concurrent
+ *                                     callers spread across a window
+ *                                     proportional to the hint instead of
+ *                                     bunching at the exact "recovery" moment.
+ *                                     With "wait 17s" + 50% spread, 30 callers
+ *                                     hit Foundry across 8.5 seconds rather
+ *                                     than 3.4 seconds (±10% pre-PR-A-5.3
+ *                                     gave thundering herd).
+ *   - 429 without hint              → ladder fallback with ±20% jitter.
+ *   - 5xx / timeout / network       → same ladder fallback.
+ *
+ * Jitter strategy is "additive upward" for 429 specifically — we never
+ * wait LESS than Foundry asked, because the provider's hint is a hard
+ * lower bound for success. For non-429 we use ±20% symmetric jitter
+ * since there's no provider-signaled minimum.
  *
  * Exported for unit-test isolation.
  */
@@ -265,10 +337,11 @@ export function pickRetryDelayMs(errString: string | undefined, attempt: number)
   const hinted = parseRateLimitWaitMs(errString);
   if (hinted !== null) {
     const clamped = Math.max(RATE_LIMIT_WAIT_FLOOR_MS, Math.min(hinted, RATE_LIMIT_WAIT_CEILING_MS));
-    const jitter = clamped * (Math.random() * 0.2 - 0.1); // ±10%
-    return Math.floor(clamped + jitter);
+    // Additive upward jitter [0, 50%]. Never wait less than the hint.
+    const extra = clamped * 0.5 * Math.random();
+    return Math.floor(clamped + extra);
   }
-  // Fallback ladder with ±20% jitter.
+  // Fallback ladder with ±20% symmetric jitter (no provider lower bound).
   const jitter = fallback * (Math.random() * 0.4 - 0.2);
   return Math.floor(fallback + jitter);
 }
@@ -279,23 +352,28 @@ export function pickRetryDelayMs(errString: string | undefined, attempt: number)
 const DEFAULT_RETRY_BUDGET_MS = 75_000;
 
 /**
- * Call with retry on 429 / 5xx / timeout. Returns the last result either way.
+ * Call with retry on 5xx / timeout / network. Returns the last result.
  *
- * 429 handling (PR-A-5.2):
- *   Foundry returns a literal "Please wait N seconds" in the error body
- *   when a rate-limit window is exceeded. parseRateLimitWaitMs reads that
- *   hint and pickRetryDelayMs uses it to pace the next attempt. The
- *   default retry count was bumped from 2 → 4 so a sustained 60-second
- *   rate-limit window can be ridden out (1+4 attempts × up to 30s wait
- *   each ≈ 75s, bounded by totalBudgetMs).
+ * Layering note (PR-A-5.3):
+ *   429s are handled by callLlm's INNER retry loop, not here. By the
+ *   time a 429 bubbles up to callLlmWithRetry, callLlm has already
+ *   spent INNER_429_MAX_RETRIES on it. Retrying 429 again at this
+ *   layer would compound waits and starve the wall-clock budget for
+ *   the timeouts/5xx we actually want to retry on. We treat 429 as a
+ *   terminal failure here.
+ *
+ *   Stages that pass `retries=0` (identify, pick) still get automatic
+ *   429 recovery via callLlm. Stages that pass `retries>0` (cleanup,
+ *   submission, sanity, etc.) get 429 recovery AND additional retries
+ *   for 5xx/timeout.
  *
  *   Total wall-clock is capped by `totalBudgetMs` (default 75s) so a
  *   degraded Foundry doesn't hold a single-shot route open indefinitely.
  *   When the budget would be exceeded by the next sleep, the loop exits
  *   with the last failure rather than waiting and timing out anyway.
  *
- * Reasons to NOT retry: 4xx other than 429 (auth-class or bad request),
- * fall through to the breaker / caller without further attempts.
+ * Reasons to NOT retry: 4xx (auth-class or bad request, OR 429 which
+ * callLlm already retried). Fall through to the breaker / caller.
  */
 export async function callLlmWithRetry(
   params: LlmCallParams,
@@ -305,14 +383,16 @@ export async function callLlmWithRetry(
   let last: LlmCallResult | null = null;
   const startedAt = Date.now();
   for (let attempt = 0; attempt <= retries; attempt++) {
-    last = await callLlm(params, attempt + 1);
+    last = await callLlm(params);
     if (last.status === 'ok') return last;
     const errStr = last.error ?? '';
-    const isTransient =
+    // 429 was already retried inside callLlm; don't compound here.
+    // 5xx / timeout / network → eligible for this layer's retry.
+    const isRetriable =
       last.status === 'timeout' ||
-      /HTTP (429|5\d\d)/.test(errStr) ||
+      /HTTP 5\d\d/.test(errStr) ||
       /network|fetch|ECONN|ETIMEDOUT/i.test(errStr);
-    if (!isTransient || attempt === retries) return last;
+    if (!isRetriable || attempt === retries) return last;
     const delay = pickRetryDelayMs(errStr, attempt);
     if (Date.now() - startedAt + delay > totalBudgetMs) {
       // Sleeping would exhaust the budget; return the last failure rather

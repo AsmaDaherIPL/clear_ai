@@ -72,11 +72,13 @@ const POLICIES: Record<LlmStage, LlmStagePolicy> = {
   // labelled to the new architecture for observability split.
   constrain_pick:         { stage: 'constrain_pick',         maxAttempts: 3, timeoutMs: 10000, retryOnParseFailure: true,  totalBudgetMs: 30000, onExhausted: 'graceful_degrade' },
   // PR-A-4: anchored-pipeline pick stage. Final picker over the
-  // scope-anchored candidate set. Mirrors legacy 'picker' shape
-  // (3 attempts, 10s) — the candidate set is pre-narrowed by
-  // constrain so reasoning is simpler but timing is similar to
-  // legacy picker.
-  anchored_pick:          { stage: 'anchored_pick',          maxAttempts: 3, timeoutMs: 10000, retryOnParseFailure: true,  totalBudgetMs: 35000, onExhausted: 'graceful_degrade' },
+  // scope-anchored candidate set. The candidate set is pre-narrowed
+  // by constrain so reasoning is simpler than legacy picker, but a
+  // 12-candidate prompt under Foundry load deserves headroom.
+  // PR-A-5.3: bumped timeoutMs 10s → 15s after dev runs showed pick
+  // hitting the 10s wall on first-byte while Foundry was at quota;
+  // totalBudgetMs 35s → 50s to keep 3 attempts × 15s feasible.
+  anchored_pick:          { stage: 'anchored_pick',          maxAttempts: 3, timeoutMs: 15000, retryOnParseFailure: true,  totalBudgetMs: 50000, onExhausted: 'graceful_degrade' },
 };
 
 export function getLlmStagePolicy(stage: LlmStage): LlmStagePolicy {
