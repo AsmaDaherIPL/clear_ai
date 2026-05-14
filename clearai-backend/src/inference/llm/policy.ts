@@ -13,7 +13,14 @@ export type LlmStage =
   | 'code_resolver'
   | 'reconciliation'
   | 'submission_description'
-  | 'sanity';
+  | 'sanity'
+  // PR-A-2: anchored-pipeline identify stage (web-tool-enabled).
+  // Lands here alongside the legacy stages so a single LlmStage union
+  // covers both architectures during the migration window. Removed
+  // alongside the legacy stages in PR-A-8 cleanup (the legacy stages
+  // are deleted but `identify` survives as the anchored pipeline's
+  // entry point).
+  | 'identify';
 
 export type OnExhausted = 'escalate' | 'graceful_degrade' | 'fail_hard';
 
@@ -44,6 +51,10 @@ const POLICIES: Record<LlmStage, LlmStagePolicy> = {
   reconciliation:         { stage: 'reconciliation',         maxAttempts: 2, timeoutMs: 15000, retryOnParseFailure: true,  totalBudgetMs: 30000, onExhausted: 'escalate' },
   submission_description: { stage: 'submission_description', maxAttempts: 3, timeoutMs: 8000,  retryOnParseFailure: true,  totalBudgetMs: 25000, onExhausted: 'graceful_degrade' },
   sanity:                 { stage: 'sanity',                 maxAttempts: 3, timeoutMs: 6000,  retryOnParseFailure: true,  totalBudgetMs: 20000, onExhausted: 'graceful_degrade' },
+  // PR-A-2: anchored-pipeline identify. Web-tool-enabled — same timing
+  // shape as researcher_web (1 attempt, 30s, web latency dominates;
+  // the circuit breaker handles repeated transport failures).
+  identify:               { stage: 'identify',               maxAttempts: 1, timeoutMs: 30000, retryOnParseFailure: false, totalBudgetMs: 30000, onExhausted: 'graceful_degrade' },
 };
 
 export function getLlmStagePolicy(stage: LlmStage): LlmStagePolicy {
