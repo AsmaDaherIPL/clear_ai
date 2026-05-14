@@ -167,7 +167,7 @@ const passDispatch: DispatchFn = async (item) => ({
       stages: [],
     },
   },
-  trace: { pathTaken: 'agree', stages: [] },
+  trace: { stages: [] },
   infraDegraded: false,
 });
 

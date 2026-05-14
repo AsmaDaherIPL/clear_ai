@@ -154,7 +154,7 @@ describe('runClassificationPhase', () => {
       sanityVerdict: 'PASS',
       hitl: null,
       v1: v1Stub(item.itemId, '010121000000', 'PASS'),
-      trace: { pathTaken: 'agree', stages: [], meta: { rowIndex: item.rowIndex } },
+      trace: { stages: [], meta: { rowIndex: item.rowIndex } },
       infraDegraded: false,
     });
 
@@ -185,7 +185,7 @@ describe('runClassificationPhase', () => {
         sanityVerdict: 'FLAG',
         hitl: { reason: 'sanity_flag', cleaned_description: 'item' },
         v1: v1Stub(item.itemId, '010121000000', 'FLAG'),
-        trace: { pathTaken: 'flag', stages: [] },
+        trace: { stages: [] },
         infraDegraded: false,
       };
       // BLOCK is emitted by the orchestrator's pre-classification path
@@ -197,7 +197,7 @@ describe('runClassificationPhase', () => {
         sanityVerdict: 'BLOCK',
         hitl: null,
         v1: v1Stub(item.itemId, null, 'BLOCK'),
-        trace: { pathTaken: 'block', stages: [] },
+        trace: { stages: [] },
         infraDegraded: false,
       };
       throw new Error('boom');
@@ -236,7 +236,7 @@ describe('runClassificationPhase', () => {
         sanityVerdict: 'PASS',
         hitl: null,
         v1: v1Stub(item.itemId, '010121000000', 'PASS'),
-        trace: { pathTaken: 'agree', stages: [] },
+        trace: { stages: [] },
         infraDegraded: false,
       };
     };
@@ -269,7 +269,7 @@ describe('runClassificationPhase', () => {
       sanityVerdict: 'PASS',
       hitl: null,
       v1: v1Stub(item.itemId, '010121000000', 'PASS'),
-      trace: { pathTaken: 'agree', stages: [] },
+      trace: { stages: [] },
       infraDegraded: false,
     });
     const summary = await runClassificationPhase(declarationRunId, { dispatch });
@@ -287,7 +287,7 @@ describe('runClassificationPhase', () => {
       sanityVerdict: 'PASS',
       hitl: null,
       v1: v1Stub(item.itemId, 'x', 'PASS'),
-      trace: { pathTaken: '', stages: [] },
+      trace: { stages: [] },
       infraDegraded: false,
     });
     const summary = await runClassificationPhase(declarationRunId, { dispatch });

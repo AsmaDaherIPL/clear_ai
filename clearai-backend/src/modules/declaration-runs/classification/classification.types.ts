@@ -13,8 +13,6 @@ export type SanityVerdict = 'PASS' | 'FLAG' | 'BLOCK';
 export type ClassificationOutcome = 'succeeded' | 'flagged' | 'blocked' | 'failed' | 'pending_infra';
 
 export interface ItemTrace {
-  /** Final pipeline path. Values defined by dispatch. */
-  pathTaken: string;
   stages: Array<{
     name: string;
     startedAt: string;

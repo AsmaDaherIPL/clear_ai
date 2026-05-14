@@ -161,10 +161,12 @@ export async function runClassificationPhase(
 }
 
 function serialiseResult(r: DispatchResult): Record<string, unknown> {
+  // `path_taken` was a legacy track-A/track-B presence indicator; it had
+  // zero readers across backend, frontend, tests, and SQL queries (see
+  // PR-A-5 audit). Dropped rather than ported to anchored vocabulary.
   return {
     final_code: r.finalCode,
     sanity_verdict: r.sanityVerdict,
-    path_taken: r.trace.pathTaken,
   };
 }
 

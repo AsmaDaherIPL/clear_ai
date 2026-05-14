@@ -96,14 +96,11 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     });
   }
 
-  const hasA = (result.trace.track_a?.annotated_candidates ?? []).some(
-    (c) => c.fit === 'fits' || c.fit === 'partial',
-  );
-  const hasB = !!result.trace.track_b?.resolved_code;
-  const pathTaken = hasA && hasB ? 'two_signal' : hasA ? 'single_a' : hasB ? 'single_b' : 'zero';
-
+  // The flat `itemTrace` shape persisted alongside the wire payload.
+  // Used by recordClassificationEvent / declaration-runs item rows for
+  // batch debugging and HITL queue context. Anchored adds its own stage
+  // outputs into `meta` so audit consumers can read either family.
   const itemTrace = {
-    pathTaken,
     stages: result.trace.stages.map((s) => ({
       name: s.name,
       startedAt: s.started_at,
@@ -112,9 +109,16 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
       detail: s.detail,
     })),
     meta: {
+      pipeline_architecture: result.trace.pipeline_architecture,
+      // Legacy stage outputs — null under anchored.
       track_a: result.trace.track_a,
       track_b: result.trace.track_b,
       verdict: result.trace.verdict,
+      // Anchored stage outputs — null under legacy.
+      anchored_identify: result.trace.anchored_identify,
+      anchored_constrain: result.trace.anchored_constrain,
+      anchored_pick: result.trace.anchored_pick,
+      // Shared.
       sanity: result.trace.sanity,
     },
   };

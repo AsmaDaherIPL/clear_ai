@@ -1,7 +1,19 @@
 /**
  * Shared pipeline types — the contracts that flow between stages.
  * Every stage imports from here, not from each other's internals.
+ *
+ * PR-A-5 added anchored-pipeline type re-exports (IdentifyResult,
+ * ConstrainResult, PickResult) onto PipelineTrace via `import type`
+ * from the anchored stage modules. Dependency direction: anchored
+ * type files are leaf modules; pipeline.types.ts depends on them, not
+ * the other way around.
  */
+import type { IdentifyResult } from '../identify/identify.types.js';
+import type { ConstrainResult } from '../constrain/constrain.types.js';
+import type { PickResult } from '../pick/pick.types.js';
+
+// Re-export so trace builders / consumers can keep one import surface.
+export type { IdentifyResult, ConstrainResult, PickResult };
 
 // ---------------------------------------------------------------------------
 // Stage 0a — Parse
@@ -452,11 +464,36 @@ export interface StageTrace {
 }
 
 export interface PipelineTrace {
+  /**
+   * Legacy parallel-tracks fields. Populated when
+   * `pipeline_architecture === 'legacy'`. Null when an anchored run
+   * produced the trace (PR-A-5).
+   */
   track_a: DescriptionClassifierResult | null;
   track_b: CodeResolverResult | null;
   verdict: StageVerdictOutput | null;
   sanity: SanityResult | null;
   stages: StageTrace[];
+  /**
+   * Anchored pipeline fields. Populated when
+   * `pipeline_architecture === 'anchored'`. Null when a legacy run
+   * produced the trace.
+   *
+   * Discriminator: read `pipeline_architecture` first, then read the
+   * matching family of fields. Consumers that mix both must handle
+   * the null case explicitly (no `?.` chains masking the mismatch).
+   *
+   * `anchored_identify` carries the IdentifyResult + its
+   * IdentifyCallTrace; `anchored_constrain` carries the
+   * MerchantResolution + RetrievalScope + ConstrainCallTrace;
+   * `anchored_pick` carries the PickResult + its PickCallTrace.
+   *
+   * After PR-A-8 cleanup (legacy fields deleted), these three
+   * become the canonical trace shape and the legacy fields go away.
+   */
+  anchored_identify: IdentifyResult | null;
+  anchored_constrain: ConstrainResult | null;
+  anchored_pick: PickResult | null;
   /**
    * Which pipeline implementation produced this trace.
    *
@@ -549,15 +586,24 @@ export type DispatchV1Outcome = 'ok' | 'skipped' | 'failed' | 'failed_gate';
 export type DispatchV1StageName = 'normalize' | 'classify' | 'sanity';
 
 export type DispatchV1ActionName =
+  // Legacy classify-stage actions
   | 'parse'
   | 'cleanup'
   | 'description_classifier'
   | 'code_resolver'
   | 'reconciliation'
+  // Anchored classify-stage actions (PR-A-5; replace description_classifier/
+  // code_resolver/reconciliation when pipeline_architecture='anchored').
+  // Order under anchored: identify → constrain → pick → submission_description.
+  | 'identify'
+  | 'constrain'
+  | 'pick'
+  // Shared
   | 'submission_description'
   | 'sanity_check';
 
 export type DispatchV1StepName =
+  // Legacy track-A / track-B / reconciliation steps
   | 'researcher'
   | 'retrieval'
   | 'threshold'
@@ -566,7 +612,18 @@ export type DispatchV1StepName =
   | 'threshold_after_web'
   | 'picker'
   | 'operator_override_lookup'
-  | 'codebook_lookup';
+  | 'codebook_lookup'
+  // Anchored steps (PR-A-5). Empty step lists are valid; these are
+  // surfaced when a single action has internal sub-stages worth
+  // breaking out (e.g. identify's web search step inside a single
+  // identify LLM call).
+  | 'identify_llm'
+  | 'identify_web_search'
+  | 'constrain_codebook_walk'
+  | 'constrain_override_lookup'
+  | 'constrain_scope_select'
+  | 'pick_retrieval'
+  | 'pick_llm';
 
 export interface DispatchV1Step {
   step: DispatchV1StepName;
@@ -601,11 +658,30 @@ export interface DispatchV1Stage {
 
 export interface DispatchV1Summary {
   merchant_code_state: MerchantCodeState | null;
+  /** Which pipeline implementation produced this trace. Lets the SPA pick which summary fields to render. */
+  pipeline_architecture: 'legacy' | 'anchored';
+  // Legacy summary fields. Null under anchored.
   /** Highest-RRF candidate verdicted 'fits' by the description classifier. Null when none. */
   description_classifier_top_fit: string | null;
   code_resolver_code: string | null;
   reconciliation: 'description_classifier' | 'code_resolver' | 'reconciled' | 'escalated' | null;
   operator_override_applied: boolean;
+  // Anchored summary fields (PR-A-5). Null under legacy.
+  /** identify result discriminator (clean_product | multi_product | uninformative). */
+  identify_kind: 'clean_product' | 'multi_product' | 'uninformative' | null;
+  /** Retrieval scope chosen by constrain. */
+  scope_kind: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'escalate' | null;
+  /** Pick outcome: 'fits' / 'partial' on acceptance, null on escalate. */
+  pick_fit: 'fits' | 'partial' | null;
+  /** Escalation reason when pick.kind='escalate', otherwise null. */
+  pick_escalate_reason:
+    | 'scope_escalate'
+    | 'no_candidates'
+    | 'no_candidate_fits'
+    | 'identify_no_query'
+    | 'picker_unavailable'
+    | null;
+  // Shared
   final_code: string | null;
   sanity_verdict: SanityVerdict | null;
 }

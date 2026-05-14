@@ -10,6 +10,8 @@
  */
 import { parseItem } from './parse/parse.js';
 import { runCleanup } from './cleanup/cleanup.js';
+import { lookupCatalogContext } from './catalog/catalog-context.js';
+import { loadOperatorPipelineConfig } from './catalog/operator-pipeline-config.js';
 import { runDescriptionClassifier } from './classify/description-classifier/description-classifier.js';
 import { runCodeResolver } from './classify/code-resolver/code-resolver.js';
 import { runReconciliation } from './classify/reconciliation/reconciliation.js';
@@ -17,7 +19,6 @@ import { generateSubmissionDescription } from './submission-description/submissi
 import { runSanity } from './sanity/sanity.js';
 import { shouldEnqueue } from './review/review.js';
 import { buildTrace } from './trace/trace.js';
-import { getPool } from '../../db/client.js';
 import { env } from '../../config/env.js';
 import { runAnchoredPipeline } from './anchored-orchestrator.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
@@ -161,63 +162,13 @@ function readPickerStageDetail(stages: StageTrace[]): {
   return { attempts, noFit, retrievalCandidateCount };
 }
 
-interface OperatorPipelineConfig {
-  /** Defaults to true when no operator_declaration_config row exists yet. */
-  overridesEnabled: boolean;
-}
+// loadOperatorPipelineConfig + OperatorPipelineConfig moved to
+// ./catalog/operator-pipeline-config.ts in PR-A-5 so both orchestrators
+// share the helper without anchored importing from legacy.
 
-async function loadOperatorPipelineConfig(operatorSlug: string): Promise<OperatorPipelineConfig> {
-  const pool = getPool();
-  const r = await pool.query<{
-    overrides_enabled: boolean | null;
-  }>(
-    `SELECT c.overrides_enabled
-       FROM operator_declaration_config c
-       JOIN operators o ON o.id = c.operator_id
-      WHERE o.slug = $1`,
-    [operatorSlug],
-  );
-  const row = r.rows[0];
-  return {
-    // Default to true when the column is null (older rows) or the row is
-    // missing entirely — preserves historical behavior.
-    overridesEnabled: row?.overrides_enabled ?? true,
-  };
-}
-
-interface CatalogContext {
-  /** Leaf Arabic from zatca_hs_codes.description_ar. Same string the breadcrumb terminates with. */
-  leafAr: string | null;
-  /** Leaf English. */
-  leafEn: string | null;
-  /** Breadcrumb path through the tariff tree (chapter > heading > hs6 > leaf), Arabic. */
-  pathAr: string | null;
-  /** Breadcrumb path, English. */
-  pathEn: string | null;
-}
-
-async function lookupCatalogContext(code: string): Promise<CatalogContext> {
-  const pool = getPool();
-  const r = await pool.query<{
-    description_ar: string | null;
-    description_en: string | null;
-    path_ar: string | null;
-    path_en: string | null;
-  }>(
-    `SELECT c.description_ar, c.description_en, d.path_ar, d.path_en
-       FROM zatca_hs_codes c
-       LEFT JOIN zatca_hs_code_display d ON d.code = c.code
-      WHERE c.code = $1`,
-    [code],
-  );
-  const row = r.rows[0];
-  return {
-    leafAr: row?.description_ar ?? null,
-    leafEn: row?.description_en ?? null,
-    pathAr: row?.path_ar ?? null,
-    pathEn: row?.path_en ?? null,
-  };
-}
+// CatalogContext + lookupCatalogContext moved to ./catalog/catalog-context.ts
+// in PR-A-5 so both orchestrators (legacy + anchored) can share the
+// helper without the anchored orchestrator importing from legacy code.
 
 /**
  * Public pipeline entry. Branches on the configured architecture:
