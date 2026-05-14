@@ -216,10 +216,94 @@ export function __resetTransientWarningStateForTests(): void {
   lastTransientWarning = false;
 }
 
-/** Call with simple retry on 429 / 5xx. Returns the last result either way. */
-export async function callLlmWithRetry(params: LlmCallParams, retries = 2): Promise<LlmCallResult> {
+/** Hard ceiling on the wait time we honor from a Foundry 429 body. Foundry's
+ *  rate-limit windows are 60s, so any value beyond ~30s is either malformed
+ *  or means we're better off escalating than blocking the request. */
+const RATE_LIMIT_WAIT_CEILING_MS = 30_000;
+
+/** Floor on a parsed 429 wait so we don't busy-spin on a malformed "wait 0". */
+const RATE_LIMIT_WAIT_FLOOR_MS = 500;
+
+/**
+ * Parse the "Please wait N seconds" hint Foundry returns in its 429 body.
+ * Foundry's literal format (observed 2026-05-14):
+ *
+ *   HTTP 429: {"error":{"code":"RateLimitReached","message":
+ *     "Rate limit of 300000 per 60s exceeded for ... Please wait 23 seconds
+ *      before retrying."}}
+ *
+ * Returns the wait duration in ms when present, null otherwise. Caller
+ * applies floor/ceiling clamping and jitter.
+ */
+export function parseRateLimitWaitMs(errString: string | undefined): number | null {
+  if (!errString) return null;
+  const m = errString.match(/wait\s+(\d+)\s+seconds?/i);
+  if (!m || !m[1]) return null;
+  const seconds = Number(m[1]);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return seconds * 1000;
+}
+
+/**
+ * Pick the wait-before-retry duration for a transient failure.
+ *
+ *   - 429 with parseable wait hint  → respect the hint, clamped to
+ *                                     [FLOOR, CEILING], plus ±10% jitter so
+ *                                     N concurrent callers don't wake up
+ *                                     and all hit the next rate-limit
+ *                                     window at the same instant.
+ *   - 429 without hint              → use the same backoff ladder as 5xx.
+ *   - 5xx / timeout / network       → exponential backoff with jitter from
+ *                                     a fixed ladder.
+ *
+ * Exported for unit-test isolation.
+ */
+export function pickRetryDelayMs(errString: string | undefined, attempt: number): number {
+  const ladder = [500, 1500, 4000, 8000];
+  const fallback = ladder[Math.min(attempt, ladder.length - 1)] ?? 8000;
+
+  const hinted = parseRateLimitWaitMs(errString);
+  if (hinted !== null) {
+    const clamped = Math.max(RATE_LIMIT_WAIT_FLOOR_MS, Math.min(hinted, RATE_LIMIT_WAIT_CEILING_MS));
+    const jitter = clamped * (Math.random() * 0.2 - 0.1); // ±10%
+    return Math.floor(clamped + jitter);
+  }
+  // Fallback ladder with ±20% jitter.
+  const jitter = fallback * (Math.random() * 0.4 - 0.2);
+  return Math.floor(fallback + jitter);
+}
+
+/** Default wall-clock budget for the retry loop. A single 60s rate-limit
+ *  window plus a few-second margin — enough to ride out one Foundry window
+ *  on 429, but bounded so a sustained outage doesn't hang the caller forever. */
+const DEFAULT_RETRY_BUDGET_MS = 75_000;
+
+/**
+ * Call with retry on 429 / 5xx / timeout. Returns the last result either way.
+ *
+ * 429 handling (PR-A-5.2):
+ *   Foundry returns a literal "Please wait N seconds" in the error body
+ *   when a rate-limit window is exceeded. parseRateLimitWaitMs reads that
+ *   hint and pickRetryDelayMs uses it to pace the next attempt. The
+ *   default retry count was bumped from 2 → 4 so a sustained 60-second
+ *   rate-limit window can be ridden out (1+4 attempts × up to 30s wait
+ *   each ≈ 75s, bounded by totalBudgetMs).
+ *
+ *   Total wall-clock is capped by `totalBudgetMs` (default 75s) so a
+ *   degraded Foundry doesn't hold a single-shot route open indefinitely.
+ *   When the budget would be exceeded by the next sleep, the loop exits
+ *   with the last failure rather than waiting and timing out anyway.
+ *
+ * Reasons to NOT retry: 4xx other than 429 (auth-class or bad request),
+ * fall through to the breaker / caller without further attempts.
+ */
+export async function callLlmWithRetry(
+  params: LlmCallParams,
+  retries = 4,
+  totalBudgetMs = DEFAULT_RETRY_BUDGET_MS,
+): Promise<LlmCallResult> {
   let last: LlmCallResult | null = null;
-  const delays = [250, 1000];
+  const startedAt = Date.now();
   for (let attempt = 0; attempt <= retries; attempt++) {
     last = await callLlm(params, attempt + 1);
     if (last.status === 'ok') return last;
@@ -229,7 +313,14 @@ export async function callLlmWithRetry(params: LlmCallParams, retries = 2): Prom
       /HTTP (429|5\d\d)/.test(errStr) ||
       /network|fetch|ECONN|ETIMEDOUT/i.test(errStr);
     if (!isTransient || attempt === retries) return last;
-    await new Promise((r) => setTimeout(r, delays[attempt] ?? 1000));
+    const delay = pickRetryDelayMs(errStr, attempt);
+    if (Date.now() - startedAt + delay > totalBudgetMs) {
+      // Sleeping would exhaust the budget; return the last failure rather
+      // than wait and then time-out anyway. Caller sees a transient error
+      // and can escalate via the policy's onExhausted handler.
+      return last;
+    }
+    await new Promise((r) => setTimeout(r, delay));
   }
   return last!;
 }
