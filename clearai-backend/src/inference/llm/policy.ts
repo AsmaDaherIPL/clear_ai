@@ -25,7 +25,13 @@ export type LlmStage =
   // multi-replacement disambiguation and the prefix-walk leaf pick
   // (both are small picker-style LLM calls). Same retry/budget
   // profile as the legacy 'code_resolver' stage which it replaces.
-  | 'constrain_pick';
+  | 'constrain_pick'
+  // PR-A-4: anchored-pipeline pick stage. Final picker call over a
+  // scope-anchored candidate set with the simplified 3-value fit
+  // verdict. Same retry profile as legacy 'picker' which it
+  // replaces, but with a slightly tighter timeout because the
+  // candidate set is pre-narrowed by constrain.
+  | 'anchored_pick';
 
 export type OnExhausted = 'escalate' | 'graceful_degrade' | 'fail_hard';
 
@@ -65,6 +71,12 @@ const POLICIES: Record<LlmStage, LlmStagePolicy> = {
   // code_resolver shape (3 attempts, 10s) — same operation, just
   // labelled to the new architecture for observability split.
   constrain_pick:         { stage: 'constrain_pick',         maxAttempts: 3, timeoutMs: 10000, retryOnParseFailure: true,  totalBudgetMs: 30000, onExhausted: 'graceful_degrade' },
+  // PR-A-4: anchored-pipeline pick stage. Final picker over the
+  // scope-anchored candidate set. Mirrors legacy 'picker' shape
+  // (3 attempts, 10s) — the candidate set is pre-narrowed by
+  // constrain so reasoning is simpler but timing is similar to
+  // legacy picker.
+  anchored_pick:          { stage: 'anchored_pick',          maxAttempts: 3, timeoutMs: 10000, retryOnParseFailure: true,  totalBudgetMs: 35000, onExhausted: 'graceful_degrade' },
 };
 
 export function getLlmStagePolicy(stage: LlmStage): LlmStagePolicy {
