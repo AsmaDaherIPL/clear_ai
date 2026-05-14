@@ -313,5 +313,19 @@
   "t2_best_effort_title": "Best-effort fallback",
   "t2_best_effort_what": "Triggered when the picker can't confidently choose a 12-digit leaf. Asks: \"Is there a confident HEADING-level (HS-4 or HS-6) answer we could ship instead?\" Returns a heading-padded code (e.g. 6402 → 640200000000) tagged for downstream review.",
   "t2_best_effort_outcome_label": "Outcome",
-  "t2_best_effort_outcome_body": "Promoted to accepted at heading level: {code}. Decision tagged: {reason}."
+  "t2_best_effort_outcome_body": "Promoted to accepted at heading level: {code}. Decision tagged: {reason}.",
+  "review_dialog_title": "Review classification",
+  "review_dialog_subtitle": "Accept the AI result, dismiss the item for manual handling, or pick a different candidate code.",
+  "review_item_description": "Item description",
+  "review_current_code": "Current AI code",
+  "review_no_code": "No code resolved",
+  "review_candidates_label": "Candidate codes — select to override",
+  "review_action_accept": "Accept current",
+  "review_action_dismiss": "Dismiss",
+  "review_action_pick": "Pick",
+  "review_action_pick_placeholder": "Select a candidate above",
+  "review_open_button": "Review",
+  "review_outcome_accepted": "Accepted",
+  "review_outcome_dismissed": "Dismissed",
+  "review_outcome_picked": "Picked"
 }

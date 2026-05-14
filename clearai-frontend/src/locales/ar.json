@@ -313,5 +313,19 @@
   "t2_best_effort_title": "آلية أفضل تقدير",
   "t2_best_effort_what": "تعمل عندما لا يستطيع المختار اختيار ورقة من ١٢ خانة بثقة. تسأل: «هل هناك إجابة على مستوى البند (HS-4 أو HS-6) يمكن تسليمها بثقة؟» وتُعيد رمزاً مكمَّلاً بأصفار (مثلاً 6402 → 640200000000) موسوماً للمراجعة.",
   "t2_best_effort_outcome_label": "النتيجة",
-  "t2_best_effort_outcome_body": "تُرقّى إلى مقبول على مستوى البند: {code}. القرار موسوم: {reason}."
+  "t2_best_effort_outcome_body": "تُرقّى إلى مقبول على مستوى البند: {code}. القرار موسوم: {reason}.",
+  "review_dialog_title": "مراجعة التصنيف",
+  "review_dialog_subtitle": "قبول نتيجة الذكاء الاصطناعي أو رفض البند للمعالجة اليدوية أو اختيار رمز مرشح مختلف.",
+  "review_item_description": "وصف الصنف",
+  "review_current_code": "الرمز الحالي",
+  "review_no_code": "لم يتم تحديد رمز",
+  "review_candidates_label": "الرموز المرشحة — اختر للتجاوز",
+  "review_action_accept": "قبول الحالي",
+  "review_action_dismiss": "رفض",
+  "review_action_pick": "اختيار",
+  "review_action_pick_placeholder": "اختر مرشحاً أعلاه",
+  "review_open_button": "مراجعة",
+  "review_outcome_accepted": "مقبول",
+  "review_outcome_dismissed": "مرفوض",
+  "review_outcome_picked": "تم الاختيار"
 }

@@ -4,17 +4,19 @@
  *
  * Column order (left → right):
  *   Line | Merchant code | Merchant description | Value | Classified code |
- *   Classified code breakdown | ZATCA declaration | Value plausibility verdict
+ *   Classified code breakdown | ZATCA declaration | Value plausibility verdict |
+ *   Review (action column, flagged rows only)
  *
  * value_plausibility_verdict ships hidden by default; togglable from the
  * Columns menu in the footer.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { pickLang, type DeclarationRunItem } from '@/lib/api';
 import { DataTable } from './DataTable';
+import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 
 // ---------------------------------------------------------------------------
 // Pill colour maps + helpers
@@ -199,12 +201,95 @@ interface BatchResultsTableProps {
   className?: string;
 }
 
+/**
+ * Derive whether a row needs operator review.
+ * FLAG and BLOCK verdicts need review; PASS does not.
+ * Items with no resolved code also need review regardless of verdict.
+ */
+function needsReview(item: DeclarationRunItem): boolean {
+  const verdict = item.classification_result?.sanity_verdict?.toUpperCase();
+  const hasCode = Boolean(item.classification_result?.resolved_hs_code);
+  if (!hasCode) return true;
+  if (verdict === 'FLAG' || verdict === 'BLOCK') return true;
+  return false;
+}
+
+/** Build a ReviewItem from a DeclarationRunItem for the dialog. */
+function toReviewItem(item: DeclarationRunItem): ReviewItem {
+  const resolved = item.classification_result?.resolved_hs_code ?? null;
+  const submissionAr = pickLang(item.resolved_hs_code_description?.zatca_submission_description, 'ar');
+  const submissionEn = pickLang(item.resolved_hs_code_description?.zatca_submission_description, 'en');
+
+  // Candidates: pull from trace if present, else empty.
+  const meta = (item as any).trace?.meta;
+  const trackA = (meta?.track_a?.annotated_candidates ?? []).map((c: any) => ({
+    code: c.code,
+    description_en: c.description_en ?? null,
+    description_ar: c.description_ar ?? null,
+    retrieval_score: c.rrf_score ?? null,
+    fit: c.fit ?? undefined,
+    reason: c.rationale ?? undefined,
+    track: 'track_a' as const,
+  }));
+  const trackB = (meta?.track_b?.subtree_candidates ?? []).map((c: any) => ({
+    code: c.code,
+    description_en: c.description_en ?? null,
+    description_ar: c.description_ar ?? null,
+    retrieval_score: c.rrf_score ?? null,
+    fit: c.fit ?? undefined,
+    reason: c.rationale ?? undefined,
+    track: 'track_b' as const,
+  }));
+
+  return {
+    id: item.id ?? String(item.row_index ?? ''),
+    description: item.declared_value?.description ?? '',
+    currentCode: resolved,
+    currentLabel: submissionEn ?? submissionAr ?? null,
+    verdict: item.classification_result?.sanity_verdict ?? null,
+    alternatives: [...trackA, ...trackB],
+  };
+}
+
 export default function BatchResultsTable({
   expectedRowCount,
   items,
   className,
 }: BatchResultsTableProps) {
   const t = useT();
+
+  // Review dialog state — which item (if any) is being reviewed.
+  const [reviewTarget, setReviewTarget] = useState<ReviewItem | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+
+  // Local override map: row id → { action: 'accepted' | 'dismissed' | 'picked', code?: string }
+  // This is the UI-only state; backend wiring goes here later.
+  const [reviewOutcomes, setReviewOutcomes] = useState<
+    Record<string, { action: 'accepted' | 'dismissed' | 'picked'; code?: string }>
+  >({});
+
+  const handleOpenReview = (item: DeclarationRunItem) => {
+    setReviewTarget(toReviewItem(item));
+    setReviewOpen(true);
+  };
+
+  const handleAccept = (item: ReviewItem) => {
+    setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'accepted' } }));
+    setReviewOpen(false);
+    // TODO: POST /reviews { item_id, action: 'accepted' }
+  };
+
+  const handleDismiss = (item: ReviewItem) => {
+    setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'dismissed' } }));
+    setReviewOpen(false);
+    // TODO: POST /reviews { item_id, action: 'dismissed' }
+  };
+
+  const handlePick = (item: ReviewItem, chosenCode: string) => {
+    setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'picked', code: chosenCode } }));
+    setReviewOpen(false);
+    // TODO: POST /reviews { item_id, action: 'picked', code: chosenCode }
+  };
 
   const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
     // size = initial pixel width consumed by TanStack columnSizing state.
@@ -340,7 +425,69 @@ export default function BatchResultsTable({
         );
       },
     },
-  ], [t]);
+    {
+      id: 'review_action',
+      header: '',
+      enableSorting: false,
+      enableHiding: false,
+      accessorFn: () => '',
+      size: 90,
+      minSize: 72,
+      maxSize: 120,
+      cell: ({ row }) => {
+        const item = row.original;
+        const itemId = item.id ?? String(item.row_index ?? '');
+        const outcome = reviewOutcomes[itemId];
+
+        // After a review decision, show a compact outcome badge instead of the button.
+        if (outcome) {
+          const outcomeStyle =
+            outcome.action === 'accepted'
+              ? 'text-[oklch(0.36_0.13_155)]'
+              : outcome.action === 'dismissed'
+                ? 'text-[oklch(0.45_0.13_25)]'
+                : 'text-[var(--accent)]';
+          const outcomeLabel =
+            outcome.action === 'accepted'
+              ? t('review_outcome_accepted' as TKey)
+              : outcome.action === 'dismissed'
+                ? t('review_outcome_dismissed' as TKey)
+                : outcome.code ?? t('review_outcome_picked' as TKey);
+          return (
+            <span
+              className={cn(
+                'font-mono text-[10.5px] uppercase tracking-[0.06em]',
+                outcomeStyle,
+              )}
+              title={outcome.code ? `Picked: ${outcome.code}` : outcome.action}
+            >
+              {outcomeLabel}
+            </span>
+          );
+        }
+
+        // Only show the Review button on rows that need it.
+        if (!needsReview(item)) return null;
+
+        return (
+          <button
+            type="button"
+            onClick={() => handleOpenReview(item)}
+            className={cn(
+              'inline-flex items-center gap-1 px-2.5 py-1 rounded-md',
+              'border border-[var(--line)] bg-[var(--surface)]',
+              'font-mono text-[10.5px] font-medium tracking-[0.06em] uppercase',
+              'text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
+              'transition-colors duration-150 whitespace-nowrap',
+            )}
+          >
+            {t('review_open_button' as TKey)}
+          </button>
+        );
+      },
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [t, reviewOutcomes, handleOpenReview]);
 
   // Simple skeleton row — single full-width pulse bar. Avoids encoding any
   // specific column geometry so it survives column show/hide automatically.
@@ -355,32 +502,44 @@ export default function BatchResultsTable({
   }, []);
 
   return (
-    <DataTable
-      // v6 because column resizing came back; storage shape now includes
-      // columnSizing again. Bumping the key invalidates v5 prefs (visibility
-      // only) so returning users start with the new default widths once.
-      tableId="batch-results-v6"
-      // value_plausibility_verdict ships hidden by default — togglable
-      // from the Columns menu in the footer.
-      defaultColumnVisibility={{ value_plausibility_verdict: false }}
-      data={items}
-      columns={columns}
-      expectedRowCount={expectedRowCount}
-      renderSkeletonRow={renderSkeletonRow}
-      enableGlobalSearch
-      searchPlaceholder={t('batch_search_placeholder' as TKey)}
-      filterChips={{
-        columnId: 'value_plausibility_verdict',
-        label: t('batch_filter_verdict_label' as TKey),
-        options: [
-          { label: t('batch_filter_verdict_all' as TKey) },
-          { label: t('batch_filter_verdict_pass' as TKey), value: 'pass' },
-          { label: t('batch_filter_verdict_fail' as TKey), value: 'fail' },
-          { label: t('batch_filter_verdict_warn' as TKey), value: 'warn' },
-        ],
-      }}
-      emptyState={t('batch_empty_state' as TKey)}
-      className={className}
-    />
+    <>
+      <DataTable
+        // v6 because column resizing came back; storage shape now includes
+        // columnSizing again. Bumping the key invalidates v5 prefs (visibility
+        // only) so returning users start with the new default widths once.
+        tableId="batch-results-v6"
+        // value_plausibility_verdict ships hidden by default — togglable
+        // from the Columns menu in the footer.
+        defaultColumnVisibility={{ value_plausibility_verdict: false }}
+        data={items}
+        columns={columns}
+        expectedRowCount={expectedRowCount}
+        renderSkeletonRow={renderSkeletonRow}
+        enableGlobalSearch
+        searchPlaceholder={t('batch_search_placeholder' as TKey)}
+        filterChips={{
+          columnId: 'value_plausibility_verdict',
+          label: t('batch_filter_verdict_label' as TKey),
+          options: [
+            { label: t('batch_filter_verdict_all' as TKey) },
+            { label: t('batch_filter_verdict_pass' as TKey), value: 'pass' },
+            { label: t('batch_filter_verdict_fail' as TKey), value: 'fail' },
+            { label: t('batch_filter_verdict_warn' as TKey), value: 'warn' },
+          ],
+        }}
+        emptyState={t('batch_empty_state' as TKey)}
+        className={className}
+      />
+
+      {/* Review dialog — mounted once at table level; opened per-row. */}
+      <ReviewDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        item={reviewTarget}
+        onAccept={handleAccept}
+        onDismiss={handleDismiss}
+        onPick={handlePick}
+      />
+    </>
   );
 }

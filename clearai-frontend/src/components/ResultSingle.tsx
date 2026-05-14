@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
 import RequiredProcedures from './RequiredProcedures';
+import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 
 interface ResultSingleProps {
   visible: boolean;
@@ -24,6 +25,10 @@ interface ResultSingleProps {
   onRetry?: () => void;
   /** Promote a manually-picked alternative code to the chosen leaf. */
   onPickAlternative?: (code: string) => void;
+  /** Called when the operator accepts the current result via the review dialog. */
+  onReviewAccept?: () => void;
+  /** Called when the operator dismisses the current result via the review dialog. */
+  onReviewDismiss?: () => void;
   className?: string;
 }
 
@@ -447,17 +452,20 @@ function AlternativeSidebarRow({
   alt,
   chosenCode,
   t,
+  onPick,
 }: {
   alt: AlternativeLine;
   chosenCode: string;
   t: (key: TKey) => string;
+  /** When provided, renders a "Use this code" ghost button on hover. */
+  onPick?: (code: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const rel = relationshipFor(alt.code, chosenCode);
   const hasDesc = Boolean(alt.description_en || alt.description_ar);
 
   return (
-    <div className="flex flex-col gap-1.5 py-1">
+    <div className="flex flex-col gap-1.5 py-1 group">
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -491,9 +499,27 @@ function AlternativeSidebarRow({
           )}
           <span>{alt.code}</span>
         </button>
-        {rel !== 'no-chosen' && (
-          <RelationshipChip rel={rel} label={t(REL_KEY[rel])} />
-        )}
+        <div className="flex items-center gap-1.5">
+          {onPick && (
+            <button
+              type="button"
+              onClick={() => onPick(alt.code)}
+              className={cn(
+                'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                'inline-flex items-center px-2 py-0.5 rounded border border-[var(--line)]',
+                'font-mono text-[10px] uppercase tracking-[0.06em]',
+                'text-[var(--ink-3)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+                'bg-[var(--surface)] transition-all duration-150',
+              )}
+              title={t('act_use_code')}
+            >
+              {t('act_use_code')}
+            </button>
+          )}
+          {rel !== 'no-chosen' && (
+            <RelationshipChip rel={rel} label={t(REL_KEY[rel])} />
+          )}
+        </div>
       </div>
       {open && hasDesc && (
         <div className="pe-1 ps-[15px] flex flex-col gap-0.5 animate-[fadeIn_0.15s_ease_both]">
@@ -565,9 +591,13 @@ export default function ResultSingle({
   // no longer rendered — the dev latency footer was removed.
   onRetry,
   onPickAlternative,
+  onReviewAccept,
+  onReviewDismiss,
   className,
 }: ResultSingleProps) {
   const t = useT();
+  const [reviewOpen, setReviewOpen] = useState(false);
+
   if (!visible || !data) return null;
 
   const pill = pillFor(data.decision_status, data.decision_reason);
@@ -647,6 +677,16 @@ export default function ResultSingle({
   const showStrongMatch =
     data.decision_status === 'accepted' &&
     (data.classification_status === 'AGREEMENT' || data.classification_status == null);
+
+  // Build the ReviewItem for the dialog from this DescribeResponse.
+  const reviewItem: ReviewItem = {
+    id: data.request_id ?? 'single-shot',
+    description: data.interpretation?.rewritten_as ?? data.interpretation?.cleaned_as ?? '',
+    currentCode: r?.code ?? null,
+    currentLabel: r?.description_en ?? (r as any)?.label_en ?? null,
+    verdict: null, // single-shot doesn't carry a sanity_verdict on the envelope
+    alternatives: data.alternatives ?? [],
+  };
 
   // Visible alternatives: drop the chosen leaf so it doesn't show as
   // both the picked code (left column) and a sibling (right column).
@@ -814,8 +854,8 @@ export default function ResultSingle({
             </div>
           )}
 
-          {/* §6 FLAG FOR REVIEW — single ghost CTA at end, mono uppercase, mockup-style. */}
-          <div className="flex justify-end pt-[18px] border-t border-[var(--line-2)]">
+          {/* §6 REVIEW ACTIONS — accept or open the review dialog. */}
+          <div className="flex items-center justify-end gap-2 pt-[18px] border-t border-[var(--line-2)]">
             <button
               type="button"
               className={cn(
@@ -825,9 +865,7 @@ export default function ResultSingle({
                 'hover:border-[var(--ink-3)] transition-colors duration-150',
               )}
               aria-label={t('res_action_flag')}
-              onClick={() => {
-                // No-op — wiring to /classifications/{id}/flag queued.
-              }}
+              onClick={() => setReviewOpen(true)}
             >
               {t('res_action_flag')}
             </button>
@@ -897,6 +935,7 @@ export default function ResultSingle({
                           alt={a}
                           chosenCode={r.code}
                           t={t}
+                          onPick={onPickAlternative}
                         />
                       ))}
                     </div>
@@ -916,6 +955,7 @@ export default function ResultSingle({
                           alt={a}
                           chosenCode={r.code}
                           t={t}
+                          onPick={onPickAlternative}
                         />
                       ))}
                     </div>
@@ -931,6 +971,7 @@ export default function ResultSingle({
                         alt={a}
                         chosenCode={r.code}
                         t={t}
+                        onPick={onPickAlternative}
                       />
                     ))}
                   </div>
@@ -987,6 +1028,28 @@ export default function ResultSingle({
           )}
         </aside>
       </div>
+
+      {/* Review dialog — single instance, opened by the "Flag for review" button. */}
+      <ReviewDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        item={reviewItem}
+        onAccept={() => {
+          onReviewAccept?.();
+          setReviewOpen(false);
+          // TODO: POST /reviews { item_id: reviewItem.id, action: 'accepted' }
+        }}
+        onDismiss={() => {
+          onReviewDismiss?.();
+          setReviewOpen(false);
+          // TODO: POST /reviews { item_id: reviewItem.id, action: 'dismissed' }
+        }}
+        onPick={(_item, chosenCode) => {
+          onPickAlternative?.(chosenCode);
+          setReviewOpen(false);
+          // TODO: POST /reviews { item_id: reviewItem.id, action: 'picked', code: chosenCode }
+        }}
+      />
     </div>
   );
 }
