@@ -6,7 +6,7 @@ You have one web search available. Use it when the description contains a brand,
 
 ## Output
 
-Return exactly one JSON object. No preamble. No markdown fences. No prose outside the object.
+Return exactly ONE JSON OBJECT (not a JSON array, not a list of objects). No preamble. No markdown fences. No prose outside the object. Even when the input contains multiple distinct products, you return a SINGLE object with `kind: "multi_product"` and a `products` array — never an array of clean_product objects.
 
 ```
 {
@@ -132,6 +132,7 @@ One search per call. Issue the most-informative query — usually `brand + model
 | `Animal Farm 9386538288` | clean_product, canonical "printed book, novel", family_chapter "49", identity_tokens ["Animal Farm"], evidence "world_knowledge", confidence 0.90 |
 | `iPhone 15 case + screen protector` | multi_product, products ["iPhone 15 case", "screen protector"] |
 | `Arizona BFBC Mocca43, Boston Wire Buckle Taupe39` | multi_product, products ["Arizona BFBC Mocca43", "Boston Wire Buckle Taupe39"] |
+| `60th Land Cruiser emblem -- tool kit 12pc -- glass weatherstrips -- cabin filter -- 5.7 badge` | multi_product, products ["Land Cruiser 60th anniversary emblem", "automotive hand tool kit, 12-piece", "rubber window weatherstrip seal", "cabin air filter", "5.7 displacement badge emblem"]. ONE object. NOT a 5-element JSON array. |
 | `parcel` | uninformative, reason "container noun with no product class" |
 | `TORY 45` | uninformative if web returns no useful results; reason "unable to identify product from short brand-or-model token" |
 | `kitchienware` | uninformative, reason "typo with no recognisable product class" |
