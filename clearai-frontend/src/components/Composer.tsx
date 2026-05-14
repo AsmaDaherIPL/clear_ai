@@ -22,7 +22,7 @@ interface ComposerProps {
   className?: string;
 }
 
-const BATCH_ACCEPT = '.csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const BATCH_ACCEPT = '.csv,text/csv';
 const BATCH_MAX_BYTES = 10 * 1024 * 1024; // 10 MiB — backend caps row count separately
 
 /** Mirrors backend zod cap; keep in lock-step with `describeBody` / `expandBody`. */
@@ -107,8 +107,8 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
   const acceptFile = (file: File): void => {
     setBatchError(null);
     const lower = file.name.toLowerCase();
-    if (!lower.endsWith('.csv') && !lower.endsWith('.xlsx')) {
-      setBatchError('Only .csv or .xlsx files are accepted.');
+    if (!lower.endsWith('.csv')) {
+      setBatchError('Only .csv files are accepted.');
       return;
     }
     if (file.size > BATCH_MAX_BYTES) {
@@ -325,14 +325,6 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
         <div className="p-3.5">
           <div className="flex items-center justify-end gap-3 pb-2 text-[12.5px] text-[var(--ink-3)]">
             <span>Need the column shape?</span>
-            <a
-              href="/templates/clearai-batch-template.xlsx"
-              download
-              className="underline hover:text-[var(--ink-2)]"
-            >
-              Excel template
-            </a>
-            <span aria-hidden>·</span>
             <a
               href="/templates/clearai-batch-template.csv"
               download
