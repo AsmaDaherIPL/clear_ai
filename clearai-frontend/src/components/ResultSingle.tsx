@@ -813,26 +813,63 @@ export default function ResultSingle({
               </div>
             )}
 
-            {/* Catalog breadcrumb — full_hierarchy path from DispatchItem. */}
-            {(r.path_ar || r.path_en) && (
-              <div className="mt-3 flex flex-col gap-1 px-3.5 py-2.5 rounded-[var(--radius)] bg-[var(--line-2)] border border-[var(--line)]">
-                {r.path_ar && (
-                  <div
-                    dir="rtl"
-                    lang="ar"
-                    className="text-[12.5px] text-[var(--ink)] leading-[1.5] break-words text-end"
-                    style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-                  >
-                    {r.path_ar}
-                  </div>
-                )}
-                {r.path_en && (
-                  <div className="text-[11.5px] text-[var(--ink-3)] leading-[1.5] break-words">
-                    {r.path_en}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Catalog breadcrumb — parse "A > B > C" into a section/heading table. */}
+            {(r.path_ar || r.path_en) && (() => {
+              // Split on " > " (or ">" with optional surrounding spaces).
+              const splitPath = (s: string | null | undefined) =>
+                s ? s.split(/\s*>\s*/).map((seg) => seg.trim()).filter(Boolean) : [];
+              const enSegs = splitPath(r.path_en);
+              const arSegs = splitPath(r.path_ar);
+              const count = Math.max(enSegs.length, arSegs.length);
+              if (count === 0) return null;
+              // Level labels: first = Chapter, second = Heading, third = Subheading, rest = Tariff
+              const levelLabel = (i: number) => {
+                if (i === 0) return t('res_meta_chapter');
+                if (i === 1) return t('res_meta_heading');
+                if (i === 2) return t('res_meta_subheading');
+                return 'Tariff';
+              };
+              return (
+                <div className="mt-3 rounded-[var(--radius)] border border-[var(--line)] overflow-hidden">
+                  {Array.from({ length: count }, (_, i) => {
+                    const en = enSegs[i] ?? null;
+                    const ar = arSegs[i] ?? null;
+                    return (
+                      <div
+                        key={i}
+                        className={cn(
+                          'flex items-start gap-4 px-4 py-3 bg-[var(--surface)]',
+                          i > 0 && 'border-t border-[var(--line-2)]',
+                        )}
+                      >
+                        <div className="w-[90px] flex-shrink-0 pt-[1px]">
+                          <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
+                            {levelLabel(i)}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0 flex flex-col gap-1">
+                          {ar && (
+                            <div
+                              dir="rtl"
+                              lang="ar"
+                              className="text-[13px] text-[var(--ink)] leading-[1.55] break-words text-end"
+                              style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
+                            >
+                              {ar}
+                            </div>
+                          )}
+                          {en && (
+                            <div className="text-[12px] text-[var(--ink-3)] leading-[1.5] break-words">
+                              {en}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* §1.5 SANITY BANNER — value plausibility FLAG or BLOCK. */}
@@ -1000,46 +1037,32 @@ export default function ResultSingle({
                   {t('res_sidebar_alternatives')}
                 </div>
 
-                {/* Anchored aggregate summary */}
-                {anchoredSummary && (
-                  <div className="flex flex-col gap-1.5 py-1">
-                    {/* Verdict spread bar */}
-                    <div className="flex items-center gap-0 rounded overflow-hidden h-1.5 mb-1">
-                      {anchoredSummary.fits > 0 && (
-                        <div
-                          className="h-full bg-[oklch(0.60_0.14_155)]"
-                          style={{ flex: anchoredSummary.fits }}
-                          title={`${anchoredSummary.fits} fits`}
+                {/* Anchored aggregate summary — fits + partial only */}
+                {anchoredSummary && (anchoredSummary.fits > 0 || anchoredSummary.partial > 0) && (
+                  <div className="flex items-center gap-2 py-1 flex-wrap">
+                    {anchoredSummary.fits > 0 && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-medium font-mono"
+                        style={{ background: 'oklch(0.94 0.06 155)', color: 'oklch(0.36 0.13 155)' }}
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ background: 'oklch(0.55 0.15 155)' }}
                         />
-                      )}
-                      {anchoredSummary.partial > 0 && (
-                        <div
-                          className="h-full bg-[oklch(0.72_0.14_75)]"
-                          style={{ flex: anchoredSummary.partial }}
-                          title={`${anchoredSummary.partial} partial`}
+                        {anchoredSummary.fits} {t('res_alts_fits' as TKey)}
+                      </span>
+                    )}
+                    {anchoredSummary.partial > 0 && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-medium font-mono"
+                        style={{ background: 'oklch(0.95 0.06 75)', color: 'oklch(0.42 0.13 60)' }}
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ background: 'oklch(0.62 0.16 60)' }}
                         />
-                      )}
-                      {anchoredSummary.does_not_fit > 0 && (
-                        <div
-                          className="h-full bg-[var(--line-2)]"
-                          style={{ flex: anchoredSummary.does_not_fit }}
-                          title={`${anchoredSummary.does_not_fit} does not fit`}
-                        />
-                      )}
-                    </div>
-                    <div className="text-[12.5px] text-[var(--ink-2)] leading-[1.5]">
-                      {anchoredSummary.candidate_count} {t('res_alts_candidates_evaluated' as TKey)}
-                      {' — '}
-                      <span className="text-[oklch(0.45_0.14_155)]">{anchoredSummary.fits} {t('res_alts_fits' as TKey)}</span>
-                      {', '}
-                      <span className="text-[oklch(0.50_0.13_75)]">{anchoredSummary.partial} {t('res_alts_partial' as TKey)}</span>
-                      {', '}
-                      <span className="text-[var(--ink-3)]">{anchoredSummary.does_not_fit} {t('res_alts_does_not_fit' as TKey)}</span>
-                    </div>
-                    {anchoredSummary.gir_applied && (
-                      <div className="text-[11.5px] text-[var(--ink-3)] leading-[1.4]">
-                        {t('res_alts_selected_via' as TKey)} {anchoredSummary.gir_applied}
-                      </div>
+                        {anchoredSummary.partial} {t('res_alts_partial' as TKey)}
+                      </span>
                     )}
                   </div>
                 )}
