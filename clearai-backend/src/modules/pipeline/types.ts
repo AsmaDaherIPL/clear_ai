@@ -113,6 +113,15 @@ export interface IdentifyClean {
   /** Self-rated 0.0-1.0. NOT calibrated. */
   confidence: number;
   evidence: 'world_knowledge' | 'web';
+  /**
+   * Brand-only rescue path (identify_web). When the input was a
+   * brand name with no product noun, the model commits to the
+   * flagship product line at low confidence and lists the brand's
+   * other product lines here so the UI / HITL reviewer can see the
+   * alternatives at a glance. Empty / undefined for description-based
+   * identifies (the normal case).
+   */
+  brand_alternatives?: string[];
   trace: IdentifyCallTrace;
 }
 

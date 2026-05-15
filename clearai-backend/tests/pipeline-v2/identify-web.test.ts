@@ -180,6 +180,77 @@ describe('runIdentifyWeb — refusal paths', () => {
   });
 });
 
+describe('runIdentifyWeb — brand-only rescue (value-hint-driven flagship pick)', () => {
+  it('parses brand_alternatives + low confidence on brand-only inputs', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        toolUseBlocks: 1,
+        text: JSON.stringify({
+          kind: 'clean_product',
+          canonical: 'maxhub interactive flat-panel display for conference rooms',
+          family_chapter: '85',
+          identity_tokens: ['maxhub'],
+          confidence: 0.5,
+          evidence: 'web',
+          brand_alternatives: [
+            'video conferencing camera',
+            'LED signage wall',
+            'UC conferencing software',
+          ],
+        }),
+      }),
+    );
+    const r = await runIdentifyWeb('maxhub', previousUninformative(), {
+      amount: 28000,
+      currency: 'SAR',
+    });
+    expect(r.kind).toBe('clean_product');
+    if (r.kind === 'clean_product') {
+      expect(r.confidence).toBe(0.5);
+      expect(r.brand_alternatives).toEqual([
+        'video conferencing camera',
+        'LED signage wall',
+        'UC conferencing software',
+      ]);
+    }
+  });
+
+  it('omits brand_alternatives field when the model did not return any', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        toolUseBlocks: 1,
+        text: JSON.stringify({
+          kind: 'clean_product',
+          canonical: 'product',
+          family_chapter: '85',
+          confidence: 0.9,
+          evidence: 'web',
+        }),
+      }),
+    );
+    const r = await runIdentifyWeb('product', previousUninformative(), null);
+    if (r.kind === 'clean_product') {
+      expect(r.brand_alternatives).toBeUndefined();
+    }
+  });
+
+  it('forwards value_hint into the user payload so the prompt can use price tier', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({ kind: 'uninformative', reason: 't' }),
+      }),
+    );
+    await runIdentifyWeb('maxhub', previousUninformative(), {
+      amount: 150,
+      currency: 'SAR',
+    });
+    const args = mockedCall.mock.calls[0]![0];
+    expect(args.user).toContain('value_hint');
+    expect(args.user).toContain('"amount":150');
+    expect(args.user).toContain('"currency":"SAR"');
+  });
+});
+
 describe('runIdentifyWeb — LLM call shape', () => {
   it('passes the web_search tool to callLlmWithRetry', async () => {
     mockedCall.mockResolvedValueOnce(

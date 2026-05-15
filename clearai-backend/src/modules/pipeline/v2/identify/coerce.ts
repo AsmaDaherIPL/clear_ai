@@ -16,6 +16,13 @@ export const MAX_IDENTITY_TOKEN_LENGTH = 40;
 export const MAX_PRODUCTS = 8;
 export const MAX_PRODUCT_LABEL_LENGTH = 200;
 export const MAX_REASON_LENGTH = 200;
+/**
+ * Cap for the brand-only rescue `brand_alternatives` list returned by
+ * identify_web on multi-category brand inputs. Bounded to keep wire
+ * payload size predictable; UI typically renders the first 3-5.
+ */
+export const MAX_BRAND_ALTERNATIVES = 6;
+export const MAX_BRAND_ALTERNATIVE_LENGTH = 120;
 
 /** Coerce LLM family_chapter into a valid 2-digit string or null. */
 export function coerceFamilyChapter(v: unknown): string | null {
@@ -57,6 +64,26 @@ export function coerceProducts(v: unknown): string[] {
     if (trimmed.length === 0 || trimmed.length > MAX_PRODUCT_LABEL_LENGTH) continue;
     out.push(trimmed);
     if (out.length >= MAX_PRODUCTS) break;
+  }
+  return out;
+}
+
+/**
+ * Coerce brand_alternatives: array of short labels describing other
+ * product lines of a multi-category brand, returned by identify_web on
+ * brand-only inputs. Each entry should be human-readable noun phrase
+ * (e.g. "video conferencing camera", "LED signage"). Bounded length +
+ * count so wire payload size is predictable.
+ */
+export function coerceBrandAlternatives(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const entry of v) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (trimmed.length === 0 || trimmed.length > MAX_BRAND_ALTERNATIVE_LENGTH) continue;
+    out.push(trimmed);
+    if (out.length >= MAX_BRAND_ALTERNATIVES) break;
   }
   return out;
 }

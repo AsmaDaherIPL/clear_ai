@@ -86,6 +86,17 @@ function classificationStatusFor(
 ): ClassificationStatus | null {
   if (pick.kind === 'escalate') return 'ZERO_SIGNAL';
   if (verify?.result === 'UNCERTAIN') return 'DRIFT';
+  // Brand-only rescue path: identify committed at low confidence
+  // (typically 0.40-0.55). Even if pick.fit === 'fits', the
+  // classification is a brand-based inference, not a description
+  // match. Report DRIFT so the SPA renders the "low confidence /
+  // please review" treatment instead of the green AGREEMENT pill.
+  if (
+    identify.kind === 'clean_product' &&
+    identify.confidence < IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD
+  ) {
+    return 'DRIFT';
+  }
   if (identify.kind === 'clean_product' && pick.fit === 'fits') return 'AGREEMENT';
   return 'DRIFT';
 }
@@ -97,6 +108,22 @@ function classificationStatusFor(
  *   pick.escalate (any reason)    -> 'verdict_escalate' or 'low_information'
  *   otherwise                     -> null (accept clean)
  */
+/**
+ * Identify confidence below this threshold + accepted pick → auto-route
+ * to operator review (verifier_uncertain). Covers the brand-only rescue
+ * path where identify_web commits to a flagship product line at
+ * confidence 0.40-0.55. The picker may emit `fits` on whatever the
+ * scope+retrieval pool produced, but downstream review must
+ * double-check because the canonical itself was a low-confidence
+ * inference (brand → flagship), not a description-based fact.
+ *
+ * Threshold 0.60 chosen so it triggers on the brand-only path (0.40-
+ * 0.55) but not on routine clean_product identifies (>= 0.70 in
+ * practice). Tighter than scope_selection's 0.70 because this gates
+ * HITL routing, not retrieval.
+ */
+const IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD = 0.60;
+
 function buildHitl(
   pick: PickResult,
   identify: IdentifyResult,
@@ -122,6 +149,20 @@ function buildHitl(
       return { reason: 'low_information', cleaned_description: cleaned };
     }
     return { reason: 'verdict_escalate', cleaned_description: cleaned };
+  }
+  // Brand-only rescue routing: identify committed to a flagship product
+  // line at low confidence (typically 0.40-0.55 from identify-web's
+  // brand-only handler). Pick accepted whatever scope+retrieval
+  // surfaced; verifier passed (its rules don't fire on this case
+  // because they target identify-HIGH-confidence disagreements).
+  // Honesty requires routing to operator review even though everything
+  // technically passed — the canonical was a guess.
+  if (
+    pick.kind === 'accepted' &&
+    identify.kind === 'clean_product' &&
+    identify.confidence < IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD
+  ) {
+    return { reason: 'verifier_uncertain', cleaned_description: cleaned };
   }
   return null;
 }
@@ -192,9 +233,17 @@ export async function runPipeline(
   ]);
 
   // ---- Stage 2b conditional: identify_web fallback ----
+  // Pass the declared value + currency so the prompt's brand-only
+  // handler can use price tier to disambiguate which product line of
+  // a multi-category brand this row represents (e.g. "maxhub" at
+  // 150 SAR → accessory; at 30000 SAR → interactive flat panel).
   let identify: IdentifyResult = identifyFast;
   if (shouldRunWebFallback(identifyFast)) {
-    identify = await runIdentifyWeb(rawDescription, identifyFast);
+    const valueHint =
+      typeof item.valueAmount === 'number' && Number.isFinite(item.valueAmount)
+        ? { amount: item.valueAmount, currency: item.currencyCode }
+        : null;
+    identify = await runIdentifyWeb(rawDescription, identifyFast, valueHint);
   }
 
   const merchantResolutionTrace = buildResolutionTrace(

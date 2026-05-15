@@ -20,6 +20,7 @@ import { extractJson } from '../../../../inference/llm/parse-json.js';
 import { loadPrompt } from '../../../../inference/llm/structured-call.js';
 import {
   MAX_REASON_LENGTH,
+  coerceBrandAlternatives,
   coerceConfidence,
   coerceFamilyChapter,
   coerceIdentityTokens,
@@ -41,6 +42,12 @@ const IdentifyOutputSchema = z
     evidence: z.unknown().optional(),
     products: z.unknown().optional(),
     reason: z.unknown().optional(),
+    /**
+     * Brand-only rescue: other product lines of the brand the model
+     * could have committed to. Surfaced to the SPA / HITL reviewer
+     * for context; not used downstream by retrieval.
+     */
+    brand_alternatives: z.unknown().optional(),
   })
   .passthrough();
 
@@ -109,6 +116,11 @@ function buildResult(
       );
     }
     const { evidence, mismatch } = resolveEvidence(parsed.evidence, webSearchUsed);
+    // Brand-only rescue: model commits to a flagship product line at
+    // low confidence and lists other lines as alternatives. The
+    // alternatives field is optional; absent on description-based
+    // identifies.
+    const brandAlternatives = coerceBrandAlternatives(parsed.brand_alternatives);
     return {
       kind: 'clean_product',
       canonical: canonicalRaw,
@@ -116,6 +128,7 @@ function buildResult(
       identity_tokens: coerceIdentityTokens(parsed.identity_tokens),
       confidence: coerceConfidence(parsed.confidence),
       evidence,
+      ...(brandAlternatives.length > 0 ? { brand_alternatives: brandAlternatives } : {}),
       trace: traceFromCall(callResult, mismatch),
     };
   }
@@ -192,11 +205,25 @@ function parseWebReply(result: LlmCallResult): IdentifyResult {
  * IdentifyResult as context so the prompt can see what was tried.
  * Returns the IdentifyResult that REPLACES the fast pass result for
  * downstream stages.
+ *
+ * `value_hint` carries the declared line value (in the merchant's
+ * currency) plus the currency code, so the brand-only handler in the
+ * prompt can use price-band signal to disambiguate which product line
+ * of a multi-category brand the row most likely represents. Example:
+ * "maxhub" at 150 SAR → accessory (cable / pen), not a 30,000-SAR
+ * interactive flat-panel display. Pass null when no value is available
+ * (rare — the pipeline always parses one).
  */
 export async function runIdentifyWeb(
   raw_description: string,
   previousAttempt: IdentifyResult,
+  value_hint?: { amount: number; currency: string } | null,
 ): Promise<IdentifyResult> {
+  // Normalise the optional value hint so the user payload always
+  // carries the field (null when absent). Tests and older callers
+  // omitting the param degrade gracefully — no price-tier signal but
+  // the brand-only handler can still pick the flagship line.
+  const valueHint = value_hint ?? null;
   const trimmed = raw_description.trim();
   if (trimmed.length === 0) {
     return uninformative('empty input', 'short_circuit', {
@@ -213,11 +240,13 @@ export async function runIdentifyWeb(
   const policy = getLlmStagePolicy('identify_web_fallback');
   const system = await loadPrompt('identify-web.md');
 
-  // Build user payload: raw description + previous_attempt context so
-  // the prompt knows what the fast pass tried.
+  // Build user payload: raw description + previous_attempt context +
+  // value_hint so the brand-only path can use price tier to choose
+  // which product line of a multi-category brand to commit to.
   const userPayload = JSON.stringify({
     description: trimmed,
     previous_attempt: summarisePrevious(previousAttempt),
+    value_hint: valueHint,
   });
 
   const result = await callLlmWithRetry(
