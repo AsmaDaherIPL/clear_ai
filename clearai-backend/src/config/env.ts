@@ -50,22 +50,6 @@ const EnvSchema = z
     LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
 
     /**
-     * Pipeline architecture selector. Phased migration from the legacy
-     * parallel-tracks design (cleanup + researcher + retrieval + picker +
-     * codebook walk + 11-rule reconciliation) to the anchored three-stage
-     * design (identify -> constrain -> pick).
-     *
-     * Default 'legacy' until the anchored pipeline is built and shadow-
-     * mode validated. The /pipeline/dispatch route also accepts a
-     * per-call ?architecture=... query param that overrides this flag
-     * for a single classification, used for ad-hoc testing without
-     * flipping the global default.
-     *
-     * Migration plan: PR-A-1 through PR-A-7 (see master table).
-     */
-    PIPELINE_ARCHITECTURE: z.enum(['legacy', 'anchored', 'v2']).default('legacy'),
-
-    /**
      * Rolling window size for the transient-rate soft-warn breaker. The
      * last N LLM call outcomes are tracked; transient_rate is the share of
      * those classified as 'transient'. Independent of the hard auth-class

@@ -18,9 +18,8 @@
  * what's offered or escalates. The verifier (PR 10) handles routing
  * (PASS/UNCERTAIN); the picker emits the decision.
  *
- * Reuses the existing `anchored_pick` LlmStage policy (Sonnet, 15s
- * timeout, 3 parse-retry attempts, 50s total budget). The stage name
- * will be renamed in PR 13 when legacy/anchored is deleted.
+ * Uses the `pick` LlmStage policy (Sonnet, 15s timeout, 3 parse-retry
+ * attempts, 50s total budget).
  */
 import { z } from 'zod';
 import { env } from '../../../../config/env.js';
@@ -205,7 +204,7 @@ async function attemptPick(params: {
   while (attempt <= PARSE_RETRY_LIMIT) {
     const llm = await callLlmWithRetry(
       {
-        stage: 'anchored_pick', // reused; renamed in PR 13
+        stage: 'pick',
         system: params.system,
         user: params.user,
         model: params.model,
@@ -280,7 +279,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     return escalate;
   }
 
-  const policy = getLlmStagePolicy('anchored_pick');
+  const policy = getLlmStagePolicy('pick');
   const system = await loadPrompt('pick.md');
   const user = buildUser(query, candidates);
   const allowedCodes = new Set(candidates.map((c) => c.code));

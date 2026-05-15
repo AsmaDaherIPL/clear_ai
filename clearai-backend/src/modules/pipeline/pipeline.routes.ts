@@ -285,6 +285,11 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       } | null) ?? {};
 
       const trace = row.trace as DispatchV1Response['trace'] | null;
+      // Pipeline architecture is inferred from the wire summary so this
+      // GET handler can render rows from any era (legacy + anchored
+      // pre-PR 13, v2 from PR 13 onwards).
+      const arch = trace?.summary?.pipeline_architecture ?? 'legacy';
+      // Legacy fields: description_classifier + reconciliation actions.
       const dcAction = trace ? findActionInTrace(trace, 'description_classifier') : null;
       const dcOutput =
         (dcAction?.output as
@@ -294,6 +299,38 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       const submissionOutput = (submissionAction?.output as { description_ar?: string } | undefined) ?? {};
       const reconciliationAction = trace ? findActionInTrace(trace, 'reconciliation') : null;
       const reconciliationOutput = (reconciliationAction?.output as { classification_status?: ClassificationStatus } | undefined) ?? {};
+      // v2 fields: identify + pick + verify actions. Mirrors
+      // retrievalQueryFromTrace + classificationStatusFromTrace +
+      // classificationConfidenceFromTrace in dispatch-v1.ts.
+      const identifyAction = trace ? findActionInTrace(trace, 'identify') : null;
+      const identifyOutput =
+        (identifyAction?.output as
+          | { kind?: string; canonical?: string }
+          | undefined) ?? {};
+      const pickAction = trace ? findActionInTrace(trace, 'pick') : null;
+      const pickOutput =
+        (pickAction?.output as
+          | { kind?: string; confidence?: number; fit?: string }
+          | undefined) ?? {};
+      const v2RetrievalQuery =
+        identifyOutput.kind === 'clean_product' ? identifyOutput.canonical ?? null : null;
+      const v2ClassificationStatus: ClassificationStatus | null =
+        arch === 'v2'
+          ? (trace?.summary as { pipeline_architecture: string } & Record<string, unknown> | undefined) &&
+            pickOutput.kind === 'escalate'
+              ? 'ZERO_SIGNAL'
+              : pickOutput.kind === 'accepted' &&
+                identifyOutput.kind === 'clean_product' &&
+                pickOutput.fit === 'fits'
+                ? 'AGREEMENT'
+                : pickOutput.kind === 'accepted'
+                  ? 'DRIFT'
+                  : null
+          : null;
+      const v2PickerConfidence =
+        pickOutput.kind === 'accepted' && typeof pickOutput.confidence === 'number'
+          ? pickOutput.confidence
+          : null;
 
       const canonical = assembleCanonicalItem({
         id: row.id,
@@ -308,7 +345,9 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
         catalogPathAr: catalogPath.path_ar,
         submissionDescriptionAr: submissionOutput.description_ar ?? null,
         submissionDescriptionEn: null,
-        retrievalQuery: dcOutput.effective_description ?? null,
+        retrievalQuery: arch === 'v2'
+          ? v2RetrievalQuery
+          : (dcOutput.effective_description ?? null),
         valueSar: {
           amount: request.value_amount ?? null,
           currency: request.currency_code ?? null,
@@ -317,8 +356,12 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
         fxRateAsOf: null,
         dutyInfo: enrichment.duty_info,
         procedures: enrichment.procedures,
-        classificationStatus: reconciliationOutput.classification_status ?? null,
-        classificationConfidence: dcOutput.picker_confidence ?? null,
+        classificationStatus: arch === 'v2'
+          ? v2ClassificationStatus
+          : (reconciliationOutput.classification_status ?? null),
+        classificationConfidence: arch === 'v2'
+          ? v2PickerConfidence
+          : (dcOutput.picker_confidence ?? null),
         sanityVerdict: (row.sanity_verdict as SanityVerdict | null) ?? null,
         trace: includeTrace ? (trace as Record<string, unknown> | null) : null,
         error: null,

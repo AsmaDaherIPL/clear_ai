@@ -33,11 +33,16 @@ export async function recordClassificationEvent(
   const trace = response.trace;
 
   const classifyStage = findStage(trace.stages, 'classify');
+  // Legacy + anchored fields. Under v2 these actions don't appear so
+  // the values stay null and tenant_override_applied falls back to the
+  // v2 merchant_resolution branch below.
   const dcAction = classifyStage ? findAction(classifyStage, 'description_classifier') : null;
   const crAction = classifyStage ? findAction(classifyStage, 'code_resolver') : null;
+  const mrAction = classifyStage ? findAction(classifyStage, 'merchant_resolution') : null;
 
   const dcOutput = (dcAction?.output as Record<string, unknown> | undefined) ?? {};
   const crOutput = (crAction?.output as Record<string, unknown> | undefined) ?? {};
+  const mrOutput = (mrAction?.output as Record<string, unknown> | undefined) ?? {};
 
   const annotatedCandidates = Array.isArray(dcOutput.annotated_candidates)
     ? (dcOutput.annotated_candidates as Array<{ code?: unknown; fit?: unknown }>)
@@ -48,12 +53,20 @@ export async function recordClassificationEvent(
     ? descriptionClassifierTopFitCode
     : null;
 
+  // code_resolver_resolved_code: legacy code_resolver action under legacy,
+  // merchant_resolution.resolved_code under v2.
   const codeResolverResolvedCode =
-    typeof crOutput.resolved_code === 'string' ? crOutput.resolved_code : null;
+    typeof crOutput.resolved_code === 'string' ? crOutput.resolved_code
+    : typeof mrOutput.resolved_code === 'string' ? mrOutput.resolved_code
+    : null;
   const codeResolverResolution =
     typeof crOutput.resolution === 'string' ? (crOutput.resolution as TrackBResolution) : null;
   const codeResolverPath = mapResolverPath(codeResolverResolution);
-  const tenantOverrideApplied = crOutput.override_applied === true;
+  // tenant_override_applied: legacy code_resolver.override_applied OR v2
+  // merchant_resolution.override_matched (both are booleans). Either
+  // path lights the audit flag in the events table.
+  const tenantOverrideApplied =
+    crOutput.override_applied === true || mrOutput.override_matched === true;
 
   const redactedRequest = redactRequestBody(request) ?? null;
 

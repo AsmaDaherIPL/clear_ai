@@ -267,7 +267,24 @@ export async function handleListClassifications(
             (i.canonical ->> 'fxRate')::numeric         AS fx_rate,
             (i.canonical ->> 'fxRateAsOf')              AS fx_rate_as_of,
             COALESCE(
-              -- Legacy: verdict.classification_status / conflict_type
+              -- v2 (PR 13, current): mirror classificationStatusFromTrace
+              -- in src/modules/pipeline/trace/dispatch-v1.ts. pick.escalate
+              -- → ZERO_SIGNAL; verify.UNCERTAIN → DRIFT; pick.accepted +
+              -- identify.clean_product + fit=fits → AGREEMENT; else DRIFT.
+              CASE
+                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'kind') = 'escalate'
+                  THEN 'ZERO_SIGNAL'
+                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'verify' ->> 'result') = 'UNCERTAIN'
+                  THEN 'DRIFT'
+                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'kind') = 'accepted'
+                  AND (i.trace -> 'meta' -> 'pipeline_v2' -> 'identify' ->> 'kind') = 'clean_product'
+                  AND (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'fit') = 'fits'
+                  THEN 'AGREEMENT'
+                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'kind') = 'accepted'
+                  THEN 'DRIFT'
+                ELSE NULL
+              END,
+              -- Legacy (pre-PR 13 rows, read-only): verdict.classification_status
               i.trace -> 'meta' -> 'verdict' ->> 'classification_status',
               CASE i.trace -> 'meta' -> 'verdict' ->> 'conflict_type'
                 WHEN 'AGREEMENT' THEN 'AGREEMENT'
@@ -278,10 +295,7 @@ export async function handleListClassifications(
                 WHEN 'SPARSE_DESCRIPTION' THEN 'DRIFT'
                 ELSE NULL
               END,
-              -- Anchored (PR-A-5.1): mirror classificationStatusFromTrace
-              -- in src/modules/pipeline/trace/dispatch-v1.ts. pick.escalate
-              -- → ZERO_SIGNAL; pick.accepted + identify.clean_product +
-              -- fit=fits → AGREEMENT; any other accepted shape → DRIFT.
+              -- Anchored (pre-PR 13 rows, read-only): pick + identify.
               CASE
                 WHEN (i.trace -> 'meta' -> 'anchored_pick' ->> 'kind') = 'escalate'
                   THEN 'ZERO_SIGNAL'
@@ -302,11 +316,15 @@ export async function handleListClassifications(
             -- canonical column has been the source of truth all along.
             (i.canonical ->> 'merchantHsCode')                      AS raw_merchant_code,
             (i.canonical ->> 'description')                         AS raw_description,
-            -- retrieval_query: under legacy, track_a.effective_description;
-            -- under anchored, identify.canonical when identify produced
-            -- a clean_product. Mirrors retrievalQueryFromTrace in
-            -- dispatch-v1.ts.
+            -- retrieval_query: v2 reads identify.canonical from the new
+            -- structured trace; legacy + anchored fallback for older
+            -- rows. Mirrors retrievalQueryFromTrace in dispatch-v1.ts.
             COALESCE(
+              CASE
+                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'identify' ->> 'kind') = 'clean_product'
+                  THEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'identify' ->> 'canonical')
+                ELSE NULL
+              END,
               i.trace -> 'meta' -> 'track_a' ->> 'effective_description',
               CASE
                 WHEN (i.trace -> 'meta' -> 'anchored_identify' ->> 'kind') = 'clean_product'
@@ -314,10 +332,15 @@ export async function handleListClassifications(
                 ELSE NULL
               END
             )                                                       AS retrieval_query,
-            -- picker_confidence: legacy track_a.picker_confidence; anchored
-            -- pick.confidence when pick accepted. Mirrors
+            -- picker_confidence: v2 pick.confidence; legacy + anchored
+            -- fallback for older rows. Mirrors
             -- classificationConfidenceFromTrace in dispatch-v1.ts.
             COALESCE(
+              CASE
+                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'kind') = 'accepted'
+                  THEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'confidence')
+                ELSE NULL
+              END,
               i.trace -> 'meta' -> 'track_a' ->> 'picker_confidence',
               CASE
                 WHEN (i.trace -> 'meta' -> 'anchored_pick' ->> 'kind') = 'accepted'

@@ -7,7 +7,7 @@
  *  - audit_flag fires only when picked from non-merchant arm AND chapter disagrees
  *  - escalate paths (identify_no_query, no_candidates, picker_unavailable on
  *    transport, picker_unavailable on parse, no_candidate_fits)
- *  - LLM call shape (stage=anchored_pick, Sonnet, candidate payload includes
+ *  - LLM call shape (stage=pick, Sonnet, candidate payload includes
  *    source_arm)
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -395,7 +395,7 @@ describe('runPick — LLM call shape', () => {
     const args = mockedCall.mock.calls[0]![0];
     expect(args.model).toBe('mock-sonnet');
     expect(args.temperature).toBe(0);
-    expect(args.stage).toBe('anchored_pick');
+    expect(args.stage).toBe('pick');
     expect(mockedCall.mock.calls[0]![1]).toBe(0);
   });
 

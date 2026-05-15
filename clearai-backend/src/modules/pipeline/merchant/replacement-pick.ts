@@ -131,7 +131,7 @@ async function llmClassify(params: {
   parentPrefix?: string;
   stage?: LlmStage;
 }): Promise<LlmClassifyResult> {
-  const stage: LlmStage = params.stage ?? 'constrain_pick';
+  const stage: LlmStage = params.stage ?? 'merchant_replacement_pick';
   const policy = getLlmStagePolicy(stage);
   const pickerFile = params.kind === 'describe' ? 'picker-describe.md' : 'picker-expand.md';
   const [gir, picker] = await Promise.all([
@@ -271,7 +271,7 @@ export async function pickAmongReplacements(
       i,
     ),
   );
-  const result = await llmClassify({ kind: 'describe', query, candidates, stage: 'constrain_pick' });
+  const result = await llmClassify({ kind: 'describe', query, candidates, stage: 'merchant_replacement_pick' });
   if (result.llmStatus !== 'ok' || result.parseFailed) return null;
   const topFit =
     result.verdicts.find((v) => v.fit === 'fits') ?? result.verdicts.find((v) => v.fit === 'partial');
@@ -296,7 +296,7 @@ export async function pickUnderPrefix(
     query,
     candidates,
     parentPrefix: matchedPrefix,
-    stage: 'constrain_pick',
+    stage: 'merchant_replacement_pick',
   });
   if (result.llmStatus !== 'ok' || result.parseFailed) return null;
   const topFit =
