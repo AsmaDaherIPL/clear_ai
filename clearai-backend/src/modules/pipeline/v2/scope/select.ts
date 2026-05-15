@@ -93,8 +93,24 @@ const MERCHANT_RESOLVED_STATES = new Set([
   'expanded_prefix',
 ]);
 
-function merchantResolvedCleanly(r: MerchantResolution): boolean {
-  return MERCHANT_RESOLVED_STATES.has(r.state);
+/**
+ * True when merchant_resolution gives us a usable prefix to retrieve
+ * against. Includes the cleanly-resolved states plus `unknown` with a
+ * non-null `matched_prefix` — those are codes that didn't match an
+ * exact codebook entry but where the walk did recognize a partial
+ * prefix (HS6/HS8). That prefix is still authoritative signal: the
+ * merchant clearly thinks the product belongs in that family, and
+ * retrieval filtered to that prefix is better than no merchant arm.
+ *
+ * The original `merchantResolvedCleanly` guard treated `unknown` as
+ * "no merchant signal" and dropped to identify-only, which escalated
+ * scope-rule-1 on multi_product / uninformative identify even when the
+ * merchant prefix was usable. The relaxed guard rescues those rows.
+ */
+function merchantHasUsablePrefix(r: MerchantResolution): boolean {
+  if (MERCHANT_RESOLVED_STATES.has(r.state)) return true;
+  if (r.state === 'unknown' && r.matched_prefix !== null) return true;
+  return false;
 }
 
 /**
@@ -109,6 +125,10 @@ function merchantPrefixFor(r: MerchantResolution): string | null {
   if (r.state === 'override_applied') return r.resolved_code.slice(0, 8);
   if (r.state === 'llm_picked_replacement') return r.resolved_code.slice(0, 8);
   if (r.state === 'expanded_prefix') return r.valid_prefix; // deepest matched (6/8/10)
+  // Degraded path: unknown with a matched_prefix from the codebook walk.
+  // The merchant gave a code that didn't resolve to an exact entry but
+  // the walk recognized e.g. HS6. Use it as a wider merchant arm.
+  if (r.state === 'unknown' && r.matched_prefix !== null) return r.matched_prefix;
   return null;
 }
 
@@ -126,9 +146,11 @@ function merchantSourceFor(
     case 'active':
       return 'merchant_active';
     default:
-      // Unreachable per MERCHANT_RESOLVED_STATES gate. Default present
-      // for type-checker exhaustiveness.
-      return 'merchant_active';
+      // Reached on the `unknown` + matched_prefix degraded path; the
+      // merchant arm uses the recognized prefix (HS6/HS8). Label as
+      // 'merchant_expanded' since semantically the walk expanded what
+      // the merchant gave into the deepest valid prefix.
+      return 'merchant_expanded';
   }
 }
 
@@ -140,8 +162,13 @@ export function selectScopes(
   identify: IdentifyResult,
   merchantResolution: MerchantResolution,
 ): ScopeSelection {
-  // Rule 1: multi_product + no clean merchant → escalate.
-  if (identify.kind === 'multi_product' && !merchantResolvedCleanly(merchantResolution)) {
+  // Rule 1: multi_product + no usable merchant prefix → escalate.
+  // Updated 2026-05-15 to use merchantHasUsablePrefix() (instead of the
+  // tighter merchantResolvedCleanly) so a merchant code that walked to
+  // `unknown` but recognized an HS6/HS8 prefix still gets a chance.
+  // The picker's multi_product fallback (uses products[0] as query)
+  // will run against the merchant arm and verdict the dominant product.
+  if (identify.kind === 'multi_product' && !merchantHasUsablePrefix(merchantResolution)) {
     return {
       primary: { kind: 'escalate', reason: 'identify_multi_product' },
       secondaries: [],
@@ -149,8 +176,8 @@ export function selectScopes(
     };
   }
 
-  // Rule 2: uninformative + no clean merchant → escalate.
-  if (identify.kind === 'uninformative' && !merchantResolvedCleanly(merchantResolution)) {
+  // Rule 2: uninformative + no usable merchant prefix → escalate.
+  if (identify.kind === 'uninformative' && !merchantHasUsablePrefix(merchantResolution)) {
     return {
       primary: { kind: 'escalate', reason: 'identify_uninformative_no_merchant' },
       secondaries: [],
@@ -158,14 +185,18 @@ export function selectScopes(
     };
   }
 
-  // Rule 3: merchant resolved cleanly → primary = merchant_prefix.
-  if (merchantResolvedCleanly(merchantResolution)) {
+  // Rule 3: merchant has a usable prefix → primary = merchant_prefix.
+  // Covers both the cleanly-resolved states (active / replaced_single /
+  // override_applied / llm_picked_replacement / expanded_prefix) AND
+  // the degraded `unknown` with matched_prefix path. The latter uses
+  // the partial HS6/HS8 prefix the codebook walk recognized.
+  if (merchantHasUsablePrefix(merchantResolution)) {
     const prefix = merchantPrefixFor(merchantResolution);
     if (prefix === null) {
-      // Defensive: MERCHANT_RESOLVED_STATES guard guarantees prefix is
+      // Defensive: merchantHasUsablePrefix guarantees prefix is
       // non-null. Reaching here is a programmer error.
       throw new Error(
-        `scope_selection invariant: merchant resolved but prefix is null (state=${merchantResolution.state})`,
+        `scope_selection invariant: merchant has usable prefix but merchantPrefixFor returned null (state=${merchantResolution.state})`,
       );
     }
     const primary: RetrievalArm = {

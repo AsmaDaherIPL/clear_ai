@@ -253,6 +253,28 @@ describe('selectScopes — non-merchant primary scopes', () => {
     expect(r.primary.kind).toBe('family_chapter');
   });
 
+  it('unknown merchant WITH matched_prefix → merchant_prefix primary (degraded but usable, regression 2026-05-15)', () => {
+    // The codebook walk did not find an exact 10-digit match for
+    // "6206300000" but recognized "620630" as a valid HS6 prefix.
+    // Pre-fix: scope rule 1 (multi_product + !cleanly_resolved) bounced
+    // this to escalate because `unknown` was not in
+    // MERCHANT_RESOLVED_STATES. Post-fix: merchantHasUsablePrefix sees
+    // the non-null matched_prefix and routes through Rule 3.
+    const r = selectScopes(
+      { kind: 'multi_product', products: ['skirt', 'shirt'], trace: fastTrace },
+      {
+        state: 'unknown',
+        source_code: '6206300000',
+        cause: 'not_in_codebook',
+        matched_prefix: '620630',
+      },
+    );
+    expect(r.primary.kind).toBe('merchant_prefix');
+    if (r.primary.kind === 'merchant_prefix') {
+      expect(r.primary.prefix).toBe('620630');
+    }
+  });
+
   it('malformed merchant + identify clean with family → family_chapter primary', () => {
     const r = selectScopes(clean({ family: '85' }), {
       state: 'malformed',
