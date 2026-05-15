@@ -463,7 +463,6 @@ function AlternativeSidebarRow({
   onPick?: (code: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const rel = relationshipFor(alt.code, chosenCode);
   const hasDesc = Boolean(alt.description_en || alt.description_ar);
 
   return (
@@ -501,27 +500,22 @@ function AlternativeSidebarRow({
           )}
           <span>{alt.code}</span>
         </button>
-        <div className="flex items-center gap-1.5">
-          {onPick && (
-            <button
-              type="button"
-              onClick={() => onPick(alt.code)}
-              className={cn(
-                'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-                'inline-flex items-center px-2 py-0.5 rounded border border-[var(--line)]',
-                'font-mono text-[10px] uppercase tracking-[0.06em]',
-                'text-[var(--ink-3)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
-                'bg-[var(--surface)] transition-all duration-150',
-              )}
-              title={t('act_use_code')}
-            >
-              {t('act_use_code')}
-            </button>
-          )}
-          {rel !== 'no-chosen' && (
-            <RelationshipChip rel={rel} label={t(REL_KEY[rel])} />
-          )}
-        </div>
+        {onPick && (
+          <button
+            type="button"
+            onClick={() => onPick(alt.code)}
+            className={cn(
+              'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+              'inline-flex items-center px-2 py-0.5 rounded border border-[var(--line)]',
+              'font-mono text-[10px] uppercase tracking-[0.06em]',
+              'text-[var(--ink-3)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+              'bg-[var(--surface)] transition-all duration-150',
+            )}
+            title={t('act_use_code')}
+          >
+            {t('act_use_code')}
+          </button>
+        )}
       </div>
       {open && hasDesc && (
         <div className="pe-1 ps-[15px] flex flex-col gap-0.5 animate-[fadeIn_0.15s_ease_both]">
@@ -672,13 +666,13 @@ export default function ResultSingle({
   // as a 6-column gradient grid — the typographic monument the spec
   // asks for. See `CodeMonument` above for the rendering rule.
 
-  // Strong-match pill: shown when reconciliation produced AGREEMENT
-  // (both tracks agreed) — or when classification_status isn't reported
-  // (single-shot dispatch path that hasn't yet wired the field through),
-  // and the picker accepted the result outright.
+  // Strong-match pill: shown only when reconciliation produced AGREEMENT
+  // (both tracks agreed) or status is absent (older payloads). Explicitly
+  // excluded for DRIFT and ZERO_SIGNAL — those have their own pill or
+  // are not a reliable agreement signal.
   const showStrongMatch =
     data.decision_status === 'accepted' &&
-    (data.classification_status === 'AGREEMENT' || data.classification_status == null);
+    data.classification_status === 'AGREEMENT';
 
   // Sanity flag/block: surface the banner when FLAG or BLOCK.
   const sanityVerdict = data.sanity_verdict ?? null;
@@ -951,30 +945,39 @@ export default function ResultSingle({
             </div>
           )}
 
-          {/* §3 ZATCA DESCRIPTION — nested 2-col grey card (EN | AR) per mockup. */}
+          {/* §3 ZATCA DESCRIPTION — AR-primary. EN column only when non-null. */}
           {(r.description_en || r.description_ar) && (
             <div>
               <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2">
                 {t('res_main_zatca')}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-[18px] gap-y-3 px-4 py-3.5 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)]">
-                <div className="flex flex-col gap-1.5 min-w-0">
-                  <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">English</div>
-                  <div className="text-[14px] text-[var(--ink)] leading-[1.5] break-words">
-                    {r.description_en ? clampDescription(r.description_en) : '—'}
+              <div className={cn(
+                'gap-x-[18px] gap-y-3 px-4 py-3.5 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)]',
+                r.description_en
+                  ? 'grid grid-cols-1 md:grid-cols-2'
+                  : 'flex',
+              )}>
+                {r.description_ar && (
+                  <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                    <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">العربية</div>
+                    <div
+                      dir="rtl"
+                      lang="ar"
+                      className="text-[14px] text-[var(--ink)] leading-[1.5] break-words text-end"
+                      style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
+                    >
+                      {clampDescription(r.description_ar)}
+                    </div>
                   </div>
-                </div>
-                <div className="flex flex-col gap-1.5 min-w-0 md:items-end">
-                  <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">العربية</div>
-                  <div
-                    dir="rtl"
-                    lang="ar"
-                    className="text-[14px] text-[var(--ink)] leading-[1.5] break-words text-end"
-                    style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-                  >
-                    {r.description_ar ? clampDescription(r.description_ar) : '—'}
+                )}
+                {r.description_en && (
+                  <div className="flex flex-col gap-1.5 min-w-0 md:items-end">
+                    <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">English</div>
+                    <div className="text-[14px] text-[var(--ink)] leading-[1.5] break-words md:text-end">
+                      {clampDescription(r.description_en)}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           )}

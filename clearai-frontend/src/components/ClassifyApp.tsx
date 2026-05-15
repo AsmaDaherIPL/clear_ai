@@ -195,7 +195,8 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
     decision_status: accepted ? 'accepted' : 'needs_clarification',
     decision_reason: pickFitReason,
     classification_status: d.classification_result?.classification_status ?? undefined,
-    sanity_verdict: sanity,
+    // Only propagate FLAG/BLOCK to the UI — PASS is a no-op for display.
+    sanity_verdict: (sanity === 'FLAG' || sanity === 'BLOCK') ? sanity : null,
     sanity_rationale: sanityRationale,
     alternatives,
     anchored_candidate_summary: anchoredCandidateSummary,
