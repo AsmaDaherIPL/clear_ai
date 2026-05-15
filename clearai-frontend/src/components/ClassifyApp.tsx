@@ -283,7 +283,17 @@ const initialBatchState: BatchState = {
 };
 
 const POLL_INTERVAL_MS = 3000;
-const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min cap; backend can run longer but the UI won't watch indefinitely
+// Polling ceiling: 5 min for small batches, 15 min for large ones (>=100 rows).
+// A 200-row classify_and_declare run routinely takes 6-10 min; 5 min was too
+// tight and caused premature "Error / still in progress" for completed runs.
+const POLL_TIMEOUT_MS_SMALL = 5 * 60 * 1000;
+const POLL_TIMEOUT_MS_LARGE = 15 * 60 * 1000;
+const LARGE_BATCH_THRESHOLD = 100;
+function pollTimeoutMs(rowCount: number | null | undefined): number {
+  return (rowCount ?? 0) >= LARGE_BATCH_THRESHOLD
+    ? POLL_TIMEOUT_MS_LARGE
+    : POLL_TIMEOUT_MS_SMALL;
+}
 const PAGE_SIZE = 200; // page size when fetching classifications; max is 500 server-side
 const MAX_PAGES = 10;  // hard cap on auto-paging: 200 * 10 = 2000 items per run
 
@@ -512,16 +522,48 @@ export default function ClassifyApp() {
     const startedAt = Date.now();
     let summaryFetched = false;
     let finalSummaryFetched = false;
+    // Track row_count locally alongside state so the ceiling can scale
+    // once the first summary fetch resolves — avoids stale-closure issues
+    // with reading batchState inside the poll loop.
+    let knownRowCount: number | null = null;
 
     const poll = async (): Promise<void> => {
-      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+      // Dynamic ceiling: 15 min for large batches, 5 min for small.
+      // Uses the local knownRowCount which is updated on every summary fetch.
+      const ceiling = pollTimeoutMs(knownRowCount);
+      if (Date.now() - startedAt > ceiling) {
+        // Before showing an error, do one final check — the backend may
+        // have finished in the minute or two after our last tick. This is
+        // the exact scenario that caused "Error / still in progress" for a
+        // 6-min run on a 5-min ceiling: the run finished 76s after we gave up.
+        try {
+          const summary = await api.getDeclarationRun(runId);
+          const terminal = summary.status === 'completed' || summary.status === 'failed';
+          if (terminal) {
+            // Backend finished — fetch all pages and flip to done cleanly.
+            const finalCls = await fetchAllClassifications(runId);
+            setBatchState((s) => ({
+              ...s,
+              phase: 'done',
+              summary,
+              items: mergeItemsById(s.items, finalCls.items),
+              errorMessage: null,
+            }));
+            return;
+          }
+        } catch {
+          // Recovery fetch failed — fall through to the timeout message below.
+        }
+        // Genuinely still running past ceiling — informational, not "Error".
+        const minutesCeiling = Math.round(ceiling / 60_000);
         setBatchState((s) => ({
           ...s,
           phase: 'error',
-          errorMessage: 'Run still in progress after 5 minutes — check the run page later.',
+          errorMessage: `Run still in progress after ${minutesCeiling} minutes — check the run page later.`,
         }));
         return;
       }
+
       try {
         // Fetch the run summary on every tick (cheap GET) so the header
         // stat chips (succeeded / flagged / failed) stay accurate
@@ -529,6 +571,7 @@ export default function ClassifyApp() {
         // the skeleton table knows how many lines to pre-render.
         try {
           const summary = await api.getDeclarationRun(runId);
+          knownRowCount = summary.row_count ?? knownRowCount;
           setBatchState((s) => ({ ...s, summary }));
           summaryFetched = true;
         } catch {
@@ -586,7 +629,7 @@ export default function ClassifyApp() {
           } else if (err.status === 503) {
             // 503 is transient (APIM circuit-breaker, backend warming
             // up). Retry on the standard interval rather than failing
-            // hard — but only up to POLL_TIMEOUT_MS overall.
+            // hard — but only up to the dynamic ceiling overall.
             pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS * 2);
             return;
           } else {
