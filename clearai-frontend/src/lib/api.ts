@@ -148,9 +148,17 @@ export interface AlternativeLine {
   /**
    * Track of origin for "Considered alternatives" grouping in the
    * sidebar. 'track_a' = annotated_candidates (RRF/picker output),
-   * 'track_b' = subtree_candidates (merchant-prefix-anchored).
+   * 'track_b' = subtree_candidates (merchant-prefix-anchored). Both
+   * retained for pre-PR-13 rows; v2 rows use `source_arm` on the wire
+   * which the dispatcher maps onto the v2 retrieval arms.
    */
   track?: 'track_a' | 'track_b';
+  /**
+   * v2 (PR 13) retrieval-arm of origin. One of the four multi-arm
+   * arms. Surfaced for audit only; the picker treats every candidate
+   * the same regardless of arm.
+   */
+  source_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
 }
 
 export interface ModelInfo {
@@ -231,9 +239,27 @@ export interface DecisionEnvelopeBase {
   anchored_candidate_summary?: AnchoredCandidateSummary | null;
   /**
    * Human-readable retrieval query used by the pipeline.
-   * Under anchored: `identify.canonical`. Under legacy: effective_description.
+   * Under v2 + anchored: `identify.canonical`. Under legacy:
+   * effective_description.
    */
   retrieval_query?: string | null;
+  /**
+   * v2 verifier outcome (PR 13). Surfaced on the envelope so the
+   * result page can render a banner when UNCERTAIN. PASS / null both
+   * mean "no operator review needed from the verifier perspective"
+   * (sanity may still flag).
+   */
+  verifier_result?: 'PASS' | 'UNCERTAIN' | null;
+  /**
+   * Rules that triggered when verifier_result === 'UNCERTAIN'. Used by
+   * the banner to tell the operator what specifically disagreed.
+   * Example values:
+   *   identify_chapter_disagreement — identify confident in chapter X,
+   *                                   picker picked chapter Y
+   *   confidence_inversion          — picker low-confidence partial,
+   *                                   identify high-confidence clean
+   */
+  verifier_rules_triggered?: string[] | null;
   model: ModelInfo;
 }
 
@@ -279,27 +305,37 @@ export interface DispatchRequest {
  *
  * Three-level vocabulary, never overloaded:
  *   stage   = top-level pipeline phase: normalize | classify | sanity
- *   action  = inside stage.actions[]:   parse, cleanup, description_classifier,
- *                                        code_resolver, reconciliation,
- *                                        submission_description, sanity_check
- *   step    = inside action.steps[]:    researcher, retrieval, threshold,
- *                                        web_researcher, picker, …
+ *   action  = inside stage.actions[]
+ *   step    = inside action.steps[]
+ *
+ * The union includes pre-PR-13 (legacy + anchored) action/step names so
+ * historic rows still render. v2 actions are the live additions:
+ *   merchant_resolution, scope_selection, multi_arm_retrieval, rerank,
+ *   verify — plus retrieve_* steps inside multi_arm_retrieval.
  */
 export type DispatchOutcome = 'ok' | 'skipped' | 'failed' | 'failed_gate';
 export type DispatchStageName = 'normalize' | 'classify' | 'sanity';
 export type DispatchActionName =
   | 'parse'
+  // Legacy + anchored actions (pre-PR 13). Kept for historic-row rendering.
   | 'cleanup'
   | 'description_classifier'
   | 'code_resolver'
   | 'reconciliation'
+  | 'constrain'
+  // Shared.
+  | 'identify'
+  | 'pick'
   | 'submission_description'
   | 'sanity_check'
-  // anchored-pipeline actions (PR-A-5+)
-  | 'identify'
-  | 'constrain'
-  | 'pick';
+  // v2 actions (PR 13).
+  | 'merchant_resolution'
+  | 'scope_selection'
+  | 'multi_arm_retrieval'
+  | 'rerank'
+  | 'verify';
 export type DispatchStepName =
+  // Legacy + anchored steps (pre-PR 13).
   | 'researcher'
   | 'retrieval'
   | 'threshold'
@@ -309,12 +345,19 @@ export type DispatchStepName =
   | 'picker'
   | 'operator_override_lookup'
   | 'codebook_lookup'
-  // anchored steps
-  | 'identify_llm'
   | 'constrain_codebook_walk'
+  | 'constrain_override_lookup'
   | 'constrain_scope_select'
+  // Shared.
+  | 'identify_llm'
+  | 'identify_web_search'
   | 'pick_retrieval'
-  | 'pick_llm';
+  | 'pick_llm'
+  // v2 retrieve arms (PR 13).
+  | 'retrieve_merchant_prefix'
+  | 'retrieve_family_chapter'
+  | 'retrieve_unconstrained'
+  | 'retrieve_lexical_tokens';
 
 export interface DispatchStep {
   step: DispatchStepName;
@@ -347,10 +390,14 @@ export interface DispatchStage {
 }
 
 export interface DispatchSummary {
-  /** 'legacy' = track_a/track_b; 'anchored' = identify/constrain/pick. Default legacy when absent. */
-  pipeline_architecture?: 'legacy' | 'anchored';
+  /**
+   * Discriminator. 'v2' is the live PR 13 pipeline; 'legacy' and
+   * 'anchored' values appear only on rows persisted before PR 13.
+   * Default 'legacy' when absent for the same reason.
+   */
+  pipeline_architecture?: 'legacy' | 'anchored' | 'v2';
   merchant_code_state: string | null;
-  // Legacy fields
+  // Legacy fields (null under anchored + v2)
   description_classifier_code?: string | null;
   code_resolver_code?: string | null;
   reconciliation?:
@@ -359,11 +406,33 @@ export interface DispatchSummary {
     | 'reconciled'
     | 'escalated'
     | null;
-  // Anchored fields (PR-A-5+)
-  identify_kind?: string | null;
-  scope_kind?: string | null;
-  pick_fit?: string | null;
-  pick_escalate_reason?: string | null;
+  // Anchored fields (null under legacy + v2; first set in PR-A-5).
+  identify_kind?: 'clean_product' | 'multi_product' | 'uninformative' | null;
+  scope_kind?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'escalate' | 'lexical_tokens' | null;
+  pick_fit?: 'fits' | 'partial' | null;
+  pick_escalate_reason?:
+    | 'scope_escalate'
+    | 'no_candidates'
+    | 'no_candidate_fits'
+    | 'identify_no_query'
+    | 'picker_unavailable'
+    | null;
+  // v2 fields (PR 13). Null under legacy + anchored.
+  /** Which identify pass committed the result: fast (no web) or web fallback. */
+  identify_pass?: 'fast' | 'web' | null;
+  /** Which retrieval arm surfaced the picker's chosen candidate. */
+  picked_from_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens' | null;
+  /** True when first-2 of final_code differs from first-2 of merchant code. */
+  merchant_chapter_disagreement?: boolean | null;
+  /** Count of scope.secondaries (0-3). */
+  secondary_arm_count?: number | null;
+  /** Per-arm post-dedupe candidate counts. */
+  candidate_count_by_arm?: Record<string, number> | null;
+  /** Deterministic verifier outcome. */
+  verifier_result?: 'PASS' | 'UNCERTAIN' | null;
+  /** Verifier rules that triggered (empty array when PASS). */
+  verifier_rules_triggered?: string[] | null;
+  // Shared
   operator_override_applied: boolean;
   final_code: string | null;
   sanity_verdict: 'PASS' | 'FLAG' | 'BLOCK' | null;
@@ -442,12 +511,12 @@ export interface AnchoredCandidateSummary {
 }
 
 /**
- * Optional `trace.meta` block on the dispatch response. Surfaces:
- *   - track_a.annotated_candidates : RRF-scored picker candidates
- *   - track_b.subtree_candidates    : merchant-prefix-anchored candidates
- *   - verdict                       : final reconciliation outcome
- * The frontend reads `annotated_candidates` and `subtree_candidates` to
- * populate the "Considered alternatives" sidebar.
+ * Optional `trace.meta` block on the dispatch response.
+ *
+ * Pre-PR-13 rows carry `track_a/track_b/verdict` (legacy) or
+ * `anchored_identify/anchored_constrain/anchored_pick` (anchored). PR 13
+ * rows carry `pipeline_v2`. Consumers should branch on
+ * `summary.pipeline_architecture` first and read the matching block.
  */
 export interface DispatchTraceMeta {
   track_a?: {
@@ -475,6 +544,74 @@ export interface DispatchTraceMeta {
     verdict?: string;
     rationale?: string;
   } | null;
+  /**
+   * v2 (PR 13) structured stage outputs. Each block is the typed result
+   * from one pipeline stage. The picker may pick from any retrieval arm;
+   * `pipeline_v2.pick.picked_from_arm` is the audit-grade signal.
+   */
+  pipeline_v2?: {
+    identify?: {
+      kind?: 'clean_product' | 'multi_product' | 'uninformative';
+      canonical?: string;
+      family_chapter?: string | null;
+      identity_tokens?: string[];
+      confidence?: number;
+      evidence?: 'world_knowledge' | 'web';
+      products?: string[];
+      cause?: string;
+      reason?: string;
+      trace?: {
+        pass?: 'fast' | 'web';
+        latency_ms?: number;
+        model?: string | null;
+        web_search_used?: boolean;
+        evidence_mismatch?: boolean;
+      };
+    };
+    merchant_resolution?: {
+      resolution?: {
+        state?: string;
+        resolved_code?: string;
+        source_code?: string;
+        cause?: string;
+      };
+      trace?: {
+        latency_ms?: number;
+        override_attempted?: boolean;
+        override_matched?: boolean;
+      };
+    };
+    scope?: {
+      primary?: { kind?: string; prefix?: string; chapter?: string; tokens?: string[]; reason?: string };
+      secondaries?: Array<{ kind?: string; chapter?: string; tokens?: string[] }>;
+      audit_flags?: string[];
+    };
+    retrieval?: {
+      primary_candidate_count?: number;
+      secondary_candidate_counts?: Record<string, number>;
+      candidates_before_rerank?: number;
+      candidates_after_rerank?: number;
+    };
+    pick?: {
+      kind?: 'accepted' | 'escalate';
+      final_code?: string;
+      fit?: 'fits' | 'partial';
+      confidence?: number;
+      gir_applied?: string;
+      verdict_population?: { fits: number; partial: number; does_not_fit: number };
+      picked_from_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
+      merchant_chapter_disagreement?: boolean;
+      candidate_count_by_arm?: Record<string, number>;
+      reason?: string;
+      detail?: string;
+      trace?: { latency_ms?: number; model?: string | null; candidate_count?: number; audit_flag?: boolean };
+    };
+    verify?: {
+      result?: 'PASS' | 'UNCERTAIN';
+      rules_triggered?: string[];
+    };
+    sanity?: { verdict?: string; rationale?: string } | null;
+  };
 }
 
 /** Per-item shape on the dispatch envelope. Same as one `BatchItemsPage.items` entry. */

@@ -55,7 +55,34 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
   let anchoredCandidateSummary: AnchoredCandidateSummary | null = null;
   let retrievalQuery: string | null = d.resolved_hs_code_description?.retrieval_query ?? null;
 
-  if (arch === 'anchored') {
+  if (arch === 'v2') {
+    // v2 (PR 13): aggregate counts from pick action output (same shape
+    // as anchored — kept compatible on purpose). retrieval_query
+    // sourced from identify.canonical. alternatives[] stays empty
+    // because per-candidate verdicts are not on the wire under v2; the
+    // picker's `verdict_population` carries aggregate counts only.
+    const classifyStage = (d.trace?.stages ?? []).find((s) => s.stage === 'classify');
+    const pickAction = classifyStage?.actions?.find((a) => a.action === 'pick');
+    const pickOut = pickAction?.output as AnchoredPickOutput | undefined;
+
+    if (pickOut?.verdict_population) {
+      const p = pickOut.verdict_population;
+      anchoredCandidateSummary = {
+        kind: 'aggregate',
+        candidate_count: p.fits + p.partial + p.does_not_fit,
+        fits: p.fits,
+        partial: p.partial,
+        does_not_fit: p.does_not_fit,
+        gir_applied: pickOut.gir_applied,
+      };
+    }
+
+    const identifyAction = classifyStage?.actions?.find((a) => a.action === 'identify');
+    const identifyOut = identifyAction?.output as { canonical?: string } | undefined;
+    retrievalQuery = identifyOut?.canonical ?? retrievalQuery;
+
+    alternatives = [];
+  } else if (arch === 'anchored') {
     // Anchored: per-candidate verdicts not yet on wire — read aggregate counts
     // from the pick action output inside the classify stage.
     const classifyStage = (d.trace?.stages ?? []).find((s) => s.stage === 'classify');
@@ -123,6 +150,12 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
 
   const confidence = d.classification_result?.classification_confidence ?? null;
 
+  // v2 verifier signal — pulled from the trace summary when present.
+  // Surfacing on the envelope lets ResultSingle render the operator-review
+  // banner alongside the sanity banner without re-walking the trace.
+  const verifierResult = d.trace?.summary?.verifier_result ?? null;
+  const verifierRules = d.trace?.summary?.verifier_rules_triggered ?? null;
+
   return {
     request_id: d.id,
     decision_status: accepted ? 'accepted' : 'needs_clarification',
@@ -133,6 +166,8 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
     alternatives,
     anchored_candidate_summary: anchoredCandidateSummary,
     retrieval_query: retrievalQuery,
+    verifier_result: verifierResult,
+    verifier_rules_triggered: verifierRules,
     result: accepted
       ? {
           code: resolved as string,

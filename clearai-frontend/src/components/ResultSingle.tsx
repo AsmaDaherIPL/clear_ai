@@ -686,6 +686,14 @@ export default function ResultSingle({
   const showSanityFlag  = sanityVerdict === 'FLAG';
   const showSanityBlock = sanityVerdict === 'BLOCK';
 
+  // v2 verifier (PR 13): deterministic 2-rule check that fires when
+  // identify and pick disagree. UNCERTAIN routes the row to HITL but
+  // never overrides pick.final_code — the operator sees the picked
+  // code with a banner explaining what disagreed.
+  const verifierResult = data.verifier_result ?? null;
+  const verifierRules = data.verifier_rules_triggered ?? null;
+  const showVerifierUncertain = verifierResult === 'UNCERTAIN';
+
   // Classification confidence (0-1 → "85%").
   const confidencePct =
     r && typeof r.classification_confidence === 'number'
@@ -897,6 +905,35 @@ export default function ResultSingle({
             </div>
           )}
 
+          {/*
+            §1.6 VERIFIER BANNER (v2 / PR 13).
+            UNCERTAIN means a deterministic rule fired:
+              identify_chapter_disagreement — picker's chapter disagrees
+                with a high-confidence identify chapter
+              confidence_inversion          — picker low-confidence partial
+                while identify is highly confident
+            The code is kept (verifier never overrides pick.final_code);
+            we just nudge the operator to review.
+          */}
+          {showVerifierUncertain && (
+            <div
+              className="px-4 py-3 rounded-[var(--radius)] border bg-[oklch(0.96_0.06_75)] border-[oklch(0.82_0.10_75)] text-[oklch(0.40_0.13_60)]"
+              role="alert"
+            >
+              <div className="font-mono text-[10.5px] uppercase tracking-[0.08em] mb-1 font-semibold">
+                {t('res_verifier_uncertain_label' as TKey)}
+              </div>
+              <div className="text-[13px] leading-[1.55]">
+                {t('res_verifier_uncertain_body' as TKey)}
+                {verifierRules && verifierRules.length > 0 && (
+                  <span className="font-mono text-[12px] ms-1 text-[var(--ink-2)]">
+                    ({verifierRules.join(', ')})
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* §2 INTERPRETATION ROW (only when researcher rewrote the input). */}
           {interp && interp.stage !== 'passthrough' && (interp.cleaned_as || interp.rewritten_as) && (
             <div className="px-3.5 py-2.5 rounded-[var(--radius)] bg-[var(--line-2)] border border-[var(--line)]">
@@ -1022,9 +1059,12 @@ export default function ResultSingle({
 
           {/*
             CONSIDERED ALTERNATIVES.
-            Anchored pipeline: per-candidate data not on wire yet — render
-            aggregate verdict counts + GIR rule as a summary line.
-            Legacy pipeline: union track_a / track_b per-candidate rows.
+            v2 + anchored: per-candidate data not on the wire — render
+            aggregate verdict counts (fits / partial / does_not_fit) +
+            GIR rule as a summary line. The picker's `verdict_population`
+            is the source of truth.
+            Legacy (pre-PR-13 rows): union track_a / track_b per-candidate
+            rows. Retained so historic rows still render.
           */}
           {(anchoredSummary || altRows.length > 0) && (() => {
             const trackARows = altRows.filter((a) => a.track === 'track_a');

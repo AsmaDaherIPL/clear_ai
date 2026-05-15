@@ -331,6 +331,8 @@
   "res_sanity_flag_label": "Value plausibility flag",
   "res_sanity_block_label": "Cannot classify",
   "res_sanity_block_body": "Invalid input — cannot classify.",
+  "res_verifier_uncertain_label": "Operator review suggested",
+  "res_verifier_uncertain_body": "The code looks plausible, but the pipeline's identify and pick stages disagreed. A reviewer should confirm the chapter is right.",
   "res_alts_candidates_evaluated": "candidates evaluated",
   "res_alts_fits": "fits",
   "res_alts_partial": "partial",

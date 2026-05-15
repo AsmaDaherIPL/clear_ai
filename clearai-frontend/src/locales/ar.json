@@ -331,6 +331,8 @@
   "res_sanity_flag_label": "تنبيه معقولية القيمة",
   "res_sanity_block_label": "تعذّر التصنيف",
   "res_sanity_block_body": "مدخلات غير صالحة — تعذّر التصنيف.",
+  "res_verifier_uncertain_label": "يُنصح بمراجعة المشغّل",
+  "res_verifier_uncertain_body": "يبدو الرمز معقولًا، لكن خطوتي التعرّف والاختيار في الخط لم تتفقا. يُستحسن أن يؤكّد المراجع صحّة الفصل.",
   "res_alts_candidates_evaluated": "مرشح قيد التقييم",
   "res_alts_fits": "مطابق",
   "res_alts_partial": "جزئي",
