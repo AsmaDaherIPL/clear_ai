@@ -505,11 +505,10 @@ function AlternativeSidebarRow({
             type="button"
             onClick={() => onPick(alt.code)}
             className={cn(
-              'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-              'inline-flex items-center px-2 py-0.5 rounded border border-[var(--line)]',
+              'inline-flex items-center px-2 py-0.5 rounded-full border border-[var(--line)]',
               'font-mono text-[10px] uppercase tracking-[0.06em]',
               'text-[var(--ink-3)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
-              'bg-[var(--surface)] transition-all duration-150',
+              'bg-transparent transition-colors duration-150',
             )}
             title={t('act_use_code')}
           >
@@ -737,7 +736,7 @@ export default function ResultSingle({
         className,
       )}
     >
-      <div className="grid gap-[18px] items-start grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] rtl:lg:[&>aside]:order-first">
+      <div className="grid gap-[18px] items-start grid-cols-1 lg:grid-cols-[3fr_2fr] rtl:lg:[&>aside]:order-first">
 
         {/* ──────────── MAIN COLUMN ──────────── */}
         <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-6 sm:p-[26px] flex flex-col gap-[22px] shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200">
@@ -750,22 +749,6 @@ export default function ResultSingle({
                   {t('res_code_saudi')}
                 </div>
                 <BigCode code={code12} />
-                {/*
-                  Classification ID — copyable mono label below the big
-                  code. Same pattern as the batch panel's run-id chip.
-                  Mirrors ?id=… on the URL so users can copy either the
-                  ID or the URL to refer back to this result.
-                */}
-                {data.request_id && (
-                  <button
-                    type="button"
-                    onClick={() => navigator.clipboard.writeText(data.request_id!)}
-                    title="Click to copy classification ID"
-                    className="self-start font-mono text-[11.5px] text-[var(--ink-3)] hover:text-[var(--ink-2)] transition-colors cursor-copy select-all text-start tracking-[0.005em]"
-                  >
-                    {data.request_id}
-                  </button>
-                )}
               </div>
               <div className="flex flex-wrap items-start gap-2">
                 {showStrongMatch && (
@@ -817,19 +800,24 @@ export default function ResultSingle({
 
             {/* Catalog breadcrumb — parse "A > B > C" into a section/heading table. */}
             {(r.path_ar || r.path_en) && (() => {
-              // Split on " > " (or ">" with optional surrounding spaces).
               const splitPath = (s: string | null | undefined) =>
                 s ? s.split(/\s*>\s*/).map((seg) => seg.trim()).filter(Boolean) : [];
               const enSegs = splitPath(r.path_en);
               const arSegs = splitPath(r.path_ar);
               const count = Math.max(enSegs.length, arSegs.length);
               if (count === 0) return null;
-              // Level labels: first = Chapter, second = Heading, third = Subheading, rest = Tariff
+              // Level label + digit prefix from the resolved code
               const levelLabel = (i: number) => {
-                if (i === 0) return t('res_meta_chapter');
-                if (i === 1) return t('res_meta_heading');
-                if (i === 2) return t('res_meta_subheading');
-                return 'Tariff';
+                const names = [
+                  t('res_meta_chapter'),
+                  t('res_meta_heading'),
+                  t('res_meta_subheading'),
+                  'National Code',
+                ];
+                const prefixLengths = [2, 4, 6, 8];
+                const name = names[i] ?? 'Tariff';
+                const prefix = code12.slice(0, prefixLengths[i] ?? 8).replace(/^0+$/, '');
+                return prefix ? `${name} ${prefix}` : name;
               };
               return (
                 <div className="mt-3 rounded-[var(--radius)] border border-[var(--line)] overflow-hidden">
@@ -844,8 +832,8 @@ export default function ResultSingle({
                           i > 0 && 'border-t border-[var(--line-2)]',
                         )}
                       >
-                        <div className="w-[90px] flex-shrink-0 pt-[1px]">
-                          <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
+                        <div className="w-[110px] flex-shrink-0 pt-[1px]">
+                          <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase leading-[1.4]">
                             {levelLabel(i)}
                           </div>
                         </div>
@@ -945,42 +933,10 @@ export default function ResultSingle({
             </div>
           )}
 
-          {/* §3 ZATCA DESCRIPTION — AR-primary. EN column only when non-null. */}
-          {(r.description_en || r.description_ar) && (
-            <div>
-              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2">
-                {t('res_main_zatca')}
-              </div>
-              <div className={cn(
-                'gap-x-[18px] gap-y-3 px-4 py-3.5 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--surface)]',
-                r.description_en
-                  ? 'grid grid-cols-1 md:grid-cols-2'
-                  : 'flex',
-              )}>
-                {r.description_ar && (
-                  <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                    <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">العربية</div>
-                    <div
-                      dir="rtl"
-                      lang="ar"
-                      className="text-[14px] text-[var(--ink)] leading-[1.5] break-words text-end"
-                      style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-                    >
-                      {clampDescription(r.description_ar)}
-                    </div>
-                  </div>
-                )}
-                {r.description_en && (
-                  <div className="flex flex-col gap-1.5 min-w-0 md:items-end">
-                    <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">English</div>
-                    <div className="text-[14px] text-[var(--ink)] leading-[1.5] break-words md:text-end">
-                      {clampDescription(r.description_en)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {/* §3 ZATCA DESCRIPTION — removed: description_ar duplicates the
+              submission description that §4 already renders. description_en
+              is null on the dispatch path. Section dropped to avoid triple
+              repetition of the same Arabic text. */}
 
           {/* §4 SUGGESTED ZATCA SUBMISSION DESCRIPTION
               Inline path (post-dispatch-v1): use the description that came
@@ -1012,22 +968,7 @@ export default function ResultSingle({
             </div>
           )}
 
-          {/* §6 REVIEW ACTIONS — accept or open the review dialog. */}
-          <div className="flex items-center justify-end gap-2 pt-[18px] border-t border-[var(--line-2)]">
-            <button
-              type="button"
-              className={cn(
-                'inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md',
-                'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]',
-                'font-mono text-[12px] font-medium tracking-[0.08em] uppercase',
-                'hover:border-[var(--ink-3)] transition-colors duration-150',
-              )}
-              aria-label={t('res_action_flag')}
-              onClick={() => setReviewOpen(true)}
-            >
-              {t('res_action_flag')}
-            </button>
-          </div>
+          {/* §6 REVIEW ACTIONS — removed per feedback (flag + trace buttons removed). */}
         </div>
 
         {/* ──────────── SIDEBAR ──────────── */}
@@ -1080,35 +1021,6 @@ export default function ResultSingle({
                   {t('res_sidebar_alternatives')}
                 </div>
 
-                {/* Anchored aggregate summary — fits + partial only */}
-                {anchoredSummary && (anchoredSummary.fits > 0 || anchoredSummary.partial > 0) && (
-                  <div className="flex items-center gap-2 py-1 flex-wrap">
-                    {anchoredSummary.fits > 0 && (
-                      <span
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-medium font-mono"
-                        style={{ background: 'oklch(0.94 0.06 155)', color: 'oklch(0.36 0.13 155)' }}
-                      >
-                        <span
-                          className="w-1.5 h-1.5 rounded-full"
-                          style={{ background: 'oklch(0.55 0.15 155)' }}
-                        />
-                        {anchoredSummary.fits} {t('res_alts_fits' as TKey)}
-                      </span>
-                    )}
-                    {anchoredSummary.partial > 0 && (
-                      <span
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-medium font-mono"
-                        style={{ background: 'oklch(0.95 0.06 75)', color: 'oklch(0.42 0.13 60)' }}
-                      >
-                        <span
-                          className="w-1.5 h-1.5 rounded-full"
-                          style={{ background: 'oklch(0.62 0.16 60)' }}
-                        />
-                        {anchoredSummary.partial} {t('res_alts_partial' as TKey)}
-                      </span>
-                    )}
-                  </div>
-                )}
 
                 {/* Track A — only label when both tracks present (else no header noise) */}
                 {trackARows.length > 0 && (
@@ -1167,55 +1079,10 @@ export default function ResultSingle({
                   </div>
                 )}
 
-                {data.request_id && (
-                  <a
-                    href={`/trace?id=${data.request_id}`}
-                    className="inline-flex w-full items-center justify-center gap-2 mt-4 pt-3.5 border-t border-[var(--line-2)] text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] no-underline transition-colors duration-150"
-                  >
-                    <span>{t('view_trace')}</span>
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                      className="rtl:scale-x-[-1]"
-                    >
-                      <path d="M5 12h14M13 6l6 6-6 6" />
-                    </svg>
-                  </a>
-                )}
               </div>
             );
           })()}
 
-          {/* If there are no alternatives, the trace link still lives at the foot of the sidebar. */}
-          {altRows.length === 0 && data.request_id && (
-            <a
-              href={`/trace?id=${data.request_id}`}
-              className="inline-flex w-full items-center justify-center gap-2 mt-auto pt-3.5 border-t border-[var(--line-2)] text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] no-underline transition-colors duration-150"
-            >
-              <span>{t('view_trace')}</span>
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-                className="rtl:scale-x-[-1]"
-              >
-                <path d="M5 12h14M13 6l6 6-6 6" />
-              </svg>
-            </a>
-          )}
         </aside>
       </div>
 
