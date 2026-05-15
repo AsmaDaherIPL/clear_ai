@@ -57,11 +57,23 @@ Every candidate must appear in `verdicts`. `missing_attributes` lists attributes
 
 ## Fit levels
 
-- **fits** — the description is a subset of the candidate's coverage. Chapter, heading, and leaf are all consistent. Silence on dimensions the leaf does not constrain is NOT contradiction. Example: leaf "Headphones, earphones and combined microphone/speaker sets" with description "Wireless headphones" → `fits` (the leaf doesn't require microphones in the input).
+The pipeline MUST produce an answer whenever possible. Real ZATCA filings live with the codebook's gaps: when no leaf perfectly matches the product's material/grade/form, customs officers accept the closest-available leaf in the right heading. Mirror that behavior — do not escalate a row just because the leaf's attribute string disagrees with the description.
 
-- **partial** — the candidate's chapter and heading are right, but the leaf constrains a dimension (material, function, form) that the description is silent on or only partially matches. The leaf could be right; the description doesn't prove it. Example: leaf "T-shirts, of cotton" with description "T-shirt" (material silent) → `partial`.
+- **fits** — the description is a subset of the candidate's coverage. Chapter, heading, and leaf are all consistent OR the leaf is the **closest available** for the product (no better same-heading leaf exists in the candidate set). Silence on dimensions the leaf does not constrain is NOT contradiction. Examples:
+  - leaf "Headphones, earphones and combined microphone/speaker sets" with description "Wireless headphones" → `fits`
+  - leaf "Women's trousers of cotton" with description "Women's wide-leg denim jeans" → `fits` (denim is cotton; the leaf is the closest available specific form)
 
-- **does_not_fit** — the candidate is incompatible with the description: wrong product class, wrong physical form, wrong function. Use this freely when candidates from competing arms genuinely don't match — better one fits-candidate than a partial-pile-up. Random catalog noise from cross-chapter retrieval is `does_not_fit`.
+- **partial** — the candidate's chapter and heading are right, but the leaf constrains a **material / form / grade** that the description either omits or **contradicts**. The leaf is in the right product family; the operator may correct the 5th-12th digits during review. Examples:
+  - leaf "T-shirts, of cotton" with description "T-shirt" (material silent) → `partial`
+  - leaf "Women's trousers of synthetic fibres" with description "Women's denim jeans" (denim ≠ synthetic, but right heading 6204 and right product type) → `partial`
+  - leaf "Other household articles of plastics" with description "Silicone baby bib" (chapter 39 plastics is right, leaf is generic same-heading) → `partial`
+
+- **does_not_fit** — reserved for **wrong product class / wrong physical form / wrong function**. NOT for "right product, wrong material grade". Use only when the candidate names something that is fundamentally a different object. Examples:
+  - leaf "Baby carriages" with description "Pampers diapers" → `does_not_fit` (different products entirely)
+  - leaf "Tight leggings of synthetic fibres" with description "Wide-leg denim jeans" → `partial`, not `does_not_fit` (still trousers, same heading; leg-style is a sub-attribute customs will tolerate)
+  - leaf "Synthetic fibres tape" with description "Cotton thread" → `does_not_fit` (different product class)
+
+**Rule of thumb:** if the candidate and the description are both legitimate variants of the same product family (e.g. both are women's trousers; both are children's footwear; both are skin-care preparations), the verdict is `fits` or `partial` — never `does_not_fit`. Save `does_not_fit` for genuinely-mismatched chapters or product classes.
 
 ## The subset principle
 
@@ -85,22 +97,35 @@ Apply this BEFORE pattern-matching on the leaf English. A leaf called "Face mask
 
 ## Hard rules
 
-- Apply GIRs as your reasoning framework. Cite the decisive rule (e.g. "GIR 3(a)", "GIR 2(b)") in `rationale` when it resolves the case.
-- Do not invent attributes the description does not contain.
-- **Silence on a dimension the leaf does not constrain → `fits`.**
-- **Silence on a dimension the leaf does constrain → `partial`.**
-- Output one verdict per candidate exactly. No duplicates. No invented codes.
-- The `source_arm` field on each candidate is **context, not a vote**. Don't pick based on which arm surfaced a candidate; pick based on how well its leaf description fits the product.
+These rules MUST be applied in order. Higher rules override lower rules.
 
-## Chapter / heading rescue
+1. **Closest-available-leaf rule (highest priority).** If the description is a real product but the candidate set has no perfect-attribute leaf, the closest same-heading leaf is the answer. Pick one. Emit `fits` if it's the only same-heading candidate; emit `partial` if the leaf names a material/grade/form the description contradicts but it's still in the right heading. Codebook gaps are real; classifying to the nearest-applicable leaf is how customs works in practice.
 
-When the product is real (i.e. the description names an identifiable item) but no candidate's leaf is a perfect-attribute match, the row must still produce a `fits` or `partial` verdict if any candidate is in the **right chapter and heading**.
+2. **Chapter / heading rescue.** The row MUST produce at least one `fits` or `partial` verdict whenever at least one candidate's first 4 digits match the chapter+heading the description belongs to under WCO. `does_not_fit` across the board is reserved for the case where every candidate is in a genuinely wrong chapter — i.e. retrieval missed the family entirely.
 
-- If at least one candidate's first 4 digits match the chapter+heading the description belongs to under WCO, that candidate is **at minimum `partial`**, even if the leaf names a sibling material / function / subform.
-- Use `partial` here, not `does_not_fit`. The leaf may be 1 subheading off; the operator's downstream review can correct the 5th-12th digits. What we MUST NOT do is escalate a row to "no candidate fits" when retrieval did surface a same-heading leaf.
-- Only emit `does_not_fit` across the board when every candidate is in a wrong **chapter** — i.e. retrieval genuinely missed the right family entirely. That's a real escalate; the rest is not.
+3. **Material/grade/form mismatch is `partial`, not `does_not_fit`.** If the description says "cotton" and the only same-heading leaves are "synthetic fibres", the synthetic-fibres leaves are `partial`. Operator review corrects the 5th-12th digits if needed. We do NOT escalate the row to human review just because the leaf's attribute string disagrees — that wastes operator time on rows the system could deliver a defensible partial for.
 
-Think of it as: `does_not_fit` says "this leaf is in the wrong place in the tariff tree." Wrong subheading is not wrong place — it's wrong granularity, which is `partial`.
+4. Apply GIRs as your reasoning framework. Cite the decisive rule (e.g. "GIR 3(a)", "GIR 2(b)") in `rationale` when it resolves the case.
+
+5. Do not invent attributes the description does not contain.
+
+6. **Silence on a dimension the leaf does not constrain → `fits`.**
+
+7. **Silence on a dimension the leaf does constrain → `partial`.**
+
+8. Output one verdict per candidate exactly. No duplicates. No invented codes.
+
+9. The `source_arm` field on each candidate is **context, not a vote**. Don't pick based on which arm surfaced a candidate; pick based on how well its leaf description fits the product.
+
+## The "wrong place in the tariff tree" test
+
+When deciding `partial` vs `does_not_fit`, ask: **"Is this leaf in the wrong PLACE in the tariff tree, or just at the wrong GRANULARITY?"**
+
+- **Wrong place** → `does_not_fit`. The candidate is in a different chapter or heading from where the product actually classifies. Example: leaf is in chapter 87 (vehicles) but product is in chapter 96 (toys).
+
+- **Wrong granularity** → `partial`. The candidate is in the right chapter AND right heading, but the 5th-12th digits name a sibling subheading (different material, different grade, different leg style, different size, different sub-form). The operator can correct the granularity during review.
+
+When in doubt, prefer `partial` over `does_not_fit`. The downstream verifier and operator review queue exist to catch picker errors; a `partial` we get wrong gets reviewed, a `does_not_fit` blocks the row from ever being filed.
 
 ## Worked examples
 
@@ -144,22 +169,30 @@ Candidates include `330499990000` (face-care preparations, family_chapter arm) a
 { "code": "630790970002", "fit": "does_not_fit", "rationale": "Leaf names PPE dust masks; description has no PPE/medical keywords" }
 ```
 
-**Example 5 — chapter rescue (right heading, wrong-subheading leaf)**
+**Example 5 — material mismatch within the right heading (closest-available-leaf rule)**
 
-Description: "Silicone baby bib, mustard color"
+Description: "Women's wide-leg denim jeans, 31-inch inseam"
 
-Candidates (all from chapter 39 plastics):
-- `392329000001` (source_arm: family_chapter) — "Articles for the conveyance or packing of goods, of other plastics"
-- `392490100000` (source_arm: family_chapter) — "Tableware and kitchenware of plastics, of polyethylene"
-- `392490900003` (source_arm: family_chapter) — "Other household articles of plastics"
+Candidates (all under chapter 62 heading 6204 — women's apparel, trousers):
+- `620463000000` (source_arm: merchant_prefix) — "Women's trousers — Of synthetic fibres"
+- `620463000001` (source_arm: merchant_prefix) — "Women's casual trousers of synthetic fibres"
+- `620463000005` (source_arm: merchant_prefix) — "Women's short pants of synthetic fibres"
+- `620462000004` (source_arm: lexical_tokens) — "Women's tight leggings of cotton"
+- `620469000004` (source_arm: lexical_tokens) — "Women's tight leggings of silk"
 
-The exact silicone-bib leaf isn't present. Two of these don't fit (one is packing, one is polyethylene specifically). One is generic "other household articles of plastics" — the right chapter + heading, wrong granularity. RESCUE that one to `partial` rather than escalating the row.
+Denim is cotton, not synthetic. None of these leaves is a perfect attribute match (the "cotton trousers" leaf doesn't appear in the candidate set). DO NOT verdict everything `does_not_fit` — these are all women's trousers under heading 6204, which IS the right place in the tariff tree. The codebook simply doesn't have a "denim wide-leg jeans" leaf.
+
+Apply the closest-available-leaf rule: pick the candidate whose leaf attribute is least wrong for women's denim wide-leg jeans, and emit `partial`. The "Casual trousers of synthetic fibres" leaf is the closest general-purpose women's trouser; "Short pants" doesn't match the 31-inch inseam. The cotton-leggings leaf would be material-correct but form-wrong (leggings ≠ wide-leg jeans).
 
 ```json
-{ "code": "392329000001", "fit": "does_not_fit", "rationale": "Packing/conveyance plastics; bib is wear-on-body" }
-{ "code": "392490100000", "fit": "does_not_fit", "rationale": "Polyethylene tableware; silicone bib is wear-on-body" }
-{ "code": "392490900003", "fit": "partial", "rationale": "Chapter 39 other household articles — right heading, leaf is sibling subheading (GIR 4)" }
+{ "code": "620463000001", "fit": "partial", "rationale": "Closest available women's casual trousers leaf in heading 6204; material attribute (synthetic) wrong but form matches (GIR 3(a))" }
+{ "code": "620463000000", "fit": "partial", "rationale": "Same heading, residual leaf; material wrong but right product family" }
+{ "code": "620463000005", "fit": "does_not_fit", "rationale": "Short pants — wrong form (description is 31-inch full length)" }
+{ "code": "620462000004", "fit": "partial", "rationale": "Cotton match but leggings form — closer on material than form" }
+{ "code": "620469000004", "fit": "does_not_fit", "rationale": "Silk leggings — wrong material AND wrong form" }
 ```
+
+The picker downstream selects `620463000001` (first `partial` returned). The row produces a defensible answer + routes to operator review via verifier_uncertain rather than escalating to "no candidate fits."
 
 ## Security
 
