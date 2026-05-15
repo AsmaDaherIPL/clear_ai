@@ -31,7 +31,19 @@ export type LlmStage =
   // verdict. Same retry profile as legacy 'picker' which it
   // replaces, but with a slightly tighter timeout because the
   // candidate set is pre-narrowed by constrain.
-  | 'anchored_pick';
+  | 'anchored_pick'
+  // Pipeline-rewrite PR 3: fast pass identify, Sonnet WITHOUT
+  // web_search tool. Replaces the single-pass 'identify' on the new
+  // pipeline. Cheaper + faster (no web latency) for the ~60% of rows
+  // the model can resolve from training alone. Rows the fast pass
+  // gives up on (uninformative+genuine, multi_product) trigger the
+  // 'identify_web_fallback' stage.
+  | 'identify_fast'
+  // Pipeline-rewrite PR 4: web-search-enabled fallback identify.
+  // Same shape as legacy 'identify' / 'researcher_web' — Sonnet +
+  // web_search, single attempt, 30s timeout, no parse-retry. Only
+  // invoked when identify_fast couldn't commit.
+  | 'identify_web_fallback';
 
 export type OnExhausted = 'escalate' | 'graceful_degrade' | 'fail_hard';
 
@@ -79,6 +91,16 @@ const POLICIES: Record<LlmStage, LlmStagePolicy> = {
   // hitting the 10s wall on first-byte while Foundry was at quota;
   // totalBudgetMs 35s → 50s to keep 3 attempts × 15s feasible.
   anchored_pick:          { stage: 'anchored_pick',          maxAttempts: 3, timeoutMs: 15000, retryOnParseFailure: true,  totalBudgetMs: 50000, onExhausted: 'graceful_degrade' },
+  // PR 3 (pipeline rewrite): fast-pass identify. No web tool, so no
+  // search round-trip; latency is bounded by Sonnet's own generation
+  // time. Single attempt + no parse-retry — if the fast pass fails
+  // parsing, fall through to web fallback which gets to try again
+  // with a different (search-enabled) prompt.
+  identify_fast:          { stage: 'identify_fast',          maxAttempts: 1, timeoutMs: 15000, retryOnParseFailure: false, totalBudgetMs: 15000, onExhausted: 'graceful_degrade' },
+  // PR 4 (pipeline rewrite): web-search fallback identify. Mirrors the
+  // legacy 'identify' shape (1 attempt, 30s, web latency dominates,
+  // breaker handles sustained failures).
+  identify_web_fallback:  { stage: 'identify_web_fallback',  maxAttempts: 1, timeoutMs: 30000, retryOnParseFailure: false, totalBudgetMs: 30000, onExhausted: 'graceful_degrade' },
 };
 
 export function getLlmStagePolicy(stage: LlmStage): LlmStagePolicy {
