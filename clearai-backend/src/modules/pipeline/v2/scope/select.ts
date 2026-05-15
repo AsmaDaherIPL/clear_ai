@@ -162,13 +162,40 @@ export function selectScopes(
   identify: IdentifyResult,
   merchantResolution: MerchantResolution,
 ): ScopeSelection {
-  // Rule 1: multi_product + no usable merchant prefix → escalate.
-  // Updated 2026-05-15 to use merchantHasUsablePrefix() (instead of the
-  // tighter merchantResolvedCleanly) so a merchant code that walked to
-  // `unknown` but recognized an HS6/HS8 prefix still gets a chance.
-  // The picker's multi_product fallback (uses products[0] as query)
-  // will run against the merchant arm and verdict the dominant product.
+  // Rule 1: multi_product + no usable merchant prefix → unconstrained
+  // rescue (was: escalate, changed 2026-05-16).
+  //
+  // Reasoning: multi_product lines like "Pearl Stud Earrings + Pearl
+  // Tassel Earrings" or "eyelash + microblading pen + brush + gel"
+  // are usually a SET of products all from the same chapter (jewelry,
+  // cosmetics). Even without a merchant code, products[0] is a strong
+  // enough lexical signal for retrieval to find the right chapter,
+  // and the picker's multi_product fallback (uses products[0] as
+  // query) can land on a generic same-chapter leaf at partial fit.
+  // Better than escalating a row the system COULD answer.
+  //
+  // Primary = unconstrained (cross-chapter) so retrieval doesn't get
+  // starved. lexical_tokens uses tokens from products[0] for chapter-
+  // targeted retrieval. The picker's downstream low-confidence HITL
+  // rule routes the result to operator review.
   if (identify.kind === 'multi_product' && !merchantHasUsablePrefix(merchantResolution)) {
+    if (identify.products.length > 0) {
+      const firstProductTokens = identify.products[0]!
+        .split(/[\s,]+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2);
+      const secondaries: RetrievalArm[] = [];
+      if (firstProductTokens.length > 0) {
+        secondaries.push({ kind: 'lexical_tokens', tokens: firstProductTokens });
+      }
+      return {
+        primary: { kind: 'unconstrained', reason: 'composite_product' },
+        secondaries,
+        audit_flags: ['identify_family_null'],
+      };
+    }
+    // Degenerate case: multi_product but products[] is empty. No
+    // signal to retrieve against. Escalate honestly.
     return {
       primary: { kind: 'escalate', reason: 'identify_multi_product' },
       secondaries: [],

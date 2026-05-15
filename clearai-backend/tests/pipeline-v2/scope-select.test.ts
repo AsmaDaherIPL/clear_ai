@@ -48,13 +48,49 @@ function uninf(): IdentifyResult {
 }
 
 describe('selectScopes — escalate paths (no clean merchant)', () => {
-  it('multi_product + absent merchant → escalate(identify_multi_product)', () => {
+  it('multi_product + absent merchant with degenerate (single-char) products → unconstrained, no secondaries', () => {
+    // Defensive: products like ["a","b"] tokenize to empty after the
+    // length>=2 filter, so the lexical_tokens secondary doesn't fire.
+    // Primary stays unconstrained so the picker still has SOMETHING
+    // to evaluate. Better than escalating outright.
     const r = selectScopes(multi(), { state: 'absent' });
+    expect(r.primary.kind).toBe('unconstrained');
+    expect(r.secondaries).toEqual([]);
+    expect(r.audit_flags).toContain('identify_family_null');
+  });
+
+  it('multi_product + absent merchant with empty products[] → escalate (degenerate model output)', () => {
+    // Truly degenerate: model claimed multi_product but supplied no
+    // product labels. No signal to retrieve against. Escalate honestly.
+    const r = selectScopes(multi([]), { state: 'absent' });
     expect(r.primary.kind).toBe('escalate');
     if (r.primary.kind === 'escalate') {
       expect(r.primary.reason).toBe('identify_multi_product');
     }
-    expect(r.secondaries).toEqual([]);
+  });
+
+  it('multi_product + absent merchant with real products → unconstrained rescue (Rule 1 rewrite 2026-05-16)', () => {
+    // Realistic multi_product line: "Pearl Stud Earrings + Pearl
+    // Tassel Earrings" — both jewelry, same chapter. New scope rule
+    // routes to unconstrained primary + lexical_tokens(products[0])
+    // so the picker can land on a chapter-71 generic leaf instead of
+    // escalating.
+    const r = selectScopes(
+      multi(['Pearl Stud Earrings', 'Pearl Tassel Earrings']),
+      { state: 'absent' },
+    );
+    expect(r.primary.kind).toBe('unconstrained');
+    if (r.primary.kind === 'unconstrained') {
+      expect(r.primary.reason).toBe('composite_product');
+    }
+    const lexical = r.secondaries.find((s) => s.kind === 'lexical_tokens');
+    expect(lexical).toBeDefined();
+    if (lexical?.kind === 'lexical_tokens') {
+      expect(lexical.tokens).toContain('Pearl');
+      expect(lexical.tokens).toContain('Stud');
+      expect(lexical.tokens).toContain('Earrings');
+    }
+    expect(r.audit_flags).toContain('identify_family_null');
   });
 
   it('uninformative + absent merchant → escalate(identify_uninformative_no_merchant)', () => {

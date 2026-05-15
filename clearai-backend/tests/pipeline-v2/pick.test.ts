@@ -99,7 +99,7 @@ function llmReturns(opts: { text: string; latencyMs?: number; model?: string }) 
 beforeEach(() => mockedCall.mockReset());
 
 describe('runPick — short-circuit paths', () => {
-  it('identify_no_query when identify is not clean_product', async () => {
+  it('identify_no_query when identify is not clean_product AND no fallback_query', async () => {
     const r = await runPick({
       identify: uninf(),
       candidates: [rc('610910000000')],
@@ -111,6 +111,35 @@ describe('runPick — short-circuit paths', () => {
     }
     // No LLM call
     expect(mockedCall).not.toHaveBeenCalled();
+  });
+
+  it('brand-only rescue: uninformative identify + fallback_query runs picker against merchant leaf', async () => {
+    // Real scenario: description="THE RING" + merchant=640420 (chap 64
+    // footwear). Identify is uninformative; orchestrator pre-computes
+    // fallback_query from the merchant leaf's catalog text. Picker
+    // runs with that as the query and verdicts the merchant's
+    // candidate as the best fit.
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            { code: '640420000000', fit: 'partial', rationale: 'Footwear with leather outer sole — closest leaf under merchant prefix (GIR 3(a))' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: uninf(),
+      candidates: [rc('640420000000', 'merchant_prefix')],
+      merchant_chapter: '64',
+      fallback_query: 'footwear with outer soles of leather',
+    });
+    expect(r.kind).toBe('accepted');
+    expect(mockedCall).toHaveBeenCalledOnce();
+    if (r.kind === 'accepted') {
+      expect(r.final_code).toBe('640420000000');
+      expect(r.fit).toBe('partial');
+    }
   });
 
   it('no_candidates when candidates list is empty', async () => {

@@ -85,4 +85,22 @@ describe('v2/parse — reject path (BLOCK precursor)', () => {
     const r = parseItem(item({ description: '   \t\n  ' }));
     expect(r.rejected).toBe(true);
   });
+
+  it('rejects digit-only description (e.g. "565" — invoice number leaked into description column)', () => {
+    const r = parseItem(item({ description: '565' }));
+    expect(r.rejected).toBe(true);
+    if (r.rejected) expect(r.reason).toBe('digit_only_description');
+  });
+
+  it('rejects digit-only description with punctuation/whitespace', () => {
+    const r = parseItem(item({ description: '  1,234.56  ' }));
+    expect(r.rejected).toBe(true);
+    if (r.rejected) expect(r.reason).toBe('digit_only_description');
+  });
+
+  it('accepts description containing at least one letter in any script (Arabic, Cyrillic, etc.)', () => {
+    expect(parseItem(item({ description: 'كولا' })).rejected).toBe(false);
+    expect(parseItem(item({ description: 'cola' })).rejected).toBe(false);
+    expect(parseItem(item({ description: 'A4' })).rejected).toBe(false);
+  });
 });

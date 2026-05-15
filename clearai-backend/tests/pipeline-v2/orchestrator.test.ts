@@ -325,11 +325,16 @@ describe('runPipelineV2 — scenario 3: brand-only → web fallback → accept',
   });
 });
 
-describe('runPipelineV2 — scenario 4: multi_product → scope escalate', () => {
-  it('short-circuits to escalate when scope.primary.kind === escalate (multi_product, no merchant)', async () => {
+describe('runPipelineV2 — scenario 4: multi_product → scope escalate (truly degenerate)', () => {
+  it('short-circuits to escalate when products[] is empty (degenerate model output)', async () => {
+    // Truly degenerate: model claimed multi_product but emitted no
+    // products. No signal at all → escalate. Realistic multi_product
+    // lines with non-empty products take the unconstrained-rescue
+    // path (covered in scope-select.test.ts + pick.test.ts) and do
+    // call retrieval + picker.
     runIdentifyFastMock.mockResolvedValueOnce({
       kind: 'multi_product',
-      products: ['a', 'b'],
+      products: [],
       trace: {
         pass: 'fast',
         llm_called: true,
@@ -342,7 +347,7 @@ describe('runPipelineV2 — scenario 4: multi_product → scope escalate', () =>
     });
     runIdentifyWebMock.mockResolvedValueOnce({
       kind: 'multi_product',
-      products: ['a', 'b'],
+      products: [],
       trace: {
         pass: 'web',
         llm_called: true,

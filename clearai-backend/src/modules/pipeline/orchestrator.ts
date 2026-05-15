@@ -328,10 +328,24 @@ export async function runPipeline(
 
   // ---- Stage 7: Pick ----
   const merchantChapter = extractMerchantChapter(merchantResolution);
+  // Brand-only rescue: when identify is uninformative but merchant
+  // resolved cleanly (typical case: "THE RING" or "RESY" with
+  // merchant_code = 640420 / chap 64 footwear), pre-compute the
+  // merchant leaf's English description as the picker's fallback
+  // query. The picker then runs against retrieval filtered to the
+  // merchant prefix and verdicts whichever sibling leaf fits best.
+  // The result lands at low confidence (PARTIAL_CONFIDENCE = 0.55)
+  // and the downstream low-confidence HITL rule routes it to operator
+  // review. Skipped when identify already supplied a query.
+  const fallbackQuery =
+    identify.kind === 'uninformative' && extractMerchantResolvedCode(merchantResolution) !== null
+      ? await fallbackQueryFromMerchant(merchantResolution)
+      : null;
   const pick = await runPick({
     identify,
     candidates: reranked,
     merchant_chapter: merchantChapter,
+    fallback_query: fallbackQuery,
   });
 
   if (pick.kind === 'escalate') {
@@ -579,6 +593,51 @@ function extractMerchantChapter(r: {
     return r.resolved_code ? r.resolved_code.slice(0, 2) : null;
   }
   return null;
+}
+
+/**
+ * Get the merchant's resolved 12-digit code (or null) for the states
+ * where one exists. Used by the brand-only rescue path to look up the
+ * catalog leaf for a fallback picker query.
+ */
+function extractMerchantResolvedCode(r: {
+  state: string;
+  resolved_code?: string;
+}): string | null {
+  if (
+    r.state === 'active' ||
+    r.state === 'replaced_single' ||
+    r.state === 'override_applied' ||
+    r.state === 'llm_picked_replacement' ||
+    r.state === 'expanded_prefix'
+  ) {
+    return r.resolved_code ?? null;
+  }
+  return null;
+}
+
+/**
+ * Build a picker fallback query from the merchant's resolved leaf.
+ * Used when identify is uninformative but merchant resolved cleanly —
+ * "THE RING" + 640420 footwear, "RESY" + 640420, etc. The picker runs
+ * with the merchant leaf's English description as the query, lets it
+ * verdict on whichever sibling leaf in the candidate set best fits.
+ *
+ * Returns null when the catalog lookup fails (missing row, bad code).
+ * The picker then short-circuits to identify_no_query as before —
+ * same outcome as before the rescue path existed, no regression risk.
+ */
+async function fallbackQueryFromMerchant(
+  r: { state: string; resolved_code?: string },
+): Promise<string | null> {
+  const code = extractMerchantResolvedCode(r);
+  if (code === null) return null;
+  try {
+    const ctx = await lookupCatalogContext(code);
+    return ctx.leafEn ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function extractSecondaryCounts(

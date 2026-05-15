@@ -51,15 +51,35 @@ function classifyMerchantCode(raw: string | null | undefined): MerchantCodeState
   return 'malformed';
 }
 
-export type ParseReject = { rejected: true; reason: 'no_description' };
+export type ParseReject = {
+  rejected: true;
+  reason: 'no_description' | 'digit_only_description';
+};
 export type ParseAccept = { rejected: false; item: ParsedItem };
 export type ParseOutcome = ParseReject | ParseAccept;
+
+/**
+ * Letter detector for ANY script — Latin, Arabic, CJK, Cyrillic, etc.
+ * Unicode property `\p{L}` covers every letter category; `u` flag is
+ * required. Used to reject digit-only descriptions like "565" or
+ * invoice numbers that leaked into the description column. Such rows
+ * have no identifiable product and short-circuit at parse rather than
+ * burning LLM calls on a guaranteed-failure path.
+ */
+const ANY_LETTER_RE = /\p{L}/u;
 
 export function parseItem(line: CanonicalLineItem): ParseOutcome {
   const desc = typeof line.description === 'string' ? line.description.trim() : null;
 
   if (!desc) {
     return { rejected: true, reason: 'no_description' };
+  }
+
+  // Digit-only descriptions are upload glitches (invoice numbers leaked
+  // into the description column, SKU fragments, placeholder rows).
+  // They cannot identify a product. Reject before LLM stages burn.
+  if (!ANY_LETTER_RE.test(desc)) {
+    return { rejected: true, reason: 'digit_only_description' };
   }
 
   const rawCode = typeof line.merchantHsCode === 'string' ? line.merchantHsCode : null;

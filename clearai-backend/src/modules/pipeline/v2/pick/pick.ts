@@ -76,9 +76,24 @@ interface PickInput {
   candidates: RerankedCandidate[];
   /** First-2-digits of merchant code, for chapter_disagreement flag. Null when merchant absent. */
   merchant_chapter: string | null;
+  /**
+   * Orchestrator-supplied fallback query for the rare case where
+   * identify is uninformative (no canonical, no products, no
+   * identity_tokens) BUT the merchant supplied a clean prefix that
+   * resolved to a valid leaf. The fallback is typically the merchant
+   * leaf's English description (e.g. "footwear with outer soles of
+   * leather" for prefix 640420). Lets the picker run a "is the
+   * merchant's leaf plausible?" pass on its retrieved candidate set
+   * instead of refusing.
+   *
+   * Optional so existing test fixtures don't have to pass it. Tests
+   * exercising the brand-only rescue path should populate it; tests
+   * for the normal clean_product path can omit it.
+   */
+  fallback_query?: string | null;
 }
 
-function buildQuery(identify: IdentifyResult): string {
+function buildQuery(identify: IdentifyResult, fallback: string | null): string {
   if (identify.kind === 'clean_product') {
     const tokens = identify.identity_tokens.length > 0 ? ` ${identify.identity_tokens.join(' ')}` : '';
     return `${identify.canonical}${tokens}`.trim();
@@ -98,6 +113,15 @@ function buildQuery(identify: IdentifyResult): string {
   // composition.
   if (identify.kind === 'multi_product' && identify.products.length > 0) {
     return identify.products[0]!.trim();
+  }
+  // uninformative + merchant supplied a clean prefix: orchestrator
+  // pre-computed fallback_query = the merchant leaf's catalog text.
+  // We run the picker against retrieval filtered to that prefix and
+  // let it verdict whichever sibling-leaf fits the input best. The
+  // picked code will carry low confidence (0.55 PARTIAL_CONFIDENCE)
+  // and downstream HITL routes it for operator review.
+  if (fallback !== null && fallback.trim().length > 0) {
+    return fallback.trim();
   }
   return '';
 }
@@ -320,11 +344,12 @@ function armOf(
 export async function runPick(input: PickInput): Promise<PickResult> {
   const t0 = Date.now();
   const { identify, candidates, merchant_chapter } = input;
+  const fallback_query = input.fallback_query ?? null;
 
   // Empty-query short-circuit: identify produced no description signal.
   // The orchestrator should also catch this and not call us, but we're
   // defensive — empty-query picker is unauditable guessing.
-  const query = buildQuery(identify);
+  const query = buildQuery(identify, fallback_query);
   if (query.length === 0) {
     const escalate: PickEscalate = {
       kind: 'escalate',

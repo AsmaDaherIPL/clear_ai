@@ -53,7 +53,18 @@ export type {
 // type names that we may rename later).
 // ---------------------------------------------------------------------------
 
-export type ParseReject = { rejected: true; reason: 'no_description' };
+export type ParseReject = {
+  rejected: true;
+  /**
+   * Why parse rejected the row:
+   * - `no_description`: description is null / empty / whitespace only.
+   * - `digit_only_description`: description contains digits only (no
+   *   letters in any script). Such rows cannot identify a product —
+   *   they're upload-glitch placeholders or invoice numbers leaking
+   *   into the description column. Operator clarification needed.
+   */
+  reason: 'no_description' | 'digit_only_description';
+};
 export type ParseAccept = { rejected: false; item: ParsedItem };
 export type ParseOutcome = ParseReject | ParseAccept;
 
