@@ -79,9 +79,27 @@ interface PickInput {
 }
 
 function buildQuery(identify: IdentifyResult): string {
-  if (identify.kind !== 'clean_product') return '';
-  const tokens = identify.identity_tokens.length > 0 ? ` ${identify.identity_tokens.join(' ')}` : '';
-  return `${identify.canonical}${tokens}`.trim();
+  if (identify.kind === 'clean_product') {
+    const tokens = identify.identity_tokens.length > 0 ? ` ${identify.identity_tokens.join(' ')}` : '';
+    return `${identify.canonical}${tokens}`.trim();
+  }
+  // multi_product fallback: when identify could not commit to one product
+  // (e.g. "Skirt + Shirt, both cotton") but the orchestrator still routed
+  // us a candidate set (because merchant_resolution gave a clean prefix),
+  // pick the first product as the query. Both items in a multi-product
+  // line typically share a chapter — if they don't, the picker will
+  // verdict everything does_not_fit and the row escalates. Better to try
+  // than to refuse the call.
+  //
+  // Why first instead of joined: a joined query produces a Frankenstein
+  // canonical that retrieval rerankers don't handle well. First-product
+  // is the dominant signal and lets the picker reason about ONE thing.
+  // Operator review (verifier_uncertain) catches the multi-product
+  // composition.
+  if (identify.kind === 'multi_product' && identify.products.length > 0) {
+    return identify.products[0]!.trim();
+  }
+  return '';
 }
 
 function skippedTrace(): PickCallTrace {

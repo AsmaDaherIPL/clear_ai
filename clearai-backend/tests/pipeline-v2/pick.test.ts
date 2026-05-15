@@ -58,6 +58,10 @@ function uninf(): IdentifyResult {
   return { kind: 'uninformative', cause: 'genuine', reason: 'r', trace: fastTrace };
 }
 
+function multi(products: string[] = ['T-shirt', 'Pants']): IdentifyResult {
+  return { kind: 'multi_product', products, trace: fastTrace };
+}
+
 function rc(
   code: string,
   arm: RerankedCandidate['source_arm'] = 'merchant_prefix',
@@ -119,6 +123,29 @@ describe('runPick — short-circuit paths', () => {
       expect(r.reason).toBe('no_candidates');
     }
     expect(mockedCall).not.toHaveBeenCalled();
+  });
+
+  it('multi_product DOES call the picker (using first product as query) when candidates are present (regression 2026-05-15)', async () => {
+    // Before this fix, identify.kind=multi_product produced an empty
+    // buildQuery() and short-circuited to identify_no_query. After the
+    // fix, the picker runs with products[0] as the canonical query,
+    // letting the merchant_prefix arm rescue rows where the items in a
+    // multi-product line share a chapter (e.g. "skirt + shirt, cotton"
+    // both under chapter 62).
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [{ code: '610910000000', fit: 'fits', rationale: 'subset (GIR 1)' }],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: multi(['T-shirt', 'Pants']),
+      candidates: [rc('610910000000', 'merchant_prefix')],
+      merchant_chapter: '61',
+    });
+    expect(r.kind).toBe('accepted');
+    expect(mockedCall).toHaveBeenCalledOnce();
   });
 });
 

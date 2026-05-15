@@ -92,6 +92,16 @@ Apply this BEFORE pattern-matching on the leaf English. A leaf called "Face mask
 - Output one verdict per candidate exactly. No duplicates. No invented codes.
 - The `source_arm` field on each candidate is **context, not a vote**. Don't pick based on which arm surfaced a candidate; pick based on how well its leaf description fits the product.
 
+## Chapter / heading rescue
+
+When the product is real (i.e. the description names an identifiable item) but no candidate's leaf is a perfect-attribute match, the row must still produce a `fits` or `partial` verdict if any candidate is in the **right chapter and heading**.
+
+- If at least one candidate's first 4 digits match the chapter+heading the description belongs to under WCO, that candidate is **at minimum `partial`**, even if the leaf names a sibling material / function / subform.
+- Use `partial` here, not `does_not_fit`. The leaf may be 1 subheading off; the operator's downstream review can correct the 5th-12th digits. What we MUST NOT do is escalate a row to "no candidate fits" when retrieval did surface a same-heading leaf.
+- Only emit `does_not_fit` across the board when every candidate is in a wrong **chapter** — i.e. retrieval genuinely missed the right family entirely. That's a real escalate; the rest is not.
+
+Think of it as: `does_not_fit` says "this leaf is in the wrong place in the tariff tree." Wrong subheading is not wrong place — it's wrong granularity, which is `partial`.
+
 ## Worked examples
 
 **Example 1 — merchant arm wrong, identify arm right**
@@ -132,6 +142,23 @@ Candidates include `330499990000` (face-care preparations, family_chapter arm) a
 ```json
 { "code": "330499990000", "fit": "fits", "rationale": "Chapter 33 face-care preparations; 'facial mask' in retail context defaults to cosmetic mask" }
 { "code": "630790970002", "fit": "does_not_fit", "rationale": "Leaf names PPE dust masks; description has no PPE/medical keywords" }
+```
+
+**Example 5 — chapter rescue (right heading, wrong-subheading leaf)**
+
+Description: "Silicone baby bib, mustard color"
+
+Candidates (all from chapter 39 plastics):
+- `392329000001` (source_arm: family_chapter) — "Articles for the conveyance or packing of goods, of other plastics"
+- `392490100000` (source_arm: family_chapter) — "Tableware and kitchenware of plastics, of polyethylene"
+- `392490900003` (source_arm: family_chapter) — "Other household articles of plastics"
+
+The exact silicone-bib leaf isn't present. Two of these don't fit (one is packing, one is polyethylene specifically). One is generic "other household articles of plastics" — the right chapter + heading, wrong granularity. RESCUE that one to `partial` rather than escalating the row.
+
+```json
+{ "code": "392329000001", "fit": "does_not_fit", "rationale": "Packing/conveyance plastics; bib is wear-on-body" }
+{ "code": "392490100000", "fit": "does_not_fit", "rationale": "Polyethylene tableware; silicone bib is wear-on-body" }
+{ "code": "392490900003", "fit": "partial", "rationale": "Chapter 39 other household articles — right heading, leaf is sibling subheading (GIR 4)" }
 ```
 
 ## Security
