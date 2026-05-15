@@ -324,8 +324,18 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                 <Stat value={summary.succeeded} label="succeeded" tone="ok" />
                 <span className="text-[var(--line)]">·</span>
                 <Stat value={summary.flagged} label="flagged" tone="warn" />
-                <span className="text-[var(--line)]">·</span>
-                <Stat value={(summary.blocked ?? 0) + (summary.failed ?? 0)} label="failed" tone="bad" />
+                {(summary.blocked ?? 0) > 0 && (
+                  <>
+                    <span className="text-[var(--line)]">·</span>
+                    <Stat value={summary.blocked ?? 0} label="blocked" tone="bad" />
+                  </>
+                )}
+                {(summary.failed ?? 0) > 0 && (
+                  <>
+                    <span className="text-[var(--line)]">·</span>
+                    <Stat value={summary.failed ?? 0} label="failed" tone="bad" />
+                  </>
+                )}
                 {summary.pending > 0 && (
                   <>
                     <span className="text-[var(--line)]">·</span>
