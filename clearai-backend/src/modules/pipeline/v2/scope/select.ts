@@ -65,8 +65,24 @@ import type {
   ScopeSelection,
 } from '../types.js';
 
-/** Confidence threshold for adding identify-side secondary arms. */
-const IDENTIFY_CONFIDENCE_THRESHOLD = 0.85;
+/**
+ * Confidence threshold for adding identify-side secondary arms.
+ *
+ * Calibration note (2026-05-15 batch analysis): identify_fast produces
+ * confidence in the 0.62-0.97 range; most clean_product rows land in
+ * 0.72-0.85. The original 0.85 threshold caused secondary arms to
+ * never fire on those rows, which combined with a too-specific merchant
+ * prefix (e.g. 8-10 digit) returning only 1 candidate produced the
+ * 14-row `no_candidate_fits` cluster.
+ *
+ * Loosening to 0.70 keeps the chapter-disagreement signal meaningful
+ * (random-guess confidence under the fast pass is ~0.5, never above
+ * 0.6) while letting the secondary arm widen retrieval on the majority
+ * of rows where identify has a clear-enough family chapter. The
+ * verifier still uses its tighter 0.90 threshold; this only affects
+ * what we RETRIEVE, not what we ACCEPT.
+ */
+const IDENTIFY_CONFIDENCE_THRESHOLD = 0.70;
 
 /** Resolved-code states where the merchant produced an actionable prefix. */
 const MERCHANT_RESOLVED_STATES = new Set([
@@ -198,8 +214,17 @@ export function selectScopes(
         });
         auditFlags.push('identify_family_null');
       }
+    }
 
-      // Lexical tokens arm (additive, no audit flag).
+    // Lexical tokens arm. Fires whenever identify produced tokens —
+    // independent of the IDENTIFY_CONFIDENCE_THRESHOLD gate above. The
+    // tokens are deterministic content (brand + product noun); the
+    // arm carries no risk because lexical retrieval only matches what's
+    // already in the codebook descriptions. Worst case it returns 0
+    // candidates; in practice it rescues the long tail where the
+    // merchant prefix is too specific (8-10 digits) and produces 1
+    // candidate from the wrong leaf.
+    if (identify.kind === 'clean_product') {
       if (identify.identity_tokens.length > 0) {
         secondaries.push({
           kind: 'lexical_tokens',

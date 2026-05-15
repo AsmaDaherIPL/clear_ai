@@ -107,10 +107,20 @@ describe('selectScopes — merchant_prefix primary + secondary arms', () => {
     expect(r.audit_flags).toContain('merchant_chapter_disagreement');
   });
 
-  it('merchant active + identify different chapter BELOW threshold (0.84) → NO secondary, NO audit flag', () => {
-    const r = selectScopes(clean({ family: '85', confidence: 0.84 }), merchantActive);
-    expect(r.secondaries).toEqual([]);
+  it('merchant active + identify different chapter BELOW threshold (0.69) → NO family_chapter, NO audit flag (threshold lowered 0.85 → 0.70 after batch analysis 2026-05-15)', () => {
+    const r = selectScopes(clean({ family: '85', confidence: 0.69 }), merchantActive);
+    // No identify-derived family_chapter secondary because confidence is
+    // below the 0.70 threshold. Lexical tokens secondary may still fire
+    // independently when identity_tokens are non-empty (the fixture's
+    // `clean()` helper passes [] by default).
+    expect(r.secondaries.filter((s) => s.kind === 'family_chapter')).toEqual([]);
     expect(r.audit_flags).toEqual([]);
+  });
+
+  it('merchant active + identify different chapter AT new threshold (0.70) → family_chapter fires', () => {
+    const r = selectScopes(clean({ family: '85', confidence: 0.70 }), merchantActive);
+    expect(r.secondaries.some((s) => s.kind === 'family_chapter')).toBe(true);
+    expect(r.audit_flags).toContain('merchant_chapter_disagreement');
   });
 
   it('merchant active + identify same chapter + identity tokens → adds lexical_tokens secondary only', () => {
@@ -124,6 +134,23 @@ describe('selectScopes — merchant_prefix primary + secondary arms', () => {
       expect(r.secondaries[0]!.tokens).toEqual(['pampers', 'diaper']);
     }
     expect(r.audit_flags).toEqual([]);
+  });
+
+  it('lexical_tokens fires unconditionally when tokens present — even at low confidence (regression 2026-05-15: Bucket 1 fix)', () => {
+    // The Bucket 1 failures had identify.confidence 0.62-0.82 (below
+    // the old 0.85 threshold) AND non-empty identity_tokens. The old
+    // behaviour skipped lexical secondaries entirely; the new behaviour
+    // fires them independently of the confidence gate so retrieval can
+    // widen the candidate pool when the merchant prefix is too specific.
+    const r = selectScopes(
+      clean({ family: '61', confidence: 0.55, tokens: ['noctua', 'cpu cooler'] }),
+      merchantActive,
+    );
+    const lexical = r.secondaries.find((s) => s.kind === 'lexical_tokens');
+    expect(lexical).toBeDefined();
+    if (lexical && lexical.kind === 'lexical_tokens') {
+      expect(lexical.tokens).toEqual(['noctua', 'cpu cooler']);
+    }
   });
 
   it('merchant active + identify family=null at high confidence → adds unconstrained + identify_family_null flag', () => {
