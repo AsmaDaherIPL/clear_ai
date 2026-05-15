@@ -28,6 +28,7 @@ import { getLlmStagePolicy } from '../../../../inference/llm/policy.js';
 import { extractJson } from '../../../../inference/llm/parse-json.js';
 import { loadPrompt } from '../../../../inference/llm/structured-call.js';
 import type {
+  AnnotatedCandidate,
   IdentifyResult,
   PickAccepted,
   PickCallTrace,
@@ -44,6 +45,16 @@ const FITS_CONFIDENCE = 0.85;
 
 /** Confidence assigned to a `partial` verdict (uncalibrated). */
 const PARTIAL_CONFIDENCE = 0.55;
+
+/**
+ * Maximum length of an annotated_candidates rationale on the wire. The
+ * picker prompt is told to write a short reason, but a chatty response
+ * can blow up the payload — especially on 8-candidate prompts where 8 ×
+ * unbounded strings could add 10-20KB. Truncating at 300 chars is the
+ * same convention sanity / submission use. The full rationale stays in
+ * the picker LLM call logs.
+ */
+const ANNOTATED_RATIONALE_MAX = 300;
 
 const PickOutputSchema = z
   .object({
@@ -171,6 +182,43 @@ function countByArm(candidates: RerankedCandidate[]): Record<string, number> {
 }
 
 /**
+ * Join the picker's per-candidate verdicts with the reranked candidate
+ * metadata (descriptions, source_arm, rerank_score) so the wire carries
+ * a complete row per evaluated candidate. Verdicts that arrived for
+ * codes outside the candidate set are skipped — the picker is
+ * constrained to allowedCodes upstream, so this should not happen in
+ * practice; defensive only.
+ *
+ * Order mirrors the picker's verdict order so the picked candidate is
+ * usually first; the UI sorts by fit + rerank_score for display.
+ */
+function buildAnnotatedCandidates(
+  verdicts: ParsedVerdict[],
+  candidates: RerankedCandidate[],
+): AnnotatedCandidate[] {
+  const byCode = new Map<string, RerankedCandidate>();
+  for (const c of candidates) byCode.set(c.code, c);
+  const annotated: AnnotatedCandidate[] = [];
+  for (const v of verdicts) {
+    const c = byCode.get(v.code);
+    if (c === undefined) continue;
+    annotated.push({
+      code: v.code,
+      description_en: c.description_en,
+      description_ar: c.description_ar,
+      fit: v.fit,
+      rationale:
+        v.rationale.length > ANNOTATED_RATIONALE_MAX
+          ? `${v.rationale.slice(0, ANNOTATED_RATIONALE_MAX - 1)}…`
+          : v.rationale,
+      source_arm: c.source_arm,
+      rerank_score: c.rerank_score,
+    });
+  }
+  return annotated;
+}
+
+/**
  * Build the user payload for the picker prompt. Includes the
  * description, the candidate list with source_arm tags, and the path
  * hierarchies. Tokens trimmed reasonably to keep prompt size bounded.
@@ -264,6 +312,8 @@ export async function runPick(input: PickInput): Promise<PickResult> {
       kind: 'escalate',
       reason: 'identify_no_query',
       detail: `identify produced no description-side signal (kind=${identify.kind}); refusing picker call`,
+      // No LLM call → no verdicts to annotate.
+      annotated_candidates: [],
       trace: skippedTrace(),
     };
     return escalate;
@@ -274,6 +324,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
       kind: 'escalate',
       reason: 'no_candidates',
       detail: 'rerank returned 0 candidates',
+      annotated_candidates: [],
       trace: skippedTrace(),
     };
     return escalate;
@@ -300,6 +351,11 @@ export async function runPick(input: PickInput): Promise<PickResult> {
       detail: `picker transport ${llm.status}: ${
         llm.error !== undefined && llm.error.length > 0 ? llm.error : '(no error string)'
       }`,
+      // LLM call failed — no verdicts. (`verdicts` may be non-null
+      // from a prior parse-retry attempt but transport-failed on the
+      // final attempt; the parse-retry loop only returns verdicts when
+      // status==='ok', so this branch is always empty.)
+      annotated_candidates: [],
       trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'ok', false),
     };
     return escalate;
@@ -311,6 +367,8 @@ export async function runPick(input: PickInput): Promise<PickResult> {
       kind: 'escalate',
       reason: 'picker_unavailable',
       detail: `picker output unparseable after ${PARSE_RETRY_LIMIT + 1} attempts`,
+      // Output couldn't be parsed; nothing to surface per-candidate.
+      annotated_candidates: [],
       trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'parse', false),
     };
     return escalate;
@@ -324,6 +382,10 @@ export async function runPick(input: PickInput): Promise<PickResult> {
       kind: 'escalate',
       reason: 'no_candidate_fits',
       detail: `picker returned no fits or partial verdicts (fits=${verdict_population.fits}, partial=${verdict_population.partial}, does_not_fit=${verdict_population.does_not_fit})`,
+      // Picker ran end-to-end and verdicted every candidate as
+      // does_not_fit. HITL reviewers will want to see exactly what was
+      // rejected and why — this is the most useful escalate to annotate.
+      annotated_candidates: buildAnnotatedCandidates(verdicts, candidates),
       trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'ok', false),
     };
     return escalate;
@@ -349,6 +411,10 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     picked_from_arm: pickedArm,
     merchant_chapter_disagreement: merchantChapterDisagreement,
     candidate_count_by_arm: countByArm(candidates),
+    // Per-candidate verdicts the picker emitted. Includes the chosen
+    // candidate (UI filters by code !== final_code when rendering as
+    // "alternatives"). HITL reviewers see this list verbatim.
+    annotated_candidates: buildAnnotatedCandidates(verdicts, candidates),
     trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'ok', auditFlag),
   };
   return accepted;

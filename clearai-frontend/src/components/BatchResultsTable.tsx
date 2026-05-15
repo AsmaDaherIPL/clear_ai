@@ -220,8 +220,41 @@ function toReviewItem(item: DeclarationRunItem): ReviewItem {
   const submissionAr = pickLang(item.resolved_hs_code_description?.zatca_submission_description, 'ar');
   const submissionEn = pickLang(item.resolved_hs_code_description?.zatca_submission_description, 'en');
 
-  // Candidates: pull from trace if present, else empty.
+  // Candidates: pull from trace if present, else empty. Each pipeline
+  // architecture surfaces them differently:
+  //   v2 (PR 13 onwards) — meta.pipeline_v2.pick.annotated_candidates
+  //                        (the picker's per-row verdicts, INCLUDING the
+  //                        chosen code; filter out resolved when rendering)
+  //   anchored          — per-candidate not on the wire (aggregate counts only)
+  //   legacy            — meta.track_a.annotated_candidates +
+  //                       meta.track_b.subtree_candidates
   const meta = (item as any).trace?.meta;
+  const v2 = (meta?.pipeline_v2 ?? null) as
+    | {
+        pick?: {
+          annotated_candidates?: Array<{
+            code: string;
+            description_en?: string | null;
+            description_ar?: string | null;
+            fit?: string;
+            rationale?: string;
+            source_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
+            rerank_score?: number;
+          }>;
+        };
+      }
+    | null;
+  const v2Alts = (v2?.pick?.annotated_candidates ?? [])
+    .filter((c) => c.code !== resolved)
+    .map((c) => ({
+      code: c.code,
+      description_en: c.description_en ?? null,
+      description_ar: c.description_ar ?? null,
+      retrieval_score: c.rerank_score ?? null,
+      fit: c.fit ?? undefined,
+      reason: c.rationale ?? undefined,
+      source_arm: c.source_arm,
+    }));
   const trackA = (meta?.track_a?.annotated_candidates ?? []).map((c: any) => ({
     code: c.code,
     description_en: c.description_en ?? null,
@@ -247,7 +280,7 @@ function toReviewItem(item: DeclarationRunItem): ReviewItem {
     currentCode: resolved,
     currentLabel: submissionEn ?? submissionAr ?? null,
     verdict: item.classification_result?.sanity_verdict ?? null,
-    alternatives: [...trackA, ...trackB],
+    alternatives: [...v2Alts, ...trackA, ...trackB],
   };
 }
 

@@ -145,6 +145,14 @@ function CandidateRow({
               {alt.fit}
             </span>
           )}
+          {alt.source_arm && (
+            <span
+              className="font-mono text-[9.5px] uppercase tracking-[0.08em] px-1.5 py-0.5 rounded bg-[var(--line-2)] text-[var(--ink-3)]"
+              title="Which retrieval arm surfaced this candidate"
+            >
+              {alt.source_arm.replace('_', ' ')}
+            </span>
+          )}
         </div>
         {alt.description_en && (
           <span className="text-[12.5px] text-[var(--ink-2)] leading-[1.45]">

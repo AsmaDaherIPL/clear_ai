@@ -266,12 +266,20 @@ function buildPickAction(pick: PickAccepted | PickEscalate): DispatchV1Action {
         picked_from_arm: pick.picked_from_arm,
         merchant_chapter_disagreement: pick.merchant_chapter_disagreement,
         candidate_count_by_arm: pick.candidate_count_by_arm,
+        // Per-candidate verdicts the picker emitted. UI's "Considered
+        // alternatives" sidebar + HITL review queue both consume this.
+        annotated_candidates: pick.annotated_candidates,
         audit_flag: pick.trace.audit_flag,
       }
     : {
         kind: pick.kind,
         reason: pick.reason,
         detail: pick.detail,
+        // Populated when the picker actually ran but couldn't commit
+        // (no_candidate_fits); empty for pre-LLM escalates
+        // (scope_escalate, no_candidates, identify_no_query,
+        // picker_unavailable).
+        annotated_candidates: pick.annotated_candidates,
         audit_flag: pick.trace.audit_flag,
       };
 

@@ -56,14 +56,25 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
   let retrievalQuery: string | null = d.resolved_hs_code_description?.retrieval_query ?? null;
 
   if (arch === 'v2') {
-    // v2 (PR 13): aggregate counts from pick action output (same shape
-    // as anchored — kept compatible on purpose). retrieval_query
-    // sourced from identify.canonical. alternatives[] stays empty
-    // because per-candidate verdicts are not on the wire under v2; the
-    // picker's `verdict_population` carries aggregate counts only.
+    // v2 (PR 13): aggregate counts from pick action output AND
+    // per-candidate verdicts from annotated_candidates (added with the
+    // fix that surfaces the picker's per-row judgement). retrieval_query
+    // sourced from identify.canonical.
     const classifyStage = (d.trace?.stages ?? []).find((s) => s.stage === 'classify');
     const pickAction = classifyStage?.actions?.find((a) => a.action === 'pick');
-    const pickOut = pickAction?.output as AnchoredPickOutput | undefined;
+    const pickOut = pickAction?.output as
+      | (AnchoredPickOutput & {
+          annotated_candidates?: Array<{
+            code: string;
+            description_en?: string | null;
+            description_ar?: string | null;
+            fit?: 'fits' | 'partial' | 'does_not_fit';
+            rationale?: string;
+            source_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
+            rerank_score?: number;
+          }>;
+        })
+      | undefined;
 
     if (pickOut?.verdict_population) {
       const p = pickOut.verdict_population;
@@ -81,7 +92,30 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
     const identifyOut = identifyAction?.output as { canonical?: string } | undefined;
     retrievalQuery = identifyOut?.canonical ?? retrievalQuery;
 
-    alternatives = [];
+    // Per-candidate alternatives: surface every annotated row EXCEPT
+    // the winning final_code. Sorted: fits → partial → does_not_fit by
+    // fit severity, then by descending rerank_score within each group.
+    // Cap at 6 to keep the sidebar readable; the full list lives in
+    // the trace JSON for HITL operators.
+    const fitOrder: Record<string, number> = { fits: 0, partial: 1, does_not_fit: 2 };
+    alternatives = (pickOut?.annotated_candidates ?? [])
+      .filter((c) => c.code !== resolved)
+      .sort((a, b) => {
+        const fa = fitOrder[a.fit ?? 'does_not_fit'] ?? 3;
+        const fb = fitOrder[b.fit ?? 'does_not_fit'] ?? 3;
+        if (fa !== fb) return fa - fb;
+        return (b.rerank_score ?? 0) - (a.rerank_score ?? 0);
+      })
+      .slice(0, 6)
+      .map<AlternativeLine>((c) => ({
+        code: c.code,
+        description_en: c.description_en ?? null,
+        description_ar: c.description_ar ?? null,
+        retrieval_score: typeof c.rerank_score === 'number' ? c.rerank_score : null,
+        fit: normaliseFit(c.fit),
+        reason: c.rationale,
+        source_arm: c.source_arm,
+      }));
   } else if (arch === 'anchored') {
     // Anchored: per-candidate verdicts not yet on wire — read aggregate counts
     // from the pick action output inside the classify stage.

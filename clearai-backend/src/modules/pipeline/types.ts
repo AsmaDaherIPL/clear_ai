@@ -329,6 +329,35 @@ export interface PickCallTrace {
   audit_flag: boolean;
 }
 
+/**
+ * Per-candidate row carried on the wire so the SPA can render
+ * "Considered alternatives" and the HITL reviewer can see the picker's
+ * verdict per row. One per candidate the picker actually evaluated
+ * (top N after rerank, N=8 today).
+ *
+ * `fit` and `rationale` come from the picker's LLM response; everything
+ * else is metadata the retrieval pipeline already had in memory
+ * (descriptions + per-arm provenance + rerank score). Free-text
+ * `rationale` is truncated to 300 chars before serialisation to keep
+ * payload size predictable; the full text stays in the picker's logs.
+ */
+export interface AnnotatedCandidate {
+  code: string;
+  description_en: string | null;
+  description_ar: string | null;
+  fit: 'fits' | 'partial' | 'does_not_fit';
+  /** Picker's per-candidate rationale, max 300 chars. */
+  rationale: string;
+  /** Which retrieval arm surfaced this candidate. */
+  source_arm:
+    | 'merchant_prefix'
+    | 'family_chapter'
+    | 'unconstrained'
+    | 'lexical_tokens';
+  /** Deterministic rerank score (RRF-derived, post-boosts). */
+  rerank_score: number;
+}
+
 export interface PickAccepted {
   kind: 'accepted';
   final_code: string; // 12-digit
@@ -351,6 +380,14 @@ export interface PickAccepted {
   /** True iff first-2 of final_code !== first-2 of merchant code (when present). */
   merchant_chapter_disagreement: boolean;
   candidate_count_by_arm: Record<string, number>;
+  /**
+   * Per-candidate verdicts the picker emitted (top N=8 reranked). The
+   * UI uses this to render "Considered alternatives" and HITL reviewers
+   * use it to second-guess the picker's choice. Includes the winning
+   * candidate (callers should filter by `code !== final_code` when
+   * rendering "alternatives").
+   */
+  annotated_candidates: AnnotatedCandidate[];
   trace: PickCallTrace;
 }
 
@@ -365,6 +402,14 @@ export interface PickEscalate {
   kind: 'escalate';
   reason: PickEscalateReason;
   detail: string;
+  /**
+   * Per-candidate verdicts when the picker actually ran but couldn't
+   * commit (e.g. all `does_not_fit`). Empty array when the escalate
+   * happened before the LLM call (scope_escalate, identify_no_query,
+   * no_candidates, picker_unavailable). HITL reviewers use this to see
+   * what the picker rejected and pick manually.
+   */
+  annotated_candidates: AnnotatedCandidate[];
   trace: PickCallTrace;
 }
 

@@ -602,6 +602,23 @@ export interface DispatchTraceMeta {
       picked_from_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
       merchant_chapter_disagreement?: boolean;
       candidate_count_by_arm?: Record<string, number>;
+      /**
+       * Per-candidate verdicts the picker emitted (top N=8 after rerank).
+       * Includes the chosen `final_code`; consumers filter when
+       * rendering as alternatives. Empty array on pre-LLM escalates
+       * (scope_escalate, no_candidates, identify_no_query,
+       * picker_unavailable); populated on the no_candidate_fits
+       * escalate so HITL reviewers can see what was rejected.
+       */
+      annotated_candidates?: Array<{
+        code: string;
+        description_en: string | null;
+        description_ar: string | null;
+        fit: 'fits' | 'partial' | 'does_not_fit';
+        rationale: string;
+        source_arm: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
+        rerank_score: number;
+      }>;
       reason?: string;
       detail?: string;
       trace?: { latency_ms?: number; model?: string | null; candidate_count?: number; audit_flag?: boolean };

@@ -66,10 +66,39 @@ const pickAccepted: PickAccepted = {
   fit: 'fits',
   confidence: 0.88,
   gir_applied: 'GIR 1',
-  verdict_population: { fits: 1, partial: 0, does_not_fit: 0 },
+  verdict_population: { fits: 1, partial: 1, does_not_fit: 1 },
   picked_from_arm: 'merchant_prefix',
   merchant_chapter_disagreement: false,
   candidate_count_by_arm: { merchant_prefix: 5 },
+  annotated_candidates: [
+    {
+      code: '610910000000',
+      description_en: "T-shirts of cotton",
+      description_ar: 'قمصان (تي شيرت) من قطن',
+      fit: 'fits',
+      rationale: 'GIR 1: matches heading text exactly',
+      source_arm: 'merchant_prefix',
+      rerank_score: 0.92,
+    },
+    {
+      code: '610990000001',
+      description_en: 'T-shirts of other textile materials',
+      description_ar: 'قمصان من مواد نسجية أخرى',
+      fit: 'partial',
+      rationale: 'Same heading but wrong material specification',
+      source_arm: 'merchant_prefix',
+      rerank_score: 0.78,
+    },
+    {
+      code: '610820000002',
+      description_en: 'Briefs and panties',
+      description_ar: 'سراويل تحتية',
+      fit: 'does_not_fit',
+      rationale: 'Different product family',
+      source_arm: 'merchant_prefix',
+      rerank_score: 0.55,
+    },
+  ],
   trace: {
     llm_called: true,
     latency_ms: 4200,
@@ -196,6 +225,31 @@ describe('assembleDispatchV1', () => {
     expect(v1.trace.summary.description_classifier_top_fit).toBeNull();
     expect(v1.trace.summary.code_resolver_code).toBeNull();
     expect(v1.trace.summary.reconciliation).toBeNull();
+  });
+
+  it('pick action carries annotated_candidates on the wire (3 rows: 1 fits + 1 partial + 1 does_not_fit)', () => {
+    const v1 = assembleDispatchV1({
+      itemId: 'item-1',
+      operatorSlug: 'naqel',
+      result: buildResult(),
+      startedAt: '2026-05-15T10:00:00.000Z',
+      completedAt: '2026-05-15T10:00:10.000Z',
+    });
+    const classify = v1.trace.stages.find((s) => s.stage === 'classify')!;
+    const pickAction = classify.actions.find((a) => a.action === 'pick')!;
+    const annotated = (pickAction.output as {
+      annotated_candidates?: Array<{ code: string; fit: string; rationale: string; source_arm: string }>;
+    }).annotated_candidates;
+    expect(annotated).toBeDefined();
+    expect(annotated!.length).toBe(3);
+    // First entry is the chosen code with fit='fits'.
+    expect(annotated![0].code).toBe('610910000000');
+    expect(annotated![0].fit).toBe('fits');
+    // Every entry carries source_arm + rationale.
+    for (const a of annotated!) {
+      expect(a.source_arm).toBeTypeOf('string');
+      expect(a.rationale).toBeTypeOf('string');
+    }
   });
 
   it('emits the three top-level wire stages: normalize, classify, sanity', () => {

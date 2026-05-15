@@ -218,6 +218,8 @@ export async function runPipeline(
         kind: 'escalate',
         reason: 'scope_escalate',
         detail: `scope escalated: ${scope.primary.reason}`,
+        // Scope escalate happens before retrieval — no candidates to annotate.
+        annotated_candidates: [],
         trace: {
           llm_called: false,
           latency_ms: 0,
@@ -251,6 +253,8 @@ export async function runPipeline(
         kind: 'escalate',
         reason: 'no_candidates',
         detail: 'all arms returned 0 candidates after dedupe',
+        // Retrieval returned 0 → no candidates to annotate.
+        annotated_candidates: [],
         trace: {
           llm_called: false,
           latency_ms: 0,
@@ -421,6 +425,8 @@ function blockedResult(reason: string): PipelineResult {
         kind: 'escalate',
         reason: 'scope_escalate',
         detail: `parse rejected: ${reason}`,
+        // Parse rejected the row before any stage ran — nothing to annotate.
+        annotated_candidates: [],
         trace: {
           llm_called: false,
           latency_ms: 0,
