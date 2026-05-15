@@ -495,6 +495,19 @@ export interface PipelineTrace {
   anchored_constrain: ConstrainResult | null;
   anchored_pick: PickResult | null;
   /**
+   * v2 pipeline trace. Populated when `pipeline_architecture === 'v2'`.
+   * Carries the full multi-arm-retrieval trace produced by
+   * `src/modules/pipeline/v2/orchestrator.ts`. Consumers SHOULD branch
+   * on `pipeline_architecture` first and read this field only when it
+   * equals 'v2'. Typed as `unknown` here because pulling
+   * `PipelineTraceV2` into shared/ would create a circular import
+   * (shared/ → v2/types.ts → shared/). The dispatch-v1 builder
+   * narrows it via a cast at the wire boundary. After PR 13 (legacy +
+   * anchored deletion), this field becomes the canonical trace and the
+   * other architecture-specific fields go away.
+   */
+  pipeline_v2: unknown | null;
+  /**
    * Which pipeline implementation produced this trace.
    *
    * PR-A-1 landed this field so shadow-mode validation (PR-A-6) can SQL-
@@ -502,10 +515,11 @@ export interface PipelineTrace {
    * Pre-PR-A-1 rows do not carry this field; queries should default
    * those to 'legacy' via COALESCE.
    *
-   * After the cleanup PR (PR-A-8) deletes the legacy pipeline, this
-   * field becomes redundant and can be removed.
+   * PR 12 added the 'v2' variant for the rewritten multi-arm pipeline.
+   * After PR 13 deletes legacy + anchored, this field becomes redundant
+   * and can be removed.
    */
-  pipeline_architecture: 'legacy' | 'anchored';
+  pipeline_architecture: 'legacy' | 'anchored' | 'v2';
 }
 
 // ---------------------------------------------------------------------------
@@ -533,7 +547,19 @@ export interface PipelineTrace {
  *                       refusal happens BEFORE reconciliation, not after.
  */
 export interface HitlIntent {
-  reason: 'verdict_escalate' | 'sanity_flag' | 'low_information';
+  reason:
+    | 'verdict_escalate'
+    | 'sanity_flag'
+    | 'low_information'
+    /**
+     * PR 12 — v2 verifier landed two deterministic rules
+     * (identify_chapter_disagreement, confidence_inversion). Result is
+     * PASS or UNCERTAIN; UNCERTAIN routes here. Distinct queue from
+     * sanity_flag because the trigger is rule-based, not LLM-based, and
+     * operators reviewing should see the rules_triggered list in
+     * `DispatchV1Summary.verifier_rules_triggered`.
+     */
+    | 'verifier_uncertain';
   cleaned_description: string;
 }
 
@@ -598,6 +624,17 @@ export type DispatchV1ActionName =
   | 'identify'
   | 'constrain'
   | 'pick'
+  // v2 classify-stage actions (PR 12). Order under v2:
+  // identify_fast → [identify_web] → merchant_resolution → scope_selection
+  // → multi_arm_retrieval → rerank → pick → verify → submission_description.
+  // `identify` is reused for both fast and web passes (discriminated by
+  // `output.pass`); `merchant_resolution` and `scope_selection` are
+  // deterministic so llm_used=false.
+  | 'merchant_resolution'
+  | 'scope_selection'
+  | 'multi_arm_retrieval'
+  | 'rerank'
+  | 'verify'
   // Shared
   | 'submission_description'
   | 'sanity_check';
@@ -623,7 +660,14 @@ export type DispatchV1StepName =
   | 'constrain_override_lookup'
   | 'constrain_scope_select'
   | 'pick_retrieval'
-  | 'pick_llm';
+  | 'pick_llm'
+  // v2 sub-steps (PR 12). Each retrieval arm runs in parallel under
+  // multi_arm_retrieval; surface them as separate steps so per-arm
+  // candidate counts are observable in the SPA.
+  | 'retrieve_merchant_prefix'
+  | 'retrieve_family_chapter'
+  | 'retrieve_unconstrained'
+  | 'retrieve_lexical_tokens';
 
 export interface DispatchV1Step {
   step: DispatchV1StepName;
@@ -659,18 +703,18 @@ export interface DispatchV1Stage {
 export interface DispatchV1Summary {
   merchant_code_state: MerchantCodeState | null;
   /** Which pipeline implementation produced this trace. Lets the SPA pick which summary fields to render. */
-  pipeline_architecture: 'legacy' | 'anchored';
-  // Legacy summary fields. Null under anchored.
+  pipeline_architecture: 'legacy' | 'anchored' | 'v2';
+  // Legacy summary fields. Null under anchored + v2.
   /** Highest-RRF candidate verdicted 'fits' by the description classifier. Null when none. */
   description_classifier_top_fit: string | null;
   code_resolver_code: string | null;
   reconciliation: 'description_classifier' | 'code_resolver' | 'reconciled' | 'escalated' | null;
   operator_override_applied: boolean;
-  // Anchored summary fields (PR-A-5). Null under legacy.
+  // Anchored summary fields (PR-A-5). Null under legacy + v2.
   /** identify result discriminator (clean_product | multi_product | uninformative). */
   identify_kind: 'clean_product' | 'multi_product' | 'uninformative' | null;
-  /** Retrieval scope chosen by constrain. */
-  scope_kind: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'escalate' | null;
+  /** Retrieval scope chosen by constrain (anchored) or scope_selection.primary (v2). */
+  scope_kind: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'escalate' | 'lexical_tokens' | null;
   /** Pick outcome: 'fits' / 'partial' on acceptance, null on escalate. */
   pick_fit: 'fits' | 'partial' | null;
   /** Escalation reason when pick.kind='escalate', otherwise null. */
@@ -681,6 +725,26 @@ export interface DispatchV1Summary {
     | 'identify_no_query'
     | 'picker_unavailable'
     | null;
+  // v2-only summary fields (PR 12). Null under legacy + anchored.
+  /** identify pass: 'fast' (no web_search) or 'web' (web_search fallback fired). */
+  identify_pass: 'fast' | 'web' | null;
+  /** Picker's `picked_from_arm` — which retrieval arm fed the winning candidate. */
+  picked_from_arm:
+    | 'merchant_prefix'
+    | 'family_chapter'
+    | 'unconstrained'
+    | 'lexical_tokens'
+    | null;
+  /** True when picker landed outside the merchant chapter (operator audit trail). */
+  merchant_chapter_disagreement: boolean | null;
+  /** Number of secondary arms the scope selector activated (0-3). */
+  secondary_arm_count: number | null;
+  /** Per-arm candidate count after dedupe (primary + each secondary). */
+  candidate_count_by_arm: Record<string, number> | null;
+  /** Verifier result: 'PASS' (clean) or 'UNCERTAIN' (routed to FLAG via verifier_uncertain). */
+  verifier_result: 'PASS' | 'UNCERTAIN' | null;
+  /** Verifier rules triggered (empty when verifier_result === 'PASS'). */
+  verifier_rules_triggered: string[] | null;
   // Shared
   final_code: string | null;
   sanity_verdict: SanityVerdict | null;

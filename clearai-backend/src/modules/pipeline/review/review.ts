@@ -20,7 +20,7 @@ export interface HitlPayload {
    */
   batch_id: string | null;
   operator_slug: string;
-  reason: 'verdict_escalate' | 'sanity_flag' | 'low_information';
+  reason: 'verdict_escalate' | 'sanity_flag' | 'low_information' | 'verifier_uncertain';
   cleaned_description: string;
   verdict_output: StageVerdictOutput | null;
   sanity_result: SanityResult | null;

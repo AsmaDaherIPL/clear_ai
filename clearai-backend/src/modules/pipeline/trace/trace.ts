@@ -72,6 +72,9 @@ export function buildTrace(params: {
     anchored_identify: params.anchoredIdentify ?? null,
     anchored_constrain: params.anchoredConstrain ?? null,
     anchored_pick: params.anchoredPick ?? null,
+    // v2 trace is built by the v2 orchestrator + adapter; buildTrace is
+    // only called by legacy + anchored paths.
+    pipeline_v2: null,
     pipeline_architecture: params.pipelineArchitecture,
   };
 }

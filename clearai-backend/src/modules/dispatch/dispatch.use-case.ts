@@ -98,8 +98,9 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
 
   // The flat `itemTrace` shape persisted alongside the wire payload.
   // Used by recordClassificationEvent / declaration-runs item rows for
-  // batch debugging and HITL queue context. Anchored adds its own stage
-  // outputs into `meta` so audit consumers can read either family.
+  // batch debugging and HITL queue context. Each architecture surfaces
+  // its stage outputs into `meta` so audit consumers can read whichever
+  // family is non-null based on pipeline_architecture.
   const itemTrace = {
     stages: result.trace.stages.map((s) => ({
       name: s.name,
@@ -110,14 +111,18 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     })),
     meta: {
       pipeline_architecture: result.trace.pipeline_architecture,
-      // Legacy stage outputs — null under anchored.
+      // Legacy stage outputs — null under anchored + v2.
       track_a: result.trace.track_a,
       track_b: result.trace.track_b,
       verdict: result.trace.verdict,
-      // Anchored stage outputs — null under legacy.
+      // Anchored stage outputs — null under legacy + v2.
       anchored_identify: result.trace.anchored_identify,
       anchored_constrain: result.trace.anchored_constrain,
       anchored_pick: result.trace.anchored_pick,
+      // v2 structured trace — null under legacy + anchored. Carries
+      // identify / merchant_resolution / scope / retrieval / pick /
+      // verify / sanity per the multi-arm rewrite (PR 12).
+      pipeline_v2: result.trace.pipeline_v2,
       // Shared.
       sanity: result.trace.sanity,
     },

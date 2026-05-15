@@ -35,6 +35,15 @@ import type {
   DescriptionClassifierResult,
   CodeResolverResult,
 } from '../shared/pipeline.types.js';
+import type {
+  PipelineTraceV2,
+  PickAccepted as V2PickAccepted,
+  PickEscalate as V2PickEscalate,
+  IdentifyResult as V2IdentifyResult,
+  ScopeSelection as V2ScopeSelection,
+  MerchantResolution as V2MerchantResolution,
+  VerifierResult as V2VerifierResult,
+} from '../v2/types.js';
 
 // Legacy stage name → new step name. Track A's substages all start with
 // "track-a/"; we strip the prefix and map to the canonical step enum.
@@ -574,6 +583,425 @@ function buildAnchoredSubmissionAction(
   };
 }
 
+// ---------------------------------------------------------------------------
+// v2 classify-stage builders (PR 12)
+//
+// v2 doesn't emit a flat StageTrace[] like legacy/anchored — its trace is
+// already structured per-stage objects (identify, scope, pick, etc.).
+// These builders read those structured objects directly and synthesise
+// DispatchV1Action entries for the wire format. Durations come from the
+// per-stage call_trace.latency_ms fields. v2 actions are emitted in
+// pipeline execution order so the SPA can render a timeline:
+//
+//   identify (one action, pass discriminated inside output)
+//   merchant_resolution (deterministic, llm_used=false)
+//   scope_selection    (deterministic, llm_used=false)
+//   multi_arm_retrieval (one action with per-arm steps; llm_used=false)
+//   rerank             (deterministic, llm_used=false)
+//   pick               (the picker LLM)
+//   verify             (deterministic, llm_used=false)
+//   submission_description (LLM)
+// ---------------------------------------------------------------------------
+
+function buildV2IdentifyAction(identify: V2IdentifyResult): DispatchV1Action {
+  const steps: DispatchV1Step[] = [];
+  if (identify.trace.llm_called) {
+    steps.push({
+      step: 'identify_llm',
+      duration_ms: identify.trace.latency_ms,
+      outcome: identify.trace.status === 'ok' ? 'ok'
+        : identify.trace.status === 'skipped' ? 'skipped'
+        : 'failed',
+      ...(identify.trace.model ? { model: identify.trace.model } : {}),
+      output: {},
+    });
+  }
+  if (identify.trace.web_search_used) {
+    steps.push({
+      step: 'identify_web_search',
+      duration_ms: 0,
+      outcome: 'ok',
+      output: {},
+    });
+  }
+
+  const output: Record<string, unknown> = {
+    pass: identify.trace.pass,
+    kind: identify.kind,
+    ...(identify.kind === 'clean_product'
+      ? {
+          canonical: identify.canonical,
+          family_chapter: identify.family_chapter,
+          identity_tokens: identify.identity_tokens,
+          confidence: identify.confidence,
+          evidence: identify.evidence,
+          ...(identify.trace.evidence_mismatch ? { evidence_mismatch: true } : {}),
+        }
+      : identify.kind === 'multi_product'
+        ? { products: identify.products }
+        : { reason: identify.reason, cause: identify.cause }),
+  };
+
+  return {
+    action: 'identify',
+    duration_ms: identify.trace.latency_ms,
+    outcome: identify.trace.status === 'ok' ? 'ok'
+      : identify.trace.status === 'skipped' ? 'skipped'
+      : 'failed',
+    llm_used: identify.trace.llm_called,
+    // identify is blinded to the merchant code (anchoring avoidance).
+    merchant_code_visible_to_model: false,
+    steps,
+    output,
+  };
+}
+
+function buildV2MerchantResolutionAction(
+  resolution: V2MerchantResolution,
+  resolutionTrace: PipelineTraceV2['merchant_resolution']['trace'],
+): DispatchV1Action {
+  const output: Record<string, unknown> = {
+    state: resolution.state,
+    ...('resolved_code' in resolution && resolution.resolved_code
+      ? { resolved_code: resolution.resolved_code }
+      : {}),
+    ...('source_code' in resolution && resolution.source_code
+      ? { source_code: resolution.source_code }
+      : {}),
+    override_attempted: resolutionTrace.override_attempted,
+    override_matched: resolutionTrace.override_matched,
+  };
+  return {
+    action: 'merchant_resolution',
+    duration_ms: resolutionTrace.latency_ms,
+    outcome: 'ok',
+    llm_used: resolutionTrace.llm_called,
+    // merchant_resolution reads the merchant code directly (codebook
+    // walk + override table). Surface for SPA badge.
+    merchant_code_visible_to_model: true,
+    output,
+  };
+}
+
+function buildV2ScopeSelectionAction(scope: V2ScopeSelection): DispatchV1Action {
+  return {
+    action: 'scope_selection',
+    duration_ms: 0, // pure function, sub-ms
+    outcome: 'ok',
+    llm_used: false,
+    output: {
+      primary: scope.primary,
+      secondaries: scope.secondaries,
+      audit_flags: scope.audit_flags,
+    },
+  };
+}
+
+function buildV2MultiArmRetrievalAction(
+  retrieval: PipelineTraceV2['retrieval'],
+  scope: V2ScopeSelection,
+): DispatchV1Action {
+  const steps: DispatchV1Step[] = [];
+  // Primary arm step.
+  const primaryStepName = retrievalStepNameForArm(scope.primary.kind);
+  if (primaryStepName) {
+    steps.push({
+      step: primaryStepName,
+      duration_ms: 0,
+      outcome: 'ok',
+      output: { candidate_count: retrieval.primary_candidate_count },
+    });
+  }
+  // Secondary arms — each gets its own step.
+  for (const arm of scope.secondaries) {
+    const stepName = retrievalStepNameForArm(arm.kind);
+    if (!stepName) continue;
+    steps.push({
+      step: stepName,
+      duration_ms: 0,
+      outcome: 'ok',
+      output: {
+        candidate_count: retrieval.secondary_candidate_counts[arm.kind] ?? 0,
+      },
+    });
+  }
+  return {
+    action: 'multi_arm_retrieval',
+    duration_ms: 0,
+    outcome: 'ok',
+    llm_used: false,
+    output: {
+      candidates_before_rerank: retrieval.candidates_before_rerank,
+      primary_candidate_count: retrieval.primary_candidate_count,
+      secondary_candidate_counts: retrieval.secondary_candidate_counts,
+    },
+    steps,
+  };
+}
+
+function retrievalStepNameForArm(
+  kind: V2ScopeSelection['primary']['kind'] | V2ScopeSelection['secondaries'][number]['kind'],
+): DispatchV1StepName | null {
+  switch (kind) {
+    case 'merchant_prefix': return 'retrieve_merchant_prefix';
+    case 'family_chapter': return 'retrieve_family_chapter';
+    case 'unconstrained': return 'retrieve_unconstrained';
+    case 'lexical_tokens': return 'retrieve_lexical_tokens';
+    case 'escalate': return null;
+    default: return null;
+  }
+}
+
+function buildV2RerankAction(retrieval: PipelineTraceV2['retrieval']): DispatchV1Action {
+  return {
+    action: 'rerank',
+    duration_ms: 0,
+    outcome: 'ok',
+    llm_used: false,
+    output: {
+      candidates_before_rerank: retrieval.candidates_before_rerank,
+      candidates_after_rerank: retrieval.candidates_after_rerank,
+    },
+  };
+}
+
+function buildV2PickAction(
+  pick: V2PickAccepted | V2PickEscalate,
+): DispatchV1Action {
+  const steps: DispatchV1Step[] = [{
+    step: 'pick_retrieval',
+    duration_ms: 0,
+    outcome: pick.trace.candidate_count > 0 ? 'ok' : 'skipped',
+    output: { candidate_count: pick.trace.candidate_count },
+  }];
+  if (pick.trace.llm_called) {
+    steps.push({
+      step: 'pick_llm',
+      duration_ms: pick.trace.latency_ms,
+      outcome: pick.trace.status === 'ok' ? 'ok'
+        : pick.trace.status === 'skipped' ? 'skipped'
+        : 'failed',
+      ...(pick.trace.model ? { model: pick.trace.model } : {}),
+      output: {},
+    });
+  }
+
+  const output: Record<string, unknown> = pick.kind === 'accepted'
+    ? {
+        kind: pick.kind,
+        final_code: pick.final_code,
+        fit: pick.fit,
+        confidence: pick.confidence,
+        gir_applied: pick.gir_applied,
+        verdict_population: pick.verdict_population,
+        picked_from_arm: pick.picked_from_arm,
+        merchant_chapter_disagreement: pick.merchant_chapter_disagreement,
+        candidate_count_by_arm: pick.candidate_count_by_arm,
+        audit_flag: pick.trace.audit_flag,
+      }
+    : {
+        kind: pick.kind,
+        reason: pick.reason,
+        detail: pick.detail,
+        audit_flag: pick.trace.audit_flag,
+      };
+
+  return {
+    action: 'pick',
+    duration_ms: pick.trace.latency_ms,
+    outcome: pick.trace.status === 'ok' ? 'ok'
+      : pick.trace.status === 'skipped' ? 'skipped'
+      : 'failed',
+    llm_used: pick.trace.llm_called,
+    // pick sees the scope but not the merchant code itself.
+    merchant_code_visible_to_model: false,
+    steps,
+    output,
+  };
+}
+
+function buildV2VerifyAction(verify: V2VerifierResult): DispatchV1Action {
+  return {
+    action: 'verify',
+    duration_ms: 0,
+    outcome: 'ok',
+    llm_used: false,
+    output: {
+      result: verify.result,
+      rules_triggered: verify.rules_triggered,
+    },
+  };
+}
+
+function buildV2SubmissionAction(result: PipelineResult): DispatchV1Action | null {
+  // The v2 orchestrator does not emit a stage-X/submission entry into
+  // StageTrace[]; submission outcome is implicit in result.goods_description_ar.
+  // Without a stage-trace entry we cannot determine latency or source,
+  // so we surface a thin action with what we know. PR 13 (post-cleanup)
+  // can wire submission timing through the v2 trace object directly.
+  if (result.goods_description_ar === null) return null;
+  return {
+    action: 'submission_description',
+    duration_ms: 0,
+    outcome: 'ok',
+    llm_used: true, // submission is always LLM-backed in v2
+    output: {
+      description_ar: result.goods_description_ar,
+    },
+  };
+}
+
+function buildV2NormalizeStage(trace: PipelineTrace): DispatchV1Stage {
+  // v2 doesn't populate stages[] for parse. We still need a normalize
+  // stage in the wire format so the SPA can render the three-stage
+  // timeline. Surface a minimal parse action; merchant_code_state is
+  // derived from the v2 trace.
+  const v2 = trace.pipeline_v2 as PipelineTraceV2;
+  const merchantState = v2.merchant_resolution.resolution.state;
+  // Map v2 MerchantResolution.state → legacy MerchantCodeState wire enum.
+  // 'malformed' and 'absent' map directly; other states correspond to
+  // a populated merchant code which by parse-stage semantics was either
+  // twelve_digit (12 numeric) or short_prefix (6/8/10). We don't have
+  // the original length on the v2 trace, so report 'twelve_digit' as a
+  // reasonable default for non-malformed/non-absent. The summary's own
+  // merchant_code_state field uses parseDetail (not this fallback) so
+  // the wire-level summary remains accurate when the parse stage emits
+  // a structured detail. PR 13 will tighten this once parse moves to
+  // emitting structured detail consistently.
+  const merchantCodeState =
+    merchantState === 'absent' ? 'absent'
+    : merchantState === 'malformed' ? 'malformed'
+    : 'twelve_digit';
+
+  return {
+    stage: 'normalize',
+    started_at: new Date().toISOString(),
+    duration_ms: 0,
+    outcome: 'ok',
+    actions: [{
+      action: 'parse',
+      duration_ms: 0,
+      outcome: 'ok',
+      llm_used: false,
+      output: {
+        merchant_code_state: merchantCodeState,
+      },
+    }],
+    output: {
+      rejected: false,
+      merchant_code_state: merchantCodeState,
+    },
+  };
+}
+
+function buildV2SanityStage(trace: PipelineTrace): DispatchV1Stage | null {
+  // v2 carries the sanity result on trace.sanity but does not push a
+  // stage-N/sanity entry to stages[]. Surface the wire stage directly.
+  const sanity = trace.sanity;
+  if (!sanity) return null;
+  const sanityOutput = {
+    verdict: sanity.verdict,
+    rationale: sanity.rationale,
+    ...(sanity.degraded ? { degraded: true } : {}),
+    ...(sanity.attempts !== undefined ? { attempts: sanity.attempts } : {}),
+    ...(sanity.retried_reasons && sanity.retried_reasons.length > 0
+      ? { retried_reasons: sanity.retried_reasons }
+      : {}),
+  };
+  return {
+    stage: 'sanity',
+    started_at: new Date().toISOString(),
+    duration_ms: sanity.latency_ms ?? 0,
+    outcome: 'ok',
+    actions: [{
+      action: 'sanity_check',
+      duration_ms: sanity.latency_ms ?? 0,
+      outcome: 'ok',
+      llm_used: true,
+      output: sanityOutput,
+    }],
+    output: sanityOutput,
+  };
+}
+
+function buildClassifyStageV2(
+  trace: PipelineTrace,
+  result: PipelineResult,
+): DispatchV1Stage {
+  const v2 = trace.pipeline_v2 as PipelineTraceV2;
+  const actions: DispatchV1Action[] = [];
+
+  actions.push(buildV2IdentifyAction(v2.identify));
+  actions.push(buildV2MerchantResolutionAction(
+    v2.merchant_resolution.resolution,
+    v2.merchant_resolution.trace,
+  ));
+  actions.push(buildV2ScopeSelectionAction(v2.scope));
+  actions.push(buildV2MultiArmRetrievalAction(v2.retrieval, v2.scope));
+  actions.push(buildV2RerankAction(v2.retrieval));
+  actions.push(buildV2PickAction(v2.pick));
+  if (v2.verify) actions.push(buildV2VerifyAction(v2.verify));
+  const sub = buildV2SubmissionAction(result);
+  if (sub) actions.push(sub);
+
+  const stageOutput: Record<string, unknown> = v2.pick.kind === 'accepted'
+    ? {
+        final_code: v2.pick.final_code,
+        fit: v2.pick.fit,
+        confidence: v2.pick.confidence,
+        verifier_result: v2.verify?.result ?? null,
+        goods_description_ar: result.goods_description_ar,
+      }
+    : {
+        escalate_reason: v2.pick.reason,
+        escalate_detail: v2.pick.detail,
+      };
+
+  return {
+    stage: 'classify',
+    started_at: new Date().toISOString(),
+    duration_ms: actions.reduce((acc, a) => acc + a.duration_ms, 0),
+    outcome: actions.some((a) => a.outcome === 'failed') ? 'failed' : 'ok',
+    actions,
+    output: stageOutput,
+  };
+}
+
+/** Build the v2 summary from the structured PipelineTraceV2. */
+function buildV2Summary(
+  trace: PipelineTrace,
+  parseDetail: { merchant_code_state?: string } | undefined,
+  result: PipelineResult,
+): DispatchV1Summary {
+  const v2 = trace.pipeline_v2 as PipelineTraceV2;
+  const pickAccepted = v2.pick.kind === 'accepted' ? v2.pick : null;
+  return {
+    merchant_code_state: (parseDetail?.merchant_code_state as never) ?? null,
+    pipeline_architecture: 'v2',
+    // Legacy fields null under v2.
+    description_classifier_top_fit: null,
+    code_resolver_code: null,
+    reconciliation: null,
+    operator_override_applied: v2.merchant_resolution.trace.override_matched,
+    // Anchored fields null under v2.
+    identify_kind: v2.identify.kind,
+    scope_kind: v2.scope.primary.kind,
+    pick_fit: pickAccepted?.fit ?? null,
+    pick_escalate_reason: v2.pick.kind === 'escalate' ? v2.pick.reason : null,
+    // v2 fields.
+    identify_pass: v2.identify.trace.pass,
+    picked_from_arm: pickAccepted?.picked_from_arm ?? null,
+    merchant_chapter_disagreement: pickAccepted?.merchant_chapter_disagreement ?? null,
+    secondary_arm_count: v2.scope.secondaries.length,
+    candidate_count_by_arm: pickAccepted?.candidate_count_by_arm ?? null,
+    verifier_result: v2.verify?.result ?? null,
+    verifier_rules_triggered: v2.verify?.rules_triggered ?? null,
+    // Shared.
+    final_code: result.final_code,
+    sanity_verdict: trace.sanity?.verdict ?? result.sanity_verdict ?? null,
+  };
+}
+
 function buildSanityStage(
   stages: StageTrace[],
   trace: PipelineTrace,
@@ -658,6 +1086,14 @@ function buildAnchoredSummary(
     scope_kind: constrain?.scope.kind ?? null,
     pick_fit: pick?.kind === 'accepted' ? pick.fit : null,
     pick_escalate_reason: pick?.kind === 'escalate' ? pick.reason : null,
+    // v2 fields null under anchored.
+    identify_pass: null,
+    picked_from_arm: null,
+    merchant_chapter_disagreement: null,
+    secondary_arm_count: null,
+    candidate_count_by_arm: null,
+    verifier_result: null,
+    verifier_rules_triggered: null,
     // Shared.
     final_code: result.final_code,
     sanity_verdict: trace.sanity?.verdict ?? result.sanity_verdict ?? null,
@@ -685,6 +1121,14 @@ function buildLegacySummary(
     scope_kind: null,
     pick_fit: null,
     pick_escalate_reason: null,
+    // v2 fields null under legacy.
+    identify_pass: null,
+    picked_from_arm: null,
+    merchant_chapter_disagreement: null,
+    secondary_arm_count: null,
+    candidate_count_by_arm: null,
+    verifier_result: null,
+    verifier_rules_triggered: null,
     // Shared.
     final_code: result.final_code,
     sanity_verdict: trace.sanity?.verdict ?? result.sanity_verdict ?? null,
@@ -697,18 +1141,35 @@ export function assembleDispatchV1(params: AssembleParams): DispatchV1Response {
   const architecture = trace.pipeline_architecture;
   const stages: DispatchV1Stage[] = [];
 
-  stages.push(buildNormalizeStage(trace.stages));
+  // Normalize stage: legacy + anchored emit stage-0a/parse + stage-0b/cleanup
+  // into stages[]; v2 does not (parse is deterministic + structured). For v2
+  // we synthesise a minimal normalize stage with a parse action carrying
+  // merchant_code_state when available.
+  if (architecture === 'v2') {
+    stages.push(buildV2NormalizeStage(trace));
+  } else {
+    stages.push(buildNormalizeStage(trace.stages));
+  }
   // Branch on architecture. Each variant emits the same DispatchV1Stage
   // wire shape; only the actions inside `classify` differ. Sanity is
   // shared (both architectures emit a sanity LLM call with the same
   // contract).
   stages.push(
-    architecture === 'anchored'
-      ? buildClassifyStageAnchored(trace.stages, trace, result)
-      : buildClassifyStageLegacy(trace.stages, trace, result),
+    architecture === 'v2'
+      ? buildClassifyStageV2(trace, result)
+      : architecture === 'anchored'
+        ? buildClassifyStageAnchored(trace.stages, trace, result)
+        : buildClassifyStageLegacy(trace.stages, trace, result),
   );
-  const sanity = buildSanityStage(trace.stages, trace);
-  if (sanity) stages.push(sanity);
+  // v2 trace doesn't populate stages[] for sanity; synthesise from
+  // trace.sanity directly.
+  if (architecture === 'v2') {
+    const v2Sanity = buildV2SanityStage(trace);
+    if (v2Sanity) stages.push(v2Sanity);
+  } else {
+    const sanity = buildSanityStage(trace.stages, trace);
+    if (sanity) stages.push(sanity);
+  }
 
   const status: DispatchV1Response['status'] =
     result.final_code !== null
@@ -717,14 +1178,19 @@ export function assembleDispatchV1(params: AssembleParams): DispatchV1Response {
         ? 'rejected'
         : 'failed';
 
+  // parseDetail: legacy + anchored read merchant_code_state from
+  // stage-0a/parse trace. v2 derives it from the structured trace
+  // (merchant_resolution.resolution.state) — handled inline below.
   const parseDetail = trace.stages.find((s) => s.name === 'stage-0a/parse')?.detail as
     | { merchant_code_state?: string }
     | undefined;
 
   const summary: DispatchV1Summary =
-    architecture === 'anchored'
-      ? buildAnchoredSummary(trace, parseDetail, result)
-      : buildLegacySummary(trace, parseDetail, result);
+    architecture === 'v2'
+      ? buildV2Summary(trace, parseDetail, result)
+      : architecture === 'anchored'
+        ? buildAnchoredSummary(trace, parseDetail, result)
+        : buildLegacySummary(trace, parseDetail, result);
 
   const v1Trace: DispatchV1Trace = {
     trace_version: 'dispatch-v1',
@@ -868,6 +1334,11 @@ export function assembleCanonicalItem(params: AssembleCanonicalParams): Canonica
  * form pick fed into retrieval), which is the closest analog.
  */
 export function retrievalQueryFromTrace(trace: PipelineTrace): string | null {
+  if (trace.pipeline_architecture === 'v2') {
+    const v2 = trace.pipeline_v2 as PipelineTraceV2 | null;
+    if (!v2) return null;
+    return v2.identify.kind === 'clean_product' ? v2.identify.canonical : null;
+  }
   if (trace.pipeline_architecture === 'anchored') {
     const id = trace.anchored_identify;
     return id?.kind === 'clean_product' ? id.canonical : null;
@@ -891,6 +1362,17 @@ export function retrievalQueryFromTrace(trace: PipelineTrace): string | null {
  *      with weak signal, etc.)
  */
 export function classificationStatusFromTrace(trace: PipelineTrace): ClassificationStatus | null {
+  if (trace.pipeline_architecture === 'v2') {
+    // v2 orchestrator already computed classification_status with verifier
+    // signal baked in (PASS/UNCERTAIN). Recompute from the trace so this
+    // function stays the single source of truth for downstream consumers.
+    const v2 = trace.pipeline_v2 as PipelineTraceV2 | null;
+    if (!v2) return null;
+    if (v2.pick.kind === 'escalate') return 'ZERO_SIGNAL';
+    if (v2.verify?.result === 'UNCERTAIN') return 'DRIFT';
+    if (v2.identify.kind === 'clean_product' && v2.pick.fit === 'fits') return 'AGREEMENT';
+    return 'DRIFT';
+  }
   if (trace.pipeline_architecture === 'anchored') {
     const pick = trace.anchored_pick;
     const identify = trace.anchored_identify;
@@ -908,6 +1390,11 @@ export function classificationStatusFromTrace(trace: PipelineTrace): Classificat
  * anchored it's pick.confidence when pick accepted, null on escalate.
  */
 export function classificationConfidenceFromTrace(trace: PipelineTrace): number | null {
+  if (trace.pipeline_architecture === 'v2') {
+    const v2 = trace.pipeline_v2 as PipelineTraceV2 | null;
+    if (!v2) return null;
+    return v2.pick.kind === 'accepted' ? v2.pick.confidence : null;
+  }
   if (trace.pipeline_architecture === 'anchored') {
     const pick = trace.anchored_pick;
     return pick?.kind === 'accepted' ? pick.confidence : null;

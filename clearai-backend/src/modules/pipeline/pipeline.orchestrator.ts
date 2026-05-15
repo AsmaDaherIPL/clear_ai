@@ -21,6 +21,8 @@ import { shouldEnqueue } from './review/review.js';
 import { buildTrace } from './trace/trace.js';
 import { env } from '../../config/env.js';
 import { runAnchoredPipeline } from './anchored-orchestrator.js';
+import { runPipelineV2 } from './v2/orchestrator.js';
+import { adaptV2ToPipelineResult } from './v2/adapter.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import { getLlmStagePolicy } from '../../inference/llm/policy.js';
 import type {
@@ -36,7 +38,7 @@ import type {
  * the legacy parallel-tracks design and the anchored three-stage design
  * during the migration window. Mirrors env.PIPELINE_ARCHITECTURE.
  */
-export type PipelineArchitecture = 'legacy' | 'anchored';
+export type PipelineArchitecture = 'legacy' | 'anchored' | 'v2';
 
 export interface RunPipelineOptions {
   /**
@@ -189,6 +191,16 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   const architecture: PipelineArchitecture =
     opts.architectureOverride ?? env().PIPELINE_ARCHITECTURE;
+
+  if (architecture === 'v2') {
+    // v2/orchestrator.ts returns PipelineResultV2 (the new envelope).
+    // adaptV2ToPipelineResult re-wraps it in the legacy PipelineResult
+    // shape so route handlers + batch dispatch + recorders don't need
+    // to know about the rewrite. Trace differences are carried under
+    // `trace.pipeline_v2`, dispatched by `pipeline_architecture === 'v2'`.
+    const v2Result = await runPipelineV2(item, operatorSlug, itemId);
+    return adaptV2ToPipelineResult(v2Result);
+  }
 
   if (architecture === 'anchored') {
     return runAnchoredPipeline(item, operatorSlug, itemId);

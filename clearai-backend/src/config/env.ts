@@ -63,7 +63,7 @@ const EnvSchema = z
      *
      * Migration plan: PR-A-1 through PR-A-7 (see master table).
      */
-    PIPELINE_ARCHITECTURE: z.enum(['legacy', 'anchored']).default('legacy'),
+    PIPELINE_ARCHITECTURE: z.enum(['legacy', 'anchored', 'v2']).default('legacy'),
 
     /**
      * Rolling window size for the transient-rate soft-warn breaker. The
