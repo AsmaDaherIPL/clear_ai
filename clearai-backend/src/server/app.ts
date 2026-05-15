@@ -148,14 +148,27 @@ const start = async (): Promise<void> => {
         () => app.log.info('setup_meta cache primed'),
         (err: unknown) => app.log.warn({ err }, 'setup_meta warmup failed (non-fatal)'),
       ),
+      // Boot-time prompt warmup. Reads each system prompt into the
+      // loadPrompt() in-memory cache so the first classification on a
+      // cold instance doesn't pay file-read latency. List must mirror
+      // the live consumers — pruned 2026-05-16 to drop 4 stale entries
+      // (description-cleanup, reconciliation, picker-{describe,expand}
+      // for legacy/anchored pipelines deleted in PR 13). picker-* stay
+      // because merchant_replacement_pick still uses them on the rare
+      // multi-replacement / prefix-walk LLM disambig path.
       Promise.all([
-        loadPrompt('description-cleanup.md'),
-        loadPrompt('picker-describe.md'),
-        loadPrompt('picker-expand.md'),
-        loadPrompt('gir-system.md'),
-        loadPrompt('reconciliation.md'),
+        // v2 hot path — every row or near-every row.
+        loadPrompt('identify-fast.md'),
+        loadPrompt('identify-web.md'),
+        loadPrompt('pick.md'),
         loadPrompt('sanity.md'),
         loadPrompt('submission-description.md'),
+        // merchant_resolution multi-replacement / prefix-walk disambig
+        // (~5% of rows). Warmed because the first hit at request time
+        // would otherwise stall the codebook walk by ~10ms.
+        loadPrompt('gir-system.md'),
+        loadPrompt('picker-describe.md'),
+        loadPrompt('picker-expand.md'),
       ]).then(
         () => app.log.info('prompt cache primed'),
         (err: unknown) => app.log.warn({ err }, 'prompt warmup failed (non-fatal)'),
