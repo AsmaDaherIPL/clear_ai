@@ -1,60 +1,61 @@
 /**
- * Pipeline rewrite — Orchestrator (PR 11).
+ * Pipeline orchestrator — canonical single-pipeline implementation (PR 13).
  *
  * Wires the new flow end-to-end:
  *
  *   parse (deterministic)
- *      ↓
+ *      |
  *   parallel { identify_fast, merchant_resolution }
- *      ↓
+ *      |
  *   if identify_fast.kind === uninformative+genuine OR multi_product:
  *     identify_web (replaces identify_fast)
- *      ↓
+ *      |
  *   scope_selection (deterministic)
- *      ↓
+ *      |
  *   if scope.primary.kind === escalate: short-circuit
- *      ↓
+ *      |
  *   multi-arm retrieval + dedupe (parallel arms)
- *      ↓
+ *      |
  *   reranker (deterministic, top 8)
- *      ↓
+ *      |
  *   picker (Sonnet, single call)
- *      ↓
+ *      |
  *   if pick.kind === escalate: short-circuit
- *      ↓
+ *      |
  *   verifier (deterministic, PASS / UNCERTAIN)
- *      ↓
+ *      |
  *   parallel { submission_description, sanity_check }
- *      ↓
- *   build PipelineResultV2 with HITL routing based on verify + sanity
+ *      |
+ *   build PipelineResult with HITL routing based on verify + sanity
  *
- * Replaces the PR 1 stub. Public signature unchanged.
+ * Promoted from v2/orchestrator.ts in PR 13. runPipelineV2 renamed to
+ * runPipeline. No architecture branching — this is the only pipeline.
  */
-import { parseItem } from './parse.js';
-import { runIdentifyFast } from './identify/fast.js';
-import { runIdentifyWeb } from './identify/web.js';
+import { parseItem } from './parse/parse.js';
+import { runIdentifyFast } from './v2/identify/fast.js';
+import { runIdentifyWeb } from './v2/identify/web.js';
 import {
   resolveMerchant,
   buildResolutionTrace,
 } from './merchant/resolve.js';
-import { selectScopes } from './scope/select.js';
-import { runMultiArmRetrieval } from './retrieve/multi-arm.js';
-import { dedupeCandidates } from './retrieve/union.js';
-import { rerank } from './retrieve/rerank.js';
-import { runPick } from './pick/pick.js';
-import { verifyClassification } from './pick/verify.js';
-import { generateSubmissionDescription } from '../submission-description/submission-description.js';
-import { runSanity } from '../sanity/sanity.js';
-import { lookupCatalogContext } from '../catalog/catalog-context.js';
-import { loadOperatorPipelineConfig } from '../catalog/operator-pipeline-config.js';
+import { selectScopes } from './v2/scope/select.js';
+import { runMultiArmRetrieval } from './v2/retrieve/multi-arm.js';
+import { dedupeCandidates } from './v2/retrieve/union.js';
+import { rerank } from './v2/retrieve/rerank.js';
+import { runPick } from './v2/pick/pick.js';
+import { verifyClassification } from './v2/pick/verify.js';
+import { generateSubmissionDescription } from './submission-description/submission-description.js';
+import { runSanity } from './sanity/sanity.js';
+import { lookupCatalogContext } from './catalog/catalog-context.js';
+import { loadOperatorPipelineConfig } from './catalog/operator-pipeline-config.js';
 import type {
   CanonicalLineItem,
   ClassificationStatus,
   HitlIntent,
   IdentifyResult,
   PickResult,
-  PipelineResultV2,
-  PipelineTraceV2,
+  PipelineResult,
+  PipelineTrace,
   SanityResult,
   ScopeSelection,
 } from './types.js';
@@ -73,11 +74,10 @@ function shouldRunWebFallback(fastResult: IdentifyResult): boolean {
 /**
  * Derive ClassificationStatus from pick + verify + identify.
  *
- * Mirrors current anchored derivation but adds verifier signal:
- *   pick escalate                          → ZERO_SIGNAL
- *   pick accepted + verify UNCERTAIN       → DRIFT
- *   pick accepted + verify PASS + clean_product + fits  → AGREEMENT
- *   anything else (partial fit, etc.)      → DRIFT
+ *   pick escalate                          -> ZERO_SIGNAL
+ *   pick accepted + verify UNCERTAIN       -> DRIFT
+ *   pick accepted + verify PASS + clean_product + fits  -> AGREEMENT
+ *   anything else (partial fit, etc.)      -> DRIFT
  */
 function classificationStatusFor(
   pick: PickResult,
@@ -92,15 +92,10 @@ function classificationStatusFor(
 
 /**
  * HITL routing rules:
- *   sanity.verdict === 'BLOCK'    → null (BLOCK is terminal, no HITL queue)
- *   sanity.verdict === 'FLAG'     → 'sanity_flag'
- *   verify.result === 'UNCERTAIN' → 'verifier_uncertain'
- *   pick.escalate (any reason)    → 'verdict_escalate' or 'low_information'
- *                                   per identify.cause + pick.reason combo
- *   otherwise                     → null (accept clean)
- *
- * cleaned_description for the HITL payload is identify.canonical when
- * clean_product, else the raw description.
+ *   sanity.verdict === 'FLAG'     -> 'sanity_flag'
+ *   verify.result === 'UNCERTAIN' -> 'verifier_uncertain'
+ *   pick.escalate (any reason)    -> 'verdict_escalate' or 'low_information'
+ *   otherwise                     -> null (accept clean)
  */
 function buildHitl(
   pick: PickResult,
@@ -119,8 +114,6 @@ function buildHitl(
     return { reason: 'verifier_uncertain', cleaned_description: cleaned };
   }
   if (pick.kind === 'escalate') {
-    // Distinguish low_information (identify gave up genuinely AND picker
-    // had no query) from verdict_escalate (other failure modes).
     if (
       pick.reason === 'identify_no_query' &&
       identify.kind === 'uninformative' &&
@@ -135,12 +128,7 @@ function buildHitl(
 
 /**
  * infra_degraded detection: an LLM stage exhausted retries or hit a
- * transport-class failure that's recoverable on retry. Same semantics
- * as the legacy anchored orchestrator's detectInfraDegraded:
- *   - identify.cause === 'transport' (either pass)
- *   - picker_unavailable with status 'error' | 'timeout'
- *   - submission.invoked === 'llm_failed'
- *   - sanity.degraded === true
+ * transport-class failure that's recoverable on retry.
  */
 function detectInfraDegraded(params: {
   identify: IdentifyResult;
@@ -167,18 +155,17 @@ function detectInfraDegraded(params: {
 }
 
 /**
- * Public entry. Runs the rewritten pipeline end-to-end and returns a
- * PipelineResultV2.
+ * Public entry. Runs the pipeline end-to-end and returns a PipelineResult.
  *
  * Never throws on stage-level failures — each stage returns a typed
  * union with escalate variants. Throws only on programmer error
  * (missing prompt file, schema invariant violation).
  */
-export async function runPipelineV2(
+export async function runPipeline(
   item: CanonicalLineItem,
   operatorSlug: string,
   _itemId: string,
-): Promise<PipelineResultV2> {
+): Promise<PipelineResult> {
   // ---- Stage 1: Parse ----
   const parsed = parseItem(item);
   if (parsed.rejected) {
@@ -196,16 +183,6 @@ export async function runPipelineV2(
   const merchantStart = Date.now();
   const [identifyFast, merchantResolution] = await Promise.all([
     runIdentifyFast(rawDescription),
-    // We pass an identify "placeholder" because resolveMerchant needs the
-    // identify result for some LLM-pick disambiguations. Since identify_fast
-    // hasn't finished yet when this is constructed, we can't pass its real
-    // result. The legacy resolve-merchant uses identify only for the
-    // multi-replacement LLM pick path (rare), and the picker reads
-    // identify.canonical when present. Passing an empty placeholder keeps
-    // the parallel structure; the small accuracy loss on multi-replacement
-    // disambiguation is acceptable in exchange for the latency win.
-    // TODO PR-12 follow-up: investigate whether to serialize these stages
-    // when merchant code requires multi-replacement disambiguation.
     resolveMerchant(
       parsed.item.raw_merchant_code,
       placeholderIdentify(),
@@ -223,16 +200,14 @@ export async function runPipelineV2(
   const merchantResolutionTrace = buildResolutionTrace(
     merchantResolution,
     merchantStart,
-    /* llmCalled */ false, // placeholder; the real signal requires
-    // surfacing it from resolveMerchantCode which is legacy and untouched
-    /* overrideAttempted */ opConfig.overridesEnabled,
+    false,
+    opConfig.overridesEnabled,
   );
 
   // ---- Stage 4: Scope selection ----
   const scope = selectScopes(identify, merchantResolution);
 
   if (scope.primary.kind === 'escalate') {
-    // No retrieval, no picker. Build a minimal escalate result.
     return buildEscalateResult({
       identify,
       merchantResolution,
@@ -256,8 +231,6 @@ export async function runPipelineV2(
   }
 
   // ---- Stage 5: Multi-arm retrieval ----
-  // Build the query (identify.canonical + tokens for non-lexical arms).
-  // The lexical arm overrides this internally with the tokens-only query.
   const query =
     identify.kind === 'clean_product'
       ? `${identify.canonical}${identify.identity_tokens.length > 0 ? ' ' + identify.identity_tokens.join(' ') : ''}`.trim()
@@ -355,7 +328,7 @@ export async function runPipelineV2(
   ]);
 
   // ---- Final result assembly ----
-  const trace: PipelineTraceV2 = {
+  const trace: PipelineTrace = {
     identify,
     merchant_resolution: {
       resolution: merchantResolution,
@@ -371,7 +344,7 @@ export async function runPipelineV2(
     pick,
     verify,
     sanity,
-    stages: [], // legacy compat field; populated by trace builder in PR 12
+    stages: [],
   };
 
   return {
@@ -394,9 +367,7 @@ export async function runPipelineV2(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function blockedResult(reason: string): PipelineResultV2 {
-  // Parse rejection. BLOCK is the appropriate sanity_verdict per the
-  // legacy + anchored convention.
+function blockedResult(reason: string): PipelineResult {
   return {
     final_code: null,
     goods_description_ar: null,
@@ -461,13 +432,13 @@ function blockedResult(reason: string): PipelineResultV2 {
 
 function buildEscalateResult(params: {
   identify: IdentifyResult;
-  merchantResolution: PipelineTraceV2['merchant_resolution']['resolution'];
-  merchantResolutionTrace: PipelineTraceV2['merchant_resolution']['trace'];
+  merchantResolution: PipelineTrace['merchant_resolution']['resolution'];
+  merchantResolutionTrace: PipelineTrace['merchant_resolution']['trace'];
   scope: ScopeSelection;
   pick: PickResult;
   rawDescription: string;
-  retrievalStats?: PipelineTraceV2['retrieval'];
-}): PipelineResultV2 {
+  retrievalStats?: PipelineTrace['retrieval'];
+}): PipelineResult {
   const {
     identify,
     merchantResolution,
@@ -477,7 +448,7 @@ function buildEscalateResult(params: {
     rawDescription,
     retrievalStats,
   } = params;
-  const trace: PipelineTraceV2 = {
+  const trace: PipelineTrace = {
     identify,
     merchant_resolution: {
       resolution: merchantResolution,
@@ -498,7 +469,7 @@ function buildEscalateResult(params: {
   return {
     final_code: null,
     goods_description_ar: null,
-    sanity_verdict: 'PASS', // escalate paths default to PASS (sanity never ran)
+    sanity_verdict: 'PASS',
     classification_status: classificationStatusFor(pick, identify, null),
     hitl: buildHitl(pick, identify, null, null, rawDescription),
     trace,
@@ -512,11 +483,6 @@ function buildEscalateResult(params: {
 }
 
 function placeholderIdentify(): IdentifyResult {
-  // Used when merchant_resolution needs an identify arg but identify_fast
-  // hasn't completed yet (parallel structure). resolveMerchantCode only
-  // reads identify.canonical in the multi-replacement LLM-pick branch;
-  // an empty placeholder keeps that branch's recall low but doesn't
-  // crash. See TODO in runPipelineV2.
   return {
     kind: 'uninformative',
     cause: 'short_circuit',

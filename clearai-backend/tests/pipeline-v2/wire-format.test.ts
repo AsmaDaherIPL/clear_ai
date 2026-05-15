@@ -1,13 +1,13 @@
 /**
- * PR 12 — wire-format adapter + dispatch-v1 v2 branch tests.
+ * PR 12 — dispatch-v1 v2 branch tests (updated PR 13).
  *
- * Pure-function tests. No LLM, no DB, no orchestrator. Build a
- * PipelineResultV2 by hand, send it through adaptV2ToPipelineResult,
- * then through assembleDispatchV1, then assert the shape of the
- * resulting DispatchV1Response.
+ * PR 13: adaptV2ToPipelineResult (v2/adapter.ts) deleted; PipelineResult is
+ * now canonical. Tests build PipelineResult directly and feed it into
+ * assembleDispatchV1.
+ *
+ * Pure-function tests. No LLM, no DB, no orchestrator.
  */
 import { describe, expect, it } from 'vitest';
-import { adaptV2ToPipelineResult } from '../../src/modules/pipeline/v2/adapter.js';
 import { assembleDispatchV1 } from '../../src/modules/pipeline/trace/dispatch-v1.js';
 import type {
   IdentifyResult,
@@ -15,11 +15,11 @@ import type {
   MerchantResolutionTrace,
   PickAccepted,
   PickEscalate,
-  PipelineResultV2,
-  PipelineTraceV2,
+  PipelineResult,
+  PipelineTrace,
   ScopeSelection,
   VerifierResult,
-} from '../../src/modules/pipeline/v2/types.js';
+} from '../../src/modules/pipeline/types.js';
 import type { SanityResult } from '../../src/modules/pipeline/shared/pipeline.types.js';
 
 const fastTrace: IdentifyResult extends { trace: infer T } ? T : never =
@@ -45,7 +45,6 @@ const cleanIdentify: IdentifyResult = {
 
 const merchantActive: MerchantResolution = {
   state: 'active',
-  source_code: '610910000000',
   resolved_code: '610910000000',
 };
 const merchantResolutionTrace: MerchantResolutionTrace = {
@@ -90,8 +89,8 @@ const sanityPass: SanityResult = {
   degraded: false,
 };
 
-function buildResultV2(overrides: Partial<PipelineResultV2> = {}): PipelineResultV2 {
-  const trace: PipelineTraceV2 = {
+function buildResult(overrides: Partial<PipelineResult> = {}): PipelineResult {
+  const trace: PipelineTrace = {
     identify: cleanIdentify,
     merchant_resolution: { resolution: merchantActive, trace: merchantResolutionTrace },
     scope: scopePrefixOnly,
@@ -118,52 +117,12 @@ function buildResultV2(overrides: Partial<PipelineResultV2> = {}): PipelineResul
   };
 }
 
-describe('adaptV2ToPipelineResult', () => {
-  it('preserves final_code / goods_description_ar / sanity_verdict / hitl / infra_degraded', () => {
-    const v2 = buildResultV2();
-    const adapted = adaptV2ToPipelineResult(v2);
-    expect(adapted.final_code).toBe('610910000000');
-    expect(adapted.goods_description_ar).toBe('تي شيرت قطني');
-    expect(adapted.sanity_verdict).toBe('PASS');
-    expect(adapted.hitl).toBeNull();
-    expect(adapted.infra_degraded).toBe(false);
-  });
-
-  it("sets pipeline_architecture='v2' on the trace", () => {
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
-    expect(adapted.trace.pipeline_architecture).toBe('v2');
-  });
-
-  it('nulls out legacy + anchored trace fields', () => {
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
-    expect(adapted.trace.track_a).toBeNull();
-    expect(adapted.trace.track_b).toBeNull();
-    expect(adapted.trace.verdict).toBeNull();
-    expect(adapted.trace.anchored_identify).toBeNull();
-    expect(adapted.trace.anchored_constrain).toBeNull();
-    expect(adapted.trace.anchored_pick).toBeNull();
-  });
-
-  it('carries the v2 trace under pipeline_v2', () => {
-    const v2 = buildResultV2();
-    const adapted = adaptV2ToPipelineResult(v2);
-    expect(adapted.trace.pipeline_v2).toBe(v2.trace);
-  });
-
-  it("defaults sanity_verdict to 'PASS' when v2 returns null (escalate path)", () => {
-    const v2 = buildResultV2({ sanity_verdict: null });
-    const adapted = adaptV2ToPipelineResult(v2);
-    expect(adapted.sanity_verdict).toBe('PASS');
-  });
-});
-
-describe('assembleDispatchV1 — v2 branch', () => {
+describe('assembleDispatchV1', () => {
   it("emits pipeline_architecture='v2' on the summary", () => {
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result: buildResult(),
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -171,11 +130,10 @@ describe('assembleDispatchV1 — v2 branch', () => {
   });
 
   it('populates v2-only summary fields (identify_pass, picked_from_arm, verifier_result)', () => {
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result: buildResult(),
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -188,12 +146,11 @@ describe('assembleDispatchV1 — v2 branch', () => {
     expect(v1.trace.summary.secondary_arm_count).toBe(0);
   });
 
-  it('nulls out legacy + anchored summary fields under v2', () => {
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
+  it('nulls out legacy + anchored summary fields', () => {
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result: buildResult(),
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -203,11 +160,10 @@ describe('assembleDispatchV1 — v2 branch', () => {
   });
 
   it('emits the three top-level wire stages: normalize, classify, sanity', () => {
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result: buildResult(),
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -215,11 +171,10 @@ describe('assembleDispatchV1 — v2 branch', () => {
   });
 
   it('emits v2 actions inside classify in pipeline order', () => {
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result: buildResult(),
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -239,11 +194,10 @@ describe('assembleDispatchV1 — v2 branch', () => {
   });
 
   it('identify action surfaces pass discriminator inside output', () => {
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result: buildResult(),
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -255,18 +209,22 @@ describe('assembleDispatchV1 — v2 branch', () => {
   });
 
   it('multi_arm_retrieval emits one step per active arm', () => {
-    const v2 = buildResultV2();
-    // Add a family_chapter secondary.
-    v2.trace.scope = {
-      ...v2.trace.scope,
-      secondaries: [{ kind: 'family_chapter', chapter: '61', source: 'identify' }],
+    const result = buildResult();
+    result.trace = {
+      ...result.trace,
+      scope: {
+        ...result.trace.scope,
+        secondaries: [{ kind: 'family_chapter', chapter: '61', source: 'identify' }],
+      },
+      retrieval: {
+        ...result.trace.retrieval,
+        secondary_candidate_counts: { family_chapter: 3 },
+      },
     };
-    v2.trace.retrieval.secondary_candidate_counts = { family_chapter: 3 };
-    const adapted = adaptV2ToPipelineResult(v2);
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result,
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -278,18 +236,18 @@ describe('assembleDispatchV1 — v2 branch', () => {
   });
 
   it('verifier_uncertain surfaces UNCERTAIN + rules_triggered in summary', () => {
-    const v2 = buildResultV2();
-    v2.trace.verify = {
-      result: 'UNCERTAIN',
-      rules_triggered: ['identify_chapter_disagreement'],
+    const result = buildResult({
+      classification_status: 'DRIFT',
+      hitl: { reason: 'verifier_uncertain', cleaned_description: 'cotton t-shirt' },
+    });
+    result.trace = {
+      ...result.trace,
+      verify: { result: 'UNCERTAIN', rules_triggered: ['identify_chapter_disagreement'] },
     };
-    v2.classification_status = 'DRIFT';
-    v2.hitl = { reason: 'verifier_uncertain', cleaned_description: 'cotton t-shirt' };
-    const adapted = adaptV2ToPipelineResult(v2);
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result,
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -313,20 +271,23 @@ describe('assembleDispatchV1 — v2 branch', () => {
         audit_flag: false,
       },
     };
-    const v2 = buildResultV2();
-    v2.trace.pick = escalatePick;
-    v2.trace.verify = null;
-    v2.trace.sanity = null;
-    v2.final_code = null;
-    v2.goods_description_ar = null;
-    v2.sanity_verdict = null;
-    v2.classification_status = 'ZERO_SIGNAL';
-    v2.hitl = { reason: 'verdict_escalate', cleaned_description: 'cotton t-shirt' };
-    const adapted = adaptV2ToPipelineResult(v2);
+    const result = buildResult({
+      final_code: null,
+      goods_description_ar: null,
+      sanity_verdict: null,
+      classification_status: 'ZERO_SIGNAL',
+      hitl: { reason: 'verdict_escalate', cleaned_description: 'cotton t-shirt' },
+    });
+    result.trace = {
+      ...result.trace,
+      pick: escalatePick,
+      verify: null,
+      sanity: null,
+    };
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result,
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });
@@ -342,13 +303,10 @@ describe('assembleDispatchV1 — v2 branch', () => {
     // for every nested step with a model field. v2 identify + pick each
     // emit (1 action + 1 model-tagged step) = 2 increments. submission +
     // sanity_check are bare LLM actions = 1 increment each. Total = 6.
-    // PR 13 may revisit the counter to dedupe, but PR 12 keeps the
-    // legacy semantics.
-    const adapted = adaptV2ToPipelineResult(buildResultV2());
     const v1 = assembleDispatchV1({
       itemId: 'item-1',
       operatorSlug: 'naqel',
-      result: adapted,
+      result: buildResult(),
       startedAt: '2026-05-15T10:00:00.000Z',
       completedAt: '2026-05-15T10:00:10.000Z',
     });

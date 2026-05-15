@@ -1,0 +1,479 @@
+/**
+ * Pipeline discriminated-union contracts — canonical location (PR 13).
+ *
+ * Single load-bearing types file. Every stage output is a tagged union;
+ * downstream consumers branch on `kind` (or equivalent discriminator)
+ * rather than probing nullable fields.
+ *
+ * Architecture:
+ *
+ *   parse -> (identify_fast || merchant_resolution) -> maybe identify_web
+ *     -> scope_selection -> multi_arm_retrieval + union + rerank
+ *     -> picker -> verifier -> (submission || sanity) -> PipelineResult
+ *
+ * This file is PURE TYPES. No runtime imports beyond standard libs. Per
+ * the project's no-defensive-programming rule, callers must pattern-
+ * match on the discriminator — no isXxx() guards, no field-presence
+ * probes.
+ *
+ * Promoted from v2/types.ts in PR 13. PipelineResultV2/PipelineTraceV2
+ * are now the canonical PipelineResult/PipelineTrace.
+ */
+
+// ---------------------------------------------------------------------------
+// Imports from the legacy types we deliberately keep (the 80%).
+// ---------------------------------------------------------------------------
+
+import type {
+  CanonicalLineItem,
+} from '../operators/operator-config.types.js';
+import type {
+  MerchantCodeState,
+  ParsedItem,
+  SanityResult,
+  SanityVerdict,
+  StageTrace,
+  ClassificationStatus,
+} from './shared/pipeline.types.js';
+
+// Re-exports for convenience — callers import from a single surface.
+export type {
+  CanonicalLineItem,
+  MerchantCodeState,
+  ParsedItem,
+  SanityResult,
+  SanityVerdict,
+  StageTrace,
+  ClassificationStatus,
+};
+
+// ---------------------------------------------------------------------------
+// Stage 1 — Parse (kept from current; ParseOutcome union restated here
+// so the v2 pipeline doesn't import from the legacy parse module's own
+// type names that we may rename later).
+// ---------------------------------------------------------------------------
+
+export type ParseReject = { rejected: true; reason: 'no_description' };
+export type ParseAccept = { rejected: false; item: ParsedItem };
+export type ParseOutcome = ParseReject | ParseAccept;
+
+// ---------------------------------------------------------------------------
+// Stage 2 — Identify (split into fast + optional web fallback).
+//
+// The pipeline runs identify_fast first (Sonnet, NO web_search tool).
+// When kind === 'uninformative' && cause === 'genuine' OR kind ===
+// 'multi_product', the orchestrator follows up with identify_web
+// (Sonnet + web_search). identify_web's result REPLACES the fast result
+// for downstream stages — they're not merged.
+//
+// Per Q1+Q2 decisions (2026-05-15):
+//   - Both passes use Sonnet (LLM_MODEL_STRONG), not Haiku.
+//   - Web fallback fires ONLY on the two predicate kinds above; low-
+//     confidence clean_product is NOT a trigger (confidence is
+//     uncalibrated; gating on it would over-fire).
+// ---------------------------------------------------------------------------
+
+/** Which identify pass produced the result. Always present on traces. */
+export type IdentifyPass = 'fast' | 'web';
+
+/**
+ * Cause discriminator on uninformative outcomes. Mirrors what the legacy
+ * anchored pipeline used so persisted traces remain readable.
+ */
+export type IdentifyCause =
+  | 'genuine' // model decided in good faith it can't identify
+  | 'transport' // LLM transport error (429, timeout, network)
+  | 'parse' // LLM produced output that wouldn't parse
+  | 'short_circuit' // empty input or other upstream short-circuit
+  | 'contract'; // LLM produced a structurally-invalid value
+
+/**
+ * Per-call audit metadata. Every variant of IdentifyResult carries one
+ * of these so downstream stages have uniform observability.
+ */
+export interface IdentifyCallTrace {
+  pass: IdentifyPass;
+  llm_called: boolean;
+  latency_ms: number;
+  model: string | null;
+  status: 'ok' | 'skipped' | 'error' | 'timeout' | 'parse';
+  web_search_used: boolean;
+  /** Cross-check: model's self-reported evidence vs. actual tool use. */
+  evidence_mismatch: boolean;
+}
+
+export interface IdentifyClean {
+  kind: 'clean_product';
+  /** Tariff-English noun, 4-18 words. Brand-stripped. */
+  canonical: string;
+  /** 2-digit HS chapter, null when the model can't commit (composite goods). */
+  family_chapter: string | null;
+  /** Lexical anchors for retrieval (brand, ingredient, model code). */
+  identity_tokens: string[];
+  /** Self-rated 0.0-1.0. NOT calibrated. */
+  confidence: number;
+  evidence: 'world_knowledge' | 'web';
+  trace: IdentifyCallTrace;
+}
+
+export interface IdentifyMulti {
+  kind: 'multi_product';
+  /** >= 2 entries when emitted by the model. */
+  products: string[];
+  trace: IdentifyCallTrace;
+}
+
+export interface IdentifyUninformative {
+  kind: 'uninformative';
+  cause: IdentifyCause;
+  /** Short human-readable reason, capped ~200 chars. */
+  reason: string;
+  trace: IdentifyCallTrace;
+}
+
+export type IdentifyResult =
+  | IdentifyClean
+  | IdentifyMulti
+  | IdentifyUninformative;
+
+// ---------------------------------------------------------------------------
+// Stage 3 — Merchant resolution (renamed from constrain.resolution).
+//
+// Pure deterministic codebook walk: validate the merchant code, expand
+// short prefixes by walking down the HS tree, apply per-operator
+// override table, swap deprecated codes for replacements. May fire 0-2
+// LLM calls (multi-replacement disambiguation, prefix-walk leaf pick).
+//
+// Identical state-set to the current anchored constrain.resolution.
+// ---------------------------------------------------------------------------
+
+export type MerchantResolution =
+  /** No merchant code on this row. */
+  | { state: 'absent' }
+  /** Code couldn't be parsed (wrong length, non-numeric prefix). */
+  | { state: 'malformed'; source_code: string }
+  /** 12-digit code, active in the codebook, used verbatim. */
+  | { state: 'active'; resolved_code: string }
+  /** Deprecated 12-digit code with exactly one replacement; deterministic swap. */
+  | {
+      state: 'replaced_single';
+      resolved_code: string;
+      source_code: string;
+    }
+  /** Operator override matched; resolved_code is the override target. */
+  | {
+      state: 'override_applied';
+      resolved_code: string;
+      source_code: string;
+      override_matched_length: number;
+    }
+  /** Deprecated 12-digit, multi-replacement, LLM picked one. */
+  | {
+      state: 'llm_picked_replacement';
+      resolved_code: string;
+      source_code: string;
+      candidates: string[];
+    }
+  /** 6-11 digit prefix expanded by walking down the codebook. */
+  | {
+      state: 'expanded_prefix';
+      resolved_code: string;
+      valid_prefix: string;
+      source_code: string;
+    }
+  /** Walk failed; cause discriminates the failure mode. */
+  | {
+      state: 'unknown';
+      source_code: string;
+      cause:
+        | 'not_in_codebook'
+        | 'no_replacements'
+        | 'llm_pick_failed_replacement'
+        | 'prefix_empty'
+        | 'llm_pick_failed_prefix';
+      matched_prefix: string | null;
+    };
+
+export interface MerchantResolutionTrace {
+  llm_called: boolean;
+  latency_ms: number;
+  override_attempted: boolean;
+  override_matched: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4 — Scope selection.
+//
+// Pure deterministic function:
+//   selectScopes(identify, merchant_resolution): ScopeSelection
+//
+// Outputs the primary retrieval arm + zero or more secondary arms +
+// audit flags. The orchestrator hands ScopeSelection to multi-arm
+// retrieval, which fires each arm in parallel.
+//
+// Rules summary (per the rewrite plan):
+//   - merchant resolved + identify clean_product, chapters disagree
+//     above 0.85 confidence → add identify-side family_chapter as
+//     secondary; audit_flag=merchant_chapter_disagreement.
+//   - merchant resolved + identify clean_product, family_chapter null
+//     (composite goods) → add unconstrained as secondary; audit_flag=
+//     identify_family_null.
+//   - identify.identity_tokens.length > 0 → add lexical_tokens arm.
+//   - merchant_resolution.state === 'override_applied' → suppress all
+//     secondaries; audit_flag=override_suppresses_secondary.
+//   - multi_product or uninformative+no-merchant → primary kind is
+//     'escalate', orchestrator short-circuits.
+// ---------------------------------------------------------------------------
+
+export type RetrievalArm =
+  | {
+      kind: 'merchant_prefix';
+      prefix: string;
+      source:
+        | 'merchant_active'
+        | 'merchant_expanded'
+        | 'merchant_replacement_picked'
+        | 'override_applied';
+    }
+  | {
+      kind: 'family_chapter';
+      chapter: string;
+      source: 'identify';
+    }
+  | {
+      kind: 'unconstrained';
+      reason: 'composite_product' | 'no_merchant_low_confidence_identify';
+    }
+  | {
+      kind: 'lexical_tokens';
+      tokens: string[];
+    }
+  | {
+      kind: 'escalate';
+      reason:
+        | 'identify_multi_product'
+        | 'identify_uninformative_no_merchant'
+        | 'merchant_malformed_no_family';
+    };
+
+export type ScopeAuditFlag =
+  | 'merchant_chapter_disagreement'
+  | 'override_suppresses_secondary'
+  | 'identify_family_null';
+
+export interface ScopeSelection {
+  primary: RetrievalArm;
+  /** Zero or more additional arms run in parallel with primary. */
+  secondaries: RetrievalArm[];
+  audit_flags: ScopeAuditFlag[];
+}
+
+// ---------------------------------------------------------------------------
+// Stage 5 — Retrieval + union.
+//
+// Each arm calls retrieveCandidates() against the shared retrieval
+// engine. Results are unioned (dedupe by code, keep highest rrf_score)
+// and tagged with the source arm. The reranker downstream re-orders
+// this set.
+// ---------------------------------------------------------------------------
+
+export interface ScoredCandidate {
+  code: string; // 12-digit HS leaf
+  description_en: string | null;
+  description_ar: string | null;
+  rrf_score: number;
+  bm25_score: number | null;
+  vector_score: number | null;
+  trigram_score: number | null;
+  source_arm:
+    | 'merchant_prefix'
+    | 'family_chapter'
+    | 'unconstrained'
+    | 'lexical_tokens';
+}
+
+// ---------------------------------------------------------------------------
+// Stage 6 — Reranker (deterministic v1, 6 cheap features).
+//
+// Cap = 8 (per Q4 decision 2026-05-15: tighter than v1's original 8-12
+// to honor the p50 latency target ≤ 15s).
+// ---------------------------------------------------------------------------
+
+export interface RerankFeatures {
+  rrf_score: number;
+  chapter_agreement: boolean;
+  identity_token_overlap_count: number;
+  /** -0.10 to +0.10 based on source arm and merchant resolution authority. */
+  arm_boost: number;
+}
+
+export interface RerankedCandidate extends ScoredCandidate {
+  rerank_score: number;
+  rerank_features: RerankFeatures;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 7 — Picker (single LLM call, multi-arm aware).
+//
+// PickResult is a discriminated union; downstream stages branch on
+// pick.kind. picked_from_arm tells operators which retrieval arm
+// surfaced the winning candidate (audit-grade signal).
+// ---------------------------------------------------------------------------
+
+export interface PickCallTrace {
+  llm_called: boolean;
+  latency_ms: number;
+  model: string | null;
+  status: 'ok' | 'skipped' | 'error' | 'timeout' | 'parse';
+  candidate_count: number;
+  audit_flag: boolean;
+}
+
+export interface PickAccepted {
+  kind: 'accepted';
+  final_code: string; // 12-digit
+  fit: 'fits' | 'partial';
+  confidence: number;
+  /** "GIR 1", "GIR 3(a)", "GIR 3(b)", "GIR 6", etc. */
+  gir_applied: string;
+  /** Counts across the candidates the picker evaluated. */
+  verdict_population: {
+    fits: number;
+    partial: number;
+    does_not_fit: number;
+  };
+  /** Which arm surfaced the winning candidate. */
+  picked_from_arm:
+    | 'merchant_prefix'
+    | 'family_chapter'
+    | 'unconstrained'
+    | 'lexical_tokens';
+  /** True iff first-2 of final_code !== first-2 of merchant code (when present). */
+  merchant_chapter_disagreement: boolean;
+  candidate_count_by_arm: Record<string, number>;
+  trace: PickCallTrace;
+}
+
+export type PickEscalateReason =
+  | 'scope_escalate'
+  | 'no_candidates'
+  | 'no_candidate_fits'
+  | 'identify_no_query'
+  | 'picker_unavailable';
+
+export interface PickEscalate {
+  kind: 'escalate';
+  reason: PickEscalateReason;
+  detail: string;
+  trace: PickCallTrace;
+}
+
+export type PickResult = PickAccepted | PickEscalate;
+
+// ---------------------------------------------------------------------------
+// Stage 8 — Verifier (deterministic, no LLM).
+//
+// Two rules per Q4 decision 2026-05-15:
+//   1. identify high-confidence (≥0.90) family_chapter disagrees with
+//      picker's final_code chapter → trigger.
+//   2. confidence inversion (picker partial ≤0.55 AND identify ≥0.92).
+//
+// Output routes the row:
+//   PASS       → accept (current ACCEPT/FLAG-by-sanity behavior)
+//   UNCERTAIN  → flag for operator review (separate queue from sanity_flag)
+//
+// Verifier NEVER overrides pick.final_code. Routing only.
+// ---------------------------------------------------------------------------
+
+export type VerifierRuleId =
+  | 'identify_chapter_disagreement'
+  | 'confidence_inversion';
+
+export interface VerifierResult {
+  result: 'PASS' | 'UNCERTAIN';
+  rules_triggered: VerifierRuleId[];
+}
+
+// ---------------------------------------------------------------------------
+// Submission + sanity (kept; parallelized at the orchestrator level).
+//
+// SubmissionDescriptionResult and SanityResult themselves are unchanged
+// from current — those modules survive the rewrite. Imported from the
+// shared types file at the top of this module.
+// ---------------------------------------------------------------------------
+
+export type SubmissionInvoked =
+  | 'llm'
+  | 'llm_failed'
+  | 'fallback'
+  | 'fallback_after_collision';
+
+export interface SubmissionDescriptionResult {
+  invoked: SubmissionInvoked;
+  descriptionAr: string;
+  latencyMs: number;
+  model?: string | undefined;
+  attempts: number;
+  retried_reasons?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Per-row pipeline trace.
+//
+// Replaces the legacy track_a/track_b/verdict shape AND the anchored
+// anchored_identify/anchored_constrain/anchored_pick shape. Single
+// canonical layout going forward.
+// ---------------------------------------------------------------------------
+
+export interface PipelineTrace {
+  identify: IdentifyResult;
+  merchant_resolution: {
+    resolution: MerchantResolution;
+    trace: MerchantResolutionTrace;
+  };
+  scope: ScopeSelection;
+  retrieval: {
+    primary_candidate_count: number;
+    secondary_candidate_counts: Record<string, number>;
+    candidates_before_rerank: number;
+    candidates_after_rerank: number;
+  };
+  pick: PickResult;
+  verify: VerifierResult | null; // null when pick.kind === 'escalate'
+  sanity: SanityResult | null;
+  stages: StageTrace[];
+}
+
+// ---------------------------------------------------------------------------
+// HITL routing reasons (kept from legacy, extended for verifier).
+// ---------------------------------------------------------------------------
+
+export type HitlReason =
+  | 'verdict_escalate'
+  | 'sanity_flag'
+  | 'low_information'
+  | 'verifier_uncertain'; // NEW for the v2 verifier UNCERTAIN routing
+
+export interface HitlIntent {
+  reason: HitlReason;
+  cleaned_description: string;
+}
+
+// ---------------------------------------------------------------------------
+// Final pipeline result (the orchestrator's return type).
+// ---------------------------------------------------------------------------
+
+export interface PipelineResult {
+  final_code: string | null;
+  goods_description_ar: string | null;
+  sanity_verdict: SanityVerdict | null;
+  classification_status: ClassificationStatus | null;
+  hitl: HitlIntent | null;
+  trace: PipelineTrace;
+  infra_degraded: boolean;
+}
+
+// Backward-compat aliases. Callers that haven't been updated yet can still
+// import these; remove after all consumers use the canonical names.
+export type PipelineResultV2 = PipelineResult;
+export type PipelineTraceV2 = PipelineTrace;

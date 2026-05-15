@@ -1,13 +1,8 @@
 /**
- * Codebook helpers for the constrain stage.
+ * Codebook helpers for merchant resolution.
  *
- * Pure DB queries against `zatca_hs_codes`. Equivalent to the helpers
- * embedded in the legacy code-resolver but lifted into a dedicated
- * module so constrain doesn't need to import from the legacy
- * `classify/code-resolver/code-resolver.ts` (which will be deleted in
- * PR-A-8 cleanup).
- *
- * No business logic — strictly database queries.
+ * Pure DB queries against `zatca_hs_codes`. No business logic.
+ * Moved from constrain/codebook.ts in PR 13 into the merchant namespace.
  */
 import { getPool } from '../../../db/client.js';
 
@@ -56,7 +51,7 @@ async function expandPrefix(prefix: string, limit: number): Promise<HsCodeRecord
  * Walk a code prefix down to its codebook anchor. Carriers' national
  * extensions don't always align with ZATCA's canonical padding, so a
  * full 10/11-digit prefix may return zero children even when the
- * chapter+heading exist. Walk 10 → 8 → 6 (HS6 is the international
+ * chapter+heading exist. Walk 10 -> 8 -> 6 (HS6 is the international
  * harmonized prefix, almost always present).
  *
  * Returns `{ children: [], matched_prefix: <fullPrefix> }` when no

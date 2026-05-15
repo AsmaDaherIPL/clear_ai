@@ -1,13 +1,11 @@
 /**
- * Tenant-override lookup. Resolves a merchant-supplied code to a operator's
+ * Tenant-override lookup. Resolves a merchant-supplied code to an operator's
  * canonical ZATCA target via exact match, then prefix-walk down to minPrefix.
  *
- * Renamed from broker-mapping.ts in commit #2 of ADR-0025. The semantics
- * are unchanged from the caller's POV; the storage table moved from
- * broker_code_mapping to operator_code_overrides and the lookup is now
- * operator-scoped (today only 'naqel'; multi-operator in the future).
+ * Moved from classify/code-resolver/codebook-override.ts in PR 13 into the
+ * merchant namespace. Semantics unchanged from the caller's POV.
  */
-import { getPool } from '../../../../db/client.js';
+import { getPool } from '../../../db/client.js';
 
 export interface TenantOverrideHit {
   targetCode: string;

@@ -1,24 +1,18 @@
 /**
  * Pipeline single-shot HTTP surface.
  *
- *   POST /pipeline/dispatch     run the full pipeline on a single item
- *   GET  /pipeline/trace/:id    fetch a stored PipelineTrace for a run-item id
+ *   POST /classifications/dispatch     run the full pipeline on a single item
+ *   GET  /classifications/:id          fetch a stored classification by item id
  *
  * The bulk path is /declaration-runs (multipart upload, background processing).
  * This route is for the SPA's single-item UX where the user types a
  * description, optionally pairs it with a merchant HS code, and gets one
  * classification + Arabic submission text back.
- *
- * Trace storage:
- *   /pipeline/dispatch returns the trace inline. There is no per-call
- *   server-side persistence (saves an INSERT on the hot path; the SPA can
- *   stash the trace client-side). For bulk runs, traces are persisted in
- *   declaration_run_items.trace and /pipeline/trace/:id reads them back.
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { runPipeline } from './pipeline.orchestrator.js';
+import { runPipeline } from './orchestrator.js';
 import { stampFxFields, FxRateMissingError } from './parse/enrich-fx.js';
 import {
   assembleCanonicalItem,
@@ -36,7 +30,6 @@ import { OperatorNotFoundError } from '../operators/operator.errors.js';
 import { isBreakerTripped, breakerStatus } from '../../inference/llm/breaker.js';
 import type { CanonicalLineItem } from '../operators/operator-config.types.js';
 import type {
-  PipelineResult,
   DispatchV1Response,
   DispatchV1Action,
   SanityVerdict,
@@ -44,15 +37,9 @@ import type {
 } from './shared/pipeline.types.js';
 
 // ---------------------------------------------------------------------------
-// POST /pipeline/dispatch
+// POST /classifications/dispatch
 // ---------------------------------------------------------------------------
 
-// Single-shot dispatch body. Tightened in the 2026-05-12 API cutover:
-//   - description: max 500 (was 2000) to match the batch CSV row limit
-//   - merchant_code: regex /^\d{6,12}$/ (was: any string)
-//   - value_amount + currency_code: now REQUIRED (were optional)
-//   - currency_code: regex /^[A-Z]{3}$/ ISO 4217 (was: just .length(3))
-//   - operator_slug: removed entirely (single-operator V1; server uses 'naqel')
 const DispatchBody = z.object({
   description: z.string().min(1).max(500),
   merchant_code: z
@@ -66,19 +53,11 @@ const DispatchBody = z.object({
 type DispatchBody = z.infer<typeof DispatchBody>;
 
 /**
- * Hardcoded single-operator slug for V1. The dispatch body no longer
- * accepts operator_slug as a parameter — the deployment is single-tenant
- * and every classification runs as 'naqel'. When V2 multi-operator
- * lands, this becomes a request field again.
+ * Hardcoded single-operator slug for V1. When V2 multi-operator lands,
+ * this becomes a request field.
  */
 const V1_OPERATOR_SLUG = 'naqel';
 
-/**
- * Build a CanonicalLineItem from the slim dispatch body. Fields not provided
- * by the caller get safe placeholders — they're not consumed by the
- * classification pipeline (only by Phase 2 declaration generation, which
- * single-shot dispatch never runs).
- */
 function buildItem(body: DispatchBody, operatorId: string): CanonicalLineItem {
   return {
     itemId: randomUUID(),
@@ -106,21 +85,14 @@ function buildItem(body: DispatchBody, operatorId: string): CanonicalLineItem {
 }
 
 // ---------------------------------------------------------------------------
-// GET /pipeline/trace/:id
+// GET /classifications/:id
 // ---------------------------------------------------------------------------
 
-// UUIDv7 strict. Tighter than z.string().uuid() (which accepts v1/v4 too).
-// All our ids are minted v7 via newId(), so anything else is malformed.
 const TraceIdSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, {
     message: 'id must be a UUIDv7',
   });
-
-// PR-A-1: validates the ?architecture=... query param against the same
-// enum env.PIPELINE_ARCHITECTURE accepts. Optional — when omitted, the
-// env flag wins. Rejects typos (e.g. ?architecture=ancored) with 400.
-const ArchitectureQuery = z.enum(['legacy', 'anchored']).optional();
 
 interface ClassificationEventTraceRow {
   id: string;
@@ -137,9 +109,9 @@ interface ClassificationEventTraceRow {
 // ---------------------------------------------------------------------------
 
 export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
-  // POST /pipeline/dispatch
+  // POST /classifications/dispatch
   app.post<{
-    Querystring: { include_trace?: string; architecture?: string };
+    Querystring: { include_trace?: string };
   }>('/classifications/dispatch', async (req, reply) => {
     const parsed = DispatchBody.safeParse(req.body);
     if (!parsed.success) {
@@ -150,28 +122,6 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     const body = parsed.data;
     const includeTrace = req.query.include_trace === 'true' || req.query.include_trace === '1';
 
-    // PR-A-1: per-call architecture override. When set to 'anchored' or
-    // 'legacy', this single classification ignores env.PIPELINE_ARCHITECTURE.
-    // Invalid values are rejected loudly (typo ?architecture=ancored
-    // would otherwise mask user intent). The closed enum is identical
-    // to env.PIPELINE_ARCHITECTURE — defined once in the env schema.
-    const archResult = ArchitectureQuery.safeParse(req.query.architecture);
-    if (!archResult.success) {
-      return reply.code(400).send({
-        error: {
-          code: 'invalid_architecture',
-          message: 'architecture query param must be omitted, "legacy", or "anchored"',
-          details: archResult.error.flatten(),
-        },
-      });
-    }
-    const architectureOverride = archResult.data;
-
-    // Refuse to start a classification when the LLM circuit breaker is tripped.
-    // Sustained auth-class failures (401/403/404) mean the env is broken — every
-    // call would silently produce a low-confidence override-passthrough or
-    // escalate, which is data corruption with a clean-looking trace. Surface
-    // 503 so the caller (SPA, infra agent, monitoring) sees the real reason.
     if (isBreakerTripped()) {
       const status = breakerStatus();
       return reply.code(503).send({
@@ -214,12 +164,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     }
     const startedAtMs = Date.now();
     const startedAt = new Date(startedAtMs).toISOString();
-    const result: PipelineResult = await runPipeline(
-      item,
-      V1_OPERATOR_SLUG,
-      item.itemId,
-      { architectureOverride },
-    );
+    const result = await runPipeline(item, V1_OPERATOR_SLUG, item.itemId);
     const completedAt = new Date().toISOString();
 
     const v1Response = assembleDispatchV1({
@@ -257,17 +202,12 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       procedures: enrichment.procedures,
       classificationStatus: classificationStatusFromTrace(result.trace),
       classificationConfidence: classificationConfidenceFromTrace(result.trace),
-      sanityVerdict: result.sanity_verdict,
+      sanityVerdict: result.sanity_verdict ?? null,
       trace: v1Response.trace,
       error: null,
       includeTrace,
     });
 
-    // Persist audit row first; if it succeeds and the orchestrator
-    // surfaced a HITL intent, follow with the queue write so the FK
-    // from hitl_queue.classification_event_id is satisfied. Both writes
-    // are best-effort — failures are logged but never block the
-    // response that's about to be sent.
     void (async () => {
       const eventOk = await recordClassificationEvent(
         {
@@ -285,12 +225,11 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
           {
             classification_event_id: item.itemId,
             item_id: item.itemId,
-            // Single-shot dispatch has no parent batch.
             batch_id: null,
             operator_slug: V1_OPERATOR_SLUG,
             reason: result.hitl.reason,
             cleaned_description: result.hitl.cleaned_description,
-            verdict_output: result.trace.verdict,
+            verdict_output: null,
             sanity_result: result.trace.sanity,
             trace: v1Response.trace,
             enqueued_at: new Date().toISOString(),
@@ -307,13 +246,6 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /classifications/:id?include_trace=true
-  //
-  // Fetches a single classification by item id and returns it in the
-  // canonical item shape. classification_events is the single source of
-  // truth — every classification (one-off /classifications/dispatch and
-  // per-item batch processing) writes here via recordClassificationEvent.
-  // The id is the same UUID used by declaration_run_items.id and the
-  // dispatch response's `id` field.
   app.get<{ Params: { id: string }; Querystring: { include_trace?: string } }>(
     '/classifications/:id',
     async (req, reply) => {

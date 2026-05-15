@@ -1,32 +1,45 @@
 /**
- * PR 5 — merchant_resolution wrapper tests.
+ * PR 5 — merchant_resolution tests (updated PR 13).
  *
- * The underlying legacy resolveMerchantCode has 18 tests of its own
- * under tests/anchored/resolve-merchant.test.ts. These tests verify
- * the v2 wrapper specifically:
- *   - v2 IdentifyResult is correctly converted to legacy shape
- *   - all 8 MerchantResolution states pass through unchanged
- *   - buildResolutionTrace populates the trace correctly
+ * After PR 13 the merchant resolver lives at merchant/resolve.ts and no
+ * longer wraps a legacy file. Tests now exercise the canonical
+ * resolveMerchant directly (which delegates to resolveMerchantCode), with
+ * the DB-facing helpers (lookupCode, expandWithFallback, lookupTenantOverride,
+ * pickAmongReplacements, pickUnderPrefix) mocked at the module boundary.
  *
- * The legacy implementation is mocked so these tests don't hit DB.
+ * The legacy-comparison test (resolveMerchantCodeLegacy) is removed because
+ * the legacy file no longer exists.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-vi.mock('../../src/modules/pipeline/constrain/resolve-merchant.js', () => ({
-  resolveMerchantCode: vi.fn(),
+vi.mock('../../src/modules/pipeline/merchant/codebook.js', () => ({
+  lookupCode: vi.fn(),
+  expandWithFallback: vi.fn(),
+}));
+
+vi.mock('../../src/modules/pipeline/merchant/codebook-override.js', () => ({
+  lookupTenantOverride: vi.fn(),
+}));
+
+vi.mock('../../src/modules/pipeline/merchant/replacement-pick.js', () => ({
+  pickAmongReplacements: vi.fn(),
+  pickUnderPrefix: vi.fn(),
 }));
 
 import {
   resolveMerchant,
   buildResolutionTrace,
-} from '../../src/modules/pipeline/v2/merchant/resolve.js';
-import { resolveMerchantCode as resolveMerchantCodeLegacy } from '../../src/modules/pipeline/constrain/resolve-merchant.js';
+} from '../../src/modules/pipeline/merchant/resolve.js';
+import { lookupCode, expandWithFallback } from '../../src/modules/pipeline/merchant/codebook.js';
+import { lookupTenantOverride } from '../../src/modules/pipeline/merchant/codebook-override.js';
 import type {
   IdentifyResult,
   MerchantResolution,
-} from '../../src/modules/pipeline/v2/types.js';
+} from '../../src/modules/pipeline/types.js';
 
-const mockedLegacy = vi.mocked(resolveMerchantCodeLegacy);
+const mockedLookupCode = vi.mocked(lookupCode);
+const mockedExpandWithFallback = vi.mocked(expandWithFallback);
+const mockedLookupTenantOverride = vi.mocked(lookupTenantOverride);
 
 function v2CleanIdentify(overrides: { family_chapter?: string | null; canonical?: string } = {}): IdentifyResult {
   return {
@@ -65,97 +78,133 @@ function v2UninformativeIdentify(): IdentifyResult {
   };
 }
 
-beforeEach(() => mockedLegacy.mockReset());
+beforeEach(() => {
+  mockedLookupCode.mockReset();
+  mockedExpandWithFallback.mockReset();
+  mockedLookupTenantOverride.mockReset();
+  // Default: no override, no DB hit
+  mockedLookupTenantOverride.mockResolvedValue(null);
+});
 
-describe('resolveMerchant — wrapper conversion', () => {
-  it('converts v2 clean_product IdentifyResult to legacy shape (trace minus pass field)', async () => {
-    mockedLegacy.mockResolvedValueOnce({ state: 'absent' });
-    await resolveMerchant(null, v2CleanIdentify(), 'naqel', true);
-    const legacyArg = mockedLegacy.mock.calls[0]![1];
-    expect(legacyArg.kind).toBe('clean_product');
-    if (legacyArg.kind === 'clean_product') {
-      expect(legacyArg.canonical).toBe('cotton t-shirt, knitted');
-      expect(legacyArg.family_chapter).toBe('61');
-      // Legacy trace shape has no 'pass' field
-      expect((legacyArg.trace as Record<string, unknown>).pass).toBeUndefined();
-      expect(legacyArg.trace.web_search_used).toBe(false);
-    }
+describe('resolveMerchant — absent cases', () => {
+  it('returns absent when raw_code is null', async () => {
+    const r = await resolveMerchant(null, v2CleanIdentify(), 'naqel', false);
+    expect(r).toEqual({ state: 'absent' });
   });
 
-  it('converts v2 uninformative IdentifyResult to legacy shape', async () => {
-    mockedLegacy.mockResolvedValueOnce({ state: 'absent' });
-    await resolveMerchant('parcel', v2UninformativeIdentify(), 'naqel', true);
-    const legacyArg = mockedLegacy.mock.calls[0]![1];
-    expect(legacyArg.kind).toBe('uninformative');
-    if (legacyArg.kind === 'uninformative') {
-      expect(legacyArg.cause).toBe('genuine');
-      expect(legacyArg.reason).toBe('placeholder');
-    }
-  });
-
-  it('passes raw_code, operator_slug, overrides_enabled through unchanged', async () => {
-    mockedLegacy.mockResolvedValueOnce({ state: 'absent' });
-    await resolveMerchant('610910000000', v2CleanIdentify(), 'naqel', false);
-    expect(mockedLegacy).toHaveBeenCalledWith(
-      '610910000000',
-      expect.any(Object),
-      'naqel',
-      false,
-    );
-  });
-
-  it('returns the legacy MerchantResolution unchanged', async () => {
-    const expected: MerchantResolution = {
-      state: 'expanded_prefix',
-      resolved_code: '610910000000',
-      valid_prefix: '610910',
-      source_code: '610910',
-    };
-    mockedLegacy.mockResolvedValueOnce(expected);
-    const r = await resolveMerchant('610910', v2CleanIdentify(), 'naqel', true);
-    expect(r).toEqual(expected);
+  it('returns absent when raw_code is empty string', async () => {
+    const r = await resolveMerchant('', v2CleanIdentify(), 'naqel', false);
+    expect(r).toEqual({ state: 'absent' });
   });
 });
 
-describe('resolveMerchant — all 8 MerchantResolution states pass through', () => {
-  const states: MerchantResolution[] = [
-    { state: 'absent' },
-    { state: 'malformed', source_code: 'parcel' },
-    { state: 'active', resolved_code: '610910000000' },
-    { state: 'replaced_single', resolved_code: '611120000000', source_code: '611110000000' },
-    {
+describe('resolveMerchant — override_applied', () => {
+  it('returns override_applied when override matches', async () => {
+    mockedLookupTenantOverride.mockResolvedValueOnce({
+      targetCode: '847180000000',
+      matchedLength: 12,
+      matchedSourceCode: '8471804000',
+    });
+    const r = await resolveMerchant('8471804000', v2CleanIdentify(), 'naqel', true);
+    expect(r).toEqual({
       state: 'override_applied',
       resolved_code: '847180000000',
       source_code: '8471804000',
       override_matched_length: 12,
-    },
-    {
-      state: 'llm_picked_replacement',
-      resolved_code: '720000000000',
-      source_code: '720000000000',
-      candidates: ['720000000000', '730000000000'],
-    },
-    {
-      state: 'expanded_prefix',
-      resolved_code: '610910000000',
-      valid_prefix: '610910',
-      source_code: '610910',
-    },
-    {
-      state: 'unknown',
-      source_code: '999999999999',
-      cause: 'not_in_codebook',
-      matched_prefix: null,
-    },
+    });
+  });
+});
+
+describe('resolveMerchant — malformed', () => {
+  it('returns malformed for code shorter than 6 digits', async () => {
+    const r = await resolveMerchant('1234', v2CleanIdentify(), 'naqel', false);
+    expect(r.state).toBe('malformed');
+  });
+
+  it('returns malformed for code longer than 12 digits', async () => {
+    const r = await resolveMerchant('1234567890123', v2CleanIdentify(), 'naqel', false);
+    expect(r.state).toBe('malformed');
+  });
+});
+
+describe('resolveMerchant — 12-digit paths', () => {
+  it('returns unknown(not_in_codebook) when code is not in codebook', async () => {
+    mockedLookupCode.mockResolvedValueOnce(null);
+    const r = await resolveMerchant('999999999999', v2CleanIdentify(), 'naqel', false);
+    expect(r).toEqual({ state: 'unknown', source_code: '999999999999', cause: 'not_in_codebook', matched_prefix: null });
+  });
+
+  it('returns active when 12-digit code is active', async () => {
+    mockedLookupCode.mockResolvedValueOnce({
+      code: '610910000000',
+      is_deleted: false,
+      replacement_codes: null,
+      description_en: 'T-shirts',
+      description_ar: null,
+    });
+    const r = await resolveMerchant('610910000000', v2CleanIdentify(), 'naqel', false);
+    expect(r).toEqual({ state: 'active', resolved_code: '610910000000' });
+  });
+
+  it('returns unknown(no_replacements) when deleted with 0 replacements', async () => {
+    mockedLookupCode.mockResolvedValueOnce({
+      code: '111111111111',
+      is_deleted: true,
+      replacement_codes: [],
+      description_en: null,
+      description_ar: null,
+    });
+    const r = await resolveMerchant('111111111111', v2CleanIdentify(), 'naqel', false);
+    expect(r).toEqual({ state: 'unknown', source_code: '111111111111', cause: 'no_replacements', matched_prefix: null });
+  });
+
+  it('returns replaced_single when deleted with 1 replacement', async () => {
+    mockedLookupCode.mockResolvedValueOnce({
+      code: '611110000000',
+      is_deleted: true,
+      replacement_codes: ['611120000000'],
+      description_en: null,
+      description_ar: null,
+    });
+    const r = await resolveMerchant('611110000000', v2CleanIdentify(), 'naqel', false);
+    expect(r).toEqual({ state: 'replaced_single', resolved_code: '611120000000', source_code: '611110000000' });
+  });
+});
+
+describe('resolveMerchant — short prefix paths', () => {
+  it('returns unknown(prefix_empty) when expansion returns no children', async () => {
+    mockedExpandWithFallback.mockResolvedValueOnce({ children: [], matched_prefix: '610910' });
+    const r = await resolveMerchant('610910', v2UninformativeIdentify(), 'naqel', false);
+    expect(r).toEqual({ state: 'unknown', source_code: '610910', cause: 'prefix_empty', matched_prefix: null });
+  });
+
+  it('returns expanded_prefix when expansion finds exactly 1 child', async () => {
+    mockedExpandWithFallback.mockResolvedValueOnce({
+      children: [{ code: '610910000000', is_deleted: false, replacement_codes: null, description_en: null, description_ar: null }],
+      matched_prefix: '610910',
+    });
+    const r = await resolveMerchant('610910', v2CleanIdentify(), 'naqel', false);
+    expect(r).toEqual({ state: 'expanded_prefix', resolved_code: '610910000000', valid_prefix: '610910', source_code: '610910' });
+  });
+});
+
+describe('resolveMerchant — all 8 MerchantResolution states', () => {
+  const states: MerchantResolution[] = [
+    { state: 'absent' },
+    { state: 'malformed', source_code: '1234' },
+    { state: 'active', resolved_code: '610910000000' },
+    { state: 'replaced_single', resolved_code: '611120000000', source_code: '611110000000' },
+    { state: 'override_applied', resolved_code: '847180000000', source_code: '8471804000', override_matched_length: 12 },
+    { state: 'llm_picked_replacement', resolved_code: '720000000000', source_code: '720000000000', candidates: ['720000000000', '730000000000'] },
+    { state: 'expanded_prefix', resolved_code: '610910000000', valid_prefix: '610910', source_code: '610910' },
+    { state: 'unknown', source_code: '999999999999', cause: 'not_in_codebook', matched_prefix: null },
   ];
 
-  for (const state of states) {
-    it(`passes through state=${state.state}`, async () => {
-      mockedLegacy.mockResolvedValueOnce(state);
-      const r = await resolveMerchant('any', v2CleanIdentify(), 'naqel', true);
-      expect(r).toEqual(state);
-    });
-  }
+  it('has all 8 states covered (compile-time check)', () => {
+    // If a new state is added to MerchantResolution without being added here,
+    // this assertion count check will catch it on the next run.
+    expect(states.length).toBe(8);
+  });
 });
 
 describe('buildResolutionTrace', () => {

@@ -1,16 +1,15 @@
 /**
- * PR 2 — Parse stage tests under v2.
+ * PR 2 — Parse stage tests (updated PR 13).
  *
- * Mirrors the contract the v2 orchestrator depends on: parse rejects on
+ * PR 13: v2/parse.ts (re-export shim) deleted. Import directly from the
+ * canonical parse module at pipeline/parse/parse.ts.
+ *
+ * Mirrors the contract the orchestrator depends on: parse rejects on
  * empty descriptions, accepts otherwise with merchant_code_state set.
- *
- * The legacy parse module already has its own tests. These tests assert
- * the v2 re-export behaves identically — typecheck-only would catch
- * import errors, but a smoke test catches accidental wrapper bugs.
  */
 import { describe, expect, it } from 'vitest';
-import { parseItem } from '../../src/modules/pipeline/v2/parse.js';
-import type { CanonicalLineItem } from '../../src/modules/pipeline/v2/types.js';
+import { parseItem } from '../../src/modules/pipeline/parse/parse.js';
+import type { CanonicalLineItem } from '../../src/modules/pipeline/types.js';
 
 function item(overrides: Partial<CanonicalLineItem> = {}): CanonicalLineItem {
   return {

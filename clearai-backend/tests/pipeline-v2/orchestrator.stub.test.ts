@@ -18,7 +18,7 @@ import type {
   RetrievalArm,
   ScopeSelection,
   VerifierResult,
-} from '../../src/modules/pipeline/v2/types.js';
+} from '../../src/modules/pipeline/types.js';
 
 describe('v2 discriminated-union contracts compile and are exhaustively typeable', () => {
   // These functions exist purely for the typechecker. If a new variant

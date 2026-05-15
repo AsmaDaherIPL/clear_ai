@@ -27,7 +27,7 @@ vi.mock('../../src/modules/pipeline/v2/identify/web.js', () => ({
 }));
 
 const resolveMerchantMock = vi.fn();
-vi.mock('../../src/modules/pipeline/v2/merchant/resolve.js', () => ({
+vi.mock('../../src/modules/pipeline/merchant/resolve.js', () => ({
   resolveMerchant: (...args: unknown[]) => resolveMerchantMock(...args),
   buildResolutionTrace: () => ({
     llm_called: false,
@@ -67,8 +67,8 @@ vi.mock('../../src/modules/pipeline/catalog/operator-pipeline-config.js', () => 
   loadOperatorPipelineConfig: (...args: unknown[]) => loadOperatorConfigMock(...args),
 }));
 
-// parseItem inline-mocked
-vi.mock('../../src/modules/pipeline/v2/parse.js', () => ({
+// parseItem inline-mocked (canonical path — parse/parse.ts)
+vi.mock('../../src/modules/pipeline/parse/parse.js', () => ({
   parseItem: (item: { description: string | null; merchantHsCode: string | null; valueAmount: number | null }) => {
     const desc = typeof item.description === 'string' ? item.description.trim() : null;
     if (!desc) return { rejected: true, reason: 'no_description' };
@@ -91,13 +91,13 @@ vi.mock('../../src/modules/pipeline/v2/parse.js', () => ({
   },
 }));
 
-import { runPipelineV2 } from '../../src/modules/pipeline/v2/orchestrator.js';
+import { runPipeline as runPipelineV2 } from '../../src/modules/pipeline/orchestrator.js';
 import type {
   CanonicalLineItem,
   IdentifyResult,
   PickResult,
   RerankedCandidate,
-} from '../../src/modules/pipeline/v2/types.js';
+} from '../../src/modules/pipeline/types.js';
 
 function item(overrides: Partial<CanonicalLineItem> = {}): CanonicalLineItem {
   return {

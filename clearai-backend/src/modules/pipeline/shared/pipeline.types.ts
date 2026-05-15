@@ -8,12 +8,10 @@
  * type files are leaf modules; pipeline.types.ts depends on them, not
  * the other way around.
  */
-import type { IdentifyResult } from '../identify/identify.types.js';
-import type { ConstrainResult } from '../constrain/constrain.types.js';
-import type { PickResult } from '../pick/pick.types.js';
-
-// Re-export so trace builders / consumers can keep one import surface.
-export type { IdentifyResult, ConstrainResult, PickResult };
+// Legacy re-exports removed in PR 13 (identify/identify.types.ts,
+// constrain/constrain.types.ts, pick/pick.types.ts deleted).
+// Consumers that needed IdentifyResult/ConstrainResult/PickResult should
+// import from src/modules/pipeline/types.ts (the canonical v2 types).
 
 // ---------------------------------------------------------------------------
 // Stage 0a — Parse
@@ -488,12 +486,14 @@ export interface PipelineTrace {
    * MerchantResolution + RetrievalScope + ConstrainCallTrace;
    * `anchored_pick` carries the PickResult + its PickCallTrace.
    *
-   * After PR-A-8 cleanup (legacy fields deleted), these three
-   * become the canonical trace shape and the legacy fields go away.
+   * PR 13: anchored stage type files deleted. Fields typed as `unknown`
+   * for DB JSON backward compat (SQL paths in declaration-run.controller
+   * still read these from persisted rows). Canonical v2 trace lives in
+   * pipeline/types.ts PipelineTrace.
    */
-  anchored_identify: IdentifyResult | null;
-  anchored_constrain: ConstrainResult | null;
-  anchored_pick: PickResult | null;
+  anchored_identify: unknown | null;
+  anchored_constrain: unknown | null;
+  anchored_pick: unknown | null;
   /**
    * v2 pipeline trace. Populated when `pipeline_architecture === 'v2'`.
    * Carries the full multi-arm-retrieval trace produced by
