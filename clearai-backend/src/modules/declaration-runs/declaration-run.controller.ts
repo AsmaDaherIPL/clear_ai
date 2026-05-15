@@ -11,6 +11,7 @@ import {
   cancelBatchIfActive,
   countItemsByStatus,
   getBatch,
+  listBatches,
 } from './declaration-run.repository.js';
 import { getPool } from '../../db/client.js';
 import { enrichCodes } from '../reference-data/code-enrichment.service.js';
@@ -44,6 +45,16 @@ const VALID_ITEM_STATUSES: readonly BatchItemStatus[] = [
   'blocked',
   'pending_infra',
   'failed',
+];
+
+/** Batch lifecycle states accepted by GET /batches ?status= filter. */
+const VALID_BATCH_STATUSES: readonly BatchStatus[] = [
+  'pending',
+  'ingesting',
+  'processing',
+  'completed',
+  'failed',
+  'cancelled',
 ];
 
 const ACCEPTED_EXTS: Record<string, UploadKind> = {
@@ -144,6 +155,135 @@ export async function handleCreateBatch(
   return reply.code(202).send({
     batch_id: declarationRun.id,
     mode: declarationRun.mode,
+  });
+}
+
+/**
+ * GET /batches — list batches newest-first with optional filters.
+ *
+ * Query params (all optional, validated; bad values → 400):
+ *   limit          1-500, default 50. The user-friendly "top X" knob.
+ *   offset         ≥0, default 0 (page through results).
+ *   status         comma-separated subset of:
+ *                  pending | ingesting | processing | completed |
+ *                  failed | cancelled
+ *   created_since  ISO-8601 timestamp (inclusive lower bound on created_at)
+ *   created_until  ISO-8601 timestamp (inclusive upper bound on created_at)
+ *
+ * Returns:
+ *   {
+ *     items: BatchListItem[],   // slim shape per row, no per-item counts
+ *     total: number,            // total matching rows (pre-pagination)
+ *     limit: number,
+ *     offset: number,
+ *     has_more: boolean,
+ *     next_offset: number | null
+ *   }
+ */
+export async function handleListBatches(
+  req: FastifyRequest<{
+    Querystring: {
+      limit?: string;
+      offset?: string;
+      status?: string;
+      created_since?: string;
+      created_until?: string;
+    };
+  }>,
+  reply: FastifyReply,
+): Promise<unknown> {
+  // ---- pagination ----
+  const limitRaw = req.query.limit;
+  const offsetRaw = req.query.offset;
+  const limit = limitRaw === undefined ? 50 : Number(limitRaw);
+  const offset = offsetRaw === undefined ? 0 : Number(offsetRaw);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+    throw new BatchValidationError('limit must be an integer between 1 and 500', {
+      received: limitRaw,
+    });
+  }
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new BatchValidationError('offset must be a non-negative integer', {
+      received: offsetRaw,
+    });
+  }
+
+  // ---- status filter ----
+  const statusRaw = req.query.status;
+  let statuses: BatchStatus[] | undefined;
+  if (statusRaw !== undefined && statusRaw !== '') {
+    const requested = statusRaw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    const invalid = requested.filter(
+      (s) => !(VALID_BATCH_STATUSES as readonly string[]).includes(s),
+    );
+    if (invalid.length > 0) {
+      throw new BatchValidationError(
+        `status must be a comma-separated list of: ${VALID_BATCH_STATUSES.join(', ')}`,
+        { received: statusRaw, invalid },
+      );
+    }
+    statuses = requested as BatchStatus[];
+  }
+
+  // ---- date filters ----
+  const parseIsoDate = (raw: string | undefined, fieldName: string): Date | undefined => {
+    if (raw === undefined || raw === '') return undefined;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) {
+      throw new BatchValidationError(`${fieldName} must be an ISO-8601 timestamp`, {
+        received: raw,
+      });
+    }
+    return d;
+  };
+  const createdSince = parseIsoDate(req.query.created_since, 'created_since');
+  const createdUntil = parseIsoDate(req.query.created_until, 'created_until');
+  if (
+    createdSince !== undefined &&
+    createdUntil !== undefined &&
+    createdSince.getTime() > createdUntil.getTime()
+  ) {
+    throw new BatchValidationError(
+      'created_since must be on or before created_until',
+      { created_since: req.query.created_since, created_until: req.query.created_until },
+    );
+  }
+
+  // ---- query ----
+  const { items, total } = await listBatches({
+    limit,
+    offset,
+    statuses,
+    createdSince,
+    createdUntil,
+  });
+
+  // Slim wire shape: matches the user's example payload (id, operator_slug,
+  // status, classification_status, started_at) + the other fields that
+  // are nearly free to ship (counts come from /batches/:id where the
+  // per-item join lives).
+  const wireItems = items.map((r) => ({
+    id: r.id,
+    operator_slug: r.operatorSlug,
+    mode: r.mode,
+    status: r.status,
+    classification_status: r.classificationStatus,
+    declaration_status: r.declarationStatus,
+    row_count: r.rowCount,
+    created_at: r.createdAt.toISOString(),
+    started_at: r.startedAt ? r.startedAt.toISOString() : null,
+    completed_at: r.completedAt ? r.completedAt.toISOString() : null,
+    error: r.error,
+  }));
+
+  const hasMore = offset + wireItems.length < total;
+  return reply.send({
+    items: wireItems,
+    total,
+    limit,
+    offset,
+    has_more: hasMore,
+    next_offset: hasMore ? offset + wireItems.length : null,
   });
 }
 

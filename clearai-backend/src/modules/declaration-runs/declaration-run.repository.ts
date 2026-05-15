@@ -7,11 +7,12 @@
  * CRUD + cross-phase queries (insertDeclarationRun, getBatch,
  * listItems, countItemsByStatus).
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   declarationRuns,
   declarationRunItems,
+  operators,
   type ClassificationStatus,
   type DeclarationStatus,
   type BatchItemRow,
@@ -166,4 +167,114 @@ export async function cancelBatchIfActive(id: string): Promise<DeclarationRunRow
     .set({ status: 'cancelled', completedAt: new Date() })
     .where(and(eq(declarationRuns.id, id)));
   return getBatch(id);
+}
+
+/**
+ * One row from listBatches — pre-joined with operators so the caller
+ * doesn't need an N+1 slug lookup. Shape matches the slim wire format
+ * for GET /batches; consumers that need full per-row counts should
+ * fetch GET /batches/:id which calls countItemsByStatus.
+ */
+export interface BatchListItem {
+  id: string;
+  operatorSlug: string;
+  mode: BatchMode;
+  status: BatchStatus;
+  classificationStatus: ClassificationStatus;
+  declarationStatus: DeclarationStatus | null;
+  rowCount: number;
+  createdAt: Date;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  error: string | null;
+}
+
+export interface ListBatchesParams {
+  /** ≥1; caller clamps to ≤500 at the route layer. */
+  limit: number;
+  /** ≥0. */
+  offset: number;
+  /** Optional whitelist of statuses (OR semantics across the array). */
+  statuses?: ReadonlyArray<BatchStatus>;
+  /** Inclusive lower bound on declaration_runs.created_at. */
+  createdSince?: Date;
+  /** Inclusive upper bound on declaration_runs.created_at. */
+  createdUntil?: Date;
+}
+
+/**
+ * List declaration_runs newest-first with optional status + date filters,
+ * pre-joined with the operators table so each row carries `operatorSlug`
+ * directly (no N+1 lookups).
+ *
+ * Sort order is `created_at DESC` — the SPA's batch index page is
+ * always "latest first" and `created_at` is monotonic per batch. Total
+ * count is returned separately so the caller can paginate.
+ *
+ * Filters compose with AND semantics; passing nothing returns the
+ * latest `limit` batches across all statuses + all time.
+ */
+export async function listBatches(
+  params: ListBatchesParams,
+): Promise<{ items: BatchListItem[]; total: number }> {
+  const filters = [];
+  if (params.statuses !== undefined && params.statuses.length > 0) {
+    filters.push(inArray(declarationRuns.status, params.statuses as BatchStatus[]));
+  }
+  if (params.createdSince !== undefined) {
+    filters.push(gte(declarationRuns.createdAt, params.createdSince));
+  }
+  if (params.createdUntil !== undefined) {
+    filters.push(lte(declarationRuns.createdAt, params.createdUntil));
+  }
+  const whereClause = filters.length > 0 ? and(...filters) : undefined;
+
+  // Page rows + total count run in parallel — separate queries because
+  // window aggregates would force a full table scan when the filter is
+  // selective. count(*) on an indexed status+created_at query plan is
+  // sub-ms even at 100k rows.
+  const [rows, totalRows] = await Promise.all([
+    db()
+      .select({
+        id: declarationRuns.id,
+        operatorSlug: operators.slug,
+        mode: declarationRuns.mode,
+        status: declarationRuns.status,
+        classificationStatus: declarationRuns.classificationStatus,
+        declarationStatus: declarationRuns.declarationStatus,
+        rowCount: declarationRuns.rowCount,
+        createdAt: declarationRuns.createdAt,
+        startedAt: declarationRuns.startedAt,
+        completedAt: declarationRuns.completedAt,
+        error: declarationRuns.error,
+      })
+      .from(declarationRuns)
+      .leftJoin(operators, eq(declarationRuns.operatorId, operators.id))
+      .where(whereClause)
+      .orderBy(desc(declarationRuns.createdAt))
+      .limit(params.limit)
+      .offset(params.offset),
+    db()
+      .select({ n: sql<number>`count(*)::int` })
+      .from(declarationRuns)
+      .where(whereClause),
+  ]);
+
+  const items: BatchListItem[] = rows.map((r) => ({
+    id: r.id,
+    // operators.slug is non-null by schema; left-joining preserves the row
+    // if the FK ever broke. Default to '' for that defensive edge.
+    operatorSlug: r.operatorSlug ?? '',
+    mode: r.mode as BatchMode,
+    status: r.status as BatchStatus,
+    classificationStatus: r.classificationStatus as ClassificationStatus,
+    declarationStatus: (r.declarationStatus ?? null) as DeclarationStatus | null,
+    rowCount: r.rowCount,
+    createdAt: r.createdAt,
+    startedAt: r.startedAt,
+    completedAt: r.completedAt,
+    error: r.error,
+  }));
+
+  return { items, total: Number(totalRows[0]?.n ?? 0) };
 }

@@ -4,6 +4,7 @@
  * Internal code/DB still use the `declaration_runs` / `declaration_run_items`
  * names; only the API surface uses `batch`. See API_AUDIT_SPEC_2026-05-12.md.
  *
+ *   GET    /batches                       list batches with filters
  *   POST   /batches                       multipart upload, returns 202
  *   GET    /batches/:id                   BatchSummary
  *   GET    /batches/:id/items             per-item canonical + result + trace
@@ -17,6 +18,7 @@ import {
   attachDeclarationRunPlugins,
   handleCreateBatch,
   handleGetBatch,
+  handleListBatches,
   handleListClassifications,
   handlePatchBatch,
   mapDeclarationRunError,
@@ -39,6 +41,27 @@ export interface DeclarationRunsRoutesOpts {
 export async function declarationRunsRoutes(app: FastifyInstance, opts?: DeclarationRunsRoutesOpts): Promise<void> {
   await attachDeclarationRunPlugins(app);
   const dispatch = opts?.dispatch ?? realDispatch;
+
+  // GET /batches — list with filters. Registered BEFORE POST so the
+  // typed Querystring route generic doesn't get shadowed by Fastify's
+  // route-matching order.
+  app.get<{
+    Querystring: {
+      limit?: string;
+      offset?: string;
+      status?: string;
+      created_since?: string;
+      created_until?: string;
+    };
+  }>('/batches', async (req, reply) => {
+    try {
+      return await handleListBatches(req, reply);
+    } catch (err) {
+      const mapped = mapDeclarationRunError(err);
+      if (mapped) return reply.code(mapped.statusCode).send(mapped.body);
+      throw err;
+    }
+  });
 
   app.post('/batches', async (req, reply) => {
     try {
