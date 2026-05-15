@@ -1,21 +1,17 @@
 /**
- * PR 1 — Foundation test.
+ * PR 1 — Foundation type-contract test.
  *
- * Asserts that:
- *   1. v2/types.ts compiles + exports the canonical discriminated unions
- *   2. v2/orchestrator.ts compiles + exports the public entry point
- *   3. The stub throws a sentinel error (callers can't accidentally
- *      route live traffic here until PR 11)
- *   4. Discriminated-union exhaustiveness compiles
+ * Asserts that the v2 discriminated unions compile and are
+ * exhaustively typeable. If a new variant is added to one of the unions
+ * and a switch is not updated, `tsc --noEmit` will fail and this test
+ * file will break — that's the whole point.
  *
- * No real LLM calls. No DB. No retrieval. This test exists to lock the
- * import surface for PRs 2-11; every subsequent PR will replace one of
- * the asserted-on stubs with a real implementation.
+ * Behavioural integration tests for runPipelineV2 live in
+ * orchestrator.test.ts (PR 11). The earlier stub-throws-sentinel
+ * assertions were removed when PR 11 replaced the stub.
  */
 import { describe, expect, it } from 'vitest';
-import { runPipelineV2 } from '../../src/modules/pipeline/v2/orchestrator.js';
 import type {
-  CanonicalLineItem,
   IdentifyResult,
   MerchantResolution,
   PickResult,
@@ -23,22 +19,6 @@ import type {
   ScopeSelection,
   VerifierResult,
 } from '../../src/modules/pipeline/v2/types.js';
-
-describe('runPipelineV2 — stub (PR 1)', () => {
-  it('throws a sentinel error until PR 11 wires the stages', async () => {
-    const item = {} as CanonicalLineItem;
-    await expect(runPipelineV2(item, 'naqel', 'item-1')).rejects.toThrow(
-      /runPipelineV2 not implemented/,
-    );
-  });
-
-  it('sentinel error mentions PR 1 of 15 so logs trace back to this stub', async () => {
-    const item = {} as CanonicalLineItem;
-    await expect(runPipelineV2(item, 'naqel', 'item-1')).rejects.toThrow(
-      /PR 1 of 15/,
-    );
-  });
-});
 
 describe('v2 discriminated-union contracts compile and are exhaustively typeable', () => {
   // These functions exist purely for the typechecker. If a new variant
