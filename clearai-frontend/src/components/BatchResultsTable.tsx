@@ -38,9 +38,32 @@ function clampChars(text: string, max: number): string {
   return `${cut.trimEnd()}…`;
 }
 
-/** Read the sanity verdict off the canonical classification_result. */
+/** Read the raw sanity verdict string for display — never rewritten. */
 function readVerdict(item: DeclarationRunItem): string | null {
   return item.classification_result?.sanity_verdict ?? null;
+}
+
+/**
+ * Derive the filter/sort bucket for a row from the full item state.
+ *
+ * Priority:
+ *   1. error field set OR no resolved_hs_code → 'fail'
+ *      (HITL escalations, pipeline errors — sanity_verdict is null on
+ *      these rows, so reading only sanity_verdict made the Fail filter empty)
+ *   2. sanity_verdict FLAG or BLOCK → 'warn'
+ *   3. sanity_verdict PASS (or any other non-null value) → 'pass'
+ *   4. nothing → null (row excluded from all verdict filters)
+ */
+function itemBucket(item: DeclarationRunItem): 'pass' | 'fail' | 'warn' | null {
+  const hasCode = Boolean(item.classification_result?.resolved_hs_code);
+  const hasError = Boolean(item.error);
+  if (hasError || !hasCode) return 'fail';
+  const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
+  if (sanity === 'FLAG' || sanity === 'BLOCK') return 'warn';
+  if (sanity) return 'pass';
+  // resolved_hs_code present but sanity_verdict null — treat as pass
+  // (older payloads that predate the sanity check)
+  return 'pass';
 }
 
 function normaliseVerdict(raw: string): 'pass' | 'fail' | 'warn' | 'skipped' | 'unknown' {
@@ -428,32 +451,29 @@ export default function BatchResultsTable({
       id: 'value_plausibility_verdict',
       header: t('batch_col_value_plausibility_verdict' as TKey),
       enableSorting: true,
-      accessorFn: (row) => {
-        const raw = readVerdict(row);
-        return raw ? normaliseVerdict(raw) : '';
-      },
+      // accessorFn drives sorting and global search — use the bucket so
+      // "fail" rows sort/search consistently regardless of sanity_verdict value.
+      accessorFn: (row) => itemBucket(row) ?? '',
       size: 140,
       minSize: 100,
       maxSize: 220,
-      filterFn: (row, _id, value) => {
-        const raw = readVerdict(row.original);
-        if (!raw) return false;
-        return normaliseVerdict(raw) === value;
-      },
+      // filterFn uses itemBucket so "Fail" catches error rows and rows
+      // with no resolved_hs_code, not just rows with sanity_verdict='FAIL'.
+      filterFn: (row, _id, value) => itemBucket(row.original) === value,
       cell: ({ row }) => {
+        const bucket = itemBucket(row.original);
+        if (!bucket) return <span className="text-[var(--ink-3)] text-[12px]">—</span>;
+        // Display the raw sanity_verdict as-is when present; fall back to
+        // the bucket label only for error/no-code rows where there is no
+        // sanity_verdict to show (rule: never rewrite a backend value).
         const raw = readVerdict(row.original);
-        if (!raw) return <span className="text-[var(--ink-3)] text-[12px]">—</span>;
-        const bucket = normaliseVerdict(raw);
+        const displayLabel = raw ?? (
+          bucket === 'fail' ? t('batch_verdict_fail' as TKey) : bucket
+        );
         const cls = VERDICT_BADGE[bucket] ?? VERDICT_BADGE.unknown;
-        const label =
-          bucket === 'pass'    ? t('batch_verdict_pass' as TKey) :
-          bucket === 'fail'    ? t('batch_verdict_fail' as TKey) :
-          bucket === 'warn'    ? t('batch_verdict_warn' as TKey) :
-          bucket === 'skipped' ? t('batch_verdict_skipped' as TKey) :
-                                 raw;
         return (
           <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em]', cls)}>
-            {label}
+            {displayLabel}
           </span>
         );
       },
