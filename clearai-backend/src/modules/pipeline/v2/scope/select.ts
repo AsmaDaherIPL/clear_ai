@@ -264,6 +264,32 @@ export function selectScopes(
       }
     }
 
+    // Multi-product rescue: when identify split the row into multiple
+    // products, the picker runs against the first product but the
+    // merchant prefix may be locked to the wrong heading for it (e.g.
+    // merchant 6206 = women's shirts, but products[0] is a skirt which
+    // belongs in 6204). Add a lexical_tokens secondary using the first
+    // product as the query string so retrieval can broaden beyond the
+    // merchant prefix. Also fire unconstrained so the picker has at
+    // least one cross-chapter rescue path.
+    if (identify.kind === 'multi_product' && identify.products.length > 0) {
+      const firstProductTokens = identify.products[0]!
+        .split(/[\s,]+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2);
+      if (firstProductTokens.length > 0) {
+        secondaries.push({
+          kind: 'lexical_tokens',
+          tokens: firstProductTokens,
+        });
+      }
+      secondaries.push({
+        kind: 'unconstrained',
+        reason: 'composite_product',
+      });
+      auditFlags.push('identify_family_null');
+    }
+
     return { primary, secondaries, audit_flags: auditFlags };
   }
 
