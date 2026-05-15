@@ -51,11 +51,10 @@ interface AssembleParams {
 // ---------------------------------------------------------------------------
 
 function buildNormalizeStage(trace: PipelineTrace): DispatchV1Stage {
-  const merchantState = trace.merchant_resolution.resolution.state;
-  const merchantCodeState =
-    merchantState === 'absent' ? 'absent'
-    : merchantState === 'malformed' ? 'malformed'
-    : 'twelve_digit';
+  // Parse-stage classification of the merchant code length (carries
+  // the original twelve_digit / short_prefix / malformed / absent
+  // discriminator from the parser). Independent of resolution state.
+  const merchantCodeState = trace.parse.merchant_code_state;
 
   return {
     stage: 'normalize',
@@ -385,14 +384,13 @@ function buildSummary(
   result: PipelineResult,
 ): DispatchV1Summary {
   const pickAccepted = trace.pick.kind === 'accepted' ? trace.pick : null;
-  const merchantState = trace.merchant_resolution.resolution.state;
-  const merchantCodeState =
-    merchantState === 'absent' ? 'absent'
-    : merchantState === 'malformed' ? 'malformed'
-    : 'twelve_digit';
+  // Same parse-stage discriminator as in buildNormalizeStage — keeps
+  // the wire's normalize.parse.output and summary.merchant_code_state
+  // consistent on every row.
+  const merchantCodeState = trace.parse.merchant_code_state;
 
   return {
-    merchant_code_state: merchantCodeState as DispatchV1Summary['merchant_code_state'],
+    merchant_code_state: merchantCodeState,
     // Legacy + anchored fields removed (PR 13).
     description_classifier_top_fit: null,
     code_resolver_code: null,

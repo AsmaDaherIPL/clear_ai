@@ -91,6 +91,7 @@ const sanityPass: SanityResult = {
 
 function buildResult(overrides: Partial<PipelineResult> = {}): PipelineResult {
   const trace: PipelineTrace = {
+    parse: { merchant_code_state: 'twelve_digit' },
     identify: cleanIdentify,
     merchant_resolution: { resolution: merchantActive, trace: merchantResolutionTrace },
     scope: scopePrefixOnly,
@@ -118,6 +119,44 @@ function buildResult(overrides: Partial<PipelineResult> = {}): PipelineResult {
 }
 
 describe('assembleDispatchV1', () => {
+  it('surfaces parse.merchant_code_state on the wire (twelve_digit case)', () => {
+    const result = buildResult();
+    result.trace.parse.merchant_code_state = 'twelve_digit';
+    const v1 = assembleDispatchV1({
+      itemId: 'item-1',
+      operatorSlug: 'naqel',
+      result,
+      startedAt: '2026-05-15T10:00:00.000Z',
+      completedAt: '2026-05-15T10:00:10.000Z',
+    });
+    expect(v1.trace.summary.merchant_code_state).toBe('twelve_digit');
+    const normalize = v1.trace.stages.find((s) => s.stage === 'normalize')!;
+    const parseAction = normalize.actions.find((a) => a.action === 'parse')!;
+    expect((parseAction.output as { merchant_code_state?: string })?.merchant_code_state).toBe('twelve_digit');
+  });
+
+  it('surfaces parse.merchant_code_state on the wire (short_prefix case)', () => {
+    // Regression: pre-fix the v2 wire builder synthesised the state
+    // from merchant_resolution.state, which lost the original length
+    // bucket. A 10-digit code that lands as 'unknown' (not in codebook)
+    // would have been mis-reported as 'twelve_digit'. The fix threads
+    // the parse-stage classification through the trace and reads it
+    // verbatim on the wire.
+    const result = buildResult();
+    result.trace.parse.merchant_code_state = 'short_prefix';
+    const v1 = assembleDispatchV1({
+      itemId: 'item-1',
+      operatorSlug: 'naqel',
+      result,
+      startedAt: '2026-05-15T10:00:00.000Z',
+      completedAt: '2026-05-15T10:00:10.000Z',
+    });
+    expect(v1.trace.summary.merchant_code_state).toBe('short_prefix');
+    const normalize = v1.trace.stages.find((s) => s.stage === 'normalize')!;
+    const parseAction = normalize.actions.find((a) => a.action === 'parse')!;
+    expect((parseAction.output as { merchant_code_state?: string })?.merchant_code_state).toBe('short_prefix');
+  });
+
   it("emits pipeline_architecture='v2' on the summary", () => {
     const v1 = assembleDispatchV1({
       itemId: 'item-1',

@@ -209,6 +209,7 @@ export async function runPipeline(
 
   if (scope.primary.kind === 'escalate') {
     return buildEscalateResult({
+      parse: { merchant_code_state: parsed.item.merchant_code_state },
       identify,
       merchantResolution,
       merchantResolutionTrace,
@@ -241,6 +242,7 @@ export async function runPipeline(
 
   if (dedupedCandidates.length === 0) {
     return buildEscalateResult({
+      parse: { merchant_code_state: parsed.item.merchant_code_state },
       identify,
       merchantResolution,
       merchantResolutionTrace,
@@ -281,6 +283,7 @@ export async function runPipeline(
 
   if (pick.kind === 'escalate') {
     return buildEscalateResult({
+      parse: { merchant_code_state: parsed.item.merchant_code_state },
       identify,
       merchantResolution,
       merchantResolutionTrace,
@@ -329,6 +332,7 @@ export async function runPipeline(
 
   // ---- Final result assembly ----
   const trace: PipelineTrace = {
+    parse: { merchant_code_state: parsed.item.merchant_code_state },
     identify,
     merchant_resolution: {
       resolution: merchantResolution,
@@ -375,6 +379,10 @@ function blockedResult(reason: string): PipelineResult {
     classification_status: null,
     hitl: null,
     trace: {
+      // Parse rejection short-circuits before classifyMerchantCode runs;
+      // there is no meaningful state to carry. 'absent' is the
+      // honest default — the row carries no usable merchant code.
+      parse: { merchant_code_state: 'absent' },
       identify: {
         kind: 'uninformative',
         cause: 'short_circuit',
@@ -431,6 +439,7 @@ function blockedResult(reason: string): PipelineResult {
 }
 
 function buildEscalateResult(params: {
+  parse: PipelineTrace['parse'];
   identify: IdentifyResult;
   merchantResolution: PipelineTrace['merchant_resolution']['resolution'];
   merchantResolutionTrace: PipelineTrace['merchant_resolution']['trace'];
@@ -440,6 +449,7 @@ function buildEscalateResult(params: {
   retrievalStats?: PipelineTrace['retrieval'];
 }): PipelineResult {
   const {
+    parse,
     identify,
     merchantResolution,
     merchantResolutionTrace,
@@ -449,6 +459,7 @@ function buildEscalateResult(params: {
     retrievalStats,
   } = params;
   const trace: PipelineTrace = {
+    parse,
     identify,
     merchant_resolution: {
       resolution: merchantResolution,

@@ -426,6 +426,17 @@ export interface SubmissionDescriptionResult {
 // ---------------------------------------------------------------------------
 
 export interface PipelineTrace {
+  /**
+   * Parse-stage classification of the merchant-supplied code. Carries
+   * the original length bucket (twelve_digit / short_prefix / malformed
+   * / absent) for downstream wire-format reporting. Independent of
+   * merchant_resolution.state — a `short_prefix` parse can resolve to
+   * an `expanded_prefix` or `unknown` resolution, but the parse
+   * classification stays as-is.
+   */
+  parse: {
+    merchant_code_state: MerchantCodeState;
+  };
   identify: IdentifyResult;
   merchant_resolution: {
     resolution: MerchantResolution;
