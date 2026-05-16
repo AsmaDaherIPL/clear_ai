@@ -342,18 +342,14 @@ interface BatchResultsTableProps {
 
 /**
  * Derive whether a row needs operator review.
- * FLAG and BLOCK verdicts need review; PASS does not.
- * Items with no resolved code also need review regardless of verdict.
+ * Only sanity FLAG verdict rows require review — these are value-plausibility
+ * flags where the reviewer approves or blocks. PASS rows, failed rows, and
+ * rows with no code are not surfaced in this inline queue.
  */
 function needsReview(item: DeclarationRunItem): boolean {
-  // Unprocessed items (no classification_result yet) are not reviewable —
-  // they haven't been classified; wait for the result before queuing for review.
-  if (item.classification_result == null && !item.error) return false;
-  const verdict = item.classification_result?.sanity_verdict?.toUpperCase();
-  const hasCode = Boolean(item.classification_result?.resolved_hs_code);
-  if (!hasCode) return true;
-  if (verdict === 'FLAG' || verdict === 'BLOCK') return true;
-  return false;
+  if (item.classification_result == null) return false;
+  const verdict = item.classification_result.sanity_verdict?.toUpperCase();
+  return verdict === 'FLAG';
 }
 
 export default function BatchResultsTable({
@@ -391,6 +387,7 @@ export default function BatchResultsTable({
       const listRes = await api.listReviewQueue({
         batch_id: batchId,
         status: 'pending',
+        reason: 'sanity_flag',
         limit: 50,
       });
 
