@@ -15,7 +15,12 @@ import {
 } from '@/lib/api';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
 import RequiredProcedures from './RequiredProcedures';
-import ReviewDialog, { type ReviewItem } from './ReviewDialog';
+// ReviewDialog removed 2026-05-16: the dialog was mounted from here
+// with onAccept/onDismiss/onPick TODO stubs that never persisted.
+// Single-shot results don't have a hitl_queue entry (queue is batch-
+// only for now), so there is no review surface to navigate to either.
+// The onReviewAccept / onReviewDismiss callback props are kept on the
+// component interface for caller-side compatibility but are unused.
 
 interface ResultSingleProps {
   visible: boolean;
@@ -591,7 +596,6 @@ export default function ResultSingle({
   className,
 }: ResultSingleProps) {
   const t = useT();
-  const [reviewOpen, setReviewOpen] = useState(false);
 
   if (!visible || !data) return null;
 
@@ -693,15 +697,7 @@ export default function ResultSingle({
       ? `${Math.round(r.classification_confidence * 100)}%`
       : null;
 
-  // Build the ReviewItem for the dialog from this DescribeResponse.
-  const reviewItem: ReviewItem = {
-    id: data.request_id ?? 'single-shot',
-    description: data.interpretation?.rewritten_as ?? data.interpretation?.cleaned_as ?? '',
-    currentCode: r?.code ?? null,
-    currentLabel: r?.description_en ?? (r as any)?.label_en ?? null,
-    verdict: sanityVerdict,
-    alternatives: data.alternatives ?? [],
-  };
+  // (reviewItem builder removed 2026-05-16 with ReviewDialog.)
 
   // Visible alternatives: drop the chosen leaf so it doesn't show as
   // both the picked code (left column) and a sibling (right column).
@@ -1086,27 +1082,6 @@ export default function ResultSingle({
         </aside>
       </div>
 
-      {/* Review dialog — single instance, opened by the "Flag for review" button. */}
-      <ReviewDialog
-        open={reviewOpen}
-        onOpenChange={setReviewOpen}
-        item={reviewItem}
-        onAccept={() => {
-          onReviewAccept?.();
-          setReviewOpen(false);
-          // TODO: POST /reviews { item_id: reviewItem.id, action: 'accepted' }
-        }}
-        onDismiss={() => {
-          onReviewDismiss?.();
-          setReviewOpen(false);
-          // TODO: POST /reviews { item_id: reviewItem.id, action: 'dismissed' }
-        }}
-        onPick={(_item, chosenCode) => {
-          onPickAlternative?.(chosenCode);
-          setReviewOpen(false);
-          // TODO: POST /reviews { item_id: reviewItem.id, action: 'picked', code: chosenCode }
-        }}
-      />
     </div>
   );
 }
