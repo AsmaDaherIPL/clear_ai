@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { api, ApiError, type DownloadLinks } from '@/lib/api';
+import { api, ApiError, type BatchFile, type DownloadLinks } from '@/lib/api';
 import type { BatchState } from './ClassifyApp';
 import BatchResultsTable from './BatchResultsTable';
+import { zipSync, strToU8 } from 'fflate';
 
 function humanError(raw: string | null | undefined): string {
   if (!raw) return '';
@@ -135,8 +136,8 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
   const [downloadLinks, setDownloadLinks] = useState<DownloadLinks | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadLoading, setDownloadLoading] = useState(false);
-  // Per-file in-flight state. Lets us disable + spinner the right row when
-  // the user clicks one file while another is still streaming.
+  const [bundleDownloading, setBundleDownloading] = useState(false);
+  // Per-file in-flight state (kept for internal use; no longer a visible list).
   const [fileFetching, setFileFetching] = useState<Record<string, boolean>>({});
   // Guards against re-fetching the file list every render once it's
   // already been auto-loaded for the current run. We key on runId so a
@@ -182,6 +183,52 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
       setDownloadError(msg);
     } finally {
       setDownloadLoading(false);
+    }
+  };
+
+  /**
+   * Download all lv/*.xml and hv/*.xml for the run in parallel, pack
+   * them into a zip with two top-level folders, and save as
+   * "declaration-bundle-<runId>.zip". Uses fflate (sync zip) to avoid
+   * a streaming dependency.
+   */
+  const handleDownloadBundle = async (runId: string, xmlFiles: BatchFile[]) => {
+    if (bundleDownloading) return;
+    setDownloadError(null);
+    setBundleDownloading(true);
+    try {
+      const results = await Promise.all(
+        xmlFiles.map(async (f) => {
+          const blob = await api.getBatchFile(runId, f.name);
+          const buf = await blob.arrayBuffer();
+          return { name: f.name, data: new Uint8Array(buf) };
+        }),
+      );
+      // Build the fflate zip input: { 'lv/foo.xml': Uint8Array, ... }
+      const zipInput: Record<string, Uint8Array> = {};
+      for (const r of results) {
+        zipInput[r.name] = r.data;
+      }
+      const zipped = zipSync(zipInput);
+      const blob = new Blob([zipped], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `declaration-bundle-${runId.slice(0, 8)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? `${err.status}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : 'Failed to build declaration bundle.';
+      setDownloadError(msg);
+    } finally {
+      setBundleDownloading(false);
     }
   };
 
@@ -472,117 +519,134 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
       {(() => {
         const runError = state.summary?.error ?? null;
         const itemErrors = items.filter((i) => !!i.error);
-        const escalations = itemErrors.filter((i) => {
+        const realErrors = itemErrors.filter((i) => {
           const e = i.error ?? '';
-          return e.includes('escalated to HITL') || e.includes('LOW_INFORMATION');
+          return !e.includes('escalated to HITL') && !e.includes('LOW_INFORMATION');
         });
-        const realErrors = itemErrors.filter((i) => !escalations.includes(i));
 
-        if (!runError && itemErrors.length === 0) return null;
+        if (!runError && realErrors.length === 0) return null;
 
-        // Real run-level crash or per-item exception — red banner.
-        if (runError || realErrors.length > 0) {
-          return (
-            <div
-              className="px-[22px] py-3 border-t border-[var(--line-2)] bg-[oklch(0.95_0.07_25)] text-[13px] text-[oklch(0.32_0.12_25)]"
-              role="alert"
-            >
-              <div className="font-medium mb-1">Run-level error</div>
-              <div className="text-[12.5px]">
-                {humanError(runError ?? realErrors[0]?.error)}
-              </div>
-            </div>
-          );
-        }
-
-        // Only HITL escalations — informational amber banner.
+        // Real run-level crash or per-item non-HITL exception — red banner only.
         return (
           <div
-            className="px-[22px] py-3 border-t border-[var(--line-2)] bg-[oklch(0.95_0.08_75)] text-[13px] text-[oklch(0.36_0.13_75)]"
-            role="status"
+            className="px-[22px] py-3 border-t border-[var(--line-2)] bg-[oklch(0.95_0.07_25)] text-[13px] text-[oklch(0.32_0.12_25)]"
+            role="alert"
           >
-            <div className="font-medium mb-1">
-              {escalations.length === 1
-                ? '1 item needs manual review'
-                : `${escalations.length} items need manual review`}
-            </div>
+            <div className="font-medium mb-1">Run-level error</div>
             <div className="text-[12.5px]">
-              Sent to the HITL queue — open the review tab to resolve.
+              {humanError(runError ?? realErrors[0]?.error)}
             </div>
           </div>
         );
       })()}
 
       {/*
-        Footer strip: latency on the left, optional file-list status
-        on the right. The "Refresh file list" button is gone — the
-        list now auto-fetches the moment the run reaches a terminal
-        state with at least one usable item (see useEffect above).
+        Footer strip — latency + declaration bundle download.
+        Layout: latency (left) | LV/HV summary + download btn (right).
+        Download triggers a client-side zip build: fetches every lv/*.xml
+        and hv/*.xml in parallel, packs them into a zip with two folders,
+        and saves as declaration-bundle-<runId>.zip.
       */}
-      <div className="flex items-center justify-between gap-3 px-[22px] py-3.5 border-t border-[var(--line-2)] bg-[var(--line-2)]">
-        <div className="text-[12.5px] text-[var(--ink-3)]">
-          {summary?.completed_at && summary.started_at && (
-            <>
-              <b className="text-[var(--ink-2)] font-medium">{t('meta_latency')}</b>{' '}
-              {Math.round(
-                (new Date(summary.completed_at).getTime() -
-                  new Date(summary.started_at).getTime()) /
-                  1000,
+      {(() => {
+        // Derive LV and HV counts from the file listing (when available).
+        const xmlFiles = (downloadLinks?.files ?? []).filter((f) => f.name.endsWith('.xml'));
+        const lvFiles = xmlFiles.filter((f) => f.name.startsWith('lv/'));
+        const hvFiles = xmlFiles.filter((f) => f.name.startsWith('hv/'));
+        const hasXml = lvFiles.length > 0 || hvFiles.length > 0;
+
+        const latencyMs =
+          summary?.completed_at && summary.started_at
+            ? new Date(summary.completed_at).getTime() - new Date(summary.started_at).getTime()
+            : null;
+        const latencyMin = latencyMs != null ? (latencyMs / 60_000).toFixed(1) : null;
+
+        return (
+          <div className="flex items-center justify-between gap-4 px-[22px] py-3.5 border-t border-[var(--line-2)] bg-[var(--line-2)]">
+            {/* Left — latency */}
+            <div className="text-[12.5px] text-[var(--ink-3)]">
+              {latencyMin != null && (
+                <>
+                  <b className="text-[var(--ink-2)] font-medium">{t('meta_latency')}</b>{' '}
+                  {latencyMin} min
+                </>
               )}
-              s
-            </>
-          )}
-        </div>
-        {downloadLoading && (
-          <div className="flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
-            <span
-              className="w-3 h-3 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
-              aria-hidden
-            />
-            <span>Preparing files…</span>
+            </div>
+
+            {/* Right — XML summary + single download button */}
+            <div className="flex items-center gap-3">
+              {/* LV / HV declaration counts — visible once file list is loaded */}
+              {hasXml && (
+                <div className="flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
+                  {lvFiles.length > 0 && (
+                    <span>
+                      <span className="font-mono font-medium text-[var(--ink-2)]">{lvFiles.length}</span>
+                      {' '}LV
+                    </span>
+                  )}
+                  {lvFiles.length > 0 && hvFiles.length > 0 && (
+                    <span className="text-[var(--line)]">·</span>
+                  )}
+                  {hvFiles.length > 0 && (
+                    <span>
+                      <span className="font-mono font-medium text-[var(--ink-2)]">{hvFiles.length}</span>
+                      {' '}HV
+                    </span>
+                  )}
+                  <span className="text-[var(--ink-3)]">declarations</span>
+                </div>
+              )}
+
+              {/* Download bundle button — appears once file list is loaded and xmls exist */}
+              {downloadLoading && (
+                <div className="flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
+                  <span
+                    className="w-3 h-3 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
+                    aria-hidden
+                  />
+                  <span>Building bundle…</span>
+                </div>
+              )}
+              {!downloadLoading && hasXml && state.runId && (
+                <button
+                  type="button"
+                  onClick={() => handleDownloadBundle(state.runId!, [...lvFiles, ...hvFiles])}
+                  disabled={bundleDownloading}
+                  className={cn(
+                    'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[10px]',
+                    'border border-[var(--line)] bg-[var(--surface)]',
+                    'text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+                    'transition-colors duration-150',
+                    'disabled:opacity-50 disabled:cursor-progress',
+                  )}
+                >
+                  {bundleDownloading ? (
+                    <>
+                      <span
+                        className="w-3 h-3 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
+                        aria-hidden
+                      />
+                      Downloading…
+                    </>
+                  ) : (
+                    <>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                      Declaration bundle
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {downloadError && (
         <div className="px-[22px] py-2 text-[13px] text-[var(--accent-ink)] border-t border-[var(--line-2)]" role="alert">
           {downloadError}
-        </div>
-      )}
-
-      {downloadLinks && (
-        <div className="px-[22px] py-3 border-t border-[var(--line-2)]">
-          <ul className="m-0 p-0 list-none flex flex-col gap-1">
-            {downloadLinks.files
-              // Hide the internal JSON artefacts (run-index.json,
-              // classifications.json) from the operator-facing file
-              // list. They're useful for debugging via direct GET but
-              // not for the broker downloading invoice declarations.
-              .filter((f) => {
-                const base = f.name.split('/').pop() ?? f.name;
-                return base !== 'run-index.json' && base !== 'classifications.json';
-              })
-              .map((f) => {
-              const fetching = !!fileFetching[f.name];
-              return (
-                <li key={f.name} className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadFile(f.name)}
-                    disabled={fetching}
-                    className="text-[13px] font-mono text-[var(--accent-ink)] hover:underline truncate disabled:opacity-60 disabled:cursor-progress text-left"
-                  >
-                    {fetching ? 'Downloading…' : f.name}
-                  </button>
-                  {f.size_bytes !== null && (
-                    <span className="text-[11.5px] text-[var(--ink-3)] font-mono whitespace-nowrap">
-                      {(f.size_bytes / 1024).toFixed(1)} KB
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
         </div>
       )}
     </div>

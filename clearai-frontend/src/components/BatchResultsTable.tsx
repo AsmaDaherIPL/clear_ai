@@ -61,11 +61,16 @@ function itemBucket(
   // Not yet processed — no error and no classification_result at all.
   if (!hasError && !hasClassificationResult) return null;
 
-  const hasCode = Boolean(item.classification_result?.resolved_hs_code);
-  if (hasError || !hasCode) return 'failed';
+  // Check sanity verdict BEFORE the no-code guard. BLOCK items may have
+  // no resolved_hs_code (submission hard-stopped), but they are still
+  // 'blocked', not 'failed'. Checking verdict first ensures the bucket
+  // matches the backend's BatchItemStatus exactly.
   const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
   if (sanity === 'BLOCK') return 'blocked';
   if (sanity === 'FLAG') return 'flagged';
+
+  const hasCode = Boolean(item.classification_result?.resolved_hs_code);
+  if (hasError || !hasCode) return 'failed';
   return 'succeeded';
 }
 

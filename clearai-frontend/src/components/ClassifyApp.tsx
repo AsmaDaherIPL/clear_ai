@@ -320,11 +320,13 @@ function deriveCountsFromItems(
     if (!hasError && !hasClassificationResult) continue;
 
     processedInArray++;
-    const hasCode = Boolean(item.classification_result?.resolved_hs_code);
-    if (hasError || !hasCode) { failed++; continue; }
+    // Check verdict before the no-code guard — BLOCK items may have no
+    // resolved_hs_code but must still count as blocked, not failed.
     const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
     if (sanity === 'BLOCK') { blocked++; continue; }
     if (sanity === 'FLAG')  { flagged++; continue; }
+    const hasCode = Boolean(item.classification_result?.resolved_hs_code);
+    if (hasError || !hasCode) { failed++; continue; }
     succeeded++;
   }
   // pending = rows not yet returned at all + rows returned but not yet processed
