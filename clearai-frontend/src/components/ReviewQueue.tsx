@@ -138,8 +138,10 @@ export default function ReviewQueue() {
   }, [batchId]);
 
   function navigateToDetail(rowId: string) {
-    const qs = batchId ? `?batch_id=${encodeURIComponent(batchId)}` : '';
-    window.location.href = `/review/${encodeURIComponent(rowId)}${qs}`;
+    // Static-output Astro build: query-param routing (same pattern as /trace?id=).
+    const params = new URLSearchParams({ id: rowId });
+    if (batchId) params.set('batch_id', batchId);
+    window.location.href = `/review/detail?${params.toString()}`;
   }
 
   return (

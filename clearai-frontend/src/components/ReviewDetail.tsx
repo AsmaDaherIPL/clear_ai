@@ -355,15 +355,15 @@ function ActionButton({ action, selected, disabled, tooltipText, onClick, label 
 // Main component
 // ---------------------------------------------------------------------------
 
-interface ReviewDetailProps {
-  id: string;
-}
+// No props — id and batch_id are read from URL query params at runtime,
+// matching the static-output Astro pattern used by TracePage.
 
 type ActionKind = 'approve' | 'override' | 'reject' | 'block_from_submission';
 
-export default function ReviewDetail({ id }: ReviewDetailProps) {
+export default function ReviewDetail() {
   const t = useT();
 
+  const [id, setId] = useState('');
   const [batchId, setBatchId] = useState<string | null>(null);
   const [row, setRow] = useState<ReviewQueueRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -389,9 +389,10 @@ export default function ReviewDetail({ id }: ReviewDetailProps) {
 
   const overrideInputRef = useRef<HTMLInputElement>(null);
 
-  // Read batch_id from URL on mount.
+  // Read id and batch_id from URL on mount (static-output Astro pattern).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    setId(params.get('id') ?? '');
     setBatchId(params.get('batch_id'));
   }, []);
 
@@ -423,7 +424,7 @@ export default function ReviewDetail({ id }: ReviewDetailProps) {
       });
   };
 
-  useEffect(() => { fetchRow(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (id) fetchRow(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When action changes to 'override' and there's only one candidate,
   // auto-focus the override code input.
