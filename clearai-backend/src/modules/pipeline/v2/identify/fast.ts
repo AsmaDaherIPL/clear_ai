@@ -222,10 +222,14 @@ export async function runIdentifyFast(raw_description: string): Promise<Identify
       // NO tools — this is the fast pass. Cost saving + latency saving
       // for the ~60% of rows the model resolves from training alone.
     },
-    // Outer-layer retries=0; inner 429 retry (PR-A-5.3) handles rate
-    // limits transparently. Tail latency on timeouts → graceful degrade
-    // to uninformative+transport, orchestrator escalates.
-    0,
+    // 1 transport retry (so 2 total attempts). Inner 429 retry handles
+    // rate limits transparently; this layer handles 5xx + timeout +
+    // network. 2 × 15s worst case = 30s, well under what would force
+    // identify_web_fallback to never run. Before this, a single 15s
+    // timeout on identify_fast leaked an uninformative+transport into
+    // the orchestrator, which then ran identify_web_fallback (another
+    // 30s) and often still failed — burning 45s for a transient hiccup.
+    1,
   );
 
   return parseFastReply(result);

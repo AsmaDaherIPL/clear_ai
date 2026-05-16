@@ -55,11 +55,17 @@ export interface LlmStagePolicy {
 const POLICIES: Record<LlmStage, LlmStagePolicy> = {
   submission_description:    { stage: 'submission_description',    maxAttempts: 3, timeoutMs: 8000,  retryOnParseFailure: true,  totalBudgetMs: 25000, onExhausted: 'graceful_degrade' },
   sanity:                    { stage: 'sanity',                    maxAttempts: 3, timeoutMs: 6000,  retryOnParseFailure: true,  totalBudgetMs: 20000, onExhausted: 'graceful_degrade' },
-  // Pipeline-rewrite — merchant_resolution disambiguation. Inherits the
-  // legacy code_resolver shape (3 attempts, 10s) — same operation; the
-  // candidate set is the codebook's replacement list or prefix-walk
-  // children, not a retrieval result.
-  merchant_replacement_pick: { stage: 'merchant_replacement_pick', maxAttempts: 3, timeoutMs: 10000, retryOnParseFailure: true,  totalBudgetMs: 30000, onExhausted: 'graceful_degrade' },
+  // Pipeline-rewrite — merchant_resolution disambiguation. Tightened
+  // 2026-05-16 after batch 019e3103 showed p95=50s, max=67s on the
+  // merchant_resolution stage — single largest contributor to batch
+  // wall-time (34.5% of summed LLM latency). The old policy
+  // (maxAttempts: 3, timeoutMs: 10000, totalBudget: 30000) inherited
+  // the legacy code_resolver shape but merchant_resolution is NOT the
+  // critical path — when it gives up the orchestrator falls back to
+  // identify-derived retrieval anyway. Better to cap fast and let the
+  // pipeline route through identify than to burn 50s per p95 row.
+  // 2 attempts × 8s = 16s worst case, 12s total budget enforced.
+  merchant_replacement_pick: { stage: 'merchant_replacement_pick', maxAttempts: 2, timeoutMs: 8000,  retryOnParseFailure: true,  totalBudgetMs: 12000, onExhausted: 'graceful_degrade' },
   // Pipeline-rewrite — fast-pass identify. No web tool, so no search
   // round-trip; latency is bounded by Sonnet's own generation time.
   // Single attempt + no parse-retry — if the fast pass fails parsing,

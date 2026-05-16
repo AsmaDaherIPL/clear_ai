@@ -319,6 +319,15 @@ async function attemptPick(params: {
   let lastLlm: LlmCallResult | null = null;
   let lastVerdicts: ParsedVerdict[] | null = null;
   while (attempt <= PARSE_RETRY_LIMIT) {
+    // Transport retries: 1 retry on timeout/5xx (so 2 total attempts).
+    // Picker is idempotent. Before this change a single 15s timeout
+    // (e.g. Foundry hiccup) escalated the row to picker_unavailable
+    // with no retry — see 2026-05-16 batch (rows 139, 156). One retry
+    // worst-case = 30s, fits inside the policy.totalBudgetMs=50000
+    // ceiling. The outer while-loop's PARSE_RETRY_LIMIT covers parse
+    // failures separately; this retry is purely for transport-class
+    // errors that the inner callLlm doesn't already handle (429 is
+    // handled there; 5xx + timeout + network errors live here).
     const llm = await callLlmWithRetry(
       {
         stage: 'pick',
@@ -329,7 +338,7 @@ async function attemptPick(params: {
         temperature: 0,
         timeoutMs: params.timeoutMs,
       },
-      0,
+      1,
     );
     lastLlm = llm;
     if (llm.status !== 'ok' || llm.text === null || llm.text.length === 0) {

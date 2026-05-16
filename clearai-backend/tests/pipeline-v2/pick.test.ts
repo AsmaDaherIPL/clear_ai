@@ -439,7 +439,11 @@ describe('runPick — LLM call shape', () => {
     expect(userPayload.candidates[0].code).toBe('a');
   });
 
-  it('passes Sonnet model, temperature=0, retries=0', async () => {
+  it('passes Sonnet model, temperature=0, retries=1', async () => {
+    // 2026-05-16: was retries=0; raised to 1 after batch 019e3103
+    // showed single-shot picker timeouts (rows 139, 156) escalating
+    // to picker_unavailable that would have succeeded on retry.
+    // Picker is idempotent; 2 × 15s worst case fits the 50s budget.
     mockedCall.mockResolvedValueOnce(
       llmReturns({ text: JSON.stringify({ verdicts: [] }) }),
     );
@@ -452,7 +456,7 @@ describe('runPick — LLM call shape', () => {
     expect(args.model).toBe('mock-sonnet');
     expect(args.temperature).toBe(0);
     expect(args.stage).toBe('pick');
-    expect(mockedCall.mock.calls[0]![1]).toBe(0);
+    expect(mockedCall.mock.calls[0]![1]).toBe(1);
   });
 
   it('includes identity_tokens in the description query', async () => {

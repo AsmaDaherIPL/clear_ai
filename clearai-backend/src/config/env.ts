@@ -138,8 +138,14 @@ const EnvSchema = z
 
     // ─── BatchPlumber: bulk batch processing ────────────────────────────────
 
-    /** Max concurrent dispatch() calls per batch (in-process p-limit semaphore). */
-    BATCH_LLM_CONCURRENCY: z.coerce.number().int().positive().default(8),
+    /**
+     * Max concurrent dispatch() calls per batch (in-process p-limit semaphore).
+     * Bumped 8 → 16 on 2026-05-16 after batch 019e3103 analysis. Effective
+     * concurrency at 8 was the bottleneck (sum_latency / wall_time = 8.66);
+     * Foundry has the budget and we're concurrency-bound, not rate-limit-
+     * bound per memory project_anthropic_via_foundry_only.
+     */
+    BATCH_LLM_CONCURRENCY: z.coerce.number().int().positive().default(16),
     /** Reject uploads larger than this many parsed rows. */
     BATCH_INPUT_MAX_ROWS: z.coerce.number().int().positive().default(1000),
     /** Azure Blob container name for source + result files. */

@@ -229,7 +229,11 @@ describe('runIdentifyFast — LLM call shape', () => {
     expect(callArgs.tools).toBeUndefined();
   });
 
-  it('passes retries=0 to callLlmWithRetry (inner 429 retry handles rate limits)', async () => {
+  it('passes retries=1 to callLlmWithRetry (one transport retry on timeout/5xx)', async () => {
+    // 2026-05-16: was retries=0; raised to 1 after batch 019e3103
+    // showed single-shot timeouts torching rows that would have
+    // succeeded on retry. Inner 429 retry still handles rate limits;
+    // this layer covers 5xx + timeout + network.
     mockedCall.mockResolvedValueOnce(
       llmReturns({
         text: JSON.stringify({ kind: 'uninformative', reason: 'test' }),
@@ -237,6 +241,6 @@ describe('runIdentifyFast — LLM call shape', () => {
     );
     await runIdentifyFast('thing');
     const retriesArg = mockedCall.mock.calls[0]![1];
-    expect(retriesArg).toBe(0);
+    expect(retriesArg).toBe(1);
   });
 });

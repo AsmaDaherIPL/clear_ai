@@ -90,6 +90,12 @@ async function attemptClassify(params: {
   user: string;
   timeoutMs: number;
 }): Promise<AttemptOutcome> {
+  // retries=0 on this layer: the OUTER while(attempts < policy.maxAttempts)
+  // loop in llmClassify() is the policy-driven retry. The previous default
+  // (retries=4) compounded with the outer loop to 5×maxAttempts = up to
+  // 15 transport calls per merchant_resolution invocation. Batch
+  // 019e3103 showed p95=50s, max=67s as a direct consequence. 429 retries
+  // still happen transparently inside callLlm.
   const llmResult: LlmCallResult = await callLlmWithRetry({
     stage: params.stage,
     system: params.system,
@@ -97,7 +103,7 @@ async function attemptClassify(params: {
     maxTokens: 1500,
     temperature: 0,
     timeoutMs: params.timeoutMs,
-  });
+  }, 0);
 
   const isEmptyOk = llmResult.status === 'ok' && !llmResult.text;
   if (llmResult.status !== 'ok' || isEmptyOk) {
