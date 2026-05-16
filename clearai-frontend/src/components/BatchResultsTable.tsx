@@ -403,55 +403,24 @@ export default function BatchResultsTable({
   // Current position in the review queue (used for queue navigation).
   const [reviewIdx, setReviewIdx] = useState(0);
 
-  // Local override map: row id → { action: 'accepted' | 'dismissed' | 'picked', code?: string }
-  // This is the UI-only state; backend wiring goes here later.
-  const [reviewOutcomes, setReviewOutcomes] = useState<
-    Record<string, { action: 'accepted' | 'dismissed' | 'picked'; code?: string }>
-  >({});
-
   // Build the review queue — all items that need review, in row order.
   const reviewQueue = useMemo<ReviewItem[]>(
     () => items.filter(needsReview).map(toReviewItem),
     [items],
   );
 
-  const pendingReviewCount = reviewQueue.filter((ri) => !reviewOutcomes[ri.id]).length;
-  const reviewedCount = Object.keys(reviewOutcomes).length;
-
-  const handleOpenReview = useCallback((item: DeclarationRunItem) => {
-    const ri = toReviewItem(item);
-    const idx = reviewQueue.findIndex((q) => q.id === ri.id);
-    setReviewIdx(idx >= 0 ? idx : 0);
-    setReviewTarget(ri);
-    setReviewOpen(true);
-  }, [reviewQueue]);
+  const pendingReviewCount = reviewQueue.length;
+  const reviewedCount = 0;
 
   const handleOpenManualReview = useCallback(() => {
     if (reviewQueue.length === 0) return;
-    // Start at first unreviewed item, or first item if all reviewed
-    const firstUnreviewed = reviewQueue.findIndex((ri) => !reviewOutcomes[ri.id]);
-    const startIdx = firstUnreviewed >= 0 ? firstUnreviewed : 0;
-    setReviewIdx(startIdx);
-    setReviewTarget(reviewQueue[startIdx] ?? null);
+    setReviewIdx(0);
+    setReviewTarget(reviewQueue[0] ?? null);
     setReviewOpen(true);
-  }, [reviewQueue, reviewOutcomes]);
+  }, [reviewQueue]);
 
-  const handleAccept = useCallback((item: ReviewItem) => {
-    setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'accepted' } }));
-    // Navigate to next item in queue
-    const nextIdx = reviewIdx + 1;
-    if (nextIdx < reviewQueue.length) {
-      setReviewIdx(nextIdx);
-      setReviewTarget(reviewQueue[nextIdx] ?? null);
-    } else {
-      setReviewOpen(false);
-    }
+  const handleAccept = useCallback((_item: ReviewItem) => {
     // TODO: POST /reviews { item_id, action: 'accepted' }
-  }, [reviewIdx, reviewQueue]);
-
-  const handleDismiss = useCallback((item: ReviewItem) => {
-    setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'dismissed' } }));
-    // Navigate to next item in queue
     const nextIdx = reviewIdx + 1;
     if (nextIdx < reviewQueue.length) {
       setReviewIdx(nextIdx);
@@ -459,12 +428,10 @@ export default function BatchResultsTable({
     } else {
       setReviewOpen(false);
     }
+  }, [reviewIdx, reviewQueue]);
+
+  const handleDismiss = useCallback((_item: ReviewItem) => {
     // TODO: POST /reviews { item_id, action: 'dismissed' }
-  }, [reviewIdx, reviewQueue]);
-
-  const handlePick = useCallback((item: ReviewItem, chosenCode: string) => {
-    setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'picked', code: chosenCode } }));
-    // Navigate to next item in queue
     const nextIdx = reviewIdx + 1;
     if (nextIdx < reviewQueue.length) {
       setReviewIdx(nextIdx);
@@ -472,7 +439,17 @@ export default function BatchResultsTable({
     } else {
       setReviewOpen(false);
     }
+  }, [reviewIdx, reviewQueue]);
+
+  const handlePick = useCallback((_item: ReviewItem, _chosenCode: string) => {
     // TODO: POST /reviews { item_id, action: 'picked', code: chosenCode }
+    const nextIdx = reviewIdx + 1;
+    if (nextIdx < reviewQueue.length) {
+      setReviewIdx(nextIdx);
+      setReviewTarget(reviewQueue[nextIdx] ?? null);
+    } else {
+      setReviewOpen(false);
+    }
   }, [reviewIdx, reviewQueue]);
 
   const handleQueuePrev = useCallback(() => {
@@ -648,69 +625,8 @@ export default function BatchResultsTable({
         );
       },
     },
-    {
-      id: 'review_action',
-      header: '',
-      enableSorting: false,
-      enableHiding: false,
-      accessorFn: () => '',
-      size: 90,
-      minSize: 72,
-      maxSize: 120,
-      cell: ({ row }) => {
-        const item = row.original;
-        const itemId = item.id ?? String(item.row_index ?? '');
-        const outcome = reviewOutcomes[itemId];
-
-        // After a review decision, show a compact outcome badge instead of the button.
-        if (outcome) {
-          const outcomeStyle =
-            outcome.action === 'accepted'
-              ? 'text-[oklch(0.36_0.13_155)]'
-              : outcome.action === 'dismissed'
-                ? 'text-[oklch(0.45_0.13_25)]'
-                : 'text-[var(--accent)]';
-          const outcomeLabel =
-            outcome.action === 'accepted'
-              ? t('review_outcome_accepted' as TKey)
-              : outcome.action === 'dismissed'
-                ? t('review_outcome_dismissed' as TKey)
-                : outcome.code ?? t('review_outcome_picked' as TKey);
-          return (
-            <span
-              className={cn(
-                'font-mono text-[10.5px] uppercase tracking-[0.06em]',
-                outcomeStyle,
-              )}
-              title={outcome.code ? `Picked: ${outcome.code}` : outcome.action}
-            >
-              {outcomeLabel}
-            </span>
-          );
-        }
-
-        // Only show the Review button on rows that need it.
-        if (!needsReview(item)) return null;
-
-        return (
-          <button
-            type="button"
-            onClick={() => handleOpenReview(item)}
-            className={cn(
-              'inline-flex items-center gap-1 px-2.5 py-1 rounded-md',
-              'border border-[var(--line)] bg-[var(--surface)]',
-              'font-mono text-[10.5px] font-medium tracking-[0.06em] uppercase',
-              'text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
-              'transition-colors duration-150 whitespace-nowrap',
-            )}
-          >
-            {t('review_open_button' as TKey)}
-          </button>
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t, reviewOutcomes, handleOpenReview]);
+  ], [t]);
 
   // Simple skeleton row — single full-width pulse bar. Avoids encoding any
   // specific column geometry so it survives column show/hide automatically.
