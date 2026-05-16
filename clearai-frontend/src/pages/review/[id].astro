@@ -1,0 +1,8 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ReviewDetail from '../../components/ReviewDetail';
+const { id } = Astro.params;
+---
+<Layout title="Review — ClearAI">
+  <ReviewDetail id={id!} client:load />
+</Layout>

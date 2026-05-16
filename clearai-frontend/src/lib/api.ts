@@ -851,6 +851,75 @@ export type DownloadLinkFile = BatchFile;
 /** @deprecated Use BatchFilesList. */
 export type DownloadLinks = BatchFilesList;
 
+// --- Review queue types ---
+
+export type ReviewReason = 'verdict_escalate' | 'sanity_flag' | 'low_information' | 'verifier_uncertain';
+export type ReviewStatus = 'pending' | 'in_review' | 'resolved' | 'dismissed';
+export type ReviewDecision = 'approve' | 'override' | 'reject' | 'block_from_submission';
+export type CandidateFit = 'fits' | 'partial' | 'does_not_fit';
+
+export interface ReviewCandidate {
+  code: string;
+  description_en: string | null;
+  description_ar: string | null;
+  fit: CandidateFit;
+  rationale: string | null;
+  source_arm: string;
+  rerank_score: number;
+  is_current: boolean;
+}
+
+export interface ReviewQueueRow {
+  id: string;
+  created_at: string;
+  batch_id: string;
+  item_id: string;
+  operator_slug: string;
+  reason: ReviewReason;
+  status: ReviewStatus;
+  reviewer_decision: ReviewDecision | null;
+  reviewer_code: string | null;
+  reviewer_notes: string | null;
+  // Pipeline state (present on detail, may be absent on list)
+  current_final_code?: string | null;
+  current_classification_confidence?: number | null;
+  current_sanity_verdict?: string | null;
+  current_sanity_rationale?: string | null;
+  // Decision affordances (present on detail)
+  can_override?: boolean;
+  can_block_from_submission?: boolean;
+  candidates?: ReviewCandidate[];
+  payload?: Record<string, unknown>;
+}
+
+export interface ReviewListResponse {
+  items: ReviewQueueRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  next_offset: number | null;
+}
+
+export interface ReviewDecisionResponse {
+  id: string;
+  status: ReviewStatus;
+  reviewer_decision: ReviewDecision;
+  reviewer_code: string | null;
+  reviewer_notes: string | null;
+  reviewed_at: string;
+  item_patched?: {
+    previous_final_code: string;
+    new_final_code: string;
+    final_code_source: string;
+  };
+  item_blocked?: {
+    item_id: string;
+    previous_status: string;
+    excluded_from_xml: boolean;
+  };
+}
+
 // --- Client ---------------------------------------------------------------
 
 class ApiError extends Error {
@@ -1162,6 +1231,42 @@ export const api = {
     }
     return res.blob();
   },
+
+  /** GET /classifications/review — paginated list */
+  listReviewQueue: (params: {
+    batch_id?: string;
+    status?: ReviewStatus;
+    reason?: ReviewReason;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params.batch_id) qs.set('batch_id', params.batch_id);
+    if (params.status) qs.set('status', params.status);
+    if (params.reason) qs.set('reason', params.reason);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.offset != null) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return request<ReviewListResponse>(`/classifications/review${q ? `?${q}` : ''}`);
+  },
+
+  /** GET /classifications/review/:id — single row with full decision context */
+  getReviewRow: (id: string) =>
+    request<ReviewQueueRow>(`/classifications/review/${encodeURIComponent(id)}`),
+
+  /** PATCH /classifications/review/:id — submit a decision */
+  submitReviewDecision: (
+    id: string,
+    body:
+      | { decision: 'approve'; reviewer_notes?: string }
+      | { decision: 'override'; reviewer_code: string; reviewer_notes?: string; force?: boolean }
+      | { decision: 'reject'; reviewer_notes?: string }
+      | { decision: 'block_from_submission'; reviewer_notes: string },
+  ) =>
+    request<ReviewDecisionResponse>(`/classifications/review/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
 };
 
 export { ApiError };
