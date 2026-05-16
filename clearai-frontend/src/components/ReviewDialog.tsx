@@ -843,23 +843,24 @@ export default function ReviewDialog({
 }: ReviewDialogProps) {
   const handleClose = useCallback(() => onOpenChange(false), [onOpenChange]);
 
-  // Trap focus / scroll lock when open
-  useEffect(() => {
-    if (open) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      return () => { document.body.style.overflow = prev; };
-    }
-  }, [open]);
-
   if (!open && !item) return null;
 
   return (
     <div
       role="presentation"
       className={cn(
-        'fixed inset-0 z-[90] grid place-items-center p-6',
-        'bg-black/30 backdrop-blur-sm',
+        // Scrollable overlay — NOT scroll-locked. The user can scroll the
+        // overlay itself to reach a tall dialog. overflow-y-auto on the
+        // overlay means the dialog can grow past the viewport and still
+        // be fully reachable. No body overflow:hidden so the background
+        // page scroll position is preserved on close.
+        'fixed inset-0 z-[90] overflow-y-auto',
+        // Align from the top — user wants the dialog near the table, not
+        // dead-centre in the viewport. pt-[80px] clears the TopBar.
+        'flex justify-center items-start pt-[80px] pb-8 px-6',
+        // Light scrim — subtle, not the full black/30 blur that made the
+        // table behind look washed out.
+        'bg-black/[0.12]',
         'transition-opacity duration-200',
         open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
       )}
@@ -873,12 +874,12 @@ export default function ReviewDialog({
         aria-label="Review flagged item"
         className={cn(
           'bg-[var(--surface)] border border-[var(--line)] rounded-[16px]',
-          'shadow-[0_24px_60px_-20px_rgba(20,15,5,0.35),0_2px_4px_rgba(20,15,5,0.08)]',
-          'overflow-hidden flex flex-col',
-          'transition-transform duration-[250ms] cubic-bezier(.2,.8,.2,1)',
+          'shadow-[0_24px_60px_-20px_rgba(20,15,5,0.28),0_2px_4px_rgba(20,15,5,0.06)]',
+          'overflow-hidden flex flex-col w-full',
+          'transition-transform duration-[250ms]',
           open ? 'translate-y-0 scale-100' : 'translate-y-2 scale-[0.985]',
         )}
-        style={{ width: 'min(820px, 100%)', maxHeight: 'calc(100vh - 48px)' }}
+        style={{ maxWidth: '820px', maxHeight: 'calc(100vh - 120px)', overflow: 'hidden' }}
         onClick={(e) => e.stopPropagation()}
       >
         {item ? (
