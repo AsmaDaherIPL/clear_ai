@@ -574,10 +574,10 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
             </div>
 
             {/* Right — XML summary + single download button */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col items-end gap-1.5">
               {/* LV / HV declaration counts — visible once file list is loaded */}
               {hasXml && (
-                <div className="flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
+                <div className="flex items-center gap-2 text-[12px] text-[var(--ink-3)]">
                   {lvFiles.length > 0 && (
                     <span>
                       <span className="font-mono font-medium text-[var(--ink-2)]">{lvFiles.length}</span>
@@ -613,24 +613,24 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                   onClick={() => handleDownloadBundle(state.runId!, [...lvFiles, ...hvFiles])}
                   disabled={bundleDownloading}
                   className={cn(
-                    'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[10px]',
-                    'border border-[var(--line)] bg-[var(--surface)]',
-                    'text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
-                    'transition-colors duration-150',
+                    'inline-flex items-center justify-center gap-2.5 min-w-[220px] px-7 py-2.5 rounded-[10px]',
+                    'bg-[var(--accent)] border border-[var(--accent)] text-white',
+                    'text-[14px] font-semibold tracking-wide',
+                    'hover:brightness-110 active:brightness-95 transition-all duration-150',
                     'disabled:opacity-50 disabled:cursor-progress',
                   )}
                 >
                   {bundleDownloading ? (
                     <>
                       <span
-                        className="w-3 h-3 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
+                        className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin"
                         aria-hidden
                       />
                       Downloading…
                     </>
                   ) : (
                     <>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="7 10 12 15 17 10" />
                         <line x1="12" y1="15" x2="12" y2="3" />
