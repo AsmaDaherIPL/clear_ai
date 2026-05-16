@@ -109,6 +109,7 @@
   "batch_col_merchant_description": "Merchant description",
   "batch_col_value": "Value",
   "batch_col_classified_code": "Classified code",
+  "batch_col_confidence": "Confidence",
   "batch_col_classified_code_breakdown": "Classified code breakdown",
   "batch_col_zatca_submission": "ZATCA declaration submission",
   "batch_col_value_plausibility_verdict": "Value plausibility verdict",

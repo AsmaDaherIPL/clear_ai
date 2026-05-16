@@ -109,6 +109,7 @@
   "batch_col_merchant_description": "وصف الصنف لدى التاجر",
   "batch_col_value": "القيمة",
   "batch_col_classified_code": "كود التصنيف",
+  "batch_col_confidence": "الثقة",
   "batch_col_classified_code_breakdown": "تفاصيل التصنيف",
   "batch_col_zatca_submission": "وصف التصريح الجمركي",
   "batch_col_value_plausibility_verdict": "تقييم معقولية القيمة",
