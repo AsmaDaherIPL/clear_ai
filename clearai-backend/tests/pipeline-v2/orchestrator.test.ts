@@ -418,10 +418,18 @@ describe('runPipelineV2 — sanity FLAG → HITL', () => {
 });
 
 describe('runPipelineV2 — picker escalate → HITL verdict_escalate', () => {
-  it('routes to verdict_escalate when picker returns no_candidate_fits', async () => {
+  it('routes to verdict_escalate when picker returns no_candidate_fits AND last-chance retry ALSO refuses', async () => {
+    // After the 2026-05-16 rescue rules: the orchestrator retries the
+    // picker with last_chance=true when the first pass returns
+    // no_candidate_fits with candidates_after_rerank > 0. This test
+    // pins the case where the SECOND pass also refuses (genuinely
+    // unsalvageable retrieval pool) — the row escalates honestly.
     runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify());
     resolveMerchantMock.mockResolvedValueOnce({ state: 'active', resolved_code: '610910000000' });
     runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('610910000000')], per_arm_counts: { merchant_prefix: 1 } });
+    // First pass: no_candidate_fits (the "you didn't pick anything" outcome)
+    runPickMock.mockResolvedValueOnce(escalatePick('no_candidate_fits'));
+    // Second pass (last-chance): picker STILL refuses → escalate honest
     runPickMock.mockResolvedValueOnce(escalatePick('no_candidate_fits'));
 
     const r = await runPipelineV2(item(), 'naqel', 'i-esc');
@@ -429,6 +437,26 @@ describe('runPipelineV2 — picker escalate → HITL verdict_escalate', () => {
     expect(r.classification_status).toBe('ZERO_SIGNAL');
     expect(r.hitl?.reason).toBe('verdict_escalate');
     expect(runSanityMock).not.toHaveBeenCalled();
+    // Two picker calls confirms the last-chance retry fired
+    expect(runPickMock).toHaveBeenCalledTimes(2);
+    // Second call should have been with last_chance=true
+    expect(runPickMock.mock.calls[1]![0].last_chance).toBe(true);
+  });
+
+  it('last-chance retry rescues a no_candidate_fits to an accepted partial when second pass commits', async () => {
+    runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify());
+    resolveMerchantMock.mockResolvedValueOnce({ state: 'active', resolved_code: '610910000000' });
+    runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('610910000000')], per_arm_counts: { merchant_prefix: 1 } });
+    // First pass: no_candidate_fits
+    runPickMock.mockResolvedValueOnce(escalatePick('no_candidate_fits'));
+    // Second pass (last-chance): picker commits at low confidence
+    runPickMock.mockResolvedValueOnce(acceptedPick('610910000000', { picked_from_arm: 'merchant_prefix' }));
+    runSanityMock.mockResolvedValueOnce({ verdict: 'PASS', rationale: 'plausible', latency_ms: 800, degraded: false });
+
+    const r = await runPipelineV2(item(), 'naqel', 'i-rescue');
+    expect(r.final_code).toBe('610910000000');
+    expect(runPickMock).toHaveBeenCalledTimes(2);
+    expect(runPickMock.mock.calls[1]![0].last_chance).toBe(true);
   });
 
   it('routes to low_information when identify_no_query + identify uninformative+genuine', async () => {

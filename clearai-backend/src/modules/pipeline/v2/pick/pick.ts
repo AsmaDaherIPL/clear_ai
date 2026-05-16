@@ -47,6 +47,15 @@ const FITS_CONFIDENCE = 0.85;
 const PARTIAL_CONFIDENCE = 0.55;
 
 /**
+ * Confidence assigned when the orchestrator's last-chance pass forced
+ * the picker to emit `partial` on a closest-available leaf. Lower than
+ * normal partial because the picker had to be coerced; the operator
+ * MUST review. Below the IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD (0.60)
+ * so HITL routing fires automatically.
+ */
+const LAST_CHANCE_CONFIDENCE = 0.40;
+
+/**
  * Maximum length of an annotated_candidates rationale on the wire. The
  * picker prompt is told to write a short reason, but a chatty response
  * can blow up the payload — especially on 8-candidate prompts where 8 ×
@@ -91,6 +100,15 @@ interface PickInput {
    * for the normal clean_product path can omit it.
    */
   fallback_query?: string | null;
+  /**
+   * Last-chance pass: when the first picker call emitted all
+   * does_not_fit despite candidates being present, the orchestrator
+   * retries with this flag set. The picker's user message is augmented
+   * with a "must pick" instruction, accepted partials land at
+   * LAST_CHANCE_CONFIDENCE (0.40) so HITL routing fires automatically.
+   * If the picker STILL refuses on the second pass, escalate honestly.
+   */
+  last_chance?: boolean;
 }
 
 function buildQuery(identify: IdentifyResult, fallback: string | null): string {
@@ -265,7 +283,7 @@ function buildAnnotatedCandidates(
  * description, the candidate list with source_arm tags, and the path
  * hierarchies. Tokens trimmed reasonably to keep prompt size bounded.
  */
-function buildUser(query: string, candidates: RerankedCandidate[]): string {
+function buildUser(query: string, candidates: RerankedCandidate[], lastChance: boolean): string {
   const candidatesPayload = candidates.map((c, i) => ({
     n: i + 1,
     code: c.code,
@@ -275,10 +293,19 @@ function buildUser(query: string, candidates: RerankedCandidate[]): string {
     rrf_score: Number(c.rrf_score.toFixed(4)),
     rerank_score: Number(c.rerank_score.toFixed(4)),
   }));
-  return JSON.stringify({
+  const payload: Record<string, unknown> = {
     description: query,
     candidates: candidatesPayload,
-  });
+  };
+  if (lastChance) {
+    // Second-pass override: the first call emitted all does_not_fit.
+    // Force a pick at low confidence. This is the orchestrator's
+    // "you know 79% of the answer, pick the least-wrong leaf" rescue.
+    payload.must_pick = true;
+    payload.must_pick_note =
+      'You returned all does_not_fit on the first pass. The codebook has no perfect leaf for this product. Pick the single candidate whose chapter+heading overlaps most with the product\'s natural classification, emit `partial` with rationale "closest-available leaf — codebook has no perfect match", and explain in the rationale which chapter the product really belongs to so an operator can validate. DO NOT return another all-does_not_fit slate. If you genuinely cannot identify any candidate as plausibly related, pick the candidate with the highest rerank_score and emit `partial`.';
+  }
+  return JSON.stringify(payload);
 }
 
 async function attemptPick(params: {
@@ -345,6 +372,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
   const t0 = Date.now();
   const { identify, candidates, merchant_chapter } = input;
   const fallback_query = input.fallback_query ?? null;
+  const last_chance = input.last_chance ?? false;
 
   // Empty-query short-circuit: identify produced no description signal.
   // The orchestrator should also catch this and not call us, but we're
@@ -375,7 +403,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
 
   const policy = getLlmStagePolicy('pick');
   const system = await loadPrompt('pick.md');
-  const user = buildUser(query, candidates);
+  const user = buildUser(query, candidates, last_chance);
   const allowedCodes = new Set(candidates.map((c) => c.code));
 
   const { llm, verdicts } = await attemptPick({
@@ -444,11 +472,19 @@ export async function runPick(input: PickInput): Promise<PickResult> {
   const auditFlag =
     pickedArm !== 'merchant_prefix' && merchantChapterDisagreement;
 
+  // Confidence assignment. Last-chance pass always rates as
+  // LAST_CHANCE_CONFIDENCE (0.40) regardless of the model's emitted
+  // fit value because we coerced the pick; operator MUST review.
+  const confidence = last_chance
+    ? LAST_CHANCE_CONFIDENCE
+    : top.fit === 'fits'
+      ? FITS_CONFIDENCE
+      : PARTIAL_CONFIDENCE;
   const accepted: PickAccepted = {
     kind: 'accepted',
     final_code: top.code,
     fit: top.fit,
-    confidence: top.fit === 'fits' ? FITS_CONFIDENCE : PARTIAL_CONFIDENCE,
+    confidence,
     gir_applied: extractGir(top.rationale),
     verdict_population,
     picked_from_arm: pickedArm,

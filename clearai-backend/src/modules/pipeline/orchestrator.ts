@@ -341,12 +341,34 @@ export async function runPipeline(
     identify.kind === 'uninformative' && extractMerchantResolvedCode(merchantResolution) !== null
       ? await fallbackQueryFromMerchant(merchantResolution)
       : null;
-  const pick = await runPick({
+  let pick = await runPick({
     identify,
     candidates: reranked,
     merchant_chapter: merchantChapter,
     fallback_query: fallbackQuery,
   });
+
+  // Last-chance rescue: first picker pass returned all does_not_fit
+  // despite candidates being present. Retry with `last_chance: true`
+  // — the picker's user payload gets a "must pick" instruction and
+  // the result lands at LAST_CHANCE_CONFIDENCE (0.40) → operator
+  // review via the low-confidence HITL rule. Skipped when the
+  // escalate is for a different reason (scope_escalate, no_candidates,
+  // identify_no_query, picker_unavailable) because those don't have
+  // a candidate set worth retrying against.
+  if (
+    pick.kind === 'escalate' &&
+    pick.reason === 'no_candidate_fits' &&
+    reranked.length > 0
+  ) {
+    pick = await runPick({
+      identify,
+      candidates: reranked,
+      merchant_chapter: merchantChapter,
+      fallback_query: fallbackQuery,
+      last_chance: true,
+    });
+  }
 
   if (pick.kind === 'escalate') {
     return buildEscalateResult({
