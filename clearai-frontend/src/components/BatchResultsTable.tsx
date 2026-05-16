@@ -400,20 +400,12 @@ export default function BatchResultsTable({
       id: 'confidence',
       header: t('batch_col_confidence' as TKey),
       enableSorting: true,
-      accessorFn: (row) => {
-        // Prefer canonical field; fall back to trace.meta.pick.confidence
-        const canonical = row.classification_result?.classification_confidence;
-        if (canonical != null) return canonical;
-        const meta = (row as any).trace?.meta;
-        return meta?.pick?.confidence ?? null;
-      },
+      accessorFn: (row) => row.classification_result?.classification_confidence ?? null,
       size: 90,
       minSize: 70,
       maxSize: 120,
       cell: ({ row }) => {
-        const canonical = row.original.classification_result?.classification_confidence;
-        const meta = (row.original as any).trace?.meta;
-        const raw: number | null = canonical ?? meta?.pick?.confidence ?? null;
+        const raw = row.original.classification_result?.classification_confidence ?? null;
         if (raw == null) return <span className="text-[var(--ink-3)] text-[12px]">—</span>;
         const pct = Math.round(raw * 100);
         const tone =
