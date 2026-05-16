@@ -282,10 +282,13 @@ const initialBatchState: BatchState = {
   errorMessage: null,
 };
 
-const POLL_INTERVAL_MS = 3000;
+// One items fetch per tick — no summary call during active polling.
+// Summary is fetched once at run start (for row_count / skeleton sizing)
+// and once at terminal (for official final counts + timestamps).
+// Between those two points, counts are derived client-side from the
+// items array so we cut per-tick API calls from 2 → 1.
+const POLL_INTERVAL_MS = 8000;
 // Polling ceiling: 5 min for small batches, 15 min for large ones (>=100 rows).
-// A 200-row classify_and_declare run routinely takes 6-10 min; 5 min was too
-// tight and caused premature "Error / still in progress" for completed runs.
 const POLL_TIMEOUT_MS_SMALL = 5 * 60 * 1000;
 const POLL_TIMEOUT_MS_LARGE = 15 * 60 * 1000;
 const LARGE_BATCH_THRESHOLD = 100;
@@ -293,6 +296,32 @@ function pollTimeoutMs(rowCount: number | null | undefined): number {
   return (rowCount ?? 0) >= LARGE_BATCH_THRESHOLD
     ? POLL_TIMEOUT_MS_LARGE
     : POLL_TIMEOUT_MS_SMALL;
+}
+
+/**
+ * Derive succeeded/flagged/blocked/failed/pending counts from the items
+ * we already have in state. Used to patch the summary during active
+ * polling so the header chips stay live without a separate summary GET.
+ *
+ * pending = rows we haven't seen yet (row_count - items.length).
+ * Mirrors itemBucket() in BatchResultsTable exactly.
+ */
+function deriveCountsFromItems(
+  items: DeclarationRunItem[],
+  rowCount: number,
+): { succeeded: number; flagged: number; blocked: number; failed: number; pending: number } {
+  let succeeded = 0, flagged = 0, blocked = 0, failed = 0;
+  for (const item of items) {
+    const hasCode = Boolean(item.classification_result?.resolved_hs_code);
+    const hasError = Boolean(item.error);
+    if (hasError || !hasCode) { failed++; continue; }
+    const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
+    if (sanity === 'BLOCK') { blocked++; continue; }
+    if (sanity === 'FLAG')  { flagged++; continue; }
+    succeeded++;
+  }
+  const pending = Math.max(0, rowCount - items.length);
+  return { succeeded, flagged, blocked, failed, pending };
 }
 const PAGE_SIZE = 200; // page size when fetching classifications; max is 500 server-side
 const MAX_PAGES = 10;  // hard cap on auto-paging: 200 * 10 = 2000 items per run
@@ -520,27 +549,18 @@ export default function ClassifyApp() {
    */
   const startPollingRun = useCallback((runId: string) => {
     const startedAt = Date.now();
-    let summaryFetched = false;
-    let finalSummaryFetched = false;
-    // Track row_count locally alongside state so the ceiling can scale
-    // once the first summary fetch resolves — avoids stale-closure issues
-    // with reading batchState inside the poll loop.
+    // row_count tracked locally: seeded by the one-time start summary fetch,
+    // used for ceiling calculation and pending count derivation.
     let knownRowCount: number | null = null;
 
     const poll = async (): Promise<void> => {
-      // Dynamic ceiling: 15 min for large batches, 5 min for small.
-      // Uses the local knownRowCount which is updated on every summary fetch.
       const ceiling = pollTimeoutMs(knownRowCount);
       if (Date.now() - startedAt > ceiling) {
-        // Before showing an error, do one final check — the backend may
-        // have finished in the minute or two after our last tick. This is
-        // the exact scenario that caused "Error / still in progress" for a
-        // 6-min run on a 5-min ceiling: the run finished 76s after we gave up.
+        // Before giving up, do one final summary check — the backend may
+        // have finished in the window after our last tick.
         try {
           const summary = await api.getDeclarationRun(runId);
-          const terminal = summary.status === 'completed' || summary.status === 'failed';
-          if (terminal) {
-            // Backend finished — fetch all pages and flip to done cleanly.
+          if (summary.status === 'completed' || summary.status === 'failed') {
             const finalCls = await fetchAllClassifications(runId);
             setBatchState((s) => ({
               ...s,
@@ -552,9 +572,8 @@ export default function ClassifyApp() {
             return;
           }
         } catch {
-          // Recovery fetch failed — fall through to the timeout message below.
+          // Recovery fetch failed — fall through to timeout message.
         }
-        // Genuinely still running past ceiling — informational, not "Error".
         const minutesCeiling = Math.round(ceiling / 60_000);
         setBatchState((s) => ({
           ...s,
@@ -565,61 +584,63 @@ export default function ClassifyApp() {
       }
 
       try {
-        // Fetch the run summary on every tick (cheap GET) so the header
-        // stat chips (succeeded / flagged / failed) stay accurate
-        // throughout the run. The first fetch also seeds `row_count` so
-        // the skeleton table knows how many lines to pre-render.
-        try {
-          const summary = await api.getDeclarationRun(runId);
-          knownRowCount = summary.row_count ?? knownRowCount;
-          setBatchState((s) => ({ ...s, summary }));
-          summaryFetched = true;
-        } catch {
-          // Non-fatal: summary chips will be stale/empty but the items
-          // table still works. Don't trip the outer catch.
+        // --- FIRST TICK ONLY: fetch summary to seed row_count ---
+        // row_count drives the skeleton row count before items arrive.
+        // After the first tick we derive counts from items, not from
+        // a second summary call per tick.
+        if (knownRowCount === null) {
+          try {
+            const summary = await api.getDeclarationRun(runId);
+            knownRowCount = summary.row_count ?? null;
+            setBatchState((s) => ({ ...s, summary }));
+          } catch {
+            // Non-fatal: skeleton won't know the expected count but
+            // items will still render as they arrive.
+          }
         }
 
-        // Active polling: ONE page only, merged by id into existing
-        // items state. Items past page 1 that we'd already loaded
-        // survive across ticks. At terminal we fetch ALL pages for
-        // the final reconciled table.
+        // Fetch one page of items. The classification_phase on this
+        // response is the authoritative stop signal.
         const firstPage = await fetchFirstPageClassifications(runId);
         const classificationPhase = firstPage.classification_phase;
-        setBatchState((s) => ({ ...s, items: mergeItemsById(s.items, firstPage.items) }));
 
-        // Stop polling when classification_phase goes terminal. The
-        // run-level summary.status can flip to 'failed' for Phase-2
-        // reasons but that's surfaced by the final summary fetch
-        // below, not by the polling loop itself.
+        // Merge items and patch summary counts from the new item set.
+        setBatchState((s) => {
+          const merged = mergeItemsById(s.items, firstPage.items);
+          const rowCount = knownRowCount ?? firstPage.total ?? merged.length;
+          const derived = deriveCountsFromItems(merged, rowCount);
+          const patchedSummary = s.summary
+            ? { ...s.summary, ...derived }
+            : null;
+          return { ...s, items: merged, summary: patchedSummary };
+        });
+
         if (classificationPhase === 'completed' || classificationPhase === 'failed') {
-          // Final all-pages fetch so the reconciled table is complete
-          // regardless of how many pages exist. Merge by ID rather than
-          // wholesale replace so row identity stays stable across the
-          // terminal transition.
+          // Terminal: fetch all pages for a complete final table, then
+          // get the authoritative summary (official counts + timestamps).
           try {
             const finalCls = await fetchAllClassifications(runId);
             setBatchState((s) => ({ ...s, items: mergeItemsById(s.items, finalCls.items) }));
           } catch {
-            /* swallow — keep whatever's already in state */
+            /* swallow — keep whatever's in state */
           }
-          // The summary was already refreshed above on this terminal tick.
-          // No separate final-summary fetch needed; mark it done so the
-          // variable stays in-scope without lint warnings.
-          finalSummaryFetched = true;
+          try {
+            const finalSummary = await api.getDeclarationRun(runId);
+            setBatchState((s) => ({ ...s, summary: finalSummary }));
+          } catch {
+            /* non-fatal — counts from items are still visible */
+          }
           setBatchState((s) => ({ ...s, phase: 'done' }));
           return;
         }
+
         pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS);
       } catch (err) {
-        // 429 from APIM: honour the retry-after rather than retrying
-        // on the standard interval. This applies to ANY poll-tick
-        // failure that returns a retry-in-N-seconds message.
         if (err instanceof ApiError && err.status === 429) {
           const retryMs = parseRetryAfterMs(err.message) ?? 30_000;
           pollTimerRef.current = window.setTimeout(poll, retryMs);
           return;
         }
-        // Humanize the common URL-resume failures.
         let msg: string;
         if (err instanceof ApiError) {
           if (err.status === 404) {
@@ -627,9 +648,6 @@ export default function ClassifyApp() {
           } else if (err.status === 401 || err.status === 403) {
             msg = `You don't have access to run ${runId}. Sign in with the account that created it.`;
           } else if (err.status === 503) {
-            // 503 is transient (APIM circuit-breaker, backend warming
-            // up). Retry on the standard interval rather than failing
-            // hard — but only up to the dynamic ceiling overall.
             pollTimerRef.current = window.setTimeout(poll, POLL_INTERVAL_MS * 2);
             return;
           } else {
@@ -640,15 +658,11 @@ export default function ClassifyApp() {
         } else {
           msg = 'Polling failed.';
         }
-        // Reset the resume latch on error so the URL can re-trigger
-        // a fresh attempt if auth state changes or the user reloads.
         resumedRef.current = false;
         setBatchState((s) => ({ ...s, phase: 'error', errorMessage: msg }));
       }
     };
 
-    // Fire the first tick immediately so a URL-resumed run shows data
-    // without a 3-second blank gap.
     void poll();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
