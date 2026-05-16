@@ -316,8 +316,8 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
               </button>
             )}
 
-            {/* Stats row */}
-            {summary && (
+            {/* Stats row — or loading skeleton while first summary call is in flight */}
+            {summary ? (
               <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12.5px]">
                 <Stat value={summary.row_count} label="rows" />
                 <span className="text-[var(--line)]">·</span>
@@ -343,6 +343,28 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                   </>
                 )}
               </div>
+            ) : isPolling ? (
+              /* Summary not yet returned — animated skeleton */
+              <div className="mt-3 flex items-center gap-2" aria-label="Loading run info">
+                <span className="h-[13px] w-[52px] rounded bg-[var(--line-2)] animate-pulse" />
+                <span className="text-[var(--line)]">·</span>
+                <span className="h-[13px] w-[100px] rounded bg-[var(--line-2)] animate-pulse" />
+                <span className="text-[var(--line)]">·</span>
+                <span className="h-[13px] w-[72px] rounded bg-[var(--line-2)] animate-pulse" />
+              </div>
+            ) : null}
+
+            {/* "N items queued" callout — visible only during early polling when
+                no items have been processed yet, so the user knows the run has
+                registered their file even before classification starts. */}
+            {summary && isPolling && summary.succeeded === 0 && summary.flagged === 0 &&
+             (summary.failed ?? 0) === 0 && summary.pending > 0 && (
+              <p className="mt-2 m-0 text-[12.5px] text-[var(--ink-3)]">
+                <span className="font-mono tabular-nums font-medium text-[var(--accent-ink)]">
+                  {summary.pending}
+                </span>
+                {' '}items queued for processing
+              </p>
             )}
 
             {state.errorMessage && (
