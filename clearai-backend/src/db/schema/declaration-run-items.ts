@@ -20,7 +20,7 @@
  *   • declaration_runs — FK target (declaration_run_id -> declaration_runs.id) ON DELETE CASCADE
  *   • zatca_hs_codes   — FK target (final_code -> zatca_hs_codes.code) ON DELETE RESTRICT
  */
-import { pgTable, uuid, integer, varchar, char, jsonb, text, timestamp, foreignKey, index, unique } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, integer, varchar, char, jsonb, text, timestamp, boolean, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { declarationRuns } from './declaration-runs.js';
 import { hsCodes } from './zatca-hs-codes.js';
@@ -94,6 +94,35 @@ export const declarationRunItems = pgTable(
      * declaration_run_items_goods_description_ar_status_consistency_chk.
      */
     goodsDescriptionAr: text('goods_description_ar'),
+
+    /**
+     * Reviewer-driven block flag. True when the row was deliberately
+     * removed from the ZATCA submission by a human via
+     * PATCH /classifications/review/:id with decision='block_from_submission'.
+     * The XML builder (when wired) filters WHERE excluded_from_xml = false.
+     * Defaults to false; only the review controller flips it true.
+     * See migration 0080.
+     */
+    excludedFromXml: boolean('excluded_from_xml').notNull().default(false),
+
+    /**
+     * Discriminator for why the row was blocked. V1 only emits
+     * 'reviewer_decision'. NULL when excluded_from_xml = false.
+     * See migration 0080.
+     */
+    blockedReason: varchar('blocked_reason', { length: 64 }),
+
+    /**
+     * Wall-clock when the block decision was committed. NULL when
+     * excluded_from_xml = false. See migration 0080.
+     */
+    blockedAt: timestamp('blocked_at', { withTimezone: true }),
+
+    /**
+     * Identity of the reviewer who blocked. NULL until user identity is
+     * wired (V2 multi-reviewer). See migration 0080.
+     */
+    blockedBy: text('blocked_by'),
 
     /** Full dispatch() result payload (path, alternates, signals). Opaque jsonb. */
     classificationResult: jsonb('classification_result').$type<Record<string, unknown>>(),

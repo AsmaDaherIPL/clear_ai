@@ -338,7 +338,20 @@ export type VerdictDecision = 'accept' | 'escalate';
  * Defined here so both the classifier and the trace bundlers (dispatch-v1,
  * classification_events) speak the same vocabulary.
  */
-export type ClassificationStatus = 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL';
+/**
+ * BLOCKED_BY_REVIEWER is a reviewer-only state — the pipeline never
+ * emits it. Set when a human reviewer chose `decision='block_from_submission'`
+ * on a HITL row, flipping the corresponding declaration_run_items row to
+ * status='blocked' + excluded_from_xml=true. The SPA's batch results
+ * table renders this as a dedicated pill ("Removed from declaration")
+ * distinct from BLOCK (sanity FLAG emitted by the model) and from
+ * ZERO_SIGNAL (pipeline could not classify).
+ */
+export type ClassificationStatus =
+  | 'AGREEMENT'
+  | 'DRIFT'
+  | 'ZERO_SIGNAL'
+  | 'BLOCKED_BY_REVIEWER';
 
 /**
  * Internal forensic field — kept in the verdict + classification_events

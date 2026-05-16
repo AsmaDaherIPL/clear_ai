@@ -407,6 +407,16 @@ export async function handleListClassifications(
             (i.canonical ->> 'fxRate')::numeric         AS fx_rate,
             (i.canonical ->> 'fxRateAsOf')              AS fx_rate_as_of,
             COALESCE(
+              -- Reviewer-block override: when a human pressed
+              -- "Remove from declaration" the row carries
+              -- excluded_from_xml=true. This wins over every
+              -- pipeline-derived status because the human decision is
+              -- authoritative — the UI renders a dedicated pill so
+              -- operators don't confuse this with sanity_flag BLOCK.
+              CASE
+                WHEN i.excluded_from_xml = true THEN 'BLOCKED_BY_REVIEWER'
+                ELSE NULL
+              END,
               -- v2 (PR 13, current): mirror classificationStatusFromTrace
               -- in src/modules/pipeline/trace/dispatch-v1.ts. The trace
               -- is persisted by dispatch.use-case.ts as
