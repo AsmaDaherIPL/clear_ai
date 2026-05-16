@@ -41,6 +41,8 @@ export interface ReviewItem {
   currentCode: string | null;
   /** Current AI classification label (EN), if available. */
   currentLabel?: string | null;
+  /** classification_confidence for the current resolved code (0-1). */
+  currentConfidence?: number | null;
   /** Sanity verdict from value-plausibility check, e.g. PASS / FLAG / BLOCK. */
   verdict?: string | null;
   /** Which flag view to show. null/undefined falls back to candidate picker. */
@@ -311,7 +313,8 @@ function HsBody({
     const seen = new Set<string>();
     const list: AlternativeLine[] = [];
 
-    // Include current code as a candidate if not already in alternatives
+    // Include current code as a candidate if not already in alternatives.
+    // Use classification_confidence as the score for the current code row.
     if (item.currentCode) {
       const existsInAlts = item.alternatives.some((a) => a.code === item.currentCode);
       if (!existsInAlts) {
@@ -319,7 +322,7 @@ function HsBody({
           code: item.currentCode,
           description_en: item.currentLabel ?? null,
           description_ar: null,
-          retrieval_score: null,
+          retrieval_score: item.currentConfidence ?? null,
         });
         seen.add(item.currentCode);
       }
@@ -547,7 +550,7 @@ function ModalInner({
                 code: item.currentCode,
                 description_en: item.currentLabel ?? null,
                 description_ar: null,
-                retrieval_score: null,
+                retrieval_score: item.currentConfidence ?? null,
               });
               seen.add(item.currentCode);
             }
@@ -679,7 +682,7 @@ function ModalInner({
       <div
         className="flex justify-between items-center gap-[14px] flex-wrap px-[22px] py-[14px] border-t border-[var(--line)] bg-[var(--line-2)] shrink-0"
       >
-        {/* Keyboard hints */}
+        {/* Keyboard hint — only → Next remains */}
         <div className="flex gap-[14px] font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.04em] flex-wrap">
           {flagType === 'hs' && candidateCount > 0 && (
             <span className="inline-flex items-center gap-[5px]">
@@ -695,21 +698,9 @@ function ModalInner({
           )}
           <span className="inline-flex items-center gap-[5px]">
             <kbd className="inline-block px-[6px] py-[2px] rounded-[4px] bg-[var(--surface)] border border-[var(--line)] font-mono text-[10px] text-[var(--ink-2)] shadow-[0_1px_0_var(--line)] min-w-[14px] text-center">
-              ↵
-            </kbd>
-            {t('review_kbd_confirm' as TKey)}
-          </span>
-          <span className="inline-flex items-center gap-[5px]">
-            <kbd className="inline-block px-[6px] py-[2px] rounded-[4px] bg-[var(--surface)] border border-[var(--line)] font-mono text-[10px] text-[var(--ink-2)] shadow-[0_1px_0_var(--line)] min-w-[14px] text-center">
               →
             </kbd>
             {t('review_kbd_next' as TKey)}
-          </span>
-          <span className="inline-flex items-center gap-[5px]">
-            <kbd className="inline-block px-[6px] py-[2px] rounded-[4px] bg-[var(--surface)] border border-[var(--line)] font-mono text-[10px] text-[var(--ink-2)] shadow-[0_1px_0_var(--line)] min-w-[14px] text-center">
-              Esc
-            </kbd>
-            {t('review_kbd_close' as TKey)}
           </span>
         </div>
 
@@ -770,16 +761,13 @@ function ModalInner({
                 onClick={handleAccept}
                 className={cn(
                   'inline-flex items-center gap-[7px] px-[14px] py-[9px] rounded-[8px]',
-                  'bg-[var(--ink)] text-white border border-[var(--ink)]',
-                  'text-[13px]',
-                  'hover:bg-black hover:border-black',
+                  'bg-[var(--accent)] text-white border border-[var(--accent)]',
+                  'text-[13px] font-medium',
+                  'hover:brightness-110',
                   'transition-all duration-150',
                 )}
               >
                 {t('review_action_accept_resolved' as TKey)}
-                <span className="opacity-70 font-mono text-[10px] px-[5px] py-[1px] border border-current rounded-[3px] tracking-[0.04em]">
-                  ↵
-                </span>
               </button>
             </>
           )}
@@ -804,16 +792,13 @@ function ModalInner({
                 onClick={handleAccept}
                 className={cn(
                   'inline-flex items-center gap-[7px] px-[14px] py-[9px] rounded-[8px]',
-                  'bg-[var(--ink)] text-white border border-[var(--ink)]',
-                  'text-[13px]',
-                  'hover:bg-black hover:border-black',
+                  'bg-[var(--accent)] text-white border border-[var(--accent)]',
+                  'text-[13px] font-medium',
+                  'hover:brightness-110',
                   'transition-all duration-150',
                 )}
               >
                 {t('review_action_accept_value' as TKey)}
-                <span className="opacity-70 font-mono text-[10px] px-[5px] py-[1px] border border-current rounded-[3px] tracking-[0.04em]">
-                  ↵
-                </span>
               </button>
             </>
           )}

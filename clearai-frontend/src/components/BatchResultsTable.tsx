@@ -54,12 +54,15 @@ function clampChars(text: string, max: number): string {
  */
 function itemBucket(
   item: DeclarationRunItem,
+  isComplete = false,
 ): 'succeeded' | 'flagged' | 'blocked' | 'failed' | null {
   const hasError = Boolean(item.error);
   const hasClassificationResult = item.classification_result != null;
 
-  // Not yet processed — no error and no classification_result at all.
-  if (!hasError && !hasClassificationResult) return null;
+  // No error and no classification_result:
+  //   - During active polling → null (pending, not yet processed)
+  //   - On a completed run  → 'failed' (pipeline never produced a result)
+  if (!hasError && !hasClassificationResult) return isComplete ? 'failed' : null;
 
   // Check sanity verdict BEFORE the no-code guard. BLOCK items may have
   // no resolved_hs_code (submission hard-stopped), but they are still
@@ -285,6 +288,12 @@ interface BatchResultsTableProps {
   expectedRowCount?: number;
   items: DeclarationRunItem[];
   className?: string;
+  /**
+   * True when the run has reached a terminal state (completed or failed).
+   * Affects how unresolved items (no classification_result, no error) are
+   * bucketed: pending during polling, failed once the run is complete.
+   */
+  isComplete?: boolean;
   /** If provided, shows the "Manual review" CTA button in the filter bar. */
   onManualReview?: () => void;
   /** Count of items still awaiting a review decision. */
@@ -396,6 +405,7 @@ function toReviewItem(item: DeclarationRunItem): ReviewItem {
     value: valueField,
     currentCode: resolved,
     currentLabel: submissionEn ?? submissionAr ?? null,
+    currentConfidence: item.classification_result?.classification_confidence ?? null,
     verdict: item.classification_result?.sanity_verdict ?? null,
     flagType,
     valueWarning: (item as any).value_warning ?? null,
@@ -407,6 +417,7 @@ export default function BatchResultsTable({
   expectedRowCount,
   items,
   className,
+  isComplete = false,
   onManualReview: _externalOnManualReview,
   pendingReviewCount: _externalPendingCount,
   reviewedCount: _externalReviewedCount,
@@ -621,13 +632,13 @@ export default function BatchResultsTable({
       id: 'value_plausibility_verdict',
       header: t('batch_col_value_plausibility_verdict' as TKey),
       enableSorting: true,
-      accessorFn: (row) => itemBucket(row),
+      accessorFn: (row) => itemBucket(row, isComplete),
       size: 140,
       minSize: 100,
       maxSize: 220,
-      filterFn: (row, _id, value) => itemBucket(row.original) === value,
+      filterFn: (row, _id, value) => itemBucket(row.original, isComplete) === value,
       cell: ({ row }) => {
-        const bucket = itemBucket(row.original);
+        const bucket = itemBucket(row.original, isComplete);
         // Unprocessed item — no verdict yet, show nothing (row renders as skeleton)
         if (bucket === null) return null;
         const labelKey = (
