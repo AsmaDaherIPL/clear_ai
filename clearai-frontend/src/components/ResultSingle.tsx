@@ -1,6 +1,6 @@
 /** Generate-mode result card. Presentational; parent owns the DescribeResponse. */
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
@@ -304,9 +304,12 @@ function ManualPickCard({
                   <button
                     type="button"
                     onClick={() => onPickAlternative(a.code)}
-                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[12px] font-medium text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150"
+                    className="flex-shrink-0 inline-flex items-center gap-1 text-[11px] text-[var(--ink-3)] hover:text-[var(--accent)] transition-colors duration-150"
                   >
                     {labels.useCode}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
                   </button>
                 )}
               </div>
@@ -453,23 +456,157 @@ type Relationship = 'same-family' | 'related-family' | 'cross-family' | 'no-chos
  * own per-row open state with a local `useState`; lifting it would
  * complicate the sidebar block without buying anything.
  */
+/**
+ * Compact confirmation popover shown when the reviewer clicks "Switch to this".
+ * Renders A → B: current code with label on the left, candidate code on the right,
+ * separated by a right-arrow. Two actions: Confirm (calls onConfirm) or Cancel.
+ */
+function SwitchConfirmPopover({
+  fromCode,
+  fromLabel,
+  toCode,
+  toLabel,
+  t,
+  onConfirm,
+  onCancel,
+}: {
+  fromCode: string;
+  fromLabel: string | null;
+  toCode: string;
+  toLabel: string | null;
+  t: (key: TKey) => string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on click outside.
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onCancel();
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [onCancel]);
+
+  // Close on Escape.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onCancel();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('act_switch_confirm' as TKey)}
+      className={cn(
+        'absolute end-0 top-full mt-1.5 z-50 w-[min(320px,90vw)]',
+        'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)]',
+        'shadow-[0_4px_24px_-4px_rgba(0,0,0,0.18)] animate-[fadeUp_0.15s_ease_both]',
+        'p-3.5 flex flex-col gap-3',
+      )}
+    >
+      {/* A → B diagram */}
+      <div className="flex items-center gap-2">
+        {/* From */}
+        <div className="flex-1 min-w-0 flex flex-col gap-0.5 px-2.5 py-2 rounded-[var(--radius)] bg-[var(--line-2)] border border-[var(--line)]">
+          <span className="font-mono text-[9.5px] text-[var(--ink-3)] uppercase tracking-[0.08em]">
+            {t('act_switch_from' as TKey)}
+          </span>
+          <span className="font-mono text-[13px] text-[var(--ink)] font-medium leading-none truncate">
+            {fromCode}
+          </span>
+          {fromLabel && (
+            <span className="text-[11px] text-[var(--ink-3)] leading-[1.35] line-clamp-2 mt-0.5">
+              {fromLabel}
+            </span>
+          )}
+        </div>
+
+        {/* Arrow */}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 text-[var(--accent)]" aria-hidden>
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
+
+        {/* To */}
+        <div className="flex-1 min-w-0 flex flex-col gap-0.5 px-2.5 py-2 rounded-[var(--radius)] bg-[oklch(0.96_0.02_145)] border border-[oklch(0.88_0.04_145)]">
+          <span className="font-mono text-[9.5px] text-[oklch(0.45_0.10_145)] uppercase tracking-[0.08em]">
+            {t('act_switch_to' as TKey)}
+          </span>
+          <span className="font-mono text-[13px] text-[var(--ink)] font-medium leading-none truncate">
+            {toCode}
+          </span>
+          {toLabel && (
+            <span className="text-[11px] text-[oklch(0.40_0.10_145)] leading-[1.35] line-clamp-2 mt-0.5">
+              {toLabel}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 rounded-[var(--radius)] text-[12px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150"
+        >
+          {t('act_switch_cancel' as TKey)}
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="px-3 py-1.5 rounded-[var(--radius)] text-[12px] font-medium bg-[var(--accent)] text-white hover:brightness-110 transition-all duration-150"
+        >
+          {t('act_switch_confirm' as TKey)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AlternativeSidebarRow({
   alt,
-  chosenCode,
+  currentCode,
+  currentLabel,
   t,
   onPick,
 }: {
   alt: AlternativeLine;
-  chosenCode: string;
+  /** The currently-accepted code (for the A side of the switch confirm). */
+  currentCode: string | null;
+  currentLabel: string | null;
   t: (key: TKey) => string;
-  /** When provided, renders a "Use this code" ghost button on hover. */
+  /** When provided, renders a "Switch to this" button on hover. */
   onPick?: (code: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const hasDesc = Boolean(alt.description_en || alt.description_ar);
 
+  function handleSwitchClick() {
+    setConfirming(true);
+  }
+
+  function handleConfirm() {
+    setConfirming(false);
+    onPick?.(alt.code);
+  }
+
+  function handleCancel() {
+    setConfirming(false);
+  }
+
   return (
-    <div className="flex flex-col gap-1.5 py-1 group">
+    <div ref={wrapRef} className="relative flex flex-col gap-1 py-1 group">
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -506,19 +643,23 @@ function AlternativeSidebarRow({
         {onPick && (
           <button
             type="button"
-            onClick={() => onPick(alt.code)}
+            onClick={handleSwitchClick}
             className={cn(
-              'inline-flex items-center px-2 py-0.5 rounded-full border border-[var(--line)]',
-              'font-mono text-[10px] uppercase tracking-[0.06em]',
-              'text-[var(--ink-3)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
-              'bg-transparent transition-colors duration-150',
+              'inline-flex items-center gap-1 text-[11px] text-[var(--ink-3)]',
+              'hover:text-[var(--accent)] transition-colors duration-150',
+              'opacity-0 group-hover:opacity-100 focus:opacity-100',
             )}
-            title={t('act_use_code')}
+            aria-label={t('act_use_code')}
           >
             {t('act_use_code')}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
           </button>
         )}
       </div>
+
+      {/* Description (expandable) */}
       {open && hasDesc && (
         <div className="pe-1 ps-[15px] flex flex-col gap-0.5 animate-[fadeIn_0.15s_ease_both]">
           {alt.description_en && (
@@ -537,6 +678,19 @@ function AlternativeSidebarRow({
             </span>
           )}
         </div>
+      )}
+
+      {/* Switch confirmation popover */}
+      {confirming && onPick && (
+        <SwitchConfirmPopover
+          fromCode={currentCode ?? ''}
+          fromLabel={currentLabel}
+          toCode={alt.code}
+          toLabel={alt.description_en ?? null}
+          t={t}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+        />
       )}
     </div>
   );
@@ -1019,7 +1173,8 @@ export default function ResultSingle({
                         <AlternativeSidebarRow
                           key={`a-${a.code}-${i}`}
                           alt={a}
-                          chosenCode={r.code}
+                          currentCode={r.code}
+                          currentLabel={pickLabel(r, 'en')}
                           t={t}
                           onPick={onPickAlternative}
                         />
@@ -1039,7 +1194,8 @@ export default function ResultSingle({
                         <AlternativeSidebarRow
                           key={`b-${a.code}-${i}`}
                           alt={a}
-                          chosenCode={r.code}
+                          currentCode={r.code}
+                          currentLabel={pickLabel(r, 'en')}
                           t={t}
                           onPick={onPickAlternative}
                         />
@@ -1055,7 +1211,8 @@ export default function ResultSingle({
                       <AlternativeSidebarRow
                         key={`u-${a.code}-${i}`}
                         alt={a}
-                        chosenCode={r.code}
+                        currentCode={r.code}
+                        currentLabel={pickLabel(r, 'en')}
                         t={t}
                         onPick={onPickAlternative}
                       />
