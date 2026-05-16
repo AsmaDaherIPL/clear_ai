@@ -75,6 +75,56 @@ Generalise to any brand from web search.
 - Web returns nothing useful → `uninformative`, reason "brand not findable".
 - value_hint is wildly incompatible with the brand catalogue (e.g. "Rolls-Royce" at 5 SAR) → `uninformative`, reason "value incompatible with brand price range".
 
+## Bare-noun rescue (single-word product types)
+
+When the input is a **single bare tariff noun** with no brand, no model, no material — `"Dress"`, `"Dresses"`, `"Pants"`, `"Trousers"`, `"Shirt"`, `"Skirt"`, `"T-shirt"`, `"Jacket"`, `"Coat"`, `"Hoodie"`, `"Shoes"`, `"Bag"`, etc. — do NOT return `uninformative`. The noun itself is a valid tariff signal; refusing it kills the pipeline when retrieval + picker + HITL would resolve it.
+
+Two tiers based on chapter ambiguity:
+
+### Tier A — unambiguous bare nouns (woven-default safe)
+
+For nouns whose **retail default chapter is dominant** (~95% of e-commerce volume), commit at the heading level with the woven assumption.
+
+| Bare noun | family_chapter | canonical |
+|---|---|---|
+| Dress / Dresses | 62 | women's woven dress |
+| Pants / Trousers / Slacks | 62 | woven trousers |
+| Jeans | 62 | denim cotton trousers |
+| Shirt / Blouse | 62 | woven shirt |
+| Skirt | 62 | woven skirt |
+| T-shirt / Tee | 61 | knitted t-shirt |
+| Hoodie / Sweatshirt | 61 | knitted hooded sweatshirt |
+| Sweater / Pullover / Cardigan | 61 | knitted pullover |
+| Underwear / Briefs / Boxers | 61 | knitted underwear |
+| Socks | 61 | knitted socks |
+| Shoes / Sneakers | 64 | footwear |
+
+`confidence` = **0.50** (low — material/woven-vs-knit may be wrong, but chapter is defensible).
+`identity_tokens` = `[bare_noun_en, bare_noun_ar (if input was Arabic)]`.
+`evidence` = `"web"` if you searched, `"world_knowledge"` otherwise.
+
+### Tier B — ambiguous bare nouns (let retrieval decide)
+
+For nouns where **chapter genuinely forks** on material that the input doesn't specify, commit as `clean_product` but with **`family_chapter: null`** and `identity_tokens` that span the alternatives. The orchestrator's scope_selection will run unconstrained + lexical arms and the picker will land on whichever leaf the retrieval pool surfaces best.
+
+| Bare noun | Possible chapters | identity_tokens |
+|---|---|---|
+| Jacket / Coat | 42 leather, 43 fur, 61 knit, 62 woven | [jacket, coat, outerwear] |
+| Bag / Handbag | 42 leather, 39 plastic, 63 textile | [bag, handbag] |
+| Belt | 42 leather, 39 plastic, 61/62 textile | [belt] |
+| Gloves | 42 leather, 39 plastic, 61 knit, 62 woven | [gloves] |
+| Wallet / Purse | 42 leather, 39 plastic, 63 textile | [wallet, purse] |
+
+`canonical` = the bare noun in tariff English (e.g. `"jacket"`, `"handbag"`).
+`family_chapter` = **`null`**.
+`confidence` = **0.40** (lower than Tier A — chapter genuinely unknown).
+`evidence` = `"world_knowledge"`.
+
+### Bare-noun rescue does NOT apply when:
+- Input has ANY descriptor: brand, model, material, fit, color-as-class (use normal identification).
+- Input is meaningless ("test", "123", "asdf", "565") → `uninformative`, reason genuine.
+- Input is a multi-product list → `multi_product`.
+
 ## Anti-hallucination rules
 
 - Never invent material when classification-relevant. Leather / textile / plastic are different chapters. If brand offers multiple materials and input doesn't specify, omit material. If that makes canonical too vague, return `uninformative`.

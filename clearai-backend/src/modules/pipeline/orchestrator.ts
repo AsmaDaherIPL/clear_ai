@@ -328,18 +328,30 @@ export async function runPipeline(
 
   // ---- Stage 7: Pick ----
   const merchantChapter = extractMerchantChapter(merchantResolution);
-  // Brand-only rescue: when identify is uninformative but merchant
-  // resolved cleanly (typical case: "THE RING" or "RESY" with
-  // merchant_code = 640420 / chap 64 footwear), pre-compute the
-  // merchant leaf's English description as the picker's fallback
-  // query. The picker then runs against retrieval filtered to the
-  // merchant prefix and verdicts whichever sibling leaf fits best.
-  // The result lands at low confidence (PARTIAL_CONFIDENCE = 0.55)
-  // and the downstream low-confidence HITL rule routes it to operator
+  // Picker fallback query: when identify is uninformative the picker's
+  // empty-query short-circuit refuses to run, even when retrieval
+  // surfaced candidates from a valid merchant prefix. Build a fallback
+  // query so the picker can still verdict on the candidate set.
+  //
+  // Two sources, in priority order:
+  //   1. Cleanly resolved merchant code → catalog leaf description
+  //      (brand-only rescue: "THE RING" + 640420 footwear etc.)
+  //   2. Unknown merchant state but reranked candidates exist → use
+  //      the top reranked candidate's English description as the
+  //      query. Covers the case "merchant prefix recognized at HS8 but
+  //      no exact code match" (row 9: "Dresses" + 62046200) where the
+  //      walk gave us candidates but no leaf to query from.
+  //
+  // The result lands at low confidence (PARTIAL_CONFIDENCE = 0.55) and
+  // the downstream low-confidence HITL rule routes it to operator
   // review. Skipped when identify already supplied a query.
   const fallbackQuery =
-    identify.kind === 'uninformative' && extractMerchantResolvedCode(merchantResolution) !== null
-      ? await fallbackQueryFromMerchant(merchantResolution)
+    identify.kind === 'uninformative'
+      ? extractMerchantResolvedCode(merchantResolution) !== null
+        ? await fallbackQueryFromMerchant(merchantResolution)
+        : reranked.length > 0
+          ? reranked[0]!.description_en
+          : null
       : null;
   let pick = await runPick({
     identify,

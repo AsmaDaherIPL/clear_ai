@@ -408,19 +408,25 @@ export async function handleListClassifications(
             (i.canonical ->> 'fxRateAsOf')              AS fx_rate_as_of,
             COALESCE(
               -- v2 (PR 13, current): mirror classificationStatusFromTrace
-              -- in src/modules/pipeline/trace/dispatch-v1.ts. pick.escalate
-              -- → ZERO_SIGNAL; verify.UNCERTAIN → DRIFT; pick.accepted +
-              -- identify.clean_product + fit=fits → AGREEMENT; else DRIFT.
+              -- in src/modules/pipeline/trace/dispatch-v1.ts. The trace
+              -- is persisted by dispatch.use-case.ts as
+              -- meta = { identify, pick, verify, sanity, ... } — there
+              -- is NO pipeline_v2 wrapper segment. (The old SQL read
+              -- meta.pipeline_v2.pick and silently returned null on
+              -- every row, dropping classification_status to null on the
+              -- wire.) pick.escalate → ZERO_SIGNAL; verify.UNCERTAIN →
+              -- DRIFT; pick.accepted + identify.clean_product + fit=fits
+              -- → AGREEMENT; else DRIFT.
               CASE
-                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'kind') = 'escalate'
+                WHEN (i.trace -> 'meta' -> 'pick' ->> 'kind') = 'escalate'
                   THEN 'ZERO_SIGNAL'
-                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'verify' ->> 'result') = 'UNCERTAIN'
+                WHEN (i.trace -> 'meta' -> 'verify' ->> 'result') = 'UNCERTAIN'
                   THEN 'DRIFT'
-                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'kind') = 'accepted'
-                  AND (i.trace -> 'meta' -> 'pipeline_v2' -> 'identify' ->> 'kind') = 'clean_product'
-                  AND (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'fit') = 'fits'
+                WHEN (i.trace -> 'meta' -> 'pick' ->> 'kind') = 'accepted'
+                  AND (i.trace -> 'meta' -> 'identify' ->> 'kind') = 'clean_product'
+                  AND (i.trace -> 'meta' -> 'pick' ->> 'fit') = 'fits'
                   THEN 'AGREEMENT'
-                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'kind') = 'accepted'
+                WHEN (i.trace -> 'meta' -> 'pick' ->> 'kind') = 'accepted'
                   THEN 'DRIFT'
                 ELSE NULL
               END,
@@ -467,10 +473,11 @@ export async function handleListClassifications(
             -- retrieval_query: v2 reads identify.canonical from the new
             -- structured trace; legacy + anchored fallback for older
             -- rows. Mirrors retrievalQueryFromTrace in dispatch-v1.ts.
+            -- Trace persisted at meta.identify (NOT meta.pipeline_v2.*).
             COALESCE(
               CASE
-                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'identify' ->> 'kind') = 'clean_product'
-                  THEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'identify' ->> 'canonical')
+                WHEN (i.trace -> 'meta' -> 'identify' ->> 'kind') = 'clean_product'
+                  THEN (i.trace -> 'meta' -> 'identify' ->> 'canonical')
                 ELSE NULL
               END,
               i.trace -> 'meta' -> 'track_a' ->> 'effective_description',
@@ -483,10 +490,11 @@ export async function handleListClassifications(
             -- picker_confidence: v2 pick.confidence; legacy + anchored
             -- fallback for older rows. Mirrors
             -- classificationConfidenceFromTrace in dispatch-v1.ts.
+            -- Trace persisted at meta.pick (NOT meta.pipeline_v2.*).
             COALESCE(
               CASE
-                WHEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'kind') = 'accepted'
-                  THEN (i.trace -> 'meta' -> 'pipeline_v2' -> 'pick' ->> 'confidence')
+                WHEN (i.trace -> 'meta' -> 'pick' ->> 'kind') = 'accepted'
+                  THEN (i.trace -> 'meta' -> 'pick' ->> 'confidence')
                 ELSE NULL
               END,
               i.trace -> 'meta' -> 'track_a' ->> 'picker_confidence',
