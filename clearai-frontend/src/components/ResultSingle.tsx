@@ -667,12 +667,6 @@ export default function ResultSingle({
 
   // Strong-match pill: shown only when reconciliation produced AGREEMENT
   // (both tracks agreed) or status is absent (older payloads). Explicitly
-  // excluded for DRIFT and ZERO_SIGNAL — those have their own pill or
-  // are not a reliable agreement signal.
-  const showStrongMatch =
-    data.decision_status === 'accepted' &&
-    data.classification_status === 'AGREEMENT';
-
   // Sanity flag/block: surface the banner when FLAG or BLOCK.
   const sanityVerdict = data.sanity_verdict ?? null;
   const sanityRationale = data.sanity_rationale ?? null;
@@ -687,11 +681,20 @@ export default function ResultSingle({
   const verifierRules = data.verifier_rules_triggered ?? null;
   const showVerifierUncertain = verifierResult === 'UNCERTAIN';
 
-  // Classification confidence (0-1 → "85%").
-  const confidencePct =
+  // Classification confidence (0-1 → 85%).
+  const confidenceRaw =
     r && typeof r.classification_confidence === 'number'
-      ? `${Math.round(r.classification_confidence * 100)}%`
+      ? r.classification_confidence
       : null;
+  const confidencePct = confidenceRaw !== null ? `${Math.round(confidenceRaw * 100)}%` : null;
+  // Colour thresholds: >70% green, 35-70% yellow, <35% light red.
+  const confidenceBadgeStyle = (() => {
+    if (confidenceRaw === null) return null;
+    const pct = confidenceRaw * 100;
+    if (pct > 70) return { bg: 'oklch(0.94 0.07 145)', color: 'oklch(0.34 0.13 145)' };
+    if (pct >= 35) return { bg: 'oklch(0.95 0.07 75)',  color: 'oklch(0.42 0.14 60)' };
+    return              { bg: 'oklch(0.95 0.05 20)',  color: 'oklch(0.50 0.13 20)' };
+  })();
 
   // Build the ReviewItem for the dialog from this DescribeResponse.
   const reviewItem: ReviewItem = {
@@ -751,18 +754,6 @@ export default function ResultSingle({
                 <BigCode code={code12} />
               </div>
               <div className="flex flex-wrap items-start gap-2">
-                {showStrongMatch && (
-                  <span
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-mono text-[11.5px] font-medium uppercase tracking-[0.06em]"
-                    style={{ background: 'oklch(0.94 0.06 155)', color: 'oklch(0.36 0.13 155)' }}
-                    title={`Decision: ${data.decision_status} · ${data.decision_reason}`}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M5 12.5l4.5 4.5L19 7" />
-                    </svg>
-                    {t('res_pill_strong_match')}
-                  </span>
-                )}
                 {/* DRIFT pill */}
                 {data.classification_status === 'DRIFT' && (
                   <span
@@ -772,29 +763,23 @@ export default function ResultSingle({
                     {t('res_pill_reviewed_ai' as TKey)}
                   </span>
                 )}
-                {/* Confidence percentage */}
-                {confidencePct && (
-                  <span className="inline-flex items-center px-2.5 py-1.5 rounded-md font-mono text-[11.5px] text-[var(--ink-3)] bg-[var(--line-2)] border border-[var(--line)]">
-                    {confidencePct}
+                {/* Single confidence badge — replaces "Strong match" + raw % chip */}
+                {confidencePct && confidenceBadgeStyle && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-mono text-[11.5px] font-medium"
+                    style={{ background: confidenceBadgeStyle.bg, color: confidenceBadgeStyle.color }}
+                    title={`Decision: ${data.decision_status} · ${data.decision_reason}`}
+                  >
+                    {t('res_confidence_score' as TKey)} {confidencePct}
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Chosen-leaf label (cleaned EN above AR), small under code. */}
-            {(pickLabel(r, 'en') || pickLabel(r, 'ar')) && (
-              <div className="mt-4 text-[14.5px] text-[var(--ink)] leading-[1.55]">
-                {pickLabel(r, 'en') && <div className="break-words">{pickLabel(r, 'en')}</div>}
-                {pickLabel(r, 'ar') && (
-                  <div
-                    dir="rtl"
-                    lang="ar"
-                    className="text-end mt-0.5 text-[var(--ink-2)] break-words"
-                    style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-                  >
-                    {pickLabel(r, 'ar')}
-                  </div>
-                )}
+            {/* "HS code breakdown" label above the breadcrumb table. */}
+            {(r.path_ar || r.path_en) && (
+              <div className="mt-4 font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
+                {t('res_code_breakdown' as TKey)}
               </div>
             )}
 
@@ -991,7 +976,7 @@ export default function ResultSingle({
             </div>
           </div>
 
-          {/* REQUIRED PROCEDURES (only when chosen leaf has any). */}
+          {/* REQUIRED PROCEDURES — hidden for now, will re-enable in a later release.
           {r.procedures && r.procedures.length > 0 && (
             <div>
               <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
@@ -1000,6 +985,7 @@ export default function ResultSingle({
               <RequiredProcedures procedures={r.procedures} mode="result" />
             </div>
           )}
+          */}
 
           {/*
             CONSIDERED ALTERNATIVES.

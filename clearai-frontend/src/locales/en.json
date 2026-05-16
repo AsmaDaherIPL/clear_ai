@@ -27,6 +27,8 @@
   "res_alts": "Considered alternatives",
   "res_alts_collapsed": "{n} alternatives considered",
   "res_path": "HS path",
+  "res_code_breakdown": "HS code breakdown",
+  "res_confidence_score": "Confidence score",
   "res_code_saudi": "Saudi HS · 12-digit",
   "res_suggest": "Suggested ZATCA submission description",
   "match_strong": "Strong match",

@@ -102,7 +102,8 @@ export default function TopBar({ className }: TopBarProps) {
               </button>
             </div>
           )}
-          <LanguageToggle />
+          {/* LanguageToggle hidden — will re-enable when i18n launch is ready */}
+          {/* <LanguageToggle /> */}
         </div>
       </div>
     </header>
