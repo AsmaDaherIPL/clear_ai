@@ -10,12 +10,13 @@
  * value_plausibility_verdict ships hidden by default; togglable from the
  * Columns menu in the footer.
  */
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { pickLang, type DeclarationRunItem, type ReviewQueueRow, type ReviewReason, ApiError } from '@/lib/api';
+import { pickLang, type DeclarationRunItem, type ReviewQueueRow, type AlternativeLine, ApiError } from '@/lib/api';
 import { api } from '@/lib/api';
+import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 import { DataTable } from './DataTable';
 
 // ---------------------------------------------------------------------------
@@ -281,175 +282,35 @@ function ManualReviewButton({
 }
 
 // ---------------------------------------------------------------------------
-// Reason badge helpers (mirrors ReviewQueue.tsx)
+// Map a ReviewQueueRow (from the review API) to a ReviewItem (for the dialog)
 // ---------------------------------------------------------------------------
 
-const REASON_LABELS: Record<ReviewReason, string> = {
-  verdict_escalate:   'Verdict mismatch',
-  sanity_flag:        'Sanity flagged',
-  low_information:    'Insufficient info',
-  verifier_uncertain: 'Verifier uncertain',
-};
+function queueRowToReviewItem(row: ReviewQueueRow): ReviewItem {
+  // Pull the original description from payload.input if available.
+  const description =
+    (row.payload as Record<string, unknown> | undefined)?.input as string | undefined
+    ?? row.item_id;
 
-const REASON_STYLE: Record<ReviewReason, string> = {
-  verdict_escalate:   'bg-[oklch(0.92_0.08_25)]  text-[oklch(0.38_0.12_25)]',
-  sanity_flag:        'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.14_60)]',
-  low_information:    'bg-[oklch(0.92_0.03_220)] text-[oklch(0.40_0.08_220)]',
-  verifier_uncertain: 'bg-[oklch(0.92_0.06_280)] text-[oklch(0.40_0.12_280)]',
-};
+  // Map ReviewCandidate[] → AlternativeLine[]
+  const alternatives = (row.candidates ?? []).map((c) => ({
+    code: c.code,
+    description_en: c.description_en,
+    description_ar: c.description_ar,
+    retrieval_score: c.rerank_score,
+    source_arm: c.source_arm as AlternativeLine['source_arm'],
+  }));
 
-// ---------------------------------------------------------------------------
-// Inline review panel — slides over the batch table instead of navigating
-// ---------------------------------------------------------------------------
-
-function ReviewPanel({
-  batchId,
-  onClose,
-}: {
-  batchId: string;
-  onClose: () => void;
-}) {
-  const [rows, setRows] = useState<ReviewQueueRow[]>([]);
-  const [total, setTotal] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Close on Escape.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  // Fetch queue scoped to batch.
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api.listReviewQueue({ batch_id: batchId, status: 'pending', limit: 50 })
-      .then((res) => {
-        setRows(res.items);
-        setTotal(res.total);
-        setLoading(false);
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to load review queue.';
-        setError(msg);
-        setLoading(false);
-      });
-  }, [batchId]);
-
-  function navigateToDetail(row: ReviewQueueRow) {
-    const params = new URLSearchParams({ id: row.id, batch_id: batchId });
-    window.location.href = `/review/detail?${params.toString()}`;
-  }
-
-  function relTime(iso: string) {
-    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 60) return `${s}s ago`;
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m}m ago`;
-    return `${Math.floor(m / 60)}h ago`;
-  }
-
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 bg-black/[0.10]"
-        aria-hidden
-        onClick={onClose}
-      />
-
-      {/* Panel — slides in from the right */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Review queue"
-        className={cn(
-          'fixed inset-y-0 end-0 z-50 w-full max-w-[520px]',
-          'bg-[var(--bg)] border-s border-[var(--line)] shadow-[var(--shadow-lift)]',
-          'flex flex-col overflow-hidden',
-          'animate-[slideInRight_0.22s_ease_both]',
-        )}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-[var(--line-2)]">
-          <div>
-            <div className="font-semibold text-[15px] text-[var(--ink)]">Needs review</div>
-            {total !== null && (
-              <div className="text-[12px] text-[var(--ink-3)] mt-0.5">
-                {total} pending {total === 1 ? 'item' : 'items'}
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-[var(--radius)] text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--line-2)] transition-colors duration-150"
-            aria-label="Close"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto">
-          {loading && (
-            <div className="flex flex-col gap-2 px-6 py-5">
-              {[1,2,3].map((i) => (
-                <div key={i} className="h-14 rounded-[var(--radius)] bg-[var(--line-2)] animate-pulse" />
-              ))}
-            </div>
-          )}
-          {error && (
-            <div className="px-6 py-5 text-[13px] text-[oklch(0.45_0.14_25)]">{error}</div>
-          )}
-          {!loading && !error && rows.length === 0 && (
-            <div className="px-6 py-10 text-center text-[13px] text-[var(--ink-3)]">
-              No pending items in this batch.
-            </div>
-          )}
-          {!loading && !error && rows.length > 0 && (
-            <div className="flex flex-col divide-y divide-[var(--line-2)]">
-              {rows.map((row) => {
-                const desc = (row.payload as any)?.input ?? row.item_id;
-                const conf = row.current_classification_confidence;
-                const confPct = typeof conf === 'number' ? `${Math.round(conf * 100)}%` : null;
-                const reasonStyle = REASON_STYLE[row.reason] ?? 'bg-[var(--line-2)] text-[var(--ink-3)]';
-                const reasonLabel = REASON_LABELS[row.reason] ?? row.reason;
-                return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    onClick={() => navigateToDetail(row)}
-                    className="group w-full text-start px-6 py-4 hover:bg-[var(--line-2)] transition-colors duration-150 flex flex-col gap-2"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="text-[13px] text-[var(--ink)] leading-[1.4] line-clamp-2 flex-1 min-w-0">
-                        {desc}
-                      </span>
-                      <span className={cn('flex-shrink-0 text-[10.5px] font-mono px-2 py-0.5 rounded-full', reasonStyle)}>
-                        {reasonLabel}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[11.5px] text-[var(--ink-3)]">
-                      {row.current_final_code && (
-                        <span className="font-mono">{row.current_final_code}</span>
-                      )}
-                      {confPct && <span>{confPct} confidence</span>}
-                      <span className="ms-auto">{relTime(row.created_at)}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
+  return {
+    // Use the review queue row's id as the ReviewItem id so callbacks can
+    // call PATCH /classifications/review/:id.
+    id: row.id,
+    description,
+    currentCode: row.current_final_code ?? null,
+    currentConfidence: row.current_classification_confidence ?? null,
+    verdict: row.current_sanity_verdict ?? null,
+    flagType: 'hs',
+    alternatives,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -502,13 +363,121 @@ export default function BatchResultsTable({
   // Count items that need review — used for the badge on the CTA button.
   const reviewCount = useMemo(() => items.filter(needsReview).length, [items]);
 
-  // Inline review panel state.
-  const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
+  // ---------------------------------------------------------------------------
+  // Review dialog state — queue is fetched lazily when the dialog opens.
+  // ---------------------------------------------------------------------------
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
+  const [reviewIdx, setReviewIdx] = useState(0);
+  const [reviewedCount, setReviewedCount] = useState(0);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
-  const handleOpenManualReview = useCallback(() => {
+  const reviewTarget = reviewQueue[reviewIdx] ?? null;
+
+  const handleOpenManualReview = useCallback(async () => {
     if (!batchId) return;
-    setReviewPanelOpen(true);
+    setReviewLoading(true);
+    setReviewError(null);
+    try {
+      // Fetch the pending review queue for this batch. For each row we then
+      // call GET /classifications/review/:id to get full candidates — the list
+      // endpoint only returns a subset of fields.
+      const listRes = await api.listReviewQueue({
+        batch_id: batchId,
+        status: 'pending',
+        limit: 50,
+      });
+
+      // Enrich each row with the full detail (candidates are only on the detail endpoint).
+      const detailedRows = await Promise.all(
+        listRes.items.map((row) => api.getReviewRow(row.id)),
+      );
+
+      const queue = detailedRows.map(queueRowToReviewItem);
+      setReviewQueue(queue);
+      setReviewIdx(0);
+      setReviewedCount(0);
+      setReviewOpen(true);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Failed to load review queue.';
+      setReviewError(msg);
+    } finally {
+      setReviewLoading(false);
+    }
   }, [batchId]);
+
+  // ---------------------------------------------------------------------------
+  // Dialog action handlers — call the real PATCH endpoint, advance the queue.
+  // ---------------------------------------------------------------------------
+
+  const handleAdvanceQueue = useCallback(() => {
+    setReviewedCount((n) => n + 1);
+    setReviewQueue((q) => {
+      // Remove the decided item from the queue.
+      const next = q.filter((_, i) => i !== reviewIdx);
+      // Keep reviewIdx in bounds.
+      setReviewIdx((idx) => Math.min(idx, Math.max(0, next.length - 1)));
+      if (next.length === 0) setReviewOpen(false);
+      return next;
+    });
+  }, [reviewIdx]);
+
+  const handleAccept = useCallback(
+    async (item: ReviewItem) => {
+      try {
+        await api.submitReviewDecision(item.id, { decision: 'approve' });
+      } catch {
+        // Silent — item stays in queue; reviewer can try again.
+        return;
+      }
+      handleAdvanceQueue();
+    },
+    [handleAdvanceQueue],
+  );
+
+  const handleDismiss = useCallback(
+    async (item: ReviewItem) => {
+      // "Dismiss" in the dialog maps to "reject" on the API — "I can't decide
+      // on this row". The pipeline code stays untouched, row is dismissed.
+      try {
+        await api.submitReviewDecision(item.id, { decision: 'reject' });
+      } catch {
+        return;
+      }
+      handleAdvanceQueue();
+    },
+    [handleAdvanceQueue],
+  );
+
+  const handlePick = useCallback(
+    async (item: ReviewItem, chosenCode: string) => {
+      try {
+        await api.submitReviewDecision(item.id, {
+          decision: 'override',
+          reviewer_code: chosenCode,
+        });
+      } catch (err: unknown) {
+        // If the server rejects (e.g. code not in candidates), surface via
+        // reviewError so the reviewer sees it without the dialog closing.
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : 'Override failed.';
+        setReviewError(msg);
+        return;
+      }
+      handleAdvanceQueue();
+    },
+    [handleAdvanceQueue],
+  );
 
   const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
     // size = initial pixel width consumed by TanStack columnSizing state.
@@ -679,14 +648,29 @@ export default function BatchResultsTable({
   }, []);
 
   // Manual review CTA — only shown once the batch is fully complete, there are
-  // reviewable items, and we have a batchId to navigate to. Hidden during polling
-  // to avoid confusing partial counts.
+  // reviewable items, and we have a batchId. Hidden during polling to avoid
+  // confusing partial counts.
+  const pendingInQueue = reviewQueue.length;
   const manualReviewCta = isComplete && reviewCount > 0 && !!batchId ? (
-    <ManualReviewButton
-      pendingReview={reviewCount}
-      reviewedCount={0}
-      onClick={handleOpenManualReview}
-    />
+    <div className="flex flex-col items-end gap-[4px]">
+      <ManualReviewButton
+        pendingReview={reviewOpen ? pendingInQueue : reviewCount}
+        reviewedCount={reviewedCount}
+        onClick={() => {
+          if (reviewOpen) {
+            setReviewOpen(false);
+          } else {
+            void handleOpenManualReview();
+          }
+        }}
+      />
+      {reviewLoading && (
+        <span className="font-mono text-[11px] text-[var(--ink-3)]">Loading queue…</span>
+      )}
+      {reviewError && !reviewOpen && (
+        <span className="font-mono text-[11px] text-[oklch(0.45_0.14_25)]">{reviewError}</span>
+      )}
+    </div>
   ) : null;
 
   return (
@@ -721,13 +705,21 @@ export default function BatchResultsTable({
         className={className}
       />
 
-      {/* Inline review panel — renders over the table, no page navigation */}
-      {reviewPanelOpen && batchId && (
-        <ReviewPanel
-          batchId={batchId}
-          onClose={() => setReviewPanelOpen(false)}
-        />
-      )}
+      {/* Inline review dialog — opens over the table, no page navigation */}
+      <ReviewDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        item={reviewTarget}
+        queueLength={reviewQueue.length}
+        queueIndex={reviewIdx}
+        reviewedCount={reviewedCount}
+        onPrev={() => setReviewIdx((i) => Math.max(0, i - 1))}
+        onNext={() => setReviewIdx((i) => Math.min(reviewQueue.length - 1, i + 1))}
+        onSkip={() => setReviewIdx((i) => Math.min(reviewQueue.length - 1, i + 1))}
+        onAccept={handleAccept}
+        onDismiss={handleDismiss}
+        onPick={handlePick}
+      />
     </>
   );
 }
