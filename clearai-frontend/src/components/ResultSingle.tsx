@@ -1247,6 +1247,10 @@ export default function ResultSingle({
           setReviewOpen(false);
           // TODO: POST /reviews { item_id: reviewItem.id, action: 'picked', code: chosenCode }
         }}
+        onBlock={(_item, _notes) => {
+          // Single-shot review doesn't have a HITL queue row to PATCH — no-op.
+          setReviewOpen(false);
+        }}
       />
     </div>
   );

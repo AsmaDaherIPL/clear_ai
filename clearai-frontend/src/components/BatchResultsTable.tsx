@@ -300,6 +300,9 @@ function queueRowToReviewItem(row: ReviewQueueRow): ReviewItem {
     source_arm: c.source_arm as AlternativeLine['source_arm'],
   }));
 
+  // sanity_flag → value-audit UX; all other reasons → code-flag/candidate UX.
+  const flagType: 'value' | 'hs' = row.reason === 'sanity_flag' ? 'value' : 'hs';
+
   return {
     // Use the review queue row's id as the ReviewItem id so callbacks can
     // call PATCH /classifications/review/:id.
@@ -308,7 +311,9 @@ function queueRowToReviewItem(row: ReviewQueueRow): ReviewItem {
     currentCode: row.current_final_code ?? null,
     currentConfidence: row.current_classification_confidence ?? null,
     verdict: row.current_sanity_verdict ?? null,
-    flagType: 'hs',
+    // Pull sanity rationale from the queue row for display in the value-flag banner.
+    sanityRationale: row.current_sanity_rationale ?? null,
+    flagType,
     alternatives,
   };
 }
@@ -471,6 +476,28 @@ export default function BatchResultsTable({
             : err instanceof Error
             ? err.message
             : 'Override failed.';
+        setReviewError(msg);
+        return;
+      }
+      handleAdvanceQueue();
+    },
+    [handleAdvanceQueue],
+  );
+
+  const handleBlock = useCallback(
+    async (item: ReviewItem, notes: string) => {
+      try {
+        await api.submitReviewDecision(item.id, {
+          decision: 'block_from_submission',
+          reviewer_notes: notes,
+        });
+      } catch (err: unknown) {
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : 'Block failed.';
         setReviewError(msg);
         return;
       }
@@ -705,7 +732,7 @@ export default function BatchResultsTable({
         className={className}
       />
 
-      {/* Inline review dialog — opens over the table, no page navigation */}
+      {/* Inline review dialog — mounted via Portal on document.body, independent of table */}
       <ReviewDialog
         open={reviewOpen}
         onOpenChange={setReviewOpen}
@@ -719,6 +746,7 @@ export default function BatchResultsTable({
         onAccept={handleAccept}
         onDismiss={handleDismiss}
         onPick={handlePick}
+        onBlock={handleBlock}
       />
     </>
   );

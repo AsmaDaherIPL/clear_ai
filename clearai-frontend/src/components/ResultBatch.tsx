@@ -363,27 +363,41 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
               </button>
             )}
 
-            {/* Stats row — or loading skeleton while first summary call is in flight */}
+            {/* Stats row — or loading skeleton while first summary call is in flight.
+                Breakdown counts (succeeded / flagged / failed) are intentionally
+                withheld while the run is still polling: partial counts mid-flight
+                are misleading because items arrive async. Once the run reaches a
+                terminal state the full breakdown is shown. */}
             {summary ? (
               <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12.5px]">
                 <Stat value={summary.row_count} label="rows" />
-                <span className="text-[var(--line)]">·</span>
-                <Stat value={summary.succeeded} label="succeeded" tone="ok" />
-                <span className="text-[var(--line)]">·</span>
-                <Stat value={summary.flagged} label="flagged" tone="warn" />
-                {(summary.blocked ?? 0) > 0 && (
+                {/* Only show the breakdown once the run is terminal */}
+                {!isPolling && (
                   <>
                     <span className="text-[var(--line)]">·</span>
-                    <Stat value={summary.blocked ?? 0} label="blocked" tone="bad" />
+                    <Stat value={summary.succeeded} label="succeeded" tone="ok" />
+                    {(summary.flagged ?? 0) > 0 && (
+                      <>
+                        <span className="text-[var(--line)]">·</span>
+                        <Stat value={summary.flagged} label="flagged" tone="warn" />
+                      </>
+                    )}
+                    {(summary.blocked ?? 0) > 0 && (
+                      <>
+                        <span className="text-[var(--line)]">·</span>
+                        <Stat value={summary.blocked ?? 0} label="blocked" tone="bad" />
+                      </>
+                    )}
+                    {(summary.failed ?? 0) > 0 && (
+                      <>
+                        <span className="text-[var(--line)]">·</span>
+                        <Stat value={summary.failed ?? 0} label="failed" tone="bad" />
+                      </>
+                    )}
                   </>
                 )}
-                {(summary.failed ?? 0) > 0 && (
-                  <>
-                    <span className="text-[var(--line)]">·</span>
-                    <Stat value={summary.failed ?? 0} label="failed" tone="bad" />
-                  </>
-                )}
-                {summary.pending > 0 && (
+                {/* While polling, show pending count so the user knows items are in-flight */}
+                {isPolling && summary.pending > 0 && (
                   <>
                     <span className="text-[var(--line)]">·</span>
                     <Stat value={summary.pending} label="pending" tone="pend" />
@@ -394,10 +408,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
               /* Summary not yet returned — animated skeleton */
               <div className="mt-3 flex items-center gap-2" aria-label="Loading run info">
                 <span className="h-[13px] w-[52px] rounded bg-[var(--line-2)] animate-pulse" />
-                <span className="text-[var(--line)]">·</span>
-                <span className="h-[13px] w-[100px] rounded bg-[var(--line-2)] animate-pulse" />
-                <span className="text-[var(--line)]">·</span>
-                <span className="h-[13px] w-[72px] rounded bg-[var(--line-2)] animate-pulse" />
               </div>
             ) : null}
 
