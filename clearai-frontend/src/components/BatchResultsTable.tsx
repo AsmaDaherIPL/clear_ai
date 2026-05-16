@@ -38,21 +38,30 @@ function clampChars(text: string, max: number): string {
 }
 
 /**
- * Derive the filter/sort bucket for a row, mirroring the backend's
- * BatchItemStatus exactly: succeeded / flagged / blocked / failed.
+ * Derive the filter/sort bucket for a row.
  *
- *   failed    — error field set OR no resolved_hs_code (HITL escalation,
- *               pipeline error, unclassifiable description)
- *   blocked   — sanity_verdict BLOCK (value so implausible the row is
- *               hard-stopped; code assigned but submission blocked)
+ *   null      — item has not been processed yet (no error, no classification_result).
+ *               Callers should treat null as "pending" and render a skeleton row.
+ *   failed    — item was processed but errored OR produced no resolved_hs_code
+ *               (HITL escalation, pipeline error, unclassifiable description)
+ *   blocked   — sanity_verdict BLOCK (value implausible; code assigned but
+ *               submission hard-stopped)
  *   flagged   — sanity_verdict FLAG (soft review flag; code assigned)
  *   succeeded — resolved_hs_code present and no FLAG/BLOCK
+ *
+ * IMPORTANT: returning null for unprocessed items prevents them from being
+ * counted as "failed" in the filter chips during active polling.
  */
 function itemBucket(
   item: DeclarationRunItem,
-): 'succeeded' | 'flagged' | 'blocked' | 'failed' {
-  const hasCode = Boolean(item.classification_result?.resolved_hs_code);
+): 'succeeded' | 'flagged' | 'blocked' | 'failed' | null {
   const hasError = Boolean(item.error);
+  const hasClassificationResult = item.classification_result != null;
+
+  // Not yet processed — no error and no classification_result at all.
+  if (!hasError && !hasClassificationResult) return null;
+
+  const hasCode = Boolean(item.classification_result?.resolved_hs_code);
   if (hasError || !hasCode) return 'failed';
   const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
   if (sanity === 'BLOCK') return 'blocked';
@@ -285,6 +294,9 @@ interface BatchResultsTableProps {
  * Items with no resolved code also need review regardless of verdict.
  */
 function needsReview(item: DeclarationRunItem): boolean {
+  // Unprocessed items (no classification_result yet) are not reviewable —
+  // they haven't been classified; wait for the result before queuing for review.
+  if (item.classification_result == null && !item.error) return false;
   const verdict = item.classification_result?.sanity_verdict?.toUpperCase();
   const hasCode = Boolean(item.classification_result?.resolved_hs_code);
   if (!hasCode) return true;
@@ -611,6 +623,8 @@ export default function BatchResultsTable({
       filterFn: (row, _id, value) => itemBucket(row.original) === value,
       cell: ({ row }) => {
         const bucket = itemBucket(row.original);
+        // Unprocessed item — no verdict yet, show nothing (row renders as skeleton)
+        if (bucket === null) return null;
         const labelKey = (
           bucket === 'succeeded' ? 'batch_verdict_succeeded' :
           bucket === 'flagged'   ? 'batch_verdict_flagged' :

@@ -310,17 +310,27 @@ function deriveCountsFromItems(
   items: DeclarationRunItem[],
   rowCount: number,
 ): { succeeded: number; flagged: number; blocked: number; failed: number; pending: number } {
-  let succeeded = 0, flagged = 0, blocked = 0, failed = 0;
+  let succeeded = 0, flagged = 0, blocked = 0, failed = 0, processedInArray = 0;
   for (const item of items) {
-    const hasCode = Boolean(item.classification_result?.resolved_hs_code);
     const hasError = Boolean(item.error);
+    const hasClassificationResult = item.classification_result != null;
+
+    // Item returned by the API but not yet processed — no error and no result.
+    // Count it toward pending rather than failed.
+    if (!hasError && !hasClassificationResult) continue;
+
+    processedInArray++;
+    const hasCode = Boolean(item.classification_result?.resolved_hs_code);
     if (hasError || !hasCode) { failed++; continue; }
     const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
     if (sanity === 'BLOCK') { blocked++; continue; }
     if (sanity === 'FLAG')  { flagged++; continue; }
     succeeded++;
   }
-  const pending = Math.max(0, rowCount - items.length);
+  // pending = rows not yet returned at all + rows returned but not yet processed
+  const notYetReturned = Math.max(0, rowCount - items.length);
+  const returnedButUnprocessed = items.length - processedInArray;
+  const pending = notYetReturned + returnedButUnprocessed;
   return { succeeded, flagged, blocked, failed, pending };
 }
 const PAGE_SIZE = 200; // page size when fetching classifications; max is 500 server-side
