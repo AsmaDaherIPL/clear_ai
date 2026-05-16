@@ -1305,6 +1305,8 @@ export function remediationHint(
     return 'This is a low-confidence chapter heading, not a final classification. A customs broker must verify and refine it to a 12-digit code before use.';
   }
   switch (reason) {
+    case 'llm_unavailable':
+      return 'The classification model is currently unavailable. Try again in a moment.';
     case 'low_top_score':
     case 'ambiguous_top_candidates':
       return 'Try a more specific description — material, product type, or intended use.';
