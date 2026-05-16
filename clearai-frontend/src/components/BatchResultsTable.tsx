@@ -670,8 +670,9 @@ export default function BatchResultsTable({
     );
   }, []);
 
-  // Manual review CTA — shown when there are reviewable items.
-  const manualReviewCta = reviewQueue.length > 0 ? (
+  // Manual review CTA — only shown once the batch is fully complete and there
+  // are reviewable items. Hidden during polling to avoid confusing partial counts.
+  const manualReviewCta = isComplete && reviewQueue.length > 0 ? (
     <ManualReviewButton
       pendingReview={pendingReviewCount}
       reviewedCount={reviewedCount}
