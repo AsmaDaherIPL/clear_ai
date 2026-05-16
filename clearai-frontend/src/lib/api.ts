@@ -1235,7 +1235,6 @@ export const api = {
   /** GET /classifications/review — paginated list */
   listReviewQueue: (params: {
     batch_id?: string;
-    item_id?: string;
     status?: ReviewStatus;
     reason?: ReviewReason;
     limit?: number;
@@ -1243,7 +1242,6 @@ export const api = {
   }) => {
     const qs = new URLSearchParams();
     if (params.batch_id) qs.set('batch_id', params.batch_id);
-    if (params.item_id) qs.set('item_id', params.item_id);
     if (params.status) qs.set('status', params.status);
     if (params.reason) qs.set('reason', params.reason);
     if (params.limit != null) qs.set('limit', String(params.limit));

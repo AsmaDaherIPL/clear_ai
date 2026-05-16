@@ -515,7 +515,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
         items={items}
         expectedRowCount={summary?.row_count}
         isComplete={state.phase === 'done' || state.phase === 'error'}
-        batchId={state.runId ?? undefined}
       />
 
       {(() => {

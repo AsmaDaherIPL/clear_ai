@@ -434,18 +434,6 @@ export default function ReviewDetail() {
     }
   }, [selectedAction]);
 
-  // force=true is only meaningful for decision='override'. When the
-  // reviewer switches to a different verb, clear the toggle so a stray
-  // force flag from an earlier interaction doesn't get re-armed if they
-  // come back to override. The wire-send already guards against sending
-  // force on non-override decisions, but this keeps the visible UI
-  // state honest.
-  useEffect(() => {
-    if (selectedAction !== 'override' && forceOverride) {
-      setForceOverride(false);
-    }
-  }, [selectedAction, forceOverride]);
-
   // Candidate selection populates the override code input.
   function handleCandidateSelect(code: string) {
     setSelectedCandidateCode(code);
@@ -539,40 +527,18 @@ export default function ReviewDetail() {
           return;
         }
         if (err.status === 403) {
-          // override_not_allowed_high_confidence: server says the row's
-          // confidence is at/above the override gate (0.60). The user
-          // can still proceed by re-submitting with force=true, so
-          // pre-arm the force toggle rather than resetting it. Surface
-          // the confidence from details so the operator sees what they
-          // are overriding past.
-          const body = err.body as { details?: { confidence?: number } } | null;
-          const conf = body?.details?.confidence;
-          setForceOverride(true);
-          setSubmitErrorKind('field');
+          setForceOverride(false);
+          setSubmitErrorKind(null);
+          // Auto-reveal force override section.
           setSelectedAction('override');
-          setSubmitError(
-            typeof conf === 'number'
-              ? `${err.message} (confidence: ${(conf * 100).toFixed(0)}%)`
-              : err.message,
-          );
+          setSubmitError(err.message);
           return;
         }
         if (err.status === 422) {
           const body = err.body as { code?: string } | null;
           if (body && typeof body === 'object' && body.code === 'reviewer_code_not_in_candidates') {
-            // Server says the reviewer_code is outside the picker's
-            // candidate set. Highlight candidates + pre-arm force so
-            // the next submit goes through with the audit flag.
             setSubmitErrorKind('highlight_candidates');
-            setForceOverride(true);
             setSubmitError(err.message);
-            return;
-          }
-          if (body && typeof body === 'object' && body.code === 'reviewer_code_not_in_codebook') {
-            // Server says the override code (with force=true) doesn't
-            // exist in zatca_hs_codes. Inline on the code input so the
-            // operator knows the code itself is wrong, not the path.
-            setOverrideCodeError(err.message);
             return;
           }
         }
@@ -605,12 +571,8 @@ export default function ReviewDetail() {
     ? [...row.candidates].sort((a, b) => b.rerank_score - a.rerank_score)
     : [];
 
-  // Server is authoritative on permissions. Default to false when the
-  // field is absent (older response shape, partial fetch, etc.) — never
-  // grant the user a verb that wasn't explicitly allowed. The force
-  // toggle reveals an override path when can_override === false.
-  const canOverride = row?.can_override === true;
-  const canBlock = row?.can_block_from_submission === true;
+  const canOverride = row?.can_override !== false;
+  const canBlock = row?.can_block_from_submission !== false;
 
   const notesIsRequired = selectedAction === 'block_from_submission';
   const notesMinMet = !notesIsRequired || notes.trim().length >= 10;

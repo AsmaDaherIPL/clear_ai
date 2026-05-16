@@ -106,20 +106,10 @@ const UuidV7Schema = z
 
 // GET /classifications/review query params. operator_slug filter dropped
 // in the 2026-05-12 cutover — single-operator V1.
-//
-// item_id filter (added 2026-05-16): lets the SPA's inline-review entry
-// points (BatchResultsTable / ResultSingle) navigate from a results row
-// to the open queue row for that item. Typical use:
-//
-//   GET /classifications/review?item_id=<dri.id>&status=pending&limit=1
-//
-// to resolve dri.id -> hitl_queue.id without exposing the queue's
-// internal ID on the results screen.
 const ListQuery = z.object({
   status: StatusEnum.optional(),
   reason: ReasonEnum.optional(),
   batch_id: UuidV7Schema.optional(),
-  item_id: UuidV7Schema.optional(),
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
   offset: z.coerce.number().int().min(0).optional().default(0),
 });
@@ -336,7 +326,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
         error: { code: 'invalid_query', message: 'Query validation failed.', details: parsed.error.flatten() },
       });
     }
-    const { status, reason, batch_id, item_id, limit, offset } = parsed.data;
+    const { status, reason, batch_id, limit, offset } = parsed.data;
 
     const pool = getPool();
     const where: string[] = [];
@@ -352,10 +342,6 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
     if (batch_id) {
       args.push(batch_id);
       where.push(`batch_id = $${args.length}`);
-    }
-    if (item_id) {
-      args.push(item_id);
-      where.push(`item_id = $${args.length}`);
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
