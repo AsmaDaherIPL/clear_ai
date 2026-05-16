@@ -23,11 +23,10 @@ import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 // ---------------------------------------------------------------------------
 
 const VERDICT_BADGE: Record<string, string> = {
-  pass:    'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
-  fail:    'bg-[oklch(0.92_0.07_25)]  text-[oklch(0.40_0.12_25)]',
-  warn:    'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',
-  skipped: 'bg-[var(--line-2)] text-[var(--ink-3)]',
-  unknown: 'bg-[var(--line-2)] text-[var(--ink-3)]',
+  succeeded: 'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
+  flagged:   'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',
+  blocked:   'bg-[oklch(0.92_0.07_25)]  text-[oklch(0.40_0.12_25)]',
+  failed:    'bg-[oklch(0.90_0.08_25)]  text-[oklch(0.35_0.14_25)]',
 };
 
 function clampChars(text: string, max: number): string {
@@ -38,41 +37,27 @@ function clampChars(text: string, max: number): string {
   return `${cut.trimEnd()}…`;
 }
 
-/** Read the raw sanity verdict string for display — never rewritten. */
-function readVerdict(item: DeclarationRunItem): string | null {
-  return item.classification_result?.sanity_verdict ?? null;
-}
-
 /**
- * Derive the filter/sort bucket for a row from the full item state.
+ * Derive the filter/sort bucket for a row, mirroring the backend's
+ * BatchItemStatus exactly: succeeded / flagged / blocked / failed.
  *
- * Priority:
- *   1. error field set OR no resolved_hs_code → 'fail'
- *      (HITL escalations, pipeline errors — sanity_verdict is null on
- *      these rows, so reading only sanity_verdict made the Fail filter empty)
- *   2. sanity_verdict FLAG or BLOCK → 'warn'
- *   3. sanity_verdict PASS (or any other non-null value) → 'pass'
- *   4. nothing → null (row excluded from all verdict filters)
+ *   failed    — error field set OR no resolved_hs_code (HITL escalation,
+ *               pipeline error, unclassifiable description)
+ *   blocked   — sanity_verdict BLOCK (value so implausible the row is
+ *               hard-stopped; code assigned but submission blocked)
+ *   flagged   — sanity_verdict FLAG (soft review flag; code assigned)
+ *   succeeded — resolved_hs_code present and no FLAG/BLOCK
  */
-function itemBucket(item: DeclarationRunItem): 'pass' | 'fail' | 'warn' | null {
+function itemBucket(
+  item: DeclarationRunItem,
+): 'succeeded' | 'flagged' | 'blocked' | 'failed' {
   const hasCode = Boolean(item.classification_result?.resolved_hs_code);
   const hasError = Boolean(item.error);
-  if (hasError || !hasCode) return 'fail';
+  if (hasError || !hasCode) return 'failed';
   const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
-  if (sanity === 'FLAG' || sanity === 'BLOCK') return 'warn';
-  if (sanity) return 'pass';
-  // resolved_hs_code present but sanity_verdict null — treat as pass
-  // (older payloads that predate the sanity check)
-  return 'pass';
-}
-
-function normaliseVerdict(raw: string): 'pass' | 'fail' | 'warn' | 'skipped' | 'unknown' {
-  const lc = raw.toLowerCase();
-  if (lc === 'pass') return 'pass';
-  if (lc === 'fail' || lc === 'block') return 'fail';
-  if (lc === 'warn' || lc === 'flag') return 'warn';
-  if (lc === 'skipped' || lc === 'skip') return 'skipped';
-  return 'unknown';
+  if (sanity === 'BLOCK') return 'blocked';
+  if (sanity === 'FLAG') return 'flagged';
+  return 'succeeded';
 }
 
 // ---------------------------------------------------------------------------
@@ -451,29 +436,23 @@ export default function BatchResultsTable({
       id: 'value_plausibility_verdict',
       header: t('batch_col_value_plausibility_verdict' as TKey),
       enableSorting: true,
-      // accessorFn drives sorting and global search — use the bucket so
-      // "fail" rows sort/search consistently regardless of sanity_verdict value.
-      accessorFn: (row) => itemBucket(row) ?? '',
+      accessorFn: (row) => itemBucket(row),
       size: 140,
       minSize: 100,
       maxSize: 220,
-      // filterFn uses itemBucket so "Fail" catches error rows and rows
-      // with no resolved_hs_code, not just rows with sanity_verdict='FAIL'.
       filterFn: (row, _id, value) => itemBucket(row.original) === value,
       cell: ({ row }) => {
         const bucket = itemBucket(row.original);
-        if (!bucket) return <span className="text-[var(--ink-3)] text-[12px]">—</span>;
-        // Display the raw sanity_verdict as-is when present; fall back to
-        // the bucket label only for error/no-code rows where there is no
-        // sanity_verdict to show (rule: never rewrite a backend value).
-        const raw = readVerdict(row.original);
-        const displayLabel = raw ?? (
-          bucket === 'fail' ? t('batch_verdict_fail' as TKey) : bucket
-        );
-        const cls = VERDICT_BADGE[bucket] ?? VERDICT_BADGE.unknown;
+        const labelKey = (
+          bucket === 'succeeded' ? 'batch_verdict_succeeded' :
+          bucket === 'flagged'   ? 'batch_verdict_flagged' :
+          bucket === 'blocked'   ? 'batch_verdict_blocked' :
+                                   'batch_verdict_failed'
+        ) as TKey;
+        const cls = VERDICT_BADGE[bucket];
         return (
           <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em]', cls)}>
-            {displayLabel}
+            {t(labelKey)}
           </span>
         );
       },
@@ -575,9 +554,10 @@ export default function BatchResultsTable({
           label: t('batch_filter_verdict_label' as TKey),
           options: [
             { label: t('batch_filter_verdict_all' as TKey) },
-            { label: t('batch_filter_verdict_pass' as TKey), value: 'pass' },
-            { label: t('batch_filter_verdict_fail' as TKey), value: 'fail' },
-            { label: t('batch_filter_verdict_warn' as TKey), value: 'warn' },
+            { label: t('batch_filter_verdict_succeeded' as TKey), value: 'succeeded' },
+            { label: t('batch_filter_verdict_flagged' as TKey),   value: 'flagged' },
+            { label: t('batch_filter_verdict_blocked' as TKey),   value: 'blocked' },
+            { label: t('batch_filter_verdict_failed' as TKey),    value: 'failed' },
           ],
         }}
         emptyState={t('batch_empty_state' as TKey)}
