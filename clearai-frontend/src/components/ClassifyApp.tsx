@@ -171,10 +171,23 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
     alternatives = [...trackA, ...trackB];
   }
 
-  // Map pick.fit to a decision_reason so ResultSingle shows the right pill.
-  // 'fits' → strong_match, 'partial' → heading_level_match (family), else strong_match.
+  // Map pick.fit / pick_escalate_reason to a decision_reason for ResultSingle.
+  // accepted path: fits → strong_match, partial → heading_level_match.
+  // !accepted path: read escalate_reason from trace summary; never hardcode
+  //   ambiguous_top_candidates — the "Try a more specific description" hint
+  //   is actively misleading when the real cause is the picker being down.
   const pickFitReason = (() => {
-    if (!accepted) return 'ambiguous_top_candidates' as const;
+    if (!accepted) {
+      const escalateReason = d.trace?.summary?.pick_escalate_reason;
+      switch (escalateReason) {
+        case 'picker_unavailable': return 'llm_unavailable' as const;
+        case 'identify_no_query':  return 'brand_not_recognised' as const;
+        case 'no_candidates':      return 'low_top_score' as const;
+        case 'no_candidate_fits':  return 'ambiguous_top_candidates' as const;
+        case 'scope_escalate':     return 'ambiguous_top_candidates' as const;
+        default:                   return 'ambiguous_top_candidates' as const;
+      }
+    }
     const classifyStageForFit = (d.trace?.stages ?? []).find((s) => s.stage === 'classify');
     const pickActionFit = classifyStageForFit?.actions?.find((a) => a.action === 'pick');
     const fit = (pickActionFit?.output as { fit?: string } | undefined)?.fit;
