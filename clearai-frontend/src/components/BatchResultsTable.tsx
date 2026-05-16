@@ -10,13 +10,12 @@
  * value_plausibility_verdict ships hidden by default; togglable from the
  * Columns menu in the footer.
  */
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useCallback } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { pickLang, type DeclarationRunItem } from '@/lib/api';
 import { DataTable } from './DataTable';
-import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 
 // ---------------------------------------------------------------------------
 // Pill colour maps + helpers
@@ -294,12 +293,12 @@ interface BatchResultsTableProps {
    * bucketed: pending during polling, failed once the run is complete.
    */
   isComplete?: boolean;
-  /** If provided, shows the "Manual review" CTA button in the filter bar. */
-  onManualReview?: () => void;
-  /** Count of items still awaiting a review decision. */
-  pendingReviewCount?: number;
-  /** Count of items that have been reviewed. */
-  reviewedCount?: number;
+  /**
+   * The batch/run ID. When present and the batch is complete, the "Needs
+   * review" CTA navigates to /review?batch_id=<batchId>&status=pending
+   * instead of opening an inline dialog.
+   */
+  batchId?: string;
 }
 
 /**
@@ -318,189 +317,24 @@ function needsReview(item: DeclarationRunItem): boolean {
   return false;
 }
 
-/** Build a ReviewItem from a DeclarationRunItem for the dialog. */
-function toReviewItem(item: DeclarationRunItem): ReviewItem {
-  const resolved = item.classification_result?.resolved_hs_code ?? null;
-  const submissionAr = pickLang(item.resolved_hs_code_description?.zatca_submission_description, 'ar');
-  const submissionEn = pickLang(item.resolved_hs_code_description?.zatca_submission_description, 'en');
-
-  // Candidates: pull from trace if present, else empty. Each pipeline
-  // architecture surfaces them differently:
-  //   v2 (PR 13 onwards) — meta.pipeline_v2.pick.annotated_candidates
-  //                        (the picker's per-row verdicts, INCLUDING the
-  //                        chosen code; filter out resolved when rendering)
-  //   anchored          — per-candidate not on the wire (aggregate counts only)
-  //   legacy            — meta.track_a.annotated_candidates +
-  //                       meta.track_b.subtree_candidates
-  const meta = (item as any).trace?.meta;
-  const v2 = (meta?.pipeline_v2 ?? null) as
-    | {
-        pick?: {
-          annotated_candidates?: Array<{
-            code: string;
-            description_en?: string | null;
-            description_ar?: string | null;
-            fit?: string;
-            rationale?: string;
-            source_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
-            rerank_score?: number;
-          }>;
-        };
-      }
-    | null;
-  const v2Alts = (v2?.pick?.annotated_candidates ?? [])
-    .filter((c) => c.code !== resolved)
-    .map((c) => ({
-      code: c.code,
-      description_en: c.description_en ?? null,
-      description_ar: c.description_ar ?? null,
-      retrieval_score: c.rerank_score ?? null,
-      fit: c.fit ?? undefined,
-      reason: c.rationale ?? undefined,
-      source_arm: c.source_arm,
-    }));
-  const trackA = (meta?.track_a?.annotated_candidates ?? []).map((c: any) => ({
-    code: c.code,
-    description_en: c.description_en ?? null,
-    description_ar: c.description_ar ?? null,
-    retrieval_score: c.rrf_score ?? null,
-    fit: c.fit ?? undefined,
-    reason: c.rationale ?? undefined,
-    track: 'track_a' as const,
-  }));
-  const trackB = (meta?.track_b?.subtree_candidates ?? []).map((c: any) => ({
-    code: c.code,
-    description_en: c.description_en ?? null,
-    description_ar: c.description_ar ?? null,
-    retrieval_score: c.rrf_score ?? null,
-    fit: c.fit ?? undefined,
-    reason: c.rationale ?? undefined,
-    track: 'track_b' as const,
-  }));
-
-  // Determine flagType for the new dialog views
-  const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
-  const hasCode = Boolean(resolved);
-  let flagType: 'hs' | 'value' | null = null;
-  if (!hasCode || item.error) {
-    flagType = 'hs';
-  } else if (sanity === 'FLAG' || sanity === 'BLOCK') {
-    // Heuristic: if there's value warning data available use 'value', else 'hs'
-    flagType = (item as any).value_warning ? 'value' : 'hs';
-  }
-
-  // Value from the declared line
-  const valueAmount = item.value?.amount?.value ?? null;
-  const valueCurrency = item.value?.amount?.currency ?? null;
-  const valueField =
-    valueAmount != null && valueCurrency != null
-      ? { amount: valueAmount, currency: valueCurrency }
-      : null;
-
-  return {
-    id: item.id ?? String(item.row_index ?? ''),
-    description: item.declared_value?.description ?? '',
-    merchantCode: item.declared_value?.hs_code ?? null,
-    lineNumber: item.row_index ?? null,
-    value: valueField,
-    currentCode: resolved,
-    currentLabel: submissionEn ?? submissionAr ?? null,
-    currentConfidence: item.classification_result?.classification_confidence ?? null,
-    verdict: item.classification_result?.sanity_verdict ?? null,
-    flagType,
-    valueWarning: (item as any).value_warning ?? null,
-    alternatives: [...v2Alts, ...trackA, ...trackB],
-  };
-}
-
 export default function BatchResultsTable({
   expectedRowCount,
   items,
   className,
   isComplete = false,
-  onManualReview: _externalOnManualReview,
-  pendingReviewCount: _externalPendingCount,
-  reviewedCount: _externalReviewedCount,
+  batchId,
 }: BatchResultsTableProps) {
   const t = useT();
 
-  // Review dialog state — which item (if any) is being reviewed.
-  const [reviewTarget, setReviewTarget] = useState<ReviewItem | null>(null);
-  const [reviewOpen, setReviewOpen] = useState(false);
+  // Count items that need review — used for the badge on the CTA button.
+  const reviewCount = useMemo(() => items.filter(needsReview).length, [items]);
 
-  // Current position in the review queue (used for queue navigation).
-  const [reviewIdx, setReviewIdx] = useState(0);
-
-  // Build the review queue — all items that need review, in row order.
-  const reviewQueue = useMemo<ReviewItem[]>(
-    () => items.filter(needsReview).map(toReviewItem),
-    [items],
-  );
-
-  const pendingReviewCount = reviewQueue.length;
-  const reviewedCount = 0;
-
+  // Navigate to the review queue page scoped to this batch.
   const handleOpenManualReview = useCallback(() => {
-    if (reviewQueue.length === 0) return;
-    setReviewIdx(0);
-    setReviewTarget(reviewQueue[0] ?? null);
-    setReviewOpen(true);
-  }, [reviewQueue]);
-
-  const handleAccept = useCallback((_item: ReviewItem) => {
-    // TODO: POST /reviews { item_id, action: 'accepted' }
-    const nextIdx = reviewIdx + 1;
-    if (nextIdx < reviewQueue.length) {
-      setReviewIdx(nextIdx);
-      setReviewTarget(reviewQueue[nextIdx] ?? null);
-    } else {
-      setReviewOpen(false);
-    }
-  }, [reviewIdx, reviewQueue]);
-
-  const handleDismiss = useCallback((_item: ReviewItem) => {
-    // TODO: POST /reviews { item_id, action: 'dismissed' }
-    const nextIdx = reviewIdx + 1;
-    if (nextIdx < reviewQueue.length) {
-      setReviewIdx(nextIdx);
-      setReviewTarget(reviewQueue[nextIdx] ?? null);
-    } else {
-      setReviewOpen(false);
-    }
-  }, [reviewIdx, reviewQueue]);
-
-  const handlePick = useCallback((_item: ReviewItem, _chosenCode: string) => {
-    // TODO: POST /reviews { item_id, action: 'picked', code: chosenCode }
-    const nextIdx = reviewIdx + 1;
-    if (nextIdx < reviewQueue.length) {
-      setReviewIdx(nextIdx);
-      setReviewTarget(reviewQueue[nextIdx] ?? null);
-    } else {
-      setReviewOpen(false);
-    }
-  }, [reviewIdx, reviewQueue]);
-
-  const handleQueuePrev = useCallback(() => {
-    const prevIdx = reviewIdx - 1;
-    if (prevIdx >= 0) {
-      setReviewIdx(prevIdx);
-      setReviewTarget(reviewQueue[prevIdx] ?? null);
-    }
-  }, [reviewIdx, reviewQueue]);
-
-  const handleQueueNext = useCallback(() => {
-    const nextIdx = reviewIdx + 1;
-    if (nextIdx < reviewQueue.length) {
-      setReviewIdx(nextIdx);
-      setReviewTarget(reviewQueue[nextIdx] ?? null);
-    } else {
-      setReviewOpen(false);
-    }
-  }, [reviewIdx, reviewQueue]);
-
-  const handleQueueSkip = useCallback(() => {
-    handleQueueNext();
-  }, [handleQueueNext]);
+    if (!batchId) return;
+    const params = new URLSearchParams({ batch_id: batchId, status: 'pending' });
+    window.location.href = `/review?${params.toString()}`;
+  }, [batchId]);
 
   const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
     // size = initial pixel width consumed by TanStack columnSizing state.
@@ -670,66 +504,46 @@ export default function BatchResultsTable({
     );
   }, []);
 
-  // Manual review CTA — only shown once the batch is fully complete and there
-  // are reviewable items. Hidden during polling to avoid confusing partial counts.
-  const manualReviewCta = isComplete && reviewQueue.length > 0 ? (
+  // Manual review CTA — only shown once the batch is fully complete, there are
+  // reviewable items, and we have a batchId to navigate to. Hidden during polling
+  // to avoid confusing partial counts.
+  const manualReviewCta = isComplete && reviewCount > 0 && !!batchId ? (
     <ManualReviewButton
-      pendingReview={pendingReviewCount}
-      reviewedCount={reviewedCount}
+      pendingReview={reviewCount}
+      reviewedCount={0}
       onClick={handleOpenManualReview}
     />
   ) : null;
 
   return (
-    <>
-      <DataTable
-        // v6 because column resizing came back; storage shape now includes
-        // columnSizing again. Bumping the key invalidates v5 prefs (visibility
-        // only) so returning users start with the new default widths once.
-        tableId="batch-results-v7"
-        // value_plausibility_verdict ships hidden by default — togglable
-        // from the Columns menu in the footer. confidence is visible by default.
-        defaultColumnVisibility={{ value_plausibility_verdict: false }}
-        data={items}
-        columns={columns}
-        expectedRowCount={expectedRowCount}
-        renderSkeletonRow={renderSkeletonRow}
-        enableGlobalSearch
-        searchPlaceholder={t('batch_search_placeholder' as TKey)}
-        filterChips={{
-          columnId: 'value_plausibility_verdict',
-          label: t('batch_filter_verdict_label' as TKey),
-          options: [
-            { label: t('batch_filter_verdict_all' as TKey) },
-            { label: t('batch_filter_verdict_succeeded' as TKey), value: 'succeeded' },
-            { label: t('batch_filter_verdict_flagged' as TKey),   value: 'flagged' },
-            { label: t('batch_filter_verdict_blocked' as TKey),   value: 'blocked' },
-            { label: t('batch_filter_verdict_failed' as TKey),    value: 'failed' },
-          ],
-        }}
-        filterExtra={manualReviewCta}
-        emptyState={t('batch_empty_state' as TKey)}
-        className={className}
-      />
-
-      {/* Review dialog — mounted once at table level; opened per-row or via CTA. */}
-      <ReviewDialog
-        open={reviewOpen}
-        onOpenChange={(open) => {
-          setReviewOpen(open);
-          if (!open) setReviewTarget(null);
-        }}
-        item={reviewTarget}
-        queueLength={reviewQueue.length}
-        queueIndex={reviewIdx}
-        reviewedCount={reviewedCount}
-        onPrev={handleQueuePrev}
-        onNext={handleQueueNext}
-        onSkip={handleQueueSkip}
-        onAccept={handleAccept}
-        onDismiss={handleDismiss}
-        onPick={handlePick}
-      />
-    </>
+    <DataTable
+      // v6 because column resizing came back; storage shape now includes
+      // columnSizing again. Bumping the key invalidates v5 prefs (visibility
+      // only) so returning users start with the new default widths once.
+      tableId="batch-results-v7"
+      // value_plausibility_verdict ships hidden by default — togglable
+      // from the Columns menu in the footer. confidence is visible by default.
+      defaultColumnVisibility={{ value_plausibility_verdict: false }}
+      data={items}
+      columns={columns}
+      expectedRowCount={expectedRowCount}
+      renderSkeletonRow={renderSkeletonRow}
+      enableGlobalSearch
+      searchPlaceholder={t('batch_search_placeholder' as TKey)}
+      filterChips={{
+        columnId: 'value_plausibility_verdict',
+        label: t('batch_filter_verdict_label' as TKey),
+        options: [
+          { label: t('batch_filter_verdict_all' as TKey) },
+          { label: t('batch_filter_verdict_succeeded' as TKey), value: 'succeeded' },
+          { label: t('batch_filter_verdict_flagged' as TKey),   value: 'flagged' },
+          { label: t('batch_filter_verdict_blocked' as TKey),   value: 'blocked' },
+          { label: t('batch_filter_verdict_failed' as TKey),    value: 'failed' },
+        ],
+      }}
+      filterExtra={manualReviewCta}
+      emptyState={t('batch_empty_state' as TKey)}
+      className={className}
+    />
   );
 }

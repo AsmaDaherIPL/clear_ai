@@ -802,7 +802,8 @@ export interface CanonicalClassificationResult {
  * responses; `trace` is present only when `?include_trace=true`.
  */
 export interface BatchItem {
-  id: string;
+  id: string;                         // declaration_run_items.id
+  classification_event_id?: string;   // classification_events.id — may be absent on older rows
   row_index?: number;
   declared_value: DeclaredValue;
   resolved_hs_code_description: ResolvedHsCodeDescription;
