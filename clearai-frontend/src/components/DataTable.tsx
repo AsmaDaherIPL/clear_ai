@@ -174,6 +174,13 @@ export interface DataTableProps<T> {
 
   filterChips?: FilterChipGroup;
 
+  /**
+   * Additional content rendered at the trailing end of the filter/toolbar row.
+   * Use for CTA buttons that belong conceptually with the filter bar but
+   * shouldn't be mixed into the chip group.
+   */
+  filterExtra?: ReactNode;
+
   emptyState?: ReactNode;
 
   className?: string;
@@ -226,6 +233,7 @@ export function DataTable<T extends object>({
   searchPlaceholder = 'Search…',
   enableGlobalSearch = false,
   filterChips,
+  filterExtra,
   emptyState,
   className,
 }: DataTableProps<T>) {
@@ -366,7 +374,7 @@ export function DataTable<T extends object>({
       {/* ------------------------------------------------------------- */}
       {/* Toolbar: search + verdict chips                                */}
       {/* ------------------------------------------------------------- */}
-      {(enableGlobalSearch || filterChips) && (
+      {(enableGlobalSearch || filterChips || filterExtra) && (
         <div className="flex items-center gap-3 flex-wrap px-[22px] py-3 border-b border-[var(--line-2)]">
           {enableGlobalSearch && (
             <div className="relative flex-1 min-w-[200px] max-w-[420px]">
@@ -418,6 +426,12 @@ export function DataTable<T extends object>({
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {filterExtra && (
+            <div className="ms-auto shrink-0">
+              {filterExtra}
             </div>
           )}
         </div>

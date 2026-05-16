@@ -10,7 +10,7 @@
  * value_plausibility_verdict ships hidden by default; togglable from the
  * Columns menu in the footer.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -200,6 +200,70 @@ function ValueCell({ item }: { item: DeclarationRunItem }) {
 }
 
 // ---------------------------------------------------------------------------
+// Manual review CTA button
+// ---------------------------------------------------------------------------
+
+function ManualReviewButton({
+  pendingReview,
+  reviewedCount,
+  onClick,
+}: {
+  pendingReview: number;
+  reviewedCount: number;
+  onClick: () => void;
+}) {
+  const t = useT();
+  const hasPending = pendingReview > 0;
+  const isDisabled = pendingReview === 0 && reviewedCount === 0;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isDisabled}
+      title={
+        hasPending
+          ? `${pendingReview} items need review`
+          : 'All flagged items reviewed'
+      }
+      className={cn(
+        'inline-flex items-center gap-[10px] px-[14px] py-[8px] rounded-[9px]',
+        'border bg-[var(--surface)]',
+        'text-[13.5px] font-medium tracking-[-0.005em]',
+        'cursor-pointer transition-all duration-150',
+        'disabled:opacity-40 disabled:cursor-not-allowed disabled:border-[var(--line)] disabled:text-[var(--ink-3)]',
+        hasPending
+          ? 'border-[var(--accent)] text-[var(--ink)] hover:bg-[var(--accent)] hover:text-white'
+          : 'border-[var(--ink)] text-[var(--ink)] hover:bg-[var(--ink)] hover:text-white',
+      )}
+    >
+      {t('review_manual_cta' as TKey)}
+      <span
+        className={cn(
+          'inline-flex items-center justify-center min-w-[20px] h-[20px] px-[6px] rounded-full',
+          'font-mono text-[11px] tabular-nums tracking-[0.02em]',
+          'transition-all duration-150',
+          hasPending
+            ? 'bg-[var(--accent)] text-white'
+            : 'bg-[var(--ink)] text-white',
+        )}
+      >
+        {hasPending ? pendingReview : '✓'}
+      </span>
+      <span
+        className={cn(
+          'font-mono text-[12px] opacity-55 transition-transform duration-150',
+          'group-hover:opacity-100 group-hover:translate-x-[2px]',
+        )}
+        aria-hidden
+      >
+        →
+      </span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -207,6 +271,12 @@ interface BatchResultsTableProps {
   expectedRowCount?: number;
   items: DeclarationRunItem[];
   className?: string;
+  /** If provided, shows the "Manual review" CTA button in the filter bar. */
+  onManualReview?: () => void;
+  /** Count of items still awaiting a review decision. */
+  pendingReviewCount?: number;
+  /** Count of items that have been reviewed. */
+  reviewedCount?: number;
 }
 
 /**
@@ -282,12 +352,36 @@ function toReviewItem(item: DeclarationRunItem): ReviewItem {
     track: 'track_b' as const,
   }));
 
+  // Determine flagType for the new dialog views
+  const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
+  const hasCode = Boolean(resolved);
+  let flagType: 'hs' | 'value' | null = null;
+  if (!hasCode || item.error) {
+    flagType = 'hs';
+  } else if (sanity === 'FLAG' || sanity === 'BLOCK') {
+    // Heuristic: if there's value warning data available use 'value', else 'hs'
+    flagType = (item as any).value_warning ? 'value' : 'hs';
+  }
+
+  // Value from the declared line
+  const valueAmount = item.value?.amount?.value ?? null;
+  const valueCurrency = item.value?.amount?.currency ?? null;
+  const valueField =
+    valueAmount != null && valueCurrency != null
+      ? { amount: valueAmount, currency: valueCurrency }
+      : null;
+
   return {
     id: item.id ?? String(item.row_index ?? ''),
     description: item.declared_value?.description ?? '',
+    merchantCode: item.declared_value?.hs_code ?? null,
+    lineNumber: item.row_index ?? null,
+    value: valueField,
     currentCode: resolved,
     currentLabel: submissionEn ?? submissionAr ?? null,
     verdict: item.classification_result?.sanity_verdict ?? null,
+    flagType,
+    valueWarning: (item as any).value_warning ?? null,
     alternatives: [...v2Alts, ...trackA, ...trackB],
   };
 }
@@ -296,6 +390,9 @@ export default function BatchResultsTable({
   expectedRowCount,
   items,
   className,
+  onManualReview: _externalOnManualReview,
+  pendingReviewCount: _externalPendingCount,
+  reviewedCount: _externalReviewedCount,
 }: BatchResultsTableProps) {
   const t = useT();
 
@@ -303,34 +400,102 @@ export default function BatchResultsTable({
   const [reviewTarget, setReviewTarget] = useState<ReviewItem | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
 
+  // Current position in the review queue (used for queue navigation).
+  const [reviewIdx, setReviewIdx] = useState(0);
+
   // Local override map: row id → { action: 'accepted' | 'dismissed' | 'picked', code?: string }
   // This is the UI-only state; backend wiring goes here later.
   const [reviewOutcomes, setReviewOutcomes] = useState<
     Record<string, { action: 'accepted' | 'dismissed' | 'picked'; code?: string }>
   >({});
 
-  const handleOpenReview = (item: DeclarationRunItem) => {
-    setReviewTarget(toReviewItem(item));
+  // Build the review queue — all items that need review, in row order.
+  const reviewQueue = useMemo<ReviewItem[]>(
+    () => items.filter(needsReview).map(toReviewItem),
+    [items],
+  );
+
+  const pendingReviewCount = reviewQueue.filter((ri) => !reviewOutcomes[ri.id]).length;
+  const reviewedCount = Object.keys(reviewOutcomes).length;
+
+  const handleOpenReview = useCallback((item: DeclarationRunItem) => {
+    const ri = toReviewItem(item);
+    const idx = reviewQueue.findIndex((q) => q.id === ri.id);
+    setReviewIdx(idx >= 0 ? idx : 0);
+    setReviewTarget(ri);
     setReviewOpen(true);
-  };
+  }, [reviewQueue]);
 
-  const handleAccept = (item: ReviewItem) => {
+  const handleOpenManualReview = useCallback(() => {
+    if (reviewQueue.length === 0) return;
+    // Start at first unreviewed item, or first item if all reviewed
+    const firstUnreviewed = reviewQueue.findIndex((ri) => !reviewOutcomes[ri.id]);
+    const startIdx = firstUnreviewed >= 0 ? firstUnreviewed : 0;
+    setReviewIdx(startIdx);
+    setReviewTarget(reviewQueue[startIdx] ?? null);
+    setReviewOpen(true);
+  }, [reviewQueue, reviewOutcomes]);
+
+  const handleAccept = useCallback((item: ReviewItem) => {
     setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'accepted' } }));
-    setReviewOpen(false);
+    // Navigate to next item in queue
+    const nextIdx = reviewIdx + 1;
+    if (nextIdx < reviewQueue.length) {
+      setReviewIdx(nextIdx);
+      setReviewTarget(reviewQueue[nextIdx] ?? null);
+    } else {
+      setReviewOpen(false);
+    }
     // TODO: POST /reviews { item_id, action: 'accepted' }
-  };
+  }, [reviewIdx, reviewQueue]);
 
-  const handleDismiss = (item: ReviewItem) => {
+  const handleDismiss = useCallback((item: ReviewItem) => {
     setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'dismissed' } }));
-    setReviewOpen(false);
+    // Navigate to next item in queue
+    const nextIdx = reviewIdx + 1;
+    if (nextIdx < reviewQueue.length) {
+      setReviewIdx(nextIdx);
+      setReviewTarget(reviewQueue[nextIdx] ?? null);
+    } else {
+      setReviewOpen(false);
+    }
     // TODO: POST /reviews { item_id, action: 'dismissed' }
-  };
+  }, [reviewIdx, reviewQueue]);
 
-  const handlePick = (item: ReviewItem, chosenCode: string) => {
+  const handlePick = useCallback((item: ReviewItem, chosenCode: string) => {
     setReviewOutcomes((prev) => ({ ...prev, [item.id]: { action: 'picked', code: chosenCode } }));
-    setReviewOpen(false);
+    // Navigate to next item in queue
+    const nextIdx = reviewIdx + 1;
+    if (nextIdx < reviewQueue.length) {
+      setReviewIdx(nextIdx);
+      setReviewTarget(reviewQueue[nextIdx] ?? null);
+    } else {
+      setReviewOpen(false);
+    }
     // TODO: POST /reviews { item_id, action: 'picked', code: chosenCode }
-  };
+  }, [reviewIdx, reviewQueue]);
+
+  const handleQueuePrev = useCallback(() => {
+    const prevIdx = reviewIdx - 1;
+    if (prevIdx >= 0) {
+      setReviewIdx(prevIdx);
+      setReviewTarget(reviewQueue[prevIdx] ?? null);
+    }
+  }, [reviewIdx, reviewQueue]);
+
+  const handleQueueNext = useCallback(() => {
+    const nextIdx = reviewIdx + 1;
+    if (nextIdx < reviewQueue.length) {
+      setReviewIdx(nextIdx);
+      setReviewTarget(reviewQueue[nextIdx] ?? null);
+    } else {
+      setReviewOpen(false);
+    }
+  }, [reviewIdx, reviewQueue]);
+
+  const handleQueueSkip = useCallback(() => {
+    handleQueueNext();
+  }, [handleQueueNext]);
 
   const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
     // size = initial pixel width consumed by TanStack columnSizing state.
@@ -559,6 +724,15 @@ export default function BatchResultsTable({
     );
   }, []);
 
+  // Manual review CTA — shown when there are reviewable items.
+  const manualReviewCta = reviewQueue.length > 0 ? (
+    <ManualReviewButton
+      pendingReview={pendingReviewCount}
+      reviewedCount={reviewedCount}
+      onClick={handleOpenManualReview}
+    />
+  ) : null;
+
   return (
     <>
       <DataTable
@@ -586,15 +760,25 @@ export default function BatchResultsTable({
             { label: t('batch_filter_verdict_failed' as TKey),    value: 'failed' },
           ],
         }}
+        filterExtra={manualReviewCta}
         emptyState={t('batch_empty_state' as TKey)}
         className={className}
       />
 
-      {/* Review dialog — mounted once at table level; opened per-row. */}
+      {/* Review dialog — mounted once at table level; opened per-row or via CTA. */}
       <ReviewDialog
         open={reviewOpen}
-        onOpenChange={setReviewOpen}
+        onOpenChange={(open) => {
+          setReviewOpen(open);
+          if (!open) setReviewTarget(null);
+        }}
         item={reviewTarget}
+        queueLength={reviewQueue.length}
+        queueIndex={reviewIdx}
+        reviewedCount={reviewedCount}
+        onPrev={handleQueuePrev}
+        onNext={handleQueueNext}
+        onSkip={handleQueueSkip}
         onAccept={handleAccept}
         onDismiss={handleDismiss}
         onPick={handlePick}
