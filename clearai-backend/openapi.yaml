@@ -649,7 +649,24 @@ components:
 
     ReviewDecision:
       type: string
-      enum: [approve, override, reject]
+      enum: [approve, override, reject, block_from_submission, confirm_flag]
+      description: |
+        Five decision verbs:
+          - approve                 — pipeline got it right; ship unchanged.
+          - override                — pipeline picked wrong code; reviewer
+                                      supplies a new 12-digit code. Gated
+                                      below 0.60 confidence unless force=true.
+          - reject                  — reviewer can't decide; dismiss the
+                                      queue row, ship unchanged.
+          - block_from_submission   — pull the row from the XML. reviewer_notes
+                                      required (≥10 chars). reviewer_code
+                                      forbidden.
+          - confirm_flag            — sanity_flag-only audit signal. Reviewer
+                                      agrees sanity was right about the
+                                      declared value being implausible, but
+                                      the row STILL ships. Records a
+                                      data-quality signal against the
+                                      merchant. reviewer_code forbidden.
 
     ReviewRow:
       type: object
@@ -683,7 +700,7 @@ components:
         reviewed_by: { type: string, nullable: true }
         reviewer_decision:
           type: string
-          enum: [approve, override, reject]
+          enum: [approve, override, reject, block_from_submission, confirm_flag]
           nullable: true
         reviewer_code:
           type: string
@@ -715,10 +732,22 @@ components:
         reviewer_code:
           type: string
           pattern: '^\d{12}$'
-          description: Required when decision=override.
+          description: |
+            Required when decision=override. FORBIDDEN on every other
+            verb (approve, reject, block_from_submission, confirm_flag).
         reviewer_notes:
           type: string
           maxLength: 2000
+          description: |
+            Free-form rationale. Optional for most verbs. REQUIRED and
+            ≥10 chars (after trim) for decision=block_from_submission.
+        force:
+          type: boolean
+          description: |
+            Only valid for decision=override. Bypasses (a) the 0.60
+            confidence gate and (b) the candidate-set constraint on
+            reviewer_code. The server still verifies the code exists
+            in zatca_hs_codes. Records an audit marker in reviewer_notes.
 
     DecideResponse:
       allOf:
@@ -1532,17 +1561,27 @@ paths:
       summary: Resolve or dismiss a review row
       description: |
         Replaces the old `POST /hitl/queue/{id}/review`. Transitions
-        status to 'resolved' (decision=approve|override) or 'dismissed'
-        (decision=reject).
+        status to 'resolved' (decision in approve | override |
+        block_from_submission | confirm_flag) or 'dismissed' (decision=reject).
 
-        Override path is atomic — same transaction patches
-        `declaration_run_items`:
-          pipeline_final_code := current final_code  (preserved if NULL)
-          final_code         := reviewer_code
-          final_code_source  := 'reviewer_override'
+        Side effects per verb:
+          override               atomic patch to declaration_run_items:
+                                   pipeline_final_code := current final_code
+                                                          (preserved if NULL)
+                                   final_code         := reviewer_code
+                                   final_code_source  := 'reviewer_override'
+          block_from_submission  atomic patch to declaration_run_items:
+                                   status            := 'blocked'
+                                   excluded_from_xml := true
+                                   blocked_at        := now()
+                                   blocked_reason    := 'reviewer_decision'
+          confirm_flag           NO side effect — queue row resolves with
+                                 the verb recorded, row stays in 'flagged'
+                                 status, ships in XML normally. Audit signal
+                                 only. Restricted to reason='sanity_flag'.
+          approve / reject       no side effects beyond the queue row.
 
-        `decision='override'` requires `reviewer_code` (12 digits) via
-        zod `.refine()`. Returns 409 invalid_state on terminal rows.
+        Returns 409 invalid_state on terminal (resolved/dismissed) rows.
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
@@ -1554,13 +1593,28 @@ paths:
               $ref: '#/components/schemas/DecideBody'
       responses:
         '200':
-          description: Row updated (+ item_patched block when decision=override).
+          description: |
+            Row updated. Response includes `item_patched` when
+            decision=override, `item_blocked` when
+            decision=block_from_submission, and the bare queue row
+            otherwise.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DecideResponse'
         '400':
-          description: Body invalid, or override missing reviewer_code.
+          description: |
+            Body invalid (e.g. override missing reviewer_code,
+            block_from_submission missing or short reviewer_notes,
+            reviewer_code on a forbidden verb, force=true on a
+            non-override verb).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403':
+          description: |
+            override_not_allowed_high_confidence — confidence ≥ 0.60
+            and force=true was not passed.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1571,6 +1625,17 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '409':
           description: Row is already resolved or dismissed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: |
+            Decision validated against the queue row failed:
+              - reviewer_code_not_in_candidates (override outside candidate
+                set without force=true)
+              - reviewer_code_not_in_codebook (force-override pointing at a
+                non-existent or deleted HS code)
+              - confirm_flag_wrong_reason (confirm_flag on a non-sanity row)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

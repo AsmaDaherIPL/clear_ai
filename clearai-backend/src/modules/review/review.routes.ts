@@ -4,14 +4,16 @@
  *
  *   GET    /classifications/review              list with filters
  *   GET    /classifications/review/:id          single row + flattened candidates
- *   PATCH  /classifications/review/:id          decide (approve|override|reject|block_from_submission)
+ *   PATCH  /classifications/review/:id          decide (approve|override|reject|
+ *                                                       block_from_submission|confirm_flag)
  *   POST   /classifications/review/:id/claim    pending → in_review (V2-only, kept in code)
  *
  * State machine (enforced via SQL WHERE clauses):
- *   pending → in_review                        (POST /claim)
- *   pending | in_review → resolved             (PATCH approve|override|block_from_submission)
- *   pending | in_review → dismissed            (PATCH reject)
- *   resolved | dismissed → terminal            (409)
+ *   pending → in_review                                     (POST /claim)
+ *   pending | in_review → resolved                          (PATCH approve|override|
+ *                                                            block_from_submission|confirm_flag)
+ *   pending | in_review → dismissed                         (PATCH reject)
+ *   resolved | dismissed → terminal                         (409)
  *
  * Decision verbs:
  *
@@ -31,6 +33,15 @@
  *                            it 'blocked'. reviewer_notes required (min 10
  *                            chars). reviewer_code MUST NOT be supplied.
  *                            Allowed on ANY review row regardless of reason.
+ *   confirm_flag             Reviewer agrees sanity was right — the declared
+ *                            value IS implausible — but the row STILL ships
+ *                            in the XML. Pure audit signal recorded against
+ *                            the merchant for downstream data-quality
+ *                            tracking. No DRI changes, no XML exclusion.
+ *                            GATED: only allowed when reason='sanity_flag'
+ *                            (422 confirm_flag_wrong_reason otherwise).
+ *                            reviewer_code MUST NOT be supplied. Notes
+ *                            optional.
  *
  * Override side-effect: when decide.decision='override' (with a 12-digit
  * reviewer_code), the handler patches declaration_run_items in the same
@@ -126,10 +137,22 @@ const IdParam = z.object({
 //     gate (< 0.60) checked in the handler (needs DB lookup).
 //   decision='block_from_submission' → reviewer_notes required (≥ 10 chars).
 //     reviewer_code FORBIDDEN.
+//   decision='confirm_flag' → reason MUST be 'sanity_flag'. The row stays
+//     in 'flagged' status and STILL ships in the XML — confirm_flag is an
+//     audit signal only ("reviewer agreed sanity was right about the
+//     declared value being implausible"), not a hard-stop on submission.
+//     Downstream analytics use this to track merchant data-quality trends.
+//     reviewer_code FORBIDDEN. reviewer_notes optional.
 //   decision='approve' / 'reject' → reviewer_code FORBIDDEN.
 const DecideBody = z
   .object({
-    decision: z.enum(['approve', 'override', 'reject', 'block_from_submission']),
+    decision: z.enum([
+      'approve',
+      'override',
+      'reject',
+      'block_from_submission',
+      'confirm_flag',
+    ]),
     reviewer_code: z
       .string()
       .regex(/^\d{12}$/, 'reviewer_code must be exactly 12 digits')
@@ -173,7 +196,12 @@ const DecideBody = z
         });
       }
     }
-    if ((data.decision === 'approve' || data.decision === 'reject') && data.reviewer_code) {
+    if (
+      (data.decision === 'approve' ||
+        data.decision === 'reject' ||
+        data.decision === 'confirm_flag') &&
+      data.reviewer_code
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['reviewer_code'],
@@ -206,7 +234,13 @@ interface QueueRow {
   status: 'pending' | 'in_review' | 'resolved' | 'dismissed';
   reviewed_at: string | null;
   reviewed_by: string | null;
-  reviewer_decision: 'approve' | 'override' | 'reject' | 'block_from_submission' | null;
+  reviewer_decision:
+    | 'approve'
+    | 'override'
+    | 'reject'
+    | 'block_from_submission'
+    | 'confirm_flag'
+    | null;
   reviewer_code: string | null;
   reviewer_notes: string | null;
 }
@@ -573,6 +607,33 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
           }
         }
       }
+    }
+
+    // ---- confirm_flag is sanity_flag-only ----
+    //
+    // confirm_flag means "reviewer agrees sanity was right about the
+    // declared VALUE being implausible." It only makes sense on rows
+    // queued for sanity reasons — the other reasons (verifier_uncertain,
+    // verdict_escalate, low_information) are about the CODE, not the
+    // value. Reject confirm_flag with 422 on any non-sanity reason.
+    if (decision === 'confirm_flag') {
+      const r = await pool.query<{ reason: string }>(
+        `SELECT reason FROM hitl_queue WHERE id = $1 LIMIT 1`,
+        [id],
+      );
+      if (r.rowCount === 1 && r.rows[0]!.reason !== 'sanity_flag') {
+        return reply.code(422).send({
+          error: {
+            code: 'confirm_flag_wrong_reason',
+            message:
+              `decision='confirm_flag' is only valid on rows with reason='sanity_flag' (this row's reason is '${r.rows[0]!.reason}'). ` +
+              `Use approve / override / reject / block_from_submission instead.`,
+            details: { reason: r.rows[0]!.reason },
+          },
+        });
+      }
+      // If the row doesn't exist (rowCount === 0), fall through to the
+      // main UPDATE which emits the proper 404.
     }
 
     // ---- Apply the decision ----
