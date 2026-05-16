@@ -88,11 +88,16 @@ function buildItem(body: DispatchBody, operatorId: string): CanonicalLineItem {
 // GET /classifications/:id
 // ---------------------------------------------------------------------------
 
+// Accept any valid UUID (any version + variant). The classification_events
+// table has historical UUIDv4 rows from before newId() switched to UUIDv7,
+// so a strict UUIDv7 regex would 400 on lookups of those rows. Spec
+// (and Fastify route type) keeps `format: uuid`.
 const TraceIdSchema = z
   .string()
-  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, {
-    message: 'id must be a UUIDv7',
-  });
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    { message: 'id must be a UUID' },
+  );
 
 interface ClassificationEventTraceRow {
   id: string;
@@ -374,6 +379,108 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       });
     },
   );
+
+  // -------------------------------------------------------------------
+  // GET /classifications — slim list across all batches.
+  //
+  // Returns a paginated list of classification_events rows (one row per
+  // classification, single-shot OR bulk item). Slim: no trace, no
+  // request blob — those are heavyweight. Use GET /classifications/:id
+  // for the full envelope with trace.
+  //
+  // Query params:
+  //   limit          1..200, default 50
+  //   offset         >= 0, default 0
+  //   status         optional, comma-separated values (e.g. "ok,failed")
+  //   operator_slug  optional, exact match
+  //   final_code     optional, exact 12-digit match
+  // -------------------------------------------------------------------
+  const ListClassificationsQuery = z.object({
+    limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+    offset: z.coerce.number().int().min(0).optional().default(0),
+    status: z.string().optional(),
+    operator_slug: z.string().regex(/^[a-z][a-z0-9_]{2,31}$/).optional(),
+    final_code: z.string().regex(/^\d{12}$/).optional(),
+  });
+
+  app.get<{
+    Querystring: {
+      limit?: string;
+      offset?: string;
+      status?: string;
+      operator_slug?: string;
+      final_code?: string;
+    };
+  }>('/classifications', async (req, reply) => {
+    const parsed = ListClassificationsQuery.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: {
+          code: 'invalid_query',
+          message: 'Query validation failed.',
+          details: parsed.error.flatten(),
+        },
+      });
+    }
+    const { limit, offset, status, operator_slug, final_code } = parsed.data;
+
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (status !== undefined && status !== '') {
+      const list = status.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+      if (list.length > 0) {
+        args.push(list);
+        where.push(`status = ANY($${args.length}::text[])`);
+      }
+    }
+    if (operator_slug) {
+      args.push(operator_slug);
+      where.push(`operator_slug = $${args.length}`);
+    }
+    if (final_code) {
+      args.push(final_code);
+      where.push(`final_code = $${args.length}`);
+    }
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+    const pool = getPool();
+    args.push(limit);
+    args.push(offset);
+
+    const itemsRes = await pool.query<{
+      id: string;
+      created_at: string;
+      operator_slug: string;
+      status: string;
+      final_code: string | null;
+      sanity_verdict: string | null;
+      total_latency_ms: number;
+    }>(
+      `SELECT id, created_at, operator_slug, status, final_code, sanity_verdict, total_latency_ms
+         FROM classification_events
+         ${whereSql}
+         ORDER BY created_at DESC
+         LIMIT $${args.length - 1} OFFSET $${args.length}`,
+      args,
+    );
+
+    const totalRes = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM classification_events ${whereSql}`,
+      args.slice(0, where.length),
+    );
+    const total = Number(totalRes.rows[0]?.count ?? 0);
+    const fetched = offset + itemsRes.rows.length;
+    const hasMore = fetched < total;
+
+    return reply.code(200).send({
+      items: itemsRes.rows,
+      total,
+      limit,
+      offset,
+      has_more: hasMore,
+      next_offset: hasMore ? fetched : null,
+    });
+  });
 }
 
 function findActionInTrace(

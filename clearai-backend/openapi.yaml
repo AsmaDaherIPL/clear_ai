@@ -804,6 +804,77 @@ paths:
   # ────────────────────────────────────────────────────────────────────────
 
   /batches:
+    get:
+      operationId: list-batches
+      tags: [batches]
+      summary: List batches with optional filters
+      description: |
+        Paginated list of declaration runs (batches), newest first. Returns
+        slim BatchSummary rows (no per-item trace). Use `GET /batches/{id}`
+        for a single run or `GET /batches/{id}/items` for its items.
+
+        `status` accepts a comma-separated list. Valid values are the
+        BatchStatus enum: `pending`, `running`, `completed`, `failed`,
+        `cancelled`. Note: there is no `processing` status — use `running`.
+
+        `created_since` / `created_until` accept ISO-8601 timestamps and
+        bound the inclusive `created_at` window.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: status
+          in: query
+          required: false
+          description: Comma-separated subset of BatchStatus values.
+          schema: { type: string, example: 'running,completed' }
+        - name: created_since
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: created_until
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Paginated list of batches.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset, has_more, next_offset]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BatchSummary'
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+                  has_more: { type: boolean }
+                  next_offset:
+                    type: integer
+                    nullable: true
+        '400':
+          description: Invalid query (bad status value, bad date, bad pagination).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Origin access denied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
     post:
       operationId: create-batch
       tags: [batches]
@@ -1176,12 +1247,106 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /classifications:
+    get:
+      operationId: list-classifications
+      tags: [classifications]
+      summary: List classifications across all batches
+      description: |
+        Paginated list of `classification_events` rows, newest first.
+        Returns a slim row per classification (id, timestamp, status,
+        final_code, sanity_verdict, latency). Use
+        `GET /classifications/{id}` for the full envelope including trace.
+
+        Covers both single-shot dispatches AND per-row batch
+        classifications — every classification writes one row to
+        classification_events regardless of entry path.
+
+        Filters compose with AND. `status` accepts a comma-separated
+        list (typical values: `ok`, `failed`). `final_code` must be the
+        full 12-digit code.
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: status
+          in: query
+          required: false
+          description: Comma-separated subset of event statuses (e.g. `ok,failed`).
+          schema: { type: string, example: 'ok,failed' }
+        - name: operator_slug
+          in: query
+          required: false
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{2,31}$' }
+        - name: final_code
+          in: query
+          required: false
+          description: Exact 12-digit HS code match.
+          schema: { type: string, pattern: '^\d{12}$' }
+      responses:
+        '200':
+          description: Paginated list of classification events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset, has_more, next_offset]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, created_at, operator_slug, status, total_latency_ms]
+                      properties:
+                        id: { type: string, format: uuid }
+                        created_at: { type: string, format: date-time }
+                        operator_slug: { type: string }
+                        status: { type: string }
+                        final_code:
+                          type: string
+                          nullable: true
+                          pattern: '^\d{12}$'
+                        sanity_verdict:
+                          type: string
+                          nullable: true
+                          enum: [PASS, FLAG, BLOCK, null]
+                        total_latency_ms: { type: integer }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+                  has_more: { type: boolean }
+                  next_offset:
+                    type: integer
+                    nullable: true
+        '400':
+          description: Invalid query.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Origin access denied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /classifications/{id}:
     parameters:
       - name: id
         in: path
         required: true
-        description: classification_events.id (UUIDv7) — same id returned by /classifications/dispatch and used by /batches/{id}/items.
+        description: |
+          classification_events.id (UUID). Most rows are UUIDv7
+          (timestamp-prefixed) but the table also contains historical
+          UUIDv4 rows from before the v7 migration, so the validator
+          accepts any valid UUID shape.
         schema:
           type: string
           format: uuid
@@ -1216,7 +1381,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DispatchResponse'
         '400':
-          description: id is not a valid UUIDv7.
+          description: id is not a valid UUID.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
