@@ -10,11 +10,12 @@
  * value_plausibility_verdict ships hidden by default; togglable from the
  * Columns menu in the footer.
  */
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { pickLang, type DeclarationRunItem } from '@/lib/api';
+import { pickLang, type DeclarationRunItem, type ReviewQueueRow, type ReviewReason, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
 import { DataTable } from './DataTable';
 
 // ---------------------------------------------------------------------------
@@ -280,6 +281,178 @@ function ManualReviewButton({
 }
 
 // ---------------------------------------------------------------------------
+// Reason badge helpers (mirrors ReviewQueue.tsx)
+// ---------------------------------------------------------------------------
+
+const REASON_LABELS: Record<ReviewReason, string> = {
+  verdict_escalate:   'Verdict mismatch',
+  sanity_flag:        'Sanity flagged',
+  low_information:    'Insufficient info',
+  verifier_uncertain: 'Verifier uncertain',
+};
+
+const REASON_STYLE: Record<ReviewReason, string> = {
+  verdict_escalate:   'bg-[oklch(0.92_0.08_25)]  text-[oklch(0.38_0.12_25)]',
+  sanity_flag:        'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.14_60)]',
+  low_information:    'bg-[oklch(0.92_0.03_220)] text-[oklch(0.40_0.08_220)]',
+  verifier_uncertain: 'bg-[oklch(0.92_0.06_280)] text-[oklch(0.40_0.12_280)]',
+};
+
+// ---------------------------------------------------------------------------
+// Inline review panel — slides over the batch table instead of navigating
+// ---------------------------------------------------------------------------
+
+function ReviewPanel({
+  batchId,
+  onClose,
+}: {
+  batchId: string;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<ReviewQueueRow[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Close on Escape.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // Fetch queue scoped to batch.
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    api.listReviewQueue({ batch_id: batchId, status: 'pending', limit: 50 })
+      .then((res) => {
+        setRows(res.items);
+        setTotal(res.total);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to load review queue.';
+        setError(msg);
+        setLoading(false);
+      });
+  }, [batchId]);
+
+  function navigateToDetail(row: ReviewQueueRow) {
+    const params = new URLSearchParams({ id: row.id, batch_id: batchId });
+    window.location.href = `/review/detail?${params.toString()}`;
+  }
+
+  function relTime(iso: string) {
+    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    return `${Math.floor(m / 60)}h ago`;
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/[0.10]"
+        aria-hidden
+        onClick={onClose}
+      />
+
+      {/* Panel — slides in from the right */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Review queue"
+        className={cn(
+          'fixed inset-y-0 end-0 z-50 w-full max-w-[520px]',
+          'bg-[var(--bg)] border-s border-[var(--line)] shadow-[var(--shadow-lift)]',
+          'flex flex-col overflow-hidden',
+          'animate-[slideInRight_0.22s_ease_both]',
+        )}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-[var(--line-2)]">
+          <div>
+            <div className="font-semibold text-[15px] text-[var(--ink)]">Needs review</div>
+            {total !== null && (
+              <div className="text-[12px] text-[var(--ink-3)] mt-0.5">
+                {total} pending {total === 1 ? 'item' : 'items'}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-[var(--radius)] text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--line-2)] transition-colors duration-150"
+            aria-label="Close"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {loading && (
+            <div className="flex flex-col gap-2 px-6 py-5">
+              {[1,2,3].map((i) => (
+                <div key={i} className="h-14 rounded-[var(--radius)] bg-[var(--line-2)] animate-pulse" />
+              ))}
+            </div>
+          )}
+          {error && (
+            <div className="px-6 py-5 text-[13px] text-[oklch(0.45_0.14_25)]">{error}</div>
+          )}
+          {!loading && !error && rows.length === 0 && (
+            <div className="px-6 py-10 text-center text-[13px] text-[var(--ink-3)]">
+              No pending items in this batch.
+            </div>
+          )}
+          {!loading && !error && rows.length > 0 && (
+            <div className="flex flex-col divide-y divide-[var(--line-2)]">
+              {rows.map((row) => {
+                const desc = (row.payload as any)?.input ?? row.item_id;
+                const conf = row.current_classification_confidence;
+                const confPct = typeof conf === 'number' ? `${Math.round(conf * 100)}%` : null;
+                const reasonStyle = REASON_STYLE[row.reason] ?? 'bg-[var(--line-2)] text-[var(--ink-3)]';
+                const reasonLabel = REASON_LABELS[row.reason] ?? row.reason;
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => navigateToDetail(row)}
+                    className="group w-full text-start px-6 py-4 hover:bg-[var(--line-2)] transition-colors duration-150 flex flex-col gap-2"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-[13px] text-[var(--ink)] leading-[1.4] line-clamp-2 flex-1 min-w-0">
+                        {desc}
+                      </span>
+                      <span className={cn('flex-shrink-0 text-[10.5px] font-mono px-2 py-0.5 rounded-full', reasonStyle)}>
+                        {reasonLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-[11.5px] text-[var(--ink-3)]">
+                      {row.current_final_code && (
+                        <span className="font-mono">{row.current_final_code}</span>
+                      )}
+                      {confPct && <span>{confPct} confidence</span>}
+                      <span className="ms-auto">{relTime(row.created_at)}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -329,11 +502,12 @@ export default function BatchResultsTable({
   // Count items that need review — used for the badge on the CTA button.
   const reviewCount = useMemo(() => items.filter(needsReview).length, [items]);
 
-  // Navigate to the review queue page scoped to this batch.
+  // Inline review panel state.
+  const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
+
   const handleOpenManualReview = useCallback(() => {
     if (!batchId) return;
-    const params = new URLSearchParams({ batch_id: batchId, status: 'pending' });
-    window.location.href = `/review?${params.toString()}`;
+    setReviewPanelOpen(true);
   }, [batchId]);
 
   const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
@@ -516,34 +690,44 @@ export default function BatchResultsTable({
   ) : null;
 
   return (
-    <DataTable
-      // v6 because column resizing came back; storage shape now includes
-      // columnSizing again. Bumping the key invalidates v5 prefs (visibility
-      // only) so returning users start with the new default widths once.
-      tableId="batch-results-v7"
-      // value_plausibility_verdict ships hidden by default — togglable
-      // from the Columns menu in the footer. confidence is visible by default.
-      defaultColumnVisibility={{ value_plausibility_verdict: false }}
-      data={items}
-      columns={columns}
-      expectedRowCount={expectedRowCount}
-      renderSkeletonRow={renderSkeletonRow}
-      enableGlobalSearch
-      searchPlaceholder={t('batch_search_placeholder' as TKey)}
-      filterChips={{
-        columnId: 'value_plausibility_verdict',
-        label: t('batch_filter_verdict_label' as TKey),
-        options: [
-          { label: t('batch_filter_verdict_all' as TKey) },
-          { label: t('batch_filter_verdict_succeeded' as TKey), value: 'succeeded' },
-          { label: t('batch_filter_verdict_flagged' as TKey),   value: 'flagged' },
-          { label: t('batch_filter_verdict_blocked' as TKey),   value: 'blocked' },
-          { label: t('batch_filter_verdict_failed' as TKey),    value: 'failed' },
-        ],
-      }}
-      filterExtra={manualReviewCta}
-      emptyState={t('batch_empty_state' as TKey)}
-      className={className}
-    />
+    <>
+      <DataTable
+        // v6 because column resizing came back; storage shape now includes
+        // columnSizing again. Bumping the key invalidates v5 prefs (visibility
+        // only) so returning users start with the new default widths once.
+        tableId="batch-results-v7"
+        // value_plausibility_verdict ships hidden by default — togglable
+        // from the Columns menu in the footer. confidence is visible by default.
+        defaultColumnVisibility={{ value_plausibility_verdict: false }}
+        data={items}
+        columns={columns}
+        expectedRowCount={expectedRowCount}
+        renderSkeletonRow={renderSkeletonRow}
+        enableGlobalSearch
+        searchPlaceholder={t('batch_search_placeholder' as TKey)}
+        filterChips={{
+          columnId: 'value_plausibility_verdict',
+          label: t('batch_filter_verdict_label' as TKey),
+          options: [
+            { label: t('batch_filter_verdict_all' as TKey) },
+            { label: t('batch_filter_verdict_succeeded' as TKey), value: 'succeeded' },
+            { label: t('batch_filter_verdict_flagged' as TKey),   value: 'flagged' },
+            { label: t('batch_filter_verdict_blocked' as TKey),   value: 'blocked' },
+            { label: t('batch_filter_verdict_failed' as TKey),    value: 'failed' },
+          ],
+        }}
+        filterExtra={manualReviewCta}
+        emptyState={t('batch_empty_state' as TKey)}
+        className={className}
+      />
+
+      {/* Inline review panel — renders over the table, no page navigation */}
+      {reviewPanelOpen && batchId && (
+        <ReviewPanel
+          batchId={batchId}
+          onClose={() => setReviewPanelOpen(false)}
+        />
+      )}
+    </>
   );
 }

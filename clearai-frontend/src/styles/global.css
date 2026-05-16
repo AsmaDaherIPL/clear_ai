@@ -205,6 +205,12 @@ textarea:-webkit-autofill:active {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* slideInRight — review panel slides in from the inline-end edge */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
 /*
  * blink — pulsing dot on the "Processing" status pill in the batch panel
  * header. Catches the eye and signals the run is live without being noisy.

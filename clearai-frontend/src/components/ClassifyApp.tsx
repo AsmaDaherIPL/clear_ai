@@ -613,29 +613,36 @@ export default function ClassifyApp() {
         // row_count drives the skeleton row count before items arrive.
         // After the first tick we derive counts from items, not from
         // a second summary call per tick.
+        // Fetch one page of items. The classification_phase on this
+        // response is the authoritative stop signal.
+        const firstPage = await fetchFirstPageClassifications(runId);
+        const classificationPhase = firstPage.classification_phase;
+
+        // First tick only: fetch summary to seed row_count.
+        // We merge this with derived counts in the same setState call below
+        // to avoid a visible flash where backend-reported failed counts show
+        // before our client-side derivation corrects them.
+        let seedSummary: Awaited<ReturnType<typeof api.getDeclarationRun>> | null = null;
         if (knownRowCount === null) {
           try {
-            const summary = await api.getDeclarationRun(runId);
-            knownRowCount = summary.row_count ?? null;
-            setBatchState((s) => ({ ...s, summary }));
+            seedSummary = await api.getDeclarationRun(runId);
+            knownRowCount = seedSummary.row_count ?? null;
           } catch {
             // Non-fatal: skeleton won't know the expected count but
             // items will still render as they arrive.
           }
         }
 
-        // Fetch one page of items. The classification_phase on this
-        // response is the authoritative stop signal.
-        const firstPage = await fetchFirstPageClassifications(runId);
-        const classificationPhase = firstPage.classification_phase;
-
         // Merge items and patch summary counts from the new item set.
+        // If this is the first tick (seedSummary set), merge it atomically
+        // with derived counts so the raw backend failed count never flashes.
         setBatchState((s) => {
           const merged = mergeItemsById(s.items, firstPage.items);
           const rowCount = knownRowCount ?? firstPage.total ?? merged.length;
           const derived = deriveCountsFromItems(merged, rowCount);
-          const patchedSummary = s.summary
-            ? { ...s.summary, ...derived }
+          const baseSummary = seedSummary ?? s.summary;
+          const patchedSummary = baseSummary
+            ? { ...baseSummary, ...derived }
             : null;
           return { ...s, items: merged, summary: patchedSummary };
         });
