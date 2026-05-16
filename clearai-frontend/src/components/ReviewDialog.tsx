@@ -108,14 +108,14 @@ function BlockConfirmModal({
             Destructive action
           </div>
           <h3 className="m-0 text-[17px] font-medium text-[var(--ink)]">
-            Block from submission?
+            Flag this declared value?
           </h3>
         </div>
         <div className="px-[22px] py-[18px] flex flex-col gap-[12px]">
           <p className="m-0 text-[13.5px] text-[var(--ink-2)] leading-[1.6]">
-            This row will{' '}
-            <span className="font-medium text-[var(--ink)]">not be filed with customs</span>.
-            It will be excluded from the declaration XML.{' '}
+            This row will be{' '}
+            <span className="font-medium text-[var(--ink)]">blocked from customs submission</span>{' '}
+            and excluded from the declaration XML.{' '}
             <span className="font-medium text-[oklch(0.45_0.14_25)]">Cannot be undone.</span>
           </p>
           <div className="rounded-[8px] bg-[var(--line-2)] border border-[var(--line)] px-[14px] py-[12px] flex flex-col gap-[6px]">
@@ -153,7 +153,7 @@ function BlockConfirmModal({
               'hover:brightness-110 transition-all duration-150',
             )}
           >
-            Block from submission
+            Flag declared value
           </button>
         </div>
       </div>
@@ -359,7 +359,7 @@ function DialogInner({
             <label className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.12em] uppercase block mb-[6px]">
               Notes
               <span className="ms-1 normal-case font-normal tracking-normal text-[var(--ink-3)]">
-                — required if blocking (10+ chars)
+                — required if flagging (10+ chars)
               </span>
             </label>
             <textarea
@@ -380,7 +380,7 @@ function DialogInner({
                 'font-mono text-[11px] tabular-nums',
                 notes.length > 0 && !canBlock ? 'text-[oklch(0.50_0.18_25)]' : 'text-[var(--ink-3)]',
               )}>
-                {notes.trim().length} / 10 min for block
+                {notes.trim().length} / 10 min for flag
               </span>
             </div>
           </div>
@@ -427,7 +427,7 @@ function DialogInner({
                 setBlockConfirmOpen(true);
               }}
               disabled={!canBlock}
-              title={!canBlock ? 'Add a note (10+ chars) before blocking' : undefined}
+              title={!canBlock ? 'Add a note (10+ chars) to flag the value' : undefined}
               className={cn(
                 'px-[14px] py-[9px] rounded-[8px] text-[13px]',
                 'border bg-[var(--surface)]',
@@ -436,7 +436,7 @@ function DialogInner({
                 'transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed',
               )}
             >
-              Block from submission
+              Flag declared value
             </button>
             <button
               type="button"
@@ -447,7 +447,7 @@ function DialogInner({
                 'hover:brightness-110 transition-all duration-150',
               )}
             >
-              Approve value
+              Accept, remove flag
             </button>
           </div>
         </div>
@@ -511,7 +511,7 @@ export default function ReviewDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Review flagged value"
+        aria-label="Review declared value"
         className={cn(
           'bg-[var(--surface)] border border-[var(--line)] rounded-[16px]',
           'shadow-[0_24px_60px_-20px_rgba(20,15,5,0.28),0_2px_4px_rgba(20,15,5,0.06)]',

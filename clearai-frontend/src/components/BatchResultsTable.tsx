@@ -285,11 +285,17 @@ function ManualReviewButton({
 // Map a ReviewQueueRow (from the review API) to a ReviewItem (for the dialog)
 // ---------------------------------------------------------------------------
 
-function queueRowToReviewItem(row: ReviewQueueRow): ReviewItem {
-  // Pull the original description from payload.input if available.
-  const description =
-    (row.payload as Record<string, unknown> | undefined)?.input as string | undefined
-    ?? row.item_id;
+function queueRowToReviewItem(
+  row: ReviewQueueRow,
+  /** The matching DeclarationRunItem from the batch — used to pull declared value. */
+  matchedItem?: DeclarationRunItem,
+): ReviewItem {
+  // Description: prefer payload.input (free-text from the trace), then the
+  // matched batch item's declared description, then fall back to item_id.
+  const payloadInput =
+    (row.payload as Record<string, unknown> | undefined)?.input as string | undefined;
+  const declaredDesc = matchedItem?.declared_value?.description ?? undefined;
+  const description = payloadInput ?? declaredDesc ?? row.item_id;
 
   // Map ReviewCandidate[] → AlternativeLine[]
   const alternatives = (row.candidates ?? []).map((c) => ({
@@ -303,11 +309,37 @@ function queueRowToReviewItem(row: ReviewQueueRow): ReviewItem {
   // sanity_flag → value-audit UX; all other reasons → code-flag/candidate UX.
   const flagType: 'value' | 'hs' = row.reason === 'sanity_flag' ? 'value' : 'hs';
 
+  // Pull declared value amount from:
+  //   1. matched batch item's declared_value (most reliable — same row)
+  //   2. matched batch item's canonical value (SAR-converted)
+  //   3. payload.declared_value if available
+  let value: ReviewItem['value'] = null;
+  if (matchedItem?.declared_value?.amount != null && matchedItem.declared_value.currency) {
+    value = {
+      amount: matchedItem.declared_value.amount,
+      currency: matchedItem.declared_value.currency,
+    };
+  } else if (matchedItem?.value?.amount?.value != null && matchedItem.value.amount.currency) {
+    value = {
+      amount: matchedItem.value.amount.value,
+      currency: matchedItem.value.amount.currency,
+    };
+  } else {
+    // Try payload.declared_value as last resort
+    const pd = (row.payload as Record<string, unknown> | undefined)
+      ?.declared_value as Record<string, unknown> | undefined;
+    if (pd?.amount != null && pd?.currency) {
+      value = { amount: Number(pd.amount), currency: String(pd.currency) };
+    }
+  }
+
   return {
     // Use the review queue row's id as the ReviewItem id so callbacks can
     // call PATCH /classifications/review/:id.
     id: row.id,
     description,
+    value,
+    merchantCode: matchedItem?.declared_value?.hs_code ?? null,
     currentCode: row.current_final_code ?? null,
     currentConfidence: row.current_classification_confidence ?? null,
     verdict: row.current_sanity_verdict ?? null,
@@ -396,7 +428,11 @@ export default function BatchResultsTable({
         listRes.items.map((row) => api.getReviewRow(row.id)),
       );
 
-      const queue = detailedRows.map(queueRowToReviewItem);
+      // Match each queue row back to the batch item so we can pull declared value.
+      const queue = detailedRows.map((row) => {
+        const matched = items.find((it) => it.id === row.item_id);
+        return queueRowToReviewItem(row, matched);
+      });
       setReviewQueue(queue);
       setReviewIdx(0);
       setReviewedCount(0);
@@ -425,7 +461,10 @@ export default function BatchResultsTable({
       const next = q.filter((_, i) => i !== reviewIdx);
       // Keep reviewIdx in bounds.
       setReviewIdx((idx) => Math.min(idx, Math.max(0, next.length - 1)));
-      if (next.length === 0) setReviewOpen(false);
+      if (next.length === 0) {
+        // Close and fully reset dialog state so no stale overlay lingers.
+        setReviewOpen(false);
+      }
       return next;
     });
   }, [reviewIdx]);
@@ -674,8 +713,10 @@ export default function BatchResultsTable({
   // Manual review CTA — only shown once the batch is fully complete, there are
   // reviewable items, and we have a batchId. Hidden during polling to avoid
   // confusing partial counts.
+  // Also hidden once the queue has been fully worked through (all reviewed, none pending).
   const pendingInQueue = reviewQueue.length;
-  const manualReviewCta = isComplete && reviewCount > 0 && !!batchId ? (
+  const queueExhausted = !reviewOpen && reviewedCount > 0 && pendingInQueue === 0;
+  const manualReviewCta = isComplete && reviewCount > 0 && !!batchId && !queueExhausted ? (
     <div className="flex flex-col items-end gap-[4px]">
       <ManualReviewButton
         pendingReview={reviewOpen ? pendingInQueue : reviewCount}
