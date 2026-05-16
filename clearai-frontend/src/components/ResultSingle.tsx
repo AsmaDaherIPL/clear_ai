@@ -37,9 +37,17 @@ interface ResultSingleProps {
 /** Cap a description at a char limit, breaking at a word boundary when possible. */
 const ZATCA_DESC_MAX = 250;
 const ALT_DESC_MAX = 120;
+/**
+ * Strips HS-codebook decorators (leading "- - -", ">>>", "<<<", etc.)
+ * then clamps to max chars at a word boundary.
+ */
 function clampDescription(text: string, max: number = ZATCA_DESC_MAX): string {
-  if (!text || text.length <= max) return text;
-  const slice = text.slice(0, max);
+  if (!text) return text;
+  // Remove leading decoration: sequences of dashes/hyphens, angle brackets,
+  // and their surrounding whitespace (e.g. "- - - ", ">>> ", "<< ").
+  const cleaned = text.replace(/^[\s\-<>]+/, '').trimStart();
+  if (cleaned.length <= max) return cleaned;
+  const slice = cleaned.slice(0, max);
   const lastSpace = slice.lastIndexOf(' ');
   const cut = lastSpace > max * 0.6 ? slice.slice(0, lastSpace) : slice;
   return `${cut.trimEnd()}…`;
@@ -411,11 +419,6 @@ function ClarifyCard({
                           {clampDescription(a.description_ar, ALT_DESC_MAX)}
                         </span>
                       )}
-                      {a.reason && (
-                        <span className="text-[12px] text-[var(--ink-3)] leading-[1.45] italic truncate">
-                          {a.reason}
-                        </span>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -531,11 +534,6 @@ function AlternativeSidebarRow({
               style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
             >
               {clampDescription(alt.description_ar, ALT_DESC_MAX)}
-            </span>
-          )}
-          {alt.reason && (
-            <span className="text-[11.5px] text-[var(--ink-3)] leading-[1.45] italic">
-              {alt.reason}
             </span>
           )}
         </div>
