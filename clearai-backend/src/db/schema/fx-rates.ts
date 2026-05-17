@@ -1,12 +1,22 @@
 /**
  * fx_rates — manual-seed currency conversion table.
  *
- * ZATCA accepts only SAR-denominated invoices, so every merchant value in
- * a foreign currency is converted to SAR at parse time. This table is the
- * authoritative source of rates; the parse stage looks up the most recent
- * row at-or-before the batch upload date.
+ * ZATCA accepts invoices in any source currency (the XML carries an
+ * `<invoiceCurrency>` element with the source code, e.g. AED=120,
+ * USD=410), so the renderer emits source amounts untouched.
  *
- * See migration 0076_fx_rates.sql for the CHECK constraints and seed data.
+ * The conversion to SAR is for PIPELINE DECISIONS that need a common
+ * unit — specifically the HV/LV partition (ZATCA_HV_THRESHOLD_SAR =
+ * 1000) and the LV invoice cap (ZATCA_LV_INVOICE_CAP_SAR = 1000).
+ * The 1000 SAR break-point is fixed regardless of the row's source
+ * currency: a 3500 AED row converts to ~3570 SAR -> HV; a 200 AED row
+ * converts to ~204 SAR -> LV. Conversion happens at parse time and is
+ * stamped on canonical.valueAmountSar; canonical.valueAmount stays in
+ * source currency for the renderer.
+ *
+ * This table is the authoritative rate source; parse looks up the most
+ * recent row at-or-before the batch upload date. See migration
+ * 0076_fx_rates.sql for the CHECK constraints and seed data.
  */
 import { pgTable, uuid, varchar, numeric, date, text, timestamp, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';

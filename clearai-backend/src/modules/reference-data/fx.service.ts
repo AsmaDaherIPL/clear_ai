@@ -1,13 +1,24 @@
 /**
  * Currency → SAR conversion service.
  *
- * ZATCA accepts only SAR invoices. Every parsed line is converted at ingest
- * time using a manually-seeded `fx_rates` table. SAR itself is a passthrough
- * (rate = 1, no DB lookup).
+ * ZATCA accepts invoices in any source currency (the renderer emits
+ * source amounts + the row's currency code), so this conversion is NOT
+ * for the XML. It exists so the pipeline can compare values across
+ * mixed-currency batches against SAR-denominated decision thresholds —
+ * specifically the HV/LV partition (ZATCA_HV_THRESHOLD_SAR = 1000) and
+ * the LV invoice cap (ZATCA_LV_INVOICE_CAP_SAR = 1000). The 1000 SAR
+ * break-point is fixed regardless of source currency; FX exists to
+ * project every row into that common unit.
  *
- * Lookup rule: the most recent row where `as_of_date <= today`. If no rate
- * is on file for the supplied currency, throw — the parse stage surfaces
- * the rejection upstream so ops can seed the missing rate and re-upload.
+ * The converted value is stamped at parse time on
+ * canonical.valueAmountSar; canonical.valueAmount stays in source
+ * currency for the renderer. SAR itself is a passthrough (rate = 1,
+ * no DB lookup).
+ *
+ * Lookup rule: the most recent row where `as_of_date <= today`. If no
+ * rate is on file for the supplied currency, throw — the parse stage
+ * surfaces the rejection upstream so ops can seed the missing rate
+ * and re-upload.
  */
 import { getPool } from '../../db/client.js';
 

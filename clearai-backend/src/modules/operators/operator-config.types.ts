@@ -161,9 +161,14 @@ export interface CanonicalLineItem {
   currencyCode: string;
   /**
    * Merchant value converted to SAR at parse time. Used by the HV/LV
-   * splitter, sanity stage, and ZATCA renderer (ZATCA accepts SAR only).
-   * Always populated after parse — if conversion failed, parse rejects
-   * the item upstream.
+   * splitter (ZATCA_HV_THRESHOLD_SAR = 1000), the LV invoice cap
+   * (ZATCA_LV_INVOICE_CAP_SAR = 1000), and the sanity stage's value-
+   * plausibility ratios. NOT used by the ZATCA renderer — that path
+   * reads `valueAmount` + `currencyCode` and emits source amounts with
+   * the row's currency code (samples confirm ZATCA accepts foreign-
+   * currency invoices; the 1000 SAR break-point applies regardless of
+   * source currency). Always populated after parse; if conversion
+   * failed, parse rejects the item upstream.
    */
   valueAmountSar?: number;
   /** SAR-per-unit rate applied (e.g. 3.75 for USD). 1 for SAR itself. */
