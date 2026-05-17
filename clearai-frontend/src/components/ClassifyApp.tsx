@@ -497,14 +497,34 @@ export default function ClassifyApp() {
   // middle slot changes between the login card (unauthenticated)
   // and the composer + result region (authenticated).
   const authState = useAuthState();
-  const [mode, setMode] = useState<ClassifyMode>('generate');
+  // Start in batch mode when the URL carries a ?run= param so ResultBatch
+  // renders immediately on refresh without waiting for the resume effect.
+  const [mode, setMode] = useState<ClassifyMode>(() =>
+    getUrlRunId() ? 'batch' : 'generate'
+  );
 
   const [modeStates, setModeStates] = useState<Record<ClassifyMode, ModeState>>({
     generate: { ...initialModeState },
     expand:   { ...initialModeState },
     batch:    { ...initialModeState },
   });
-  const [batchState, setBatchState] = useState<BatchState>(initialBatchState);
+  // Seed batchState with the ?run= URL param on first render so that the
+  // syncRunIdToUrl effect (which fires immediately on mount with whatever
+  // batchState.runId is) never wipes the URL before the resume effect reads it.
+  // Without this seed, mount order is:
+  //   1. useState(initialBatchState) → runId: null
+  //   2. syncRunIdToUrl(null) effect fires → deletes ?run= from the URL
+  //   3. resume effect fires → getUrlRunId() returns null → no resume
+  const [batchState, setBatchState] = useState<BatchState>(() => {
+    const urlRunId = getUrlRunId();
+    if (urlRunId) {
+      // Start in 'polling' phase so ResultBatch mounts immediately while
+      // the resume effect starts the actual poll. This also collapses the
+      // composer so the user sees the result panel on refresh.
+      return { ...initialBatchState, phase: 'polling', runId: urlRunId };
+    }
+    return initialBatchState;
+  });
   const pollTimerRef = useRef<number | null>(null);
   // True once the URL-resume effect has already fired for the current
   // session. Reset on sign-out so a fresh sign-in re-triggers resume,
