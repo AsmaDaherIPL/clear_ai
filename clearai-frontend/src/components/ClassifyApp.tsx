@@ -458,9 +458,13 @@ function getUrlRunId(): string | null {
   return new URLSearchParams(window.location.search).get('run');
 }
 
+// Only one URL param is active at a time: ?run= (batch) XOR ?id= (single-shot).
+// Each sync function deletes the other param so they never coexist.
+
 function syncRunIdToUrl(runId: string | null): void {
   if (typeof window === 'undefined') return;
   const params = new URLSearchParams(window.location.search);
+  params.delete('id'); // batch owns the URL — evict single-shot param
   if (runId) {
     params.set('run', runId);
   } else {
@@ -480,6 +484,7 @@ function syncRunIdToUrl(runId: string | null): void {
 function syncClassificationIdToUrl(id: string | null): void {
   if (typeof window === 'undefined') return;
   const params = new URLSearchParams(window.location.search);
+  params.delete('run'); // single-shot owns the URL — evict batch param
   if (id) {
     params.set('id', id);
   } else {
@@ -556,11 +561,14 @@ export default function ClassifyApp() {
   }, [batchState.runId]);
 
   // Keep ?id=<classification_id> in sync with single-shot results.
-  // Only mirrors when the current mode is generate/expand and there's
-  // a response — batch mode owns the URL via ?run= (above), so we don't
-  // want both params fighting. Clears when the user wipes the result.
+  // When mode is batch, actively clear ?id= (batch's syncRunIdToUrl also
+  // clears it, but being explicit here prevents any race). When mode is
+  // generate/expand, write the current result id or clear if none.
   useEffect(() => {
-    if (mode === 'batch') return;
+    if (mode === 'batch') {
+      syncClassificationIdToUrl(null);
+      return;
+    }
     const id = cur.response?.request_id ?? null;
     syncClassificationIdToUrl(id);
   }, [mode, cur.response]);
