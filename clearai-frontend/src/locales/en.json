@@ -101,7 +101,7 @@
   "res_alts_show_desc": "Show description",
   "res_alts_hide_desc": "Hide description",
   "step_understand": "Reading your description",
-  "step_search": "Searching the ZATCA tariff library",
+  "step_search": "Searching ZATCA tariff codes library",
   "step_reason": "Picking the best match and verifying it",
   "th_line": "Line",
   "th_desc": "Description",
