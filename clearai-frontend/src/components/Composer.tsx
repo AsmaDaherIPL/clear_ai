@@ -91,6 +91,9 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  // Tracks whether the user has attempted to submit with a missing value.
+  // Set to true on submit when value is empty; cleared the moment they type.
+  const [valueRequired, setValueRequired] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const charCount = description.length;
   const atCap = charCount >= DESCRIPTION_MAX;
@@ -124,7 +127,13 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
     const trimmed = description.trim();
     if (!trimmed) return;
     if (!parentCodeValid) return;
-    if (parsedValueAmount === null) return;
+    if (parsedValueAmount === null) {
+      // Surface the missing-value error and focus the input.
+      setValueRequired(true);
+      document.getElementById('composer-value')?.focus();
+      return;
+    }
+    setValueRequired(false);
     const extras: ComposerExtras = {
       valueAmount: parsedValueAmount,
       currencyCode,
@@ -191,10 +200,21 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
             background chevron.
           */}
           {(mode === 'generate' || mode === 'expand') && (
-            <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
+            <div
+              className={cn(
+                'flex items-center gap-3 px-[22px] py-2.5 border-t',
+                'transition-colors duration-150',
+                valueRequired
+                  ? 'border-t-[oklch(0.58_0.20_25)] bg-[oklch(0.98_0.015_25)]'
+                  : 'border-t-[var(--line-2)]',
+              )}
+            >
               <label
                 htmlFor="composer-value"
-                className="font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase shrink-0"
+                className={cn(
+                  'font-mono text-[11px] font-medium tracking-[0.06em] uppercase shrink-0 transition-colors duration-150',
+                  valueRequired ? 'text-[oklch(0.45_0.18_25)]' : 'text-[var(--ink-3)]',
+                )}
               >
                 {t('value_label')}
               </label>
@@ -204,6 +224,7 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                 inputMode="decimal"
                 value={valueAmount}
                 onChange={(e) => {
+                  if (valueRequired) setValueRequired(false);
                   const cleaned = e.target.value.replace(/[^0-9.]/g, '');
                   const parts = cleaned.split('.');
                   const next = parts.length > 1
@@ -212,8 +233,24 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                   setValueAmount(next.slice(0, 12));
                 }}
                 placeholder="0.00"
-                className="flex-1 min-w-0 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
+                aria-invalid={valueRequired}
+                aria-describedby={valueRequired ? 'composer-value-error' : undefined}
+                className={cn(
+                  'flex-1 min-w-0 border-0 outline-none bg-transparent font-mono text-base tracking-[0.02em]',
+                  valueRequired
+                    ? 'text-[oklch(0.45_0.18_25)] placeholder:text-[oklch(0.70_0.10_25)]'
+                    : 'text-[var(--ink)] placeholder:text-[var(--ink-3)]',
+                )}
               />
+              {valueRequired && (
+                <span
+                  id="composer-value-error"
+                  role="alert"
+                  className="text-[11.5px] text-[oklch(0.45_0.18_25)] font-medium shrink-0 whitespace-nowrap"
+                >
+                  Required
+                </span>
+              )}
               <select
                 aria-label={t('value_label')}
                 value={currencyCode}
@@ -233,9 +270,11 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
-              <span className="hidden sm:inline text-[12px] text-[var(--ink-3)] shrink-0">
-                {t('value_hint')}
-              </span>
+              {!valueRequired && (
+                <span className="hidden sm:inline text-[12px] text-[var(--ink-3)] shrink-0">
+                  {t('value_hint')}
+                </span>
+              )}
             </div>
           )}
 

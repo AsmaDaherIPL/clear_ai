@@ -14,7 +14,7 @@
   "mode_batch_desc": "ارفع فاتورة وصنّف كل رمز تعرفة دفعة واحدة",
   "parent_label": "رمز التعرفة",
   "value_label": "القيمة",
-  "value_hint": "سعر الوحدة، القيمة الجمركية",
+  "value_hint": "سعر الوحدة",
   "lang_hint": "EN أو AR",
   "drop_title": "أفلِت ملف الفاتورة CSV هنا",
   "drop_hint": "…أو انقر للتصفح · CSV أو Excel",
