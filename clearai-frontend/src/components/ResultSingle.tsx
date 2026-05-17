@@ -914,15 +914,7 @@ export default function ResultSingle({
                 <BigCode code={code12} />
               </div>
               <div className="flex flex-wrap items-start gap-2">
-                {/* DRIFT pill */}
-                {data.classification_status === 'DRIFT' && (
-                  <span
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-mono text-[11.5px] font-medium uppercase tracking-[0.06em]"
-                    style={{ background: 'oklch(0.94 0.07 75)', color: 'oklch(0.42 0.14 60)' }}
-                  >
-                    {t('res_pill_reviewed_ai' as TKey)}
-                  </span>
-                )}
+                {/* DRIFT pill removed — "Reviewed by AI" badge is not shown */}
                 {/* Single confidence badge — replaces "Strong match" + raw % chip */}
                 {confidencePct && confidenceBadgeStyle && (
                   <span

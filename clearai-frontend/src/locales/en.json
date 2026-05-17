@@ -340,7 +340,7 @@
   "res_alts_partial": "partial",
   "res_alts_does_not_fit": "does not fit",
   "res_alts_selected_via": "Selected via",
-  "res_pill_reviewed_ai": "Reviewed by AI",
+  /* res_pill_reviewed_ai removed — badge no longer shown */
   "res_track_identify": "Product identification",
   "res_track_resolve": "Codebook lookup",
   "review_queue_label": "Review queue",

@@ -340,7 +340,7 @@
   "res_alts_partial": "جزئي",
   "res_alts_does_not_fit": "غير مطابق",
   "res_alts_selected_via": "تم الاختيار عبر",
-  "res_pill_reviewed_ai": "مراجعة AI",
+  /* res_pill_reviewed_ai removed — badge no longer shown */
   "res_track_identify": "التعريف بالمنتج",
   "res_track_resolve": "البحث في كتيب الرموز",
   "review_queue_label": "قائمة المراجعة",
