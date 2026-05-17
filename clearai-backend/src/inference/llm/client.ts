@@ -231,14 +231,23 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
   }
 }
 
-/** Max 429 retries inside callLlm. A single Foundry 60s rate-limit
- *  window can be ridden out in 2 retries × up to 40s waits ≈ 80s. */
-const INNER_429_MAX_RETRIES = 2;
+/** Max 429 retries inside callLlm. Reduced 2 → 1 on 2026-05-17 after
+ *  batch 019e348f-fce0 showed 7 picker 429 casualties at concurrency=16
+ *  + cap=300k TPM. Each casualty burned ~50s of wall time waiting through
+ *  Foundry's polite back-off hints. Under sustained-cap conditions the
+ *  retries don't recover — they just delay the inevitable HITL escalation.
+ *  One retry honors Foundry's stated wait window (typical hint: 8-23s)
+ *  and fails fast if the cap is sticky. Sonnet cap raised to 600k TPM
+ *  same day, so 429s should now be rare anyway; this caps the blast
+ *  radius if they recur. */
+const INNER_429_MAX_RETRIES = 1;
 
-/** Total wall-clock budget for the inner 429 retry loop. Stops the loop
- *  from pinning a request indefinitely when Foundry's quota is exhausted
- *  beyond a single window. */
-const INNER_429_BUDGET_MS = 90_000;
+/** Total wall-clock budget for the inner 429 retry loop. Tightened
+ *  90s → 45s on 2026-05-17 alongside the MAX_RETRIES cut. With one
+ *  retry max + the 40s wait ceiling + one final attempt's timeout,
+ *  45s is the natural upper bound. Prevents a single rate-limited
+ *  call from pinning a concurrency slot for almost two minutes. */
+const INNER_429_BUDGET_MS = 45_000;
 
 /**
  * Call Foundry, automatically retrying 429s up to INNER_429_MAX_RETRIES
