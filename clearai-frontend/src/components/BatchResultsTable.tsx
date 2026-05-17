@@ -761,7 +761,6 @@ export default function BatchResultsTable({
             { label: t('batch_filter_verdict_all' as TKey) },
             { label: t('batch_filter_verdict_succeeded' as TKey), value: 'succeeded' },
             { label: t('batch_filter_verdict_flagged' as TKey),   value: 'flagged' },
-            { label: t('batch_filter_verdict_blocked' as TKey),   value: 'blocked' },
             { label: t('batch_filter_verdict_failed' as TKey),    value: 'failed' },
           ],
         }}

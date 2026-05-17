@@ -124,7 +124,6 @@
   "batch_filter_verdict_all": "All",
   "batch_filter_verdict_succeeded": "Succeeded",
   "batch_filter_verdict_flagged": "Flagged",
-  "batch_filter_verdict_blocked": "Blocked",
   "batch_filter_verdict_failed": "Failed",
   "batch_verdict_succeeded": "Succeeded",
   "batch_verdict_flagged": "Flagged",

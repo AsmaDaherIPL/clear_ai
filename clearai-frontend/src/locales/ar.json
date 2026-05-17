@@ -124,7 +124,6 @@
   "batch_filter_verdict_all": "الكل",
   "batch_filter_verdict_succeeded": "ناجح",
   "batch_filter_verdict_flagged": "مُعلَّم",
-  "batch_filter_verdict_blocked": "محظور",
   "batch_filter_verdict_failed": "فاشل",
   "batch_verdict_succeeded": "ناجح",
   "batch_verdict_flagged": "مُعلَّم",
