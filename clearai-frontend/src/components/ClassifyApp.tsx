@@ -515,13 +515,14 @@ export default function ClassifyApp() {
   //   1. useState(initialBatchState) → runId: null
   //   2. syncRunIdToUrl(null) effect fires → deletes ?run= from the URL
   //   3. resume effect fires → getUrlRunId() returns null → no resume
+  //
+  // We seed runId but leave phase 'idle' so nothing renders until the resume
+  // effect (after auth) flips phase to 'polling' and starts the real poll.
+  // Seeding 'polling' here caused a "Processing" flash before auth resolved.
   const [batchState, setBatchState] = useState<BatchState>(() => {
     const urlRunId = getUrlRunId();
     if (urlRunId) {
-      // Start in 'polling' phase so ResultBatch mounts immediately while
-      // the resume effect starts the actual poll. This also collapses the
-      // composer so the user sees the result panel on refresh.
-      return { ...initialBatchState, phase: 'polling', runId: urlRunId };
+      return { ...initialBatchState, runId: urlRunId };
     }
     return initialBatchState;
   });
@@ -753,9 +754,12 @@ export default function ClassifyApp() {
 
   // Resume a batch run from ?run=<id> in the URL. Runs once after auth
   // resolves so navigating back to the page or sharing the URL drops
-  // you right back into the live result panel. The poll loop handles
-  // error surfacing — if the run doesn't exist or the user doesn't
-  // have access, phase flips to 'error' with a message.
+  // you right back into the live result panel.
+  //
+  // Fast-path: if the run is already terminal (completed / failed), fetch
+  // all items directly and go straight to phase='done' without ever showing
+  // the "Processing" indicator. Only fall back to startPollingRun when the
+  // run is genuinely still in progress.
   useEffect(() => {
     if (authState !== 'authenticated') return;
     if (resumedRef.current) return;
@@ -764,8 +768,33 @@ export default function ClassifyApp() {
     resumedRef.current = true;
     stopPolling();
     setMode('batch');
-    setBatchState({ ...initialBatchState, phase: 'polling', runId: urlRunId });
-    startPollingRun(urlRunId);
+
+    void (async () => {
+      // Show the result panel while we fetch — keeps the URL in sync.
+      setBatchState({ ...initialBatchState, phase: 'polling', runId: urlRunId });
+      try {
+        const summary = await api.getDeclarationRun(urlRunId);
+        if (summary.status === 'completed' || summary.status === 'failed') {
+          // Already done — skip the poll loop entirely and jump straight to
+          // the final result so the user never sees "Processing" on refresh.
+          const finalCls = await fetchAllClassifications(urlRunId);
+          setBatchState({
+            ...initialBatchState,
+            phase: 'done',
+            runId: urlRunId,
+            summary,
+            items: finalCls.items,
+            errorMessage: null,
+          });
+          return;
+        }
+      } catch {
+        // Summary fetch failed (404 / 401 / network). Fall through to the
+        // normal poll loop which handles error surfacing per-status.
+      }
+      // Run is still live — hand off to the normal poll loop.
+      startPollingRun(urlRunId);
+    })();
   }, [authState, startPollingRun]);
 
   // When auth flips from authenticated → unauthenticated (sign-out,
