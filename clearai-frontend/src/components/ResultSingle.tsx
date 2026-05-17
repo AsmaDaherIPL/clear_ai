@@ -507,63 +507,71 @@ function SwitchConfirmPopover({
       aria-modal="true"
       aria-label={t('act_switch_confirm' as TKey)}
       className={cn(
-        'absolute end-0 top-full mt-1.5 z-50 w-[min(320px,90vw)]',
-        'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)]',
-        'shadow-[0_4px_24px_-4px_rgba(0,0,0,0.18)] animate-[fadeUp_0.15s_ease_both]',
-        'p-3.5 flex flex-col gap-3',
+        'absolute end-0 top-full mt-2 z-50 w-[min(420px,92vw)]',
+        'bg-[var(--surface)] border border-[var(--line)]',
+        'rounded-[16px]',
+        'shadow-[0_8px_40px_-8px_rgba(0,0,0,0.16),0_2px_8px_-2px_rgba(0,0,0,0.06)]',
+        'animate-[fadeUp_0.15s_ease_both]',
+        'overflow-hidden',
       )}
     >
-      {/* A → B diagram */}
-      <div className="flex items-center gap-2">
-        {/* From */}
-        <div className="flex-1 min-w-0 flex flex-col gap-0.5 px-2.5 py-2 rounded-[var(--radius)] bg-[var(--line-2)] border border-[var(--line)]">
-          <span className="font-mono text-[9.5px] text-[var(--ink-3)] uppercase tracking-[0.08em]">
+      {/* Header */}
+      <div className="px-5 pt-5 pb-3">
+        <p className="m-0 text-[11px] font-mono uppercase tracking-[0.12em] text-[var(--ink-3)]">
+          Confirm code switch
+        </p>
+      </div>
+
+      {/* Two equal-width code cards in a grid */}
+      <div className="px-5 pb-4 grid grid-cols-2 gap-3">
+        {/* Current */}
+        <div className="flex flex-col gap-2 p-4 rounded-[10px] bg-[var(--line-2)] border border-[var(--line)]">
+          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ink-3)]">
             {t('act_switch_from' as TKey)}
           </span>
-          <span className="font-mono text-[13px] text-[var(--ink)] font-medium leading-none truncate">
+          <span className="font-mono text-[17px] font-semibold text-[var(--ink)] leading-none tracking-[-0.01em] break-all">
             {fromCode}
           </span>
-          {fromLabel && (
-            <span className="text-[11px] text-[var(--ink-3)] leading-[1.35] line-clamp-2 mt-0.5">
-              {fromLabel}
-            </span>
-          )}
+          <span className="text-[12px] text-[var(--ink-2)] leading-[1.45] line-clamp-3 min-h-[3em]">
+            {fromLabel ?? '—'}
+          </span>
         </div>
 
-        {/* Arrow */}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 text-[var(--accent)]" aria-hidden>
-          <path d="M5 12h14M13 6l6 6-6 6" />
-        </svg>
-
-        {/* To */}
-        <div className="flex-1 min-w-0 flex flex-col gap-0.5 px-2.5 py-2 rounded-[var(--radius)] bg-[oklch(0.96_0.02_145)] border border-[oklch(0.88_0.04_145)]">
-          <span className="font-mono text-[9.5px] text-[oklch(0.45_0.10_145)] uppercase tracking-[0.08em]">
+        {/* Switch to */}
+        <div className="flex flex-col gap-2 p-4 rounded-[10px] bg-[var(--surface)] border-2 border-[var(--accent)]">
+          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--accent-ink)]">
             {t('act_switch_to' as TKey)}
           </span>
-          <span className="font-mono text-[13px] text-[var(--ink)] font-medium leading-none truncate">
+          <span className="font-mono text-[17px] font-semibold text-[var(--accent-ink)] leading-none tracking-[-0.01em] break-all">
             {toCode}
           </span>
-          {toLabel && (
-            <span className="text-[11px] text-[oklch(0.40_0.10_145)] leading-[1.35] line-clamp-2 mt-0.5">
-              {toLabel}
-            </span>
-          )}
+          <span className="text-[12px] text-[var(--ink-2)] leading-[1.45] line-clamp-3 min-h-[3em]">
+            {toLabel ?? '—'}
+          </span>
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center justify-end gap-2">
+      {/* Divider + Actions */}
+      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--line-2)] bg-[var(--line-2)]">
         <button
           type="button"
           onClick={onCancel}
-          className="px-3 py-1.5 rounded-[var(--radius)] text-[12px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150"
+          className={cn(
+            'px-4 py-2 rounded-[8px] text-[13px] font-medium',
+            'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
+            'hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-all duration-150',
+          )}
         >
           {t('act_switch_cancel' as TKey)}
         </button>
         <button
           type="button"
           onClick={onConfirm}
-          className="px-3 py-1.5 rounded-[var(--radius)] text-[12px] font-medium bg-[var(--accent)] text-white hover:brightness-110 transition-all duration-150"
+          className={cn(
+            'px-4 py-2 rounded-[8px] text-[13px] font-medium',
+            'bg-[var(--accent)] text-white border border-[var(--accent)]',
+            'hover:brightness-110 transition-all duration-150',
+          )}
         >
           {t('act_switch_confirm' as TKey)}
         </button>
