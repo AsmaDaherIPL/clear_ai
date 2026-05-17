@@ -204,8 +204,14 @@ function renderInvoiceItem(item: BatchItemRow, idx: number, input: RenderInput):
   const c = item.canonical;
   const seq = idx + 1;
 
-  // Country of origin: ISO alpha-2 -> Tabadul code via lookup.
-  const country = lookupOrThrow(input, 'country_of_origin', c.countryOfOrigin, `item ${seq} country_of_origin`);
+  // Country of origin: emit ISO alpha-2 verbatim (e.g. "GB", "US", "CN").
+  // Sample evidence: post-processed item 1 emits "US", item 2 emits "GB",
+  // NQD26030942060 emits "CN". The lookup is still called to VALIDATE the
+  // code exists; we throw on unknown rather than ship a country ZATCA
+  // can't resolve. We do NOT emit the Tabadul numeric (country.canonical)
+  // here even though the lookup carries one — that was the pre-fix bug.
+  lookupOrThrow(input, 'country_of_origin', c.countryOfOrigin, `item ${seq} country_of_origin`);
+  const countryIso = c.countryOfOrigin.trim().toUpperCase();
 
   // UOM: per-row from c.uom -> Tabadul code via lookup.
   // Replaces the previous hardcoded item_invoice_measurement_unit constant.
@@ -219,30 +225,30 @@ function renderInvoiceItem(item: BatchItemRow, idx: number, input: RenderInput):
 
   const qty = c.quantity;
   const weight = c.netWeightKg;
-  // ZATCA accepts only SAR-denominated invoices. We use valueAmountSar
-  // stamped at parse time; fall back to valueAmount only for legacy rows
-  // (pre 2026-05-13) that predate the FX migration.
-  const unitInvoiceCost =
-    typeof c.valueAmountSar === 'number' && Number.isFinite(c.valueAmountSar)
-      ? c.valueAmountSar
-      : c.valueAmount;
+  // Amounts: emit SOURCE currency values, NOT SAR-converted. ZATCA expects
+  // the invoice currency code + amount to stay in source units (see sample
+  // NQD26033110789: AED-source invoice ships invoiceCurrency=120 and
+  // invoiceCost=3426.35, both in AED). The pipeline's valueAmountSar is
+  // for bundling decisions (HV/LV partition + LV invoice cap); the
+  // renderer reads the raw valueAmount.
+  const unitInvoiceCost = Number(c.valueAmount ?? 0);
   const itemCost = unitInvoiceCost * qty;
 
   return [
     `        <decsub:items>`,
     `          <deccm:itemSeqNo>${seq}</deccm:itemSeqNo>`,
-    `          <deccm:countryOfOrigin>${xml(country.canonical)}</deccm:countryOfOrigin>`,
+    `          <deccm:countryOfOrigin>${xml(countryIso)}</deccm:countryOfOrigin>`,
     `          <deccm:tariffCode>${xml(tariffCode)}</deccm:tariffCode>`,
     `          <deccm:goodsDescription>${xml(goodsDescription)}</deccm:goodsDescription>`,
     `          <deccm:invoiceMeasurementUnit>${xml(uom.canonical)}</deccm:invoiceMeasurementUnit>`,
     `          <deccm:quantityInvoiceUnit>${xml(qty)}</deccm:quantityInvoiceUnit>`,
     `          <deccm:internationalMeasurementUnit>${xml(uom.canonical)}</deccm:internationalMeasurementUnit>`,
     `          <deccm:quantityInternationalUnit>${xml(qty)}</deccm:quantityInternationalUnit>`,
-    `          <deccm:grossWeight>${xml(formatNumeric(weight))}</deccm:grossWeight>`,
-    `          <deccm:netWeight>${xml(formatNumeric(weight))}</deccm:netWeight>`,
+    `          <deccm:grossWeight>${xml(formatNumeric(weight, 3))}</deccm:grossWeight>`,
+    `          <deccm:netWeight>${xml(formatNumeric(weight, 3))}</deccm:netWeight>`,
     `          <deccm:unitPerPackages>${xml(cfg(input.config.itemUnitPerPackages))}</deccm:unitPerPackages>`,
-    `          <deccm:unitInvoiceCost>${xml(formatNumeric(unitInvoiceCost))}</deccm:unitInvoiceCost>`,
-    `          <deccm:itemCost>${xml(formatNumeric(itemCost))}</deccm:itemCost>`,
+    `          <deccm:unitInvoiceCost>${xml(formatNumeric(unitInvoiceCost, 3))}</deccm:unitInvoiceCost>`,
+    `          <deccm:itemCost>${xml(formatNumeric(itemCost, 2))}</deccm:itemCost>`,
     `          <deccm:itemDutyType>${xml(cfg(input.config.itemDutyTypeId))}</deccm:itemDutyType>`,
     `        </decsub:items>`,
   ].join('\n');
@@ -255,27 +261,30 @@ function renderInvoice(input: RenderInput): string {
   // totalNoItems = sum of quantities, NOT items.length. Verified against
   // sample NQD60 (29 item blocks, totalNoItems=51 = sum of quantities).
   const totalNoItems = items.reduce((s, it) => s + Number(it.canonical.quantity || 0), 0);
-  // invoiceCost = sum of itemCost in SAR. ZATCA accepts only SAR.
-  // valueAmountSar is stamped at parse time; legacy fallback to valueAmount.
+  // invoiceCost = sum of itemCost in SOURCE currency. We do NOT FX-convert
+  // here: sample NQD26033110789 ships an AED invoice with currency code
+  // 120 (AED Tabadul id) and amount 3426.35 — both in AED, no SAR
+  // conversion. The pipeline's valueAmountSar is used elsewhere for HV/LV
+  // bundling decisions; the renderer reads the raw valueAmount.
   const totalCost = items.reduce((s, it) => {
     const c = it.canonical;
-    const sarUnit =
-      typeof c.valueAmountSar === 'number' && Number.isFinite(c.valueAmountSar)
-        ? c.valueAmountSar
-        : Number(c.valueAmount || 0);
-    return s + sarUnit * Number(c.quantity || 0);
+    const unit = Number(c.valueAmount ?? 0);
+    return s + unit * Number(c.quantity ?? 0);
   }, 0);
   const totalWeight = items.reduce((s, it) => s + Number(it.canonical.netWeightKg || 0), 0);
 
-  // ZATCA invoice currency is always SAR (Tabadul currency_code = "100").
-  // Don't look up the merchant's currency — the source values have already
-  // been converted to SAR at parse time.
+  // Invoice currency: look up the ROW's currency, not a hardcoded SAR.
+  // Per spec sample evidence, ZATCA accepts foreign-currency invoices
+  // (NQD26033110789 = AED). The bundler guarantees one bundle = one
+  // currency upstream (we don't mix currencies within a single
+  // declaration), so reading the first item's currency is sound.
   const first = items[0]!;
+  const firstCurrencyCode = String(first.canonical.currencyCode ?? 'SAR').toUpperCase();
   const currency = lookupOrThrow(
     input,
     'currency_code',
-    'SAR',
-    `invoice currency`,
+    firstCurrencyCode,
+    `invoice currency (${firstCurrencyCode})`,
   );
 
   // Source company: client_source_company keyed on `${clientId}:${regPort}`.
@@ -296,10 +305,10 @@ function renderInvoice(input: RenderInput): string {
     `        <deccm:invoiceType>${xml(cfg(input.config.invoiceTypeId))}</deccm:invoiceType>`,
     `        <deccm:invoiceNo>${xml(first.canonical.waybillNo)}</deccm:invoiceNo>`,
     `        <deccm:totalNoItems>${totalNoItems}</deccm:totalNoItems>`,
-    `        <deccm:invoiceCost>${xml(formatNumeric(totalCost))}</deccm:invoiceCost>`,
+    `        <deccm:invoiceCost>${xml(formatNumeric(totalCost, 2))}</deccm:invoiceCost>`,
     `        <deccm:invoiceCurrency>${xml(currency.canonical)}</deccm:invoiceCurrency>`,
-    `        <deccm:totalGrossWeight>${xml(formatNumeric(totalWeight))}</deccm:totalGrossWeight>`,
-    `        <deccm:totalNetWeight>${xml(formatNumeric(totalWeight))}</deccm:totalNetWeight>`,
+    `        <deccm:totalGrossWeight>${xml(formatNumeric(totalWeight, 3))}</deccm:totalGrossWeight>`,
+    `        <deccm:totalNetWeight>${xml(formatNumeric(totalWeight, 3))}</deccm:totalNetWeight>`,
     '        <decsub:sourceCompany>',
     `          <deccm:sourceCompanyName>${xml(sourceCompanyName)}</deccm:sourceCompanyName>`,
     `          <decsub:sourceCompanyNo>${xml(sourceCompanyNo)}</decsub:sourceCompanyNo>`,
@@ -309,18 +318,35 @@ function renderInvoice(input: RenderInput): string {
     `          <deccm:paymentInfoSeqNo>1</deccm:paymentInfoSeqNo>`,
     `          <deccm:invoicePayment>${xml(cfg(input.config.invoicePaymentMethodId))}</deccm:invoicePayment>`,
     `          <deccm:paymentDocumentsStatus>${xml(cfg(input.config.paymentDocumentStatusId))}</deccm:paymentDocumentsStatus>`,
-    `          <deccm:documentAmount>${xml(formatNumeric(totalCost))}</deccm:documentAmount>`,
+    `          <deccm:documentAmount>${xml(formatNumeric(totalCost, 2))}</deccm:documentAmount>`,
     '        </decsub:paymentInfo>',
     renderInvoiceItems(items, input),
     '      </decsub:invoices>',
   ].join('\n');
 }
 
-/** Drop trailing ".0" on integers (sample 2 emits "1080" not "1080.0"). */
-function formatNumeric(n: number): string {
+/**
+ * Format a number for XML emission. Rounds to `maxDecimals` precision
+ * (defeating IEEE-754 noise like 5583.429999999999 -> "5583.43") then
+ * drops a trailing ".0" on integers so a round amount renders as "1080"
+ * not "1080.00" (matches sample NQD26033110790: <invoiceCost>1080</...>).
+ *
+ * Decimal budgets used by callers:
+ *   - currency totals/items:    2  (invoiceCost, itemCost, documentAmount)
+ *   - per-unit currency:        3  (unitInvoiceCost — sample 1 shows 29.297)
+ *   - weights:                  3  (grossWeight / netWeight / totals)
+ */
+function formatNumeric(n: number, maxDecimals = 2): string {
   if (!Number.isFinite(n)) return '0';
-  if (Number.isInteger(n)) return String(n);
-  return n.toString();
+  if (!Number.isInteger(maxDecimals) || maxDecimals < 0 || maxDecimals > 10) {
+    throw new RangeError(`formatNumeric maxDecimals must be 0..10, got ${maxDecimals}`);
+  }
+  const rounded = Number(n.toFixed(maxDecimals));
+  if (Number.isInteger(rounded)) return String(rounded);
+  // toString on the rounded value is safe — Number(toFixed(N)) collapses
+  // IEEE noise that survived parsing. Trailing-zero stripping is implicit
+  // (Number("0.380") -> 0.38 -> "0.38").
+  return String(rounded);
 }
 
 function renderExportAirBL(input: RenderInput): string {
