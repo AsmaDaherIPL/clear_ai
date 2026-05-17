@@ -280,8 +280,15 @@ function buildAnnotatedCandidates(
 
 /**
  * Build the user payload for the picker prompt. Includes the
- * description, the candidate list with source_arm tags, and the path
- * hierarchies. Tokens trimmed reasonably to keep prompt size bounded.
+ * description, the candidate list with source_arm tags, and English
+ * leaf labels. Token-budget-trimmed 2026-05-17:
+ *   - description_ar removed (the picker classifies on English; Arabic
+ *     was carried for trace/UI use and never referenced by the prompt)
+ *   - rrf_score removed (only rerank_score is used downstream; rrf is
+ *     an internal pre-rerank artifact the picker doesn't need)
+ *
+ * Per call: drops ~92 tokens (description_ar: ~77 + rrf_score: ~15)
+ * Per 200-row batch: ~18,400 fewer input tokens.
  */
 function buildUser(query: string, candidates: RerankedCandidate[], lastChance: boolean): string {
   const candidatesPayload = candidates.map((c, i) => ({
@@ -289,8 +296,6 @@ function buildUser(query: string, candidates: RerankedCandidate[], lastChance: b
     code: c.code,
     source_arm: c.source_arm,
     description_en: c.description_en,
-    description_ar: c.description_ar,
-    rrf_score: Number(c.rrf_score.toFixed(4)),
     rerank_score: Number(c.rerank_score.toFixed(4)),
   }));
   const payload: Record<string, unknown> = {

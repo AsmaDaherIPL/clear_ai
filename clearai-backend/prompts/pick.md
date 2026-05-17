@@ -16,9 +16,9 @@ Apply the WCO General Interpretation Rules. Stop at the first that resolves:
 
 ## Input
 
-User message: a product description plus numbered candidates, each with `code` (12 digits), `path_en`/`path_ar`, and `source_arm` (`merchant_prefix` | `family_chapter` | `unconstrained` | `lexical_tokens`).
+User message: a product description plus numbered candidates, each with `n`, `code` (12 digits), `description_en` (leaf label), `source_arm`, and `rerank_score`.
 
-`source_arm` is **context, not a vote**. Pick the candidate whose leaf best fits the description regardless of arm. If merchant_prefix candidates don't fit and family_chapter ones do, pick from family_chapter — merchants are sometimes wrong.
+`source_arm` ∈ {`merchant_prefix`, `family_chapter`, `unconstrained`, `lexical_tokens`} is **context, not a vote**. Pick the candidate whose leaf best fits the description regardless of arm. If merchant_prefix candidates don't fit and family_chapter ones do, pick from family_chapter — merchants are sometimes wrong.
 
 ## Output
 
