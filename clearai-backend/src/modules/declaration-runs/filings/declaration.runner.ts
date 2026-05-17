@@ -54,6 +54,7 @@ export async function runDeclarationPhase(declarationRunId: string): Promise<Pha
   const bundles = partitionHvLv(items, {
     hvThresholdSar: thresholds.ZATCA_HV_THRESHOLD_SAR,
     bundleSize: thresholds.ZATCA_BUNDLE_SIZE,
+    lvInvoiceCapSar: thresholds.ZATCA_LV_INVOICE_CAP_SAR,
   });
 
   const blob = getBlobClient();

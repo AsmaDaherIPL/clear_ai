@@ -116,11 +116,14 @@ async function seedDeclarationRun(itemCount: number): Promise<{ declarationRunId
 // Build a synthetic DispatchV1Response stub for test fixtures. Tests don't
 // exercise the recorder/HITL writes (they pass mock dispatchers that bypass
 // dispatch.use-case entirely), so the stub just needs to satisfy the type.
-function v1Stub(itemId: string, finalCode: string | null, sanityVerdict: 'PASS' | 'FLAG' | 'BLOCK') {
+type StubVerdict = 'PASS' | 'FLAG' | null;
+function v1Stub(itemId: string, finalCode: string | null, sanityVerdict: StubVerdict, shortCircuit = false) {
+  const status: 'succeeded' | 'flagged' | 'rejected' =
+    shortCircuit ? 'rejected' : sanityVerdict === 'PASS' ? 'succeeded' : 'flagged';
   return {
     item_id: itemId,
     operator_slug: TEST_OPERATOR_SLUG,
-    status: (sanityVerdict === 'PASS' ? 'succeeded' : sanityVerdict === 'BLOCK' ? 'rejected' : 'flagged') as 'succeeded' | 'flagged' | 'rejected',
+    status,
     final_code: finalCode,
     goods_description_ar: null,
     goods_description_en: null,
@@ -174,7 +177,7 @@ describe('runClassificationPhase', () => {
     expect(set[0]!.classificationStatus).toBe('completed');
   });
 
-  it('maps FLAG -> flagged, BLOCK -> blocked, throws -> failed', async () => {
+  it('maps FLAG -> flagged, shortCircuit -> blocked, throws -> failed', async () => {
     const { declarationRunId } = await seedDeclarationRun(3);
     let n = 0;
     const dispatch: DispatchFn = async (item) => {
@@ -188,15 +191,17 @@ describe('runClassificationPhase', () => {
         trace: { stages: [] },
         infraDegraded: false,
       };
-      // BLOCK is emitted by the orchestrator's pre-classification path
-      // (parse failure / cleanup unusable), not by the sanity LLM. Those
-      // returns always carry finalCode: null + goodsDescriptionAr: null.
+      // Pre-classification short-circuit (parse failure / cleanup
+      // unusable). sanityVerdict is null because sanity never ran;
+      // shortCircuit=true routes to item-status 'blocked'. Replaces
+      // the legacy sanityVerdict='BLOCK' encoding.
       if (n === 2) return {
         finalCode: null,
         goodsDescriptionAr: null,
-        sanityVerdict: 'BLOCK',
+        sanityVerdict: null,
+        shortCircuit: true,
         hitl: null,
-        v1: v1Stub(item.itemId, null, 'BLOCK'),
+        v1: v1Stub(item.itemId, null, null, true),
         trace: { stages: [] },
         infraDegraded: false,
       };

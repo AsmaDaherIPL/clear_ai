@@ -389,13 +389,21 @@ describe('runPipelineV2 — scenario 5: verifier UNCERTAIN → FLAG via HITL', (
   });
 });
 
-describe('runPipelineV2 — parse rejection → BLOCK', () => {
-  it('returns BLOCK with sanity_verdict=BLOCK when description is empty', async () => {
+describe('runPipelineV2 — parse rejection short-circuit', () => {
+  it('returns no code, null sanity_verdict, and identify.cause=short_circuit when description is empty', async () => {
     const r = await runPipelineV2(item({ description: '' }), 'naqel', 'i-block');
-    expect(r.sanity_verdict).toBe('BLOCK');
+    // sanity_verdict is null because sanity did not run (replaces the
+    // legacy 'BLOCK' sanity value — see SanityVerdict type).
+    expect(r.sanity_verdict).toBeNull();
     expect(r.final_code).toBeNull();
     expect(r.hitl).toBeNull();
-    // None of the LLM stages should have been called
+    // The durable short-circuit marker lives on identify.cause and is
+    // what downstream consumers (dispatch.use-case, dispatch-v1) read.
+    expect(r.trace.identify.kind).toBe('uninformative');
+    if (r.trace.identify.kind === 'uninformative') {
+      expect(r.trace.identify.cause).toBe('short_circuit');
+    }
+    // None of the LLM stages should have been called.
     expect(runIdentifyFastMock).not.toHaveBeenCalled();
     expect(runPickMock).not.toHaveBeenCalled();
     expect(runSanityMock).not.toHaveBeenCalled();

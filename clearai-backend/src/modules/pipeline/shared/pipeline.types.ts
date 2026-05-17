@@ -439,12 +439,15 @@ export type SanityLlmVerdict = 'PASS' | 'FLAG';
 
 /**
  * What the orchestrator emits as the overall pipeline outcome on
- * `PipelineResult.sanity_verdict`. Adds BLOCK for upstream pre-
- * classification rejections (parse failure, cleanup unusable) that the
- * orchestrator emits BEFORE the sanity stage ever runs. The LLM itself
- * is bounded to SanityLlmVerdict.
+ * `PipelineResult.sanity_verdict`. Restricted to {PASS, FLAG, null} —
+ * `null` means sanity did not run (either ZERO_SIGNAL escalate with
+ * no code, or a pre-classification short-circuit such as parse failure
+ * or unusable cleanup). The legacy 'BLOCK' value was retired because
+ * it overloaded the sanity verdict slot to encode "row never reached
+ * classification", which is more correctly read from
+ * `classification_status === null` (or item-status='blocked' upstream).
  */
-export type SanityVerdict = SanityLlmVerdict | 'BLOCK';
+export type SanityVerdict = SanityLlmVerdict | null;
 
 export interface SanityResult {
   verdict: SanityLlmVerdict;

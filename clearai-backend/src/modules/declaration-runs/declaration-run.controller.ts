@@ -464,15 +464,13 @@ export async function handleListClassifications(
                 ELSE NULL
               END
             )                                                       AS classification_status,
-            -- sanity_verdict source precedence:
-            --   1. trace.meta.sanity.verdict   (set when sanity ran)
-            --   2. fall back to 'BLOCK' when the row's item-status is
-            --      'blocked' (parse-rejected rows: sanity never ran,
-            --      but the BLOCK signal lives in the item-level status)
-            COALESCE(
-              i.trace -> 'meta' -> 'sanity' ->> 'verdict',
-              CASE WHEN i.status = 'blocked' THEN 'BLOCK' ELSE NULL END
-            )                                                       AS sanity_verdict,
+            -- sanity_verdict: read straight from the trace when sanity
+            -- ran (PASS | FLAG). Null when sanity did not run — either
+            -- ZERO_SIGNAL escalate (no code) or pre-classification
+            -- short-circuit (item-status 'blocked'). The legacy 'BLOCK'
+            -- string was retired; "row never classified" is encoded by
+            -- classification_status IS NULL (or i.status = 'blocked').
+            (i.trace -> 'meta' -> 'sanity' ->> 'verdict')           AS sanity_verdict,
             -- raw_merchant_code: read directly from the canonical JSONB
             -- (the merchant-supplied verbatim digits). Architecture-
             -- agnostic; the legacy path via track_b.raw_merchant_code

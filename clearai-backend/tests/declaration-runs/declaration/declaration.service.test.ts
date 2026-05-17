@@ -98,6 +98,15 @@ beforeEach(async () => {
        SET value_numeric = 1000, value = '1000'
      WHERE key = 'ZATCA_HV_THRESHOLD_SAR'`,
   );
+  // 0082 added ZATCA_LV_INVOICE_CAP_SAR; seed it here so loadThresholds()
+  // doesn't fail-closed on missing-key when this test runs against a DB
+  // that hasn't had 0082 applied yet.
+  await getPool().query(
+    `INSERT INTO setup_meta (key, value, description, value_kind, value_numeric)
+     VALUES ('ZATCA_LV_INVOICE_CAP_SAR', '1000', 'LV bundle invoice total cap (test seed).', 'number', 1000)
+     ON CONFLICT (key) DO UPDATE
+       SET value_numeric = EXCLUDED.value_numeric, value = EXCLUDED.value`,
+  );
   // Force the loadThresholds cache to drop so the override is picked up.
   const { clearSetupMetaCache } = await import('../../../src/modules/reference-data/setup-meta.repository.js');
   clearSetupMetaCache();

@@ -22,7 +22,7 @@ vi.mock('../../src/config/env.js', () => ({
   env: () => ({ LLM_MODEL: 'mock-haiku', LLM_MODEL_STRONG: 'mock-sonnet' }),
 }));
 
-import { runPick } from '../../src/modules/pipeline/v2/pick/pick.js';
+import { runPick, computeConfidence } from '../../src/modules/pipeline/v2/pick/pick.js';
 import { callLlmWithRetry } from '../../src/inference/llm/client.js';
 import type {
   IdentifyCallTrace,
@@ -196,7 +196,12 @@ describe('runPick — accepted with audit fields', () => {
     if (r.kind === 'accepted') {
       expect(r.final_code).toBe('610910000000');
       expect(r.fit).toBe('fits');
-      expect(r.confidence).toBe(0.85);
+      // Computed confidence (Option A): base(fits)=0.65 + pool_clean(1
+      // fits, 0 partial)=+0.10 + arm_agree=0 (single arm) + rerank_gap=0
+      // (single candidate) = 0.75. See computeConfidence() in pick.ts.
+      expect(r.confidence).toBe(0.75);
+      expect(r.confidence_signals.base).toBe(0.65);
+      expect(r.confidence_signals.pool_cleanness_bonus).toBe(0.10);
       expect(r.gir_applied).toBe('GIR 1');
       expect(r.picked_from_arm).toBe('merchant_prefix');
       expect(r.merchant_chapter_disagreement).toBe(false);
@@ -292,7 +297,7 @@ describe('runPick — accepted with audit fields', () => {
     }
   });
 
-  it('partial fit assigns confidence=0.55', async () => {
+  it('partial fit on a clean single-arm pool computes a base-only confidence', async () => {
     mockedCall.mockResolvedValueOnce(
       llmReturns({
         text: JSON.stringify({
@@ -306,7 +311,10 @@ describe('runPick — accepted with audit fields', () => {
       merchant_chapter: '61',
     });
     if (r.kind === 'accepted') {
-      expect(r.confidence).toBe(0.55);
+      // base(partial)=0.45 + pool_clean=0 (no fits) + arm=0 (single arm)
+      // + rerank=0 (single candidate). See computeConfidence().
+      expect(r.confidence).toBe(0.45);
+      expect(r.confidence_signals.base).toBe(0.45);
       expect(r.fit).toBe('partial');
     }
   });
@@ -470,5 +478,97 @@ describe('runPick — LLM call shape', () => {
     });
     const userPayload = JSON.parse(mockedCall.mock.calls[0]![0].user);
     expect(userPayload.description).toBe('cotton t-shirt maxhub IFP');
+  });
+});
+
+describe('computeConfidence — signal-based formula', () => {
+  it('clean single-arm fits → base + pool_clean only', () => {
+    // base(fits)=0.65 + pool_clean(1 fits, 0 partial)=0.10 + 0 + 0 = 0.75
+    const { confidence, signals } = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 0 },
+      candidates: [rc('a', 'merchant_prefix', 0.5)],
+      merchant_chapter_disagreement: false,
+    });
+    expect(confidence).toBeCloseTo(0.75, 5);
+    expect(signals.base).toBe(0.65);
+    expect(signals.pool_cleanness_bonus).toBe(0.10);
+    expect(signals.arm_agreement_bonus).toBe(0);
+    expect(signals.rerank_gap_bonus).toBe(0);
+  });
+
+  it('multi-arm fits with chapter agreement and wide rerank gap → all bonuses', () => {
+    // base 0.65 + pool_clean 0.10 + arm_agree 0.10 + rerank_gap 0.05 = 0.90
+    const { confidence } = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 6 },
+      candidates: [
+        rc('a', 'merchant_prefix', 0.80),
+        rc('b', 'family_chapter', 0.30),
+      ],
+      merchant_chapter_disagreement: false,
+    });
+    // pool_dominated also fires (6/7 = 0.857 >= 0.7) so +0.05 more = 0.95
+    expect(confidence).toBeCloseTo(0.95, 5);
+  });
+
+  it('merchant chapter disagreement penalizes even on a fits verdict', () => {
+    // base 0.65 + pool_clean 0.10 + arm_disagree -0.10 + rerank_gap 0 = 0.65
+    const { confidence } = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 1 },
+      candidates: [
+        rc('a', 'merchant_prefix', 0.50),
+        rc('b', 'family_chapter', 0.49),
+      ],
+      merchant_chapter_disagreement: true,
+    });
+    expect(confidence).toBeCloseTo(0.65, 5);
+  });
+
+  it('partial verdict starts at lower base', () => {
+    // base(partial) 0.45 + pool_clean 0 (no fits) + 0 + 0 = 0.45
+    const { confidence } = computeConfidence({
+      fit: 'partial',
+      verdict_population: { fits: 0, partial: 1, does_not_fit: 0 },
+      candidates: [rc('a')],
+      merchant_chapter_disagreement: false,
+    });
+    expect(confidence).toBeCloseTo(0.45, 5);
+  });
+
+  it('clamps to [0.05, 0.99]', () => {
+    // A theoretical max input still respects the ceiling.
+    const allBonuses = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 10 },
+      candidates: [
+        rc('a', 'merchant_prefix', 1.0),
+        rc('b', 'family_chapter', 0.1),
+      ],
+      merchant_chapter_disagreement: false,
+    });
+    expect(allBonuses.confidence).toBeLessThanOrEqual(0.99);
+    expect(allBonuses.confidence).toBeGreaterThanOrEqual(0.05);
+  });
+
+  it('rerank gap requires >=10% relative separation', () => {
+    // Gap (0.50 - 0.46)/0.50 = 0.08 → no bonus
+    const tightGap = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 0 },
+      candidates: [rc('a', 'merchant_prefix', 0.50), rc('b', 'merchant_prefix', 0.46)],
+      merchant_chapter_disagreement: false,
+    });
+    expect(tightGap.signals.rerank_gap_bonus).toBe(0);
+
+    // Gap (0.50 - 0.40)/0.50 = 0.20 → bonus fires
+    const wideGap = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 0 },
+      candidates: [rc('a', 'merchant_prefix', 0.50), rc('b', 'merchant_prefix', 0.40)],
+      merchant_chapter_disagreement: false,
+    });
+    expect(wideGap.signals.rerank_gap_bonus).toBe(0.05);
   });
 });

@@ -38,22 +38,34 @@ function classifyOutcome(
   verdict: SanityVerdict,
   finalCode: string | null,
   infraDegraded: boolean,
+  shortCircuit: boolean,
 ): ClassificationOutcome {
   // declaration_run_items has a CHECK that final_code IS NOT NULL when
-  // status IN ('succeeded','flagged'). Stage-2 escalate emits FLAG with
-  // no code; that row goes to 'failed' here. The hitl_queue row is
-  // already written by dispatch.use-case so the reviewer still sees it.
+  // status IN ('succeeded','flagged'). Stage-2 escalate emits null
+  // sanity verdict with no code; that row goes to 'failed' here. The
+  // hitl_queue row is already written by dispatch.use-case so the
+  // reviewer still sees it.
   //
   // The infraDegraded marker downgrades the natural outcome to
   // 'pending_infra' so the HITL queue can filter infra-only failures
   // (which usually resolve on a Foundry retry) separately from real
-  // bad-data rows. BLOCK is preserved as-is — it's a parse / cleanup-
-  // unusable rejection, not an LLM-stage exhaustion.
-  if (verdict === 'BLOCK') return 'blocked';
+  // bad-data rows.
+  //
+  // Pre-classification short-circuit (parse rejection, unusable
+  // cleanup): row goes to 'blocked' so operators can distinguish bad
+  // input data from pipeline failures. infraDegraded does NOT override —
+  // a short-circuited row is structurally unprocessable, not a transient
+  // infra issue.
+  if (shortCircuit) return 'blocked';
+  // Other no-code paths (ZERO_SIGNAL escalate, picker_unavailable, etc.)
+  // — pipeline started but couldn't commit. 'failed' (or pending_infra).
   if (finalCode === null) {
     return infraDegraded && env().PENDING_INFRA_ENABLED ? 'pending_infra' : 'failed';
   }
-  const natural: ClassificationOutcome = verdict === 'PASS' ? 'succeeded' : 'flagged';
+  // Code present. verdict is PASS (succeeded) or FLAG (flagged). null
+  // verdict with a code shouldn't happen — defensive default = flagged.
+  const natural: ClassificationOutcome =
+    verdict === 'PASS' ? 'succeeded' : 'flagged';
   return infraDegraded && env().PENDING_INFRA_ENABLED ? 'pending_infra' : natural;
 }
 
@@ -110,7 +122,12 @@ export async function runClassificationPhase(
         await markItemClassifying(row.id);
         try {
           const result: DispatchResult = await opts.dispatch(item);
-          const outcome = classifyOutcome(result.sanityVerdict, result.finalCode, result.infraDegraded);
+          const outcome = classifyOutcome(
+            result.sanityVerdict,
+            result.finalCode,
+            result.infraDegraded,
+            result.shortCircuit ?? false,
+          );
           counts[outcome]++;
           // pending_infra is allowed to carry final_code + goods_description_ar
           // when the pipeline produced them (migration 0077 widens both

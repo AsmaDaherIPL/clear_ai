@@ -29,6 +29,7 @@ import { extractJson } from '../../../../inference/llm/parse-json.js';
 import { loadPrompt } from '../../../../inference/llm/structured-call.js';
 import type {
   AnnotatedCandidate,
+  ConfidenceSignals,
   IdentifyResult,
   PickAccepted,
   PickCallTrace,
@@ -40,20 +41,33 @@ import type {
 /** Number of parse-retry attempts on JSON failure (in addition to the first). */
 const PARSE_RETRY_LIMIT = 2;
 
-/** Confidence assigned to a `fits` verdict (uncalibrated). */
-const FITS_CONFIDENCE = 0.85;
-
-/** Confidence assigned to a `partial` verdict (uncalibrated). */
-const PARTIAL_CONFIDENCE = 0.55;
-
 /**
- * Confidence assigned when the orchestrator's last-chance pass forced
- * the picker to emit `partial` on a closest-available leaf. Lower than
- * normal partial because the picker had to be coerced; the operator
- * MUST review. Below the IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD (0.60)
- * so HITL routing fires automatically.
+ * Confidence is computed, not constant. See computeConfidence() below.
+ * Constants here are formula inputs; tune them with care because the
+ * picker tests assert specific values.
+ *
+ *   BASE_*           - starting value keyed off the picker's fit verdict
+ *   *_BONUS          - additive adjustments from trace signals
+ *   LAST_CHANCE      - hard override when the orchestrator's last-chance
+ *                      pass coerced a `partial` pick. Below
+ *                      IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD (0.60) so
+ *                      HITL routing fires automatically.
+ *   CONFIDENCE_MIN/MAX - never emit a confidence at 0.00 or 1.00. A 1.00
+ *                      pick would be a bug if it's ever wrong; a 0.00
+ *                      pick wouldn't be a pick.
  */
+const BASE_FITS = 0.65;
+const BASE_PARTIAL = 0.45;
 const LAST_CHANCE_CONFIDENCE = 0.40;
+
+const POOL_CLEAN_BONUS = 0.10;           // 1 fits, 0 partial
+const POOL_DOMINATED_BONUS = 0.05;       // >=70% does_not_fit in the pool
+const ARM_AGREE_BONUS = 0.10;            // >=2 arms, chapters agree
+const ARM_DISAGREE_PENALTY = -0.10;      // merchant chapter disagrees
+const REREK_GAP_BONUS = 0.05;            // #1 score > #2 by >=10% relative
+
+const CONFIDENCE_MIN = 0.05;
+const CONFIDENCE_MAX = 0.99;
 
 /**
  * Maximum length of an annotated_candidates rationale on the wire. The
@@ -136,8 +150,8 @@ function buildQuery(identify: IdentifyResult, fallback: string | null): string {
   // pre-computed fallback_query = the merchant leaf's catalog text.
   // We run the picker against retrieval filtered to that prefix and
   // let it verdict whichever sibling-leaf fits the input best. The
-  // picked code will carry low confidence (0.55 PARTIAL_CONFIDENCE)
-  // and downstream HITL routes it for operator review.
+  // picked code will carry the computed `partial` confidence (typically
+  // ~0.45 baseline) and downstream HITL routes it for operator review.
   if (fallback !== null && fallback.trim().length > 0) {
     return fallback.trim();
   }
@@ -486,19 +500,33 @@ export async function runPick(input: PickInput): Promise<PickResult> {
   const auditFlag =
     pickedArm !== 'merchant_prefix' && merchantChapterDisagreement;
 
-  // Confidence assignment. Last-chance pass always rates as
-  // LAST_CHANCE_CONFIDENCE (0.40) regardless of the model's emitted
-  // fit value because we coerced the pick; operator MUST review.
-  const confidence = last_chance
-    ? LAST_CHANCE_CONFIDENCE
-    : top.fit === 'fits'
-      ? FITS_CONFIDENCE
-      : PARTIAL_CONFIDENCE;
+  // Confidence assignment. Last-chance pass always lands at
+  // LAST_CHANCE_CONFIDENCE (0.40) regardless of trace signals because
+  // we coerced the pick; operator MUST review. Otherwise compute from
+  // signals — see computeConfidence() for the formula.
+  const { confidence, signals } = last_chance
+    ? {
+        confidence: LAST_CHANCE_CONFIDENCE,
+        signals: {
+          base: LAST_CHANCE_CONFIDENCE,
+          pool_cleanness_bonus: 0,
+          arm_agreement_bonus: 0,
+          rerank_gap_bonus: 0,
+          raw_total: LAST_CHANCE_CONFIDENCE,
+        } satisfies ConfidenceSignals,
+      }
+    : computeConfidence({
+        fit: top.fit,
+        verdict_population,
+        candidates,
+        merchant_chapter_disagreement: merchantChapterDisagreement,
+      });
   const accepted: PickAccepted = {
     kind: 'accepted',
     final_code: top.code,
     fit: top.fit,
     confidence,
+    confidence_signals: signals,
     gir_applied: extractGir(top.rationale),
     verdict_population,
     picked_from_arm: pickedArm,
@@ -511,4 +539,92 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'ok', auditFlag),
   };
   return accepted;
+}
+
+/**
+ * Compute picker confidence from deterministic trace signals.
+ *
+ * Returns `confidence` (clamped to [CONFIDENCE_MIN, CONFIDENCE_MAX]) and
+ * the per-signal breakdown so reviewers can audit the value.
+ *
+ * Inputs are all things the picker has already produced for the trace —
+ * the LLM is NOT consulted for the number. The old 3-tier constant
+ * (0.85 / 0.55 / 0.40) collapsed too much real differential signal:
+ * a `fits` with 1 winner and 0 partial competitors and 3 cross-arm
+ * agreement looked identical to a `fits` with 4 ambiguous competitors
+ * and merchant chapter disagreement. They are very different rows.
+ *
+ * The formula:
+ *   base               = 0.65 (fits) / 0.45 (partial)
+ *   pool_clean_bonus   = +0.10 if exactly 1 fits and 0 partial
+ *                      + 0.05 if >=70% of pool is does_not_fit
+ *                        (decisive verdicting against most candidates)
+ *   arm_agreement      = +0.10 if multi-arm AND merchant chapter agrees
+ *                      = -0.10 if merchant chapter disagrees
+ *   rerank_gap         = +0.05 if top1/top2 rerank gap is >= 10% relative
+ *
+ *   confidence = clamp(MIN, MAX, base + bonuses)
+ *
+ * Weights are educated starting points. Calibrate against
+ * hitl_queue.reviewer_decision once you have ~500 labeled rows
+ * (approve vs override) to fit a logistic regression and replace
+ * these constants with the fitted coefficients.
+ */
+export function computeConfidence(input: {
+  fit: 'fits' | 'partial';
+  verdict_population: { fits: number; partial: number; does_not_fit: number };
+  candidates: ReadonlyArray<RerankedCandidate>;
+  merchant_chapter_disagreement: boolean;
+}): { confidence: number; signals: ConfidenceSignals } {
+  const base = input.fit === 'fits' ? BASE_FITS : BASE_PARTIAL;
+
+  // Pool cleanness — how decisive was the picker against the alternatives?
+  const v = input.verdict_population;
+  const totalVerdicted = v.fits + v.partial + v.does_not_fit;
+  let pool_cleanness_bonus = 0;
+  if (v.fits === 1 && v.partial === 0) {
+    pool_cleanness_bonus += POOL_CLEAN_BONUS;
+  }
+  if (totalVerdicted > 0 && v.does_not_fit / totalVerdicted >= 0.7) {
+    pool_cleanness_bonus += POOL_DOMINATED_BONUS;
+  }
+
+  // Cross-arm agreement — independent retrieval paths converging is strong
+  // evidence. `merchant_chapter_disagreement` already encodes the harder
+  // version of disagreement (the merchant's claimed chapter conflicts with
+  // the winner); use it as the penalty signal.
+  const armCount = new Set(input.candidates.map((c) => c.source_arm)).size;
+  let arm_agreement_bonus = 0;
+  if (input.merchant_chapter_disagreement) {
+    arm_agreement_bonus = ARM_DISAGREE_PENALTY;
+  } else if (armCount >= 2) {
+    arm_agreement_bonus = ARM_AGREE_BONUS;
+  }
+
+  // Rerank gap — a pulled-away winner is a real winner. We sort because
+  // candidates may not arrive rerank-score-desc (multi-arm union does
+  // its own ordering).
+  let rerank_gap_bonus = 0;
+  if (input.candidates.length >= 2) {
+    const sorted = [...input.candidates].sort((a, b) => b.rerank_score - a.rerank_score);
+    const s1 = sorted[0]!.rerank_score;
+    const s2 = sorted[1]!.rerank_score;
+    if (s1 > 0 && (s1 - s2) / s1 >= 0.10) {
+      rerank_gap_bonus = REREK_GAP_BONUS;
+    }
+  }
+
+  const raw_total = base + pool_cleanness_bonus + arm_agreement_bonus + rerank_gap_bonus;
+  const confidence = Math.max(CONFIDENCE_MIN, Math.min(CONFIDENCE_MAX, raw_total));
+
+  return {
+    confidence,
+    signals: {
+      base,
+      pool_cleanness_bonus,
+      arm_agreement_bonus,
+      rerank_gap_bonus,
+      raw_total,
+    },
+  };
 }

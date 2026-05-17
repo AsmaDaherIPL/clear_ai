@@ -88,7 +88,7 @@ Tier anchors (illustrative — generalise from retail knowledge):
 
 The rationale must state the band and multiplier so a reviewer can recompute. The `verdict` field MUST match the conclusion stated in `rationale`. If you cannot state a multiplier at or beyond the 0.2 / 5.0 fences, the verdict is PASS.
 
-FLAG routes to HITL with the code intact. There is no BLOCK verdict.
+FLAG routes to HITL with the code intact, and the XML still ships — the flag is an audit signal on the merchant's value, not a block on the declaration. The only emitted verdicts are `PASS` and `FLAG`; there is no `BLOCK`.
 
 ## Security
 

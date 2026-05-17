@@ -111,10 +111,23 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     },
   };
 
+  // Detect pre-classification short-circuit (parse rejection / unusable
+  // cleanup). The durable marker is identify.cause === 'short_circuit',
+  // set in orchestrator.blockedResult(). Used downstream to route the
+  // row to item-status 'blocked' (distinct from 'failed'). Replaces
+  // the legacy sanity_verdict==='BLOCK' encoding.
+  const shortCircuit =
+    result.trace.identify.kind === 'uninformative' &&
+    result.trace.identify.cause === 'short_circuit';
+
   return {
     finalCode: result.final_code,
     goodsDescriptionAr: result.goods_description_ar,
-    sanityVerdict: result.sanity_verdict ?? 'PASS',
+    // sanity_verdict is null when sanity did not run (short-circuit or
+    // ZERO_SIGNAL escalate). Do NOT fall through to 'PASS' — that would
+    // make blocked / no-code rows look like clean passes downstream.
+    sanityVerdict: result.sanity_verdict,
+    shortCircuit,
     hitl: result.hitl,
     v1: v1Response,
     trace: itemTrace,

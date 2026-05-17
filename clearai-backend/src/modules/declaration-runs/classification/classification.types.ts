@@ -8,7 +8,12 @@
  */
 import type { DispatchV1Response } from '../../pipeline/shared/pipeline.types.js';
 
-export type SanityVerdict = 'PASS' | 'FLAG' | 'BLOCK';
+/**
+ * Sanity verdict surfaced to declaration-runs. Mirrors the pipeline's
+ * SanityVerdict shape. Null = sanity did not run (ZERO_SIGNAL escalate
+ * or pre-classification short-circuit). The legacy 'BLOCK' value is gone.
+ */
+export type SanityVerdict = 'PASS' | 'FLAG' | null;
 
 export type ClassificationOutcome = 'succeeded' | 'flagged' | 'blocked' | 'failed' | 'pending_infra';
 
@@ -37,6 +42,15 @@ export interface DispatchResult {
    */
   goodsDescriptionAr: string | null;
   sanityVerdict: SanityVerdict;
+  /**
+   * True when the pipeline short-circuited before classification ran
+   * (parse rejection, cleanup unusable). Row maps to item-status
+   * 'blocked' in classifyOutcome — distinct from a real 'failed' which
+   * is a pipeline error after the LLM stages started. Replaces the
+   * legacy sanityVerdict==='BLOCK' marker. Optional for test fixtures;
+   * orchestrator output always sets it.
+   */
+  shortCircuit?: boolean;
   /** HITL intent surfaced by the orchestrator. Null when no review is needed. */
   hitl: {
     reason: 'verdict_escalate' | 'sanity_flag' | 'low_information' | 'verifier_uncertain';

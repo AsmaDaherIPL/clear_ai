@@ -446,10 +446,18 @@ export function assembleDispatchV1(params: AssembleParams): DispatchV1Response {
   const sanity = buildSanityStage(trace);
   if (sanity) stages.push(sanity);
 
+  // 'rejected' = pre-classification short-circuit (parse rejection,
+  // unusable cleanup). Previously read off sanity_verdict==='BLOCK',
+  // which conflated "row never classified" with "sanity verdict". The
+  // durable marker is identify.cause === 'short_circuit' set in
+  // orchestrator.blockedResult().
+  const identifyShortCircuit =
+    trace.identify.kind === 'uninformative' &&
+    trace.identify.cause === 'short_circuit';
   const status: DispatchV1Response['status'] =
     result.final_code !== null
       ? 'succeeded'
-      : result.sanity_verdict === 'BLOCK'
+      : identifyShortCircuit
         ? 'rejected'
         : 'failed';
 

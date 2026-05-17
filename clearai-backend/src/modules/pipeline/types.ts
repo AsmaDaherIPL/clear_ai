@@ -378,11 +378,51 @@ export interface AnnotatedCandidate {
   rerank_score: number;
 }
 
+/**
+ * Per-row breakdown that produced the picker confidence number. All
+ * signals are deterministic — computed from trace fields the picker
+ * already emits — so a reviewer can recompute and audit any value.
+ * See computeConfidence() in pick.ts for the formula.
+ */
+export interface ConfidenceSignals {
+  /** Base value from the picker's qualitative fit verdict. */
+  base: number;
+  /**
+   * Cleaner pools earn a bonus: one unambiguous `fits` with no `partial`
+   * competitors is worth more than a `fits` won out of 4-way ambiguity.
+   */
+  pool_cleanness_bonus: number;
+  /**
+   * Independent arms agreeing on the same chapter is strong evidence;
+   * disagreement is a penalty.
+   */
+  arm_agreement_bonus: number;
+  /**
+   * Rerank-score gap between the #1 candidate and the #2 candidate.
+   * A pulled-away winner is more trustworthy than a bunched leaderboard.
+   * Relative gap = (s1 - s2) / s1; bonus is small but real.
+   */
+  rerank_gap_bonus: number;
+  /** Clamp applied: `final = clamp(0.05, 0.99, base + bonuses)`. */
+  raw_total: number;
+}
+
 export interface PickAccepted {
   kind: 'accepted';
   final_code: string; // 12-digit
   fit: 'fits' | 'partial';
+  /**
+   * Confidence in [0.05, 0.99] computed from trace signals — NOT an
+   * LLM-emitted number. See ConfidenceSignals and computeConfidence().
+   * The 3-tier constant {0.85 / 0.55 / 0.40} approach was retired in
+   * migration 0082 era so two `fits` rows of very different quality
+   * (1 winner vs 4-way ambiguity, cross-arm agreement vs disagreement,
+   * separated rerank winner vs bunched scores) no longer collapse to
+   * the same number.
+   */
   confidence: number;
+  /** Breakdown of the four signals that produced `confidence`. */
+  confidence_signals: ConfidenceSignals;
   /** "GIR 1", "GIR 3(a)", "GIR 3(b)", "GIR 6", etc. */
   gir_applied: string;
   /** Counts across the candidates the picker evaluated. */

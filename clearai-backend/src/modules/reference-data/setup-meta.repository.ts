@@ -75,10 +75,20 @@ export interface Thresholds {
   ZATCA_HV_THRESHOLD_SAR: number;
 
   /**
-   * Max items per LV consolidated ZATCA declaration. Naqel ships 99; ZATCA
-   * spec allows up to 99 per consolidated Pre-Bayan.
+   * Max items per LV consolidated ZATCA declaration. Raised to 9999 in
+   * migration 0082; previously 99 (Naqel-side practice). The real binding
+   * constraint is ZATCA_LV_INVOICE_CAP_SAR — this is the count safety net.
    */
   ZATCA_BUNDLE_SIZE: number;
+
+  /**
+   * Per-bundle invoiceCost cap in SAR for LV consolidated declarations.
+   * Bundler packs LV items greedily until adding the next item would push
+   * sum(itemCost) to >= this value, then opens a new bundle. Exclusive,
+   * so a bundle of 999.99 is allowed and 1000.00 is not (mirror of the
+   * HV threshold's >= 1000 semantics).
+   */
+  ZATCA_LV_INVOICE_CAP_SAR: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -110,6 +120,7 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'PICKER_PATH_MODE',
   'ZATCA_HV_THRESHOLD_SAR',
   'ZATCA_BUNDLE_SIZE',
+  'ZATCA_LV_INVOICE_CAP_SAR',
 ];
 
 /** Closed set of boolean flag names. Encoded as 0/1 in setup_meta.value_numeric. */

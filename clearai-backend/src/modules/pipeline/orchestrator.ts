@@ -342,9 +342,10 @@ export async function runPipeline(
   //      no exact code match" (row 9: "Dresses" + 62046200) where the
   //      walk gave us candidates but no leaf to query from.
   //
-  // The result lands at low confidence (PARTIAL_CONFIDENCE = 0.55) and
-  // the downstream low-confidence HITL rule routes it to operator
-  // review. Skipped when identify already supplied a query.
+  // The result lands at the computed `partial` confidence (typically
+  // 0.45 base, lower if signals weak) and the downstream low-confidence
+  // HITL rule routes it to operator review. Skipped when identify
+  // already supplied a query.
   const fallbackQuery =
     identify.kind === 'uninformative'
       ? extractMerchantResolvedCode(merchantResolution) !== null
@@ -476,7 +477,10 @@ function blockedResult(reason: string): PipelineResult {
   return {
     final_code: null,
     goods_description_ar: null,
-    sanity_verdict: 'BLOCK',
+    // sanity_verdict is null because sanity never ran. "Row never
+    // classified" is encoded by classification_status === null, not
+    // by a synthetic BLOCK sanity verdict. See 0082 / SanityVerdict.
+    sanity_verdict: null,
     classification_status: null,
     hitl: null,
     trace: {
