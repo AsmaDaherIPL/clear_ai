@@ -42,6 +42,8 @@ function c(
     code,
     description_en: desc_en,
     description_ar: desc_ar,
+    path_en: '',
+    path_ar: '',
     rrf_score: rrf,
     bm25_score: null,
     vector_score: null,

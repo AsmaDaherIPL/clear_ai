@@ -189,6 +189,8 @@ function rc(code: string): RerankedCandidate {
     code,
     description_en: `desc ${code}`,
     description_ar: null,
+    path_en: '',
+    path_ar: '',
     rrf_score: 0.5,
     bm25_score: null,
     vector_score: null,

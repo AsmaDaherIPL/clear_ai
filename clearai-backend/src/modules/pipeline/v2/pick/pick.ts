@@ -58,6 +58,15 @@ const PARSE_RETRY_LIMIT = 2;
  */
 const BASE_FITS = 0.65;
 const BASE_PARTIAL = 0.45;
+/**
+ * Base for a `does_not_fit` candidate when we evaluate "what confidence
+ * would the formula assign if we'd picked this?" — used by
+ * buildAnnotatedCandidates so non-winning candidates carry a number on
+ * the wire. Bonuses still apply because they describe the same pool the
+ * winner experiences, so a `does_not_fit` in a clean pool still scores
+ * higher than one in an ambiguous pool — that's the comparison signal.
+ */
+const BASE_DOES_NOT_FIT = 0.15;
 const LAST_CHANCE_CONFIDENCE = 0.40;
 
 const POOL_CLEAN_BONUS = 0.10;           // 1 fits, 0 partial
@@ -269,6 +278,8 @@ function countByArm(candidates: RerankedCandidate[]): Record<string, number> {
 function buildAnnotatedCandidates(
   verdicts: ParsedVerdict[],
   candidates: RerankedCandidate[],
+  verdict_population: { fits: number; partial: number; does_not_fit: number },
+  merchant_chapter_disagreement: boolean,
 ): AnnotatedCandidate[] {
   const byCode = new Map<string, RerankedCandidate>();
   for (const c of candidates) byCode.set(c.code, c);
@@ -276,11 +287,28 @@ function buildAnnotatedCandidates(
   for (const v of verdicts) {
     const c = byCode.get(v.code);
     if (c === undefined) continue;
+    // Per-candidate confidence: run computeConfidence() as if THIS row
+    // were the pick. Same formula as the winner. Lets the SPA compare
+    // alternatives on a continuous axis (e.g. winner=0.50, alt1=0.45,
+    // alt2=0.15). For does_not_fit verdicts we still emit a number — it
+    // represents "how confident would the formula be if we'd picked
+    // this?" which is naturally low because the base for does_not_fit
+    // is the floor. Reviewers reading the trace can scan a single
+    // column instead of mentally re-running the formula per row.
+    const { confidence } = computeConfidence({
+      fit: v.fit,
+      verdict_population,
+      candidates,
+      merchant_chapter_disagreement,
+    });
     annotated.push({
       code: v.code,
       description_en: c.description_en,
       description_ar: c.description_ar,
+      path_en: c.path_en,
+      path_ar: c.path_ar,
       fit: v.fit,
+      confidence,
       rationale:
         v.rationale.length > ANNOTATED_RATIONALE_MAX
           ? `${v.rationale.slice(0, ANNOTATED_RATIONALE_MAX - 1)}…`
@@ -484,7 +512,15 @@ export async function runPick(input: PickInput): Promise<PickResult> {
       // Picker ran end-to-end and verdicted every candidate as
       // does_not_fit. HITL reviewers will want to see exactly what was
       // rejected and why — this is the most useful escalate to annotate.
-      annotated_candidates: buildAnnotatedCandidates(verdicts, candidates),
+      // No "winner" here so we pass false for merchant_chapter_disagreement;
+      // every annotated candidate is a does_not_fit anyway so the bonuses
+      // are computed against the same shared pool.
+      annotated_candidates: buildAnnotatedCandidates(
+        verdicts,
+        candidates,
+        verdict_population,
+        /* merchant_chapter_disagreement */ false,
+      ),
       trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'ok', false),
     };
     return escalate;
@@ -534,8 +570,15 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     candidate_count_by_arm: countByArm(candidates),
     // Per-candidate verdicts the picker emitted. Includes the chosen
     // candidate (UI filters by code !== final_code when rendering as
-    // "alternatives"). HITL reviewers see this list verbatim.
-    annotated_candidates: buildAnnotatedCandidates(verdicts, candidates),
+    // "alternatives"). HITL reviewers see this list verbatim. Each row
+    // carries its own computed `confidence` so the SPA can compare
+    // candidates on a continuous axis — see buildAnnotatedCandidates.
+    annotated_candidates: buildAnnotatedCandidates(
+      verdicts,
+      candidates,
+      verdict_population,
+      merchantChapterDisagreement,
+    ),
     trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'ok', auditFlag),
   };
   return accepted;
@@ -571,12 +614,20 @@ export async function runPick(input: PickInput): Promise<PickResult> {
  * these constants with the fitted coefficients.
  */
 export function computeConfidence(input: {
-  fit: 'fits' | 'partial';
+  /**
+   * The picker's verdict on the candidate being scored. `fits` and
+   * `partial` are the winner cases; `does_not_fit` is used by
+   * buildAnnotatedCandidates to assign comparable scores to losers.
+   */
+  fit: 'fits' | 'partial' | 'does_not_fit';
   verdict_population: { fits: number; partial: number; does_not_fit: number };
   candidates: ReadonlyArray<RerankedCandidate>;
   merchant_chapter_disagreement: boolean;
 }): { confidence: number; signals: ConfidenceSignals } {
-  const base = input.fit === 'fits' ? BASE_FITS : BASE_PARTIAL;
+  const base =
+    input.fit === 'fits' ? BASE_FITS
+    : input.fit === 'partial' ? BASE_PARTIAL
+    : BASE_DOES_NOT_FIT;
 
   // Pool cleanness — how decisive was the picker against the alternatives?
   const v = input.verdict_population;

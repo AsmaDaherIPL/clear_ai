@@ -14,6 +14,8 @@ function c(
     code,
     description_en: `en ${code}`,
     description_ar: null,
+    path_en: '',
+    path_ar: '',
     rrf_score: rrf,
     bm25_score: null,
     vector_score: null,

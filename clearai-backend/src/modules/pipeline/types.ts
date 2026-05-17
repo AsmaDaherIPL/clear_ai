@@ -301,6 +301,17 @@ export interface ScoredCandidate {
   code: string; // 12-digit HS leaf
   description_en: string | null;
   description_ar: string | null;
+  /**
+   * Full breadcrumb path from chapter to leaf, joined by " > "
+   * (e.g. "Electrical machines and apparatus... > Other machines... > Laser hair removal").
+   * Source: zatca_hs_code_display.path_en. Empty string when the
+   * display row is missing (defensive — should never happen post-ingest).
+   * Threaded through retrieval -> rerank -> picker so each annotated
+   * candidate on the wire can show the full path, not just the leaf label.
+   */
+  path_en: string;
+  /** Same shape as path_en, in Arabic ("، " separator). Empty string if missing. */
+  path_ar: string;
   rrf_score: number;
   bm25_score: number | null;
   vector_score: number | null;
@@ -365,7 +376,23 @@ export interface AnnotatedCandidate {
   code: string;
   description_en: string | null;
   description_ar: string | null;
+  /**
+   * Full breadcrumb path en/ar (e.g. "Electrical machines... > Laser
+   * hair removal"). Sourced from zatca_hs_code_display.path_en. Lets
+   * the SPA show context, not just the leaf label.
+   */
+  path_en: string;
+  path_ar: string;
   fit: 'fits' | 'partial' | 'does_not_fit';
+  /**
+   * Computed confidence for THIS candidate, treating it as if it were
+   * the picker's pick. Same formula as the winner's confidence
+   * (computeConfidence in pick.ts). Lets reviewers compare candidates
+   * on a continuous axis. The winner's confidence on the response
+   * envelope (classification_result.classification_confidence) equals
+   * the confidence on the candidate whose code matches final_code.
+   */
+  confidence: number;
   /** Picker's per-candidate rationale, max 300 chars. */
   rationale: string;
   /** Which retrieval arm surfaced this candidate. */

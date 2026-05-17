@@ -53,6 +53,11 @@ function tagged(
     code: c.code,
     description_en: c.description_en,
     description_ar: c.description_ar,
+    // path_en/ar come from retrieval's join on zatca_hs_code_display;
+    // we thread them through so the picker's annotated_candidates can
+    // expose the full breadcrumb, not just the leaf label.
+    path_en: c.path_en,
+    path_ar: c.path_ar,
     rrf_score: c.rrf_score,
     bm25_score: c.bm25_score,
     vector_score: c.vec_score,

@@ -71,6 +71,8 @@ function rc(
     code,
     description_en: `desc ${code}`,
     description_ar: null,
+    path_en: '',
+    path_ar: '',
     rrf_score: rrf,
     bm25_score: null,
     vector_score: null,
