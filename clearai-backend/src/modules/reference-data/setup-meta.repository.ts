@@ -75,20 +75,24 @@ export interface Thresholds {
   ZATCA_HV_THRESHOLD_SAR: number;
 
   /**
-   * Max items per LV consolidated ZATCA declaration. Raised to 9999 in
-   * migration 0082; previously 99 (Naqel-side practice). The real binding
-   * constraint is ZATCA_LV_INVOICE_CAP_SAR — this is the count safety net.
+   * Max line items per LV consolidated ZATCA declaration. Bundler packs
+   * AWBs into LV bundles atomically (an AWB's items stay together) until
+   * adding the next AWB would push the line-item count over this value.
+   * Customs spec cap is 10,000; we keep 9999 as a one-off safety margin
+   * (user decision 2026-05-18). Raised from 99 to 9999 in migration 0082.
+   *
+   * Single-AWB overflow: if one AWB alone exceeds this cap, the bundler
+   * splits inside the AWB (per the 2026-05-18 customs spec discussion).
    */
   ZATCA_BUNDLE_SIZE: number;
 
   /**
-   * Per-bundle invoiceCost cap in SAR for LV consolidated declarations.
-   * Bundler packs LV items greedily until adding the next item would push
-   * sum(itemCost) to >= this value, then opens a new bundle. Exclusive,
-   * so a bundle of 999.99 is allowed and 1000.00 is not (mirror of the
-   * HV threshold's >= 1000 semantics).
+   * Cross-manifest pooling flag (added in migration 0086). 0 = off
+   * (default per the customs spec — LV consolidation is bound to one
+   * manifest, never spans manifests). 1 = on (allows LV pooling across
+   * manifests in the same batch; flip only if Naqel ever requests it).
    */
-  ZATCA_LV_INVOICE_CAP_SAR: number;
+  ZATCA_LV_CROSS_MANIFEST_ALLOWED: number;
 }
 
 const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
@@ -120,7 +124,7 @@ const REQUIRED_NUMERIC_KEYS: ReadonlyArray<keyof Thresholds> = [
   'PICKER_PATH_MODE',
   'ZATCA_HV_THRESHOLD_SAR',
   'ZATCA_BUNDLE_SIZE',
-  'ZATCA_LV_INVOICE_CAP_SAR',
+  'ZATCA_LV_CROSS_MANIFEST_ALLOWED',
 ];
 
 /** Closed set of boolean flag names. Encoded as 0/1 in setup_meta.value_numeric. */
@@ -129,7 +133,8 @@ export type BooleanFlag =
   | 'DESCRIPTION_CLEANUP_ENABLED'
   | 'BRANCH_RANK_ENABLED'
   | 'TENANT_OVERRIDES_ENABLED'
-  | 'RESEARCH_WEB_ENABLED';
+  | 'RESEARCH_WEB_ENABLED'
+  | 'ZATCA_LV_CROSS_MANIFEST_ALLOWED';
 
 export function isEnabled(t: Thresholds, flag: BooleanFlag): boolean {
   return t[flag] === 1;

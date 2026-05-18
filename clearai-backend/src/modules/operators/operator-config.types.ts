@@ -143,6 +143,13 @@ export interface CanonicalLineItem {
    * originating batch.
    */
   batchId?: string | undefined;
+  /**
+   * Parent AWB id (PR3). Set at ingest for items parsed from a Naqel-style
+   * CSV that carries a WayBillNo column. Undefined for legacy ingestion
+   * and single-shot dispatches. The bundler (PR3) uses this to gate
+   * HV/LV at the AWB level and to enforce LV chunk atomicity.
+   */
+  awbId?: string | undefined;
   /** 1-based row position from the source file (post-header). */
   rowIndex: number;
 

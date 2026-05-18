@@ -8,6 +8,7 @@ import {
   batchItems,
   batches,
   batchFilings,
+  filingAwbs,
   type DeclarationStatus,
   type BatchItemRow,
 } from '../../../db/schema.js';
@@ -59,12 +60,21 @@ export interface RecordDeclarationInput {
   strategy: BundleStrategy;
   itemCount: number;
   blobKey: string;
+  /** PR3: parent manifest. NULL when the filing spans manifests or when
+   *  the bundler used the legacy per-item path with no AWB linkage. */
+  manifestId?: string | null;
+  /** PR3: ordered AWB ids covered by this filing. Used to populate
+   *  the filing_awbs join. HV filings supply exactly one id; LV
+   *  consolidated filings supply N. Empty array = legacy path with no
+   *  AWB linkage. */
+  awbIds?: ReadonlyArray<string>;
 }
 
 export async function recordDeclaration(input: RecordDeclarationInput): Promise<void> {
   await db().insert(batchFilings).values({
     id: input.filingId,
     batchId: input.batchId,
+    manifestId: input.manifestId ?? null,
     bundleIndex: input.bundleIndex,
     bundleStrategy: input.strategy,
     itemCount: input.itemCount,
@@ -74,6 +84,20 @@ export async function recordDeclaration(input: RecordDeclarationInput): Promise<
     // (zatcaStatus + bayanNo or rejectionReason) is filled in later.
     status: 'generated',
   });
+  // Populate the filing_awbs join. We do this in a second statement
+  // rather than a transaction because recordDeclaration is called per
+  // bundle inside the runner's own loop — a failure here leaves the
+  // filing row visible but with no AWB linkage, which is recoverable
+  // (the SPA shows "N items" but no per-AWB breakdown). A genuine tx
+  // around the runner is cleaner; left for PR4.
+  const awbIds = input.awbIds ?? [];
+  for (let i = 0; i < awbIds.length; i++) {
+    await db().insert(filingAwbs).values({
+      filingId: input.filingId,
+      awbId: awbIds[i]!,
+      sequence: i,
+    });
+  }
 }
 
 export async function markDeclarationPhase(

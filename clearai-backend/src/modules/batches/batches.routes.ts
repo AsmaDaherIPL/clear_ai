@@ -21,6 +21,11 @@ import {
   handlePatchBatch,
   mapBatchError,
 } from './batch.controller.js';
+import {
+  handleListAwbsByManifest,
+  handleListItemsByAwb,
+  handleListManifestsByBatch,
+} from './manifest.controller.js';
 import type { DispatchFn } from '../dispatch/dispatch.contract.ts';
 import { dispatch as realDispatch } from '../dispatch/dispatch.use-case.js';
 import { getPool } from '../../db/client.js';
@@ -87,6 +92,39 @@ export async function batchesRoutes(app: FastifyInstance, opts?: BatchesRoutesOp
   }>('/batches/:id/items', async (req, reply) => {
     try {
       return await handleListClassifications(req, reply);
+    } catch (err) {
+      const mapped = mapBatchError(err);
+      if (mapped) return reply.code(mapped.statusCode).send(mapped.body);
+      throw err;
+    }
+  });
+
+  // PR3 read API: navigate the manifest/AWB/item hierarchy.
+  // The SPA uses these to render the customs structure of a batch
+  // (one batch → many manifests → many AWBs → many items).
+  app.get<{ Params: { id: string } }>('/batches/:id/manifests', async (req, reply) => {
+    try {
+      return await handleListManifestsByBatch(req, reply);
+    } catch (err) {
+      const mapped = mapBatchError(err);
+      if (mapped) return reply.code(mapped.statusCode).send(mapped.body);
+      throw err;
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/manifests/:id/awbs', async (req, reply) => {
+    try {
+      return await handleListAwbsByManifest(req, reply);
+    } catch (err) {
+      const mapped = mapBatchError(err);
+      if (mapped) return reply.code(mapped.statusCode).send(mapped.body);
+      throw err;
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/awbs/:id/items', async (req, reply) => {
+    try {
+      return await handleListItemsByAwb(req, reply);
     } catch (err) {
       const mapped = mapBatchError(err);
       if (mapped) return reply.code(mapped.statusCode).send(mapped.body);

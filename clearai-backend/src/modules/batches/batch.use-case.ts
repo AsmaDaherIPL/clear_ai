@@ -18,6 +18,7 @@ import { stampFxFields, FxRateMissingError } from '../pipeline/parse/enrich-fx.j
 import { getLookupsByOperatorId } from '../operators/operator-lookups.repository.js';
 import { parseCsvBuffer } from './parsers/csv.parser.js';
 import { parseXlsxBuffer } from './parsers/xlsx.parser.js';
+import { groupNaqelCsv, type GroupedNaqelCsv } from './parsers/naqel-csv.grouper.js';
 import { runClassificationPhase } from './classification/classification.service.js';
 import {
   insertBatch,
@@ -72,6 +73,18 @@ export async function createBatch(input: CreateBatchInput): Promise<CreateBatchR
     throw new BatchTooLargeError(parsed.rows.length, e.BATCH_INPUT_MAX_ROWS);
   }
 
+  // PR3: if the upload carries Naqel-style manifest/AWB columns
+  // (ManifestedTime + WayBillNo present in the header), group rows into
+  // the customs hierarchy and emit it alongside the canonicalised items.
+  // The grouper marks each item with its temp AWB id, which the
+  // repository resolves to a real UUID inside the transaction.
+  const headers = new Set(Object.keys(parsed.rows[0] ?? {}));
+  const isNaqelHierarchical = headers.has('WayBillNo');
+  let hierarchy: GroupedNaqelCsv | undefined;
+  if (isNaqelHierarchical) {
+    hierarchy = groupNaqelCsv(parsed.rows, { operatorSlug: operator.slug });
+  }
+
   const lookups = await loadLookups(operator);
   let items: BatchItemInput[];
   try {
@@ -85,6 +98,22 @@ export async function createBatch(input: CreateBatchInput): Promise<CreateBatchR
       });
     }
     throw err;
+  }
+
+  // Stamp each canonical item with its grouped AWB temp id so the
+  // repository can resolve temp->real. Order is preserved by both the
+  // grouper and canonicaliseRows (input row order, 1:1).
+  if (hierarchy !== undefined) {
+    for (let i = 0; i < items.length; i++) {
+      const grouped = hierarchy.items[i];
+      const it = items[i];
+      if (grouped !== undefined && it !== undefined) {
+        // canonical.awbId is typed as string | undefined; we put the
+        // TempAwbId here. The repository overwrites it with the real
+        // UUID before persisting to batch_items.
+        it.canonical = { ...it.canonical, awbId: grouped.awbTempId };
+      }
+    }
   }
 
   const batchId = newId();
@@ -110,6 +139,7 @@ export async function createBatch(input: CreateBatchInput): Promise<CreateBatchR
     rowCount: items.length,
     metadata: input.metadata,
     items,
+    hierarchy,
   };
   const batch = await insertBatch(insertInput);
 

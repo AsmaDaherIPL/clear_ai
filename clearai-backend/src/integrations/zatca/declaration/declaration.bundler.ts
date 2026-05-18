@@ -1,70 +1,232 @@
 /**
  * HV / LV partitioner for ZATCA Declaration bundling.
  *
- *   HV (high-value): valueAmount-converted-to-SAR >= opts.hvThresholdSar
- *                    -> one declaration per item (BundleStrategy='HV_STANDALONE')
- *   LV (low-value):  everything else
- *                    -> grouped into bundles bounded by BOTH:
- *                         a) item count   <= opts.bundleSize
- *                         b) sum(itemCost) < opts.lvInvoiceCapSar  (exclusive)
- *                       (BundleStrategy='LV_BUNDLED')
+ * Two functions are exported:
  *
- * The LV cap is the real ZATCA/Tabadul rule: an LV consolidated invoice
- * must have a total cost strictly less than 1000 SAR. The per-item HV
- * threshold and the per-bundle LV cap are complementary — items already
- * routed HV are >= 1000 SAR each (so they cannot be in the LV pool), and
- * within the LV pool the bundler must respect the per-invoice ceiling.
+ *  1. `bundleByAwb` (PR3, AWB-aware, the new path):
+ *     Input is pre-grouped: each AWB carries `valueSumSar` (aggregated
+ *     across its items) and `items[]`. HV/LV is decided per AWB:
+ *       HV  = AWB.valueSumSar >= hvThresholdSar
+ *             -> one declaration per AWB (BundleStrategy='HV_STANDALONE'),
+ *                with all of that AWB's items inside.
+ *       LV  = AWB.valueSumSar < hvThresholdSar
+ *             -> pool with other LV AWBs sharing the same manifest,
+ *                chunk into bundles of <= lvLineItemCap line items,
+ *                **AWB-atomic** (an AWB's items are not split across
+ *                bundles) EXCEPT when one AWB alone exceeds lvLineItemCap
+ *                — in that case the bundler splits inside the AWB and
+ *                emits multiple LV bundles for that single AWB
+ *                (2026-05-18 customs spec override).
+ *     LV pooling is scoped to one manifest unless
+ *     `crossManifestAllowed=true` (configurable, default off per the
+ *     2026-05-18 customs spec).
  *
- * Packing is greedy first-fit-in-order: walk LV items in input order, add
- * to the current bundle until either the count limit or the cap would be
- * breached, then start a new bundle. We do not sort or optimise — items
- * are independent and Naqel pays per declaration, but a smarter packer
- * (FFD/BFD) would only reduce bundle count by a small constant; not worth
- * the complexity until operators complain.
+ *  2. `partitionHvLv` (legacy, per-item, kept for backwards compatibility):
+ *     Used when items have no AWB linkage (legacy ingest or non-Naqel
+ *     operators). Gates each item against hvThresholdSar individually;
+ *     LV bundles are item-atomic and capped by bundleSize only. NO
+ *     manifest scoping, NO per-bundle SAR cap (the old
+ *     `lvInvoiceCapSar` was removed in PR3).
  *
- * Currency conversion: rows can arrive in any currency (Naqel ships AED,
- * SAR, USD, GBP, …). Both thresholds are SAR, so we convert via the FX
- * helper at parse time and read `valueAmountSar` here.
- *
- * Pure function — no I/O, no DB. Input is rows already classified
- * (status ∈ {succeeded, flagged}); the renderer turns each bundle into XML.
+ * Pure functions — no I/O, no DB.
  */
 import type { BatchItemRow } from '../../../db/schema.js';
 import type { BundleInput } from './declaration.types.js';
 
+// ──────────────────────────────────────────────────────────────────────────
+// PR3 — AWB-aware bundler
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface AwbForBundling {
+  /** awbs.id from the DB; identifies the AWB on the wire and in filing_awbs. */
+  awbId: string;
+  /** Parent manifest id (manifests.id). LV pooling is bound to this. */
+  manifestId: string;
+  /** Aggregated invoice value of all items under this AWB, in SAR. */
+  valueSumSar: number;
+  /**
+   * The actual item rows that belong to this AWB. Order preserved on output.
+   * Must include every item under the AWB (the bundler does not filter).
+   */
+  items: ReadonlyArray<BatchItemRow>;
+}
+
+export interface BundleByAwbOpts {
+  hvThresholdSar: number;
+  /**
+   * Maximum line items per LV consolidated declaration. Customs spec
+   * caps this at 10,000; we ship 9999 as a safety margin (setup_meta
+   * key `ZATCA_BUNDLE_SIZE`).
+   */
+  lvLineItemCap: number;
+  /**
+   * False (default): LV pooling is bound to a single manifest; AWBs
+   * from different manifests never share a bundle.
+   * True: LV pooling spans manifests in the same batch (only used when
+   * setup_meta.ZATCA_LV_CROSS_MANIFEST_ALLOWED is flipped on).
+   */
+  crossManifestAllowed: boolean;
+}
+
+/**
+ * AWB-aware bundle output. Adds `awbIds` so the caller can persist the
+ * filing_awbs join. For HV bundles `awbIds` has length 1; for LV
+ * bundles it has length N (the AWBs that landed in this consolidated
+ * declaration). `manifestId` is the parent for filings.manifest_id (NULL
+ * only when crossManifestAllowed=true and the bundle spans manifests;
+ * in that case the caller decides whether to leave it null or pick the
+ * first AWB's manifest).
+ */
+export interface AwbBundleOutput {
+  strategy: 'HV_STANDALONE' | 'LV_BUNDLED';
+  manifestId: string | null;
+  awbIds: ReadonlyArray<string>;
+  items: ReadonlyArray<BatchItemRow>;
+}
+
+export function bundleByAwb(
+  awbs: ReadonlyArray<AwbForBundling>,
+  opts: BundleByAwbOpts,
+): AwbBundleOutput[] {
+  if (!Number.isFinite(opts.hvThresholdSar) || opts.hvThresholdSar < 0) {
+    throw new RangeError(
+      `hvThresholdSar must be a non-negative finite number, got ${opts.hvThresholdSar}`,
+    );
+  }
+  if (!Number.isInteger(opts.lvLineItemCap) || opts.lvLineItemCap < 1) {
+    throw new RangeError(
+      `lvLineItemCap must be a positive integer, got ${opts.lvLineItemCap}`,
+    );
+  }
+
+  const out: AwbBundleOutput[] = [];
+
+  // Phase 1 — HV partition: each HV AWB emits its own declaration.
+  // Phase 2 — LV partition: pool LV AWBs (per manifest if cross-manifest is off),
+  //                         chunk by line-item count with AWB atomicity.
+  const lvByManifest = new Map<string, AwbForBundling[]>();
+
+  for (const awb of awbs) {
+    if (awb.valueSumSar >= opts.hvThresholdSar) {
+      out.push({
+        strategy: 'HV_STANDALONE',
+        manifestId: awb.manifestId,
+        awbIds: [awb.awbId],
+        items: awb.items,
+      });
+      continue;
+    }
+    const key = opts.crossManifestAllowed ? '__all__' : awb.manifestId;
+    let pool = lvByManifest.get(key);
+    if (pool === undefined) {
+      pool = [];
+      lvByManifest.set(key, pool);
+    }
+    pool.push(awb);
+  }
+
+  // LV chunking. For each pool (one per manifest, or one global if
+  // crossManifestAllowed), walk AWBs in order. For each AWB:
+  //   • If the AWB alone has more items than lvLineItemCap, split
+  //     inside the AWB into chunks of <= cap items (per the
+  //     2026-05-18 override). Each chunk emits its own bundle.
+  //   • Else, append to the current bundle if it fits; flush + start a
+  //     new bundle otherwise.
+  for (const [manifestKey, pool] of lvByManifest) {
+    let currentItems: BatchItemRow[] = [];
+    let currentAwbIds: string[] = [];
+    let currentManifestId: string | null = null;
+
+    const flush = () => {
+      if (currentItems.length === 0) return;
+      out.push({
+        strategy: 'LV_BUNDLED',
+        manifestId: opts.crossManifestAllowed ? null : currentManifestId,
+        awbIds: currentAwbIds,
+        items: currentItems,
+      });
+      currentItems = [];
+      currentAwbIds = [];
+      currentManifestId = null;
+    };
+
+    for (const awb of pool) {
+      if (awb.items.length > opts.lvLineItemCap) {
+        // Oversize-single-AWB override. Flush the current bundle first
+        // so the oversize AWB's chunks don't accidentally absorb prior
+        // AWBs from the pool. Then emit one bundle per chunk.
+        flush();
+        for (let i = 0; i < awb.items.length; i += opts.lvLineItemCap) {
+          const chunk = awb.items.slice(i, i + opts.lvLineItemCap);
+          out.push({
+            strategy: 'LV_BUNDLED',
+            manifestId: opts.crossManifestAllowed ? null : awb.manifestId,
+            awbIds: [awb.awbId],
+            items: chunk,
+          });
+        }
+        continue;
+      }
+
+      // AWB-atomic packing. If adding this AWB's items would push the
+      // running count over the cap, flush the current bundle and start
+      // a new one.
+      if (currentItems.length + awb.items.length > opts.lvLineItemCap) {
+        flush();
+      }
+      if (currentManifestId === null) currentManifestId = awb.manifestId;
+      currentAwbIds.push(awb.awbId);
+      currentItems = currentItems.concat(awb.items);
+    }
+    flush();
+    // Silence unused-var lint for the pool key when crossManifestAllowed
+    // is true (we still need the key for grouping).
+    void manifestKey;
+  }
+
+  return out;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Legacy — per-item bundler (used when items have no AWB linkage)
+// ──────────────────────────────────────────────────────────────────────────
+
 export interface PartitionOpts {
   hvThresholdSar: number;
   bundleSize: number;
-  /**
-   * Per-bundle invoiceCost ceiling in SAR (exclusive). Sum of itemCost
-   * across an LV bundle must be strictly less than this. See migration
-   * 0082 for context.
-   */
-  lvInvoiceCapSar: number;
 }
 
+/**
+ * Legacy per-item partitioner. Used when items carry no AWB linkage
+ * (legacy ingest, non-Naqel operators). Items are gated against
+ * `hvThresholdSar` individually and LV items are packed into bundles of
+ * up to `bundleSize` items.
+ *
+ * No SAR cap (the old `lvInvoiceCapSar` was removed in PR3 per the
+ * 2026-05-18 customs spec correction: there is NO per-bundle SAR cap on
+ * LV consolidated declarations — only the line-item cap).
+ */
 export function partitionHvLv(
   items: ReadonlyArray<BatchItemRow>,
   opts: PartitionOpts,
 ): BundleInput[] {
   if (!Number.isFinite(opts.hvThresholdSar) || opts.hvThresholdSar < 0) {
-    throw new RangeError(`hvThresholdSar must be a non-negative finite number, got ${opts.hvThresholdSar}`);
+    throw new RangeError(
+      `hvThresholdSar must be a non-negative finite number, got ${opts.hvThresholdSar}`,
+    );
   }
   if (!Number.isInteger(opts.bundleSize) || opts.bundleSize < 1) {
     throw new RangeError(`bundleSize must be a positive integer, got ${opts.bundleSize}`);
   }
-  if (!Number.isFinite(opts.lvInvoiceCapSar) || opts.lvInvoiceCapSar <= 0) {
-    throw new RangeError(`lvInvoiceCapSar must be a positive finite number, got ${opts.lvInvoiceCapSar}`);
-  }
 
   const hv: BatchItemRow[] = [];
-  const lv: Array<{ row: BatchItemRow; sar: number }> = [];
+  const lv: BatchItemRow[] = [];
   for (const item of items) {
     const sarAmount = readSarAmount(item);
     if (sarAmount >= opts.hvThresholdSar) {
       hv.push(item);
     } else {
-      lv.push({ row: item, sar: sarAmount });
+      lv.push(item);
     }
   }
 
@@ -73,22 +235,13 @@ export function partitionHvLv(
     items: [it],
   }));
 
-  // Greedy LV bin packing: respect count AND cap. An item enters the
-  // current bundle iff doing so keeps both (a) count <= bundleSize and
-  // (b) running total < lvInvoiceCapSar. Otherwise we close the current
-  // bundle and open a new one.
   let current: BatchItemRow[] = [];
-  let currentSum = 0;
-  for (const { row, sar } of lv) {
-    const wouldExceedCount = current.length + 1 > opts.bundleSize;
-    const wouldExceedCap = currentSum + sar >= opts.lvInvoiceCapSar;
-    if (current.length > 0 && (wouldExceedCount || wouldExceedCap)) {
+  for (const row of lv) {
+    if (current.length >= opts.bundleSize) {
       bundles.push({ strategy: 'LV_BUNDLED', items: current });
       current = [];
-      currentSum = 0;
     }
     current.push(row);
-    currentSum += sar;
   }
   if (current.length > 0) {
     bundles.push({ strategy: 'LV_BUNDLED', items: current });
@@ -98,9 +251,6 @@ export function partitionHvLv(
 }
 
 function readSarAmount(row: BatchItemRow): number {
-  // Post 2026-05-13: parse stamps valueAmountSar on every item with a valid
-  // (value_amount, currency_code). Render reads it directly — no per-item
-  // FX lookup at bundle time. Fall back to raw amount only for legacy rows.
   const c = row.canonical;
   if (typeof c.valueAmountSar === 'number' && Number.isFinite(c.valueAmountSar)) {
     return c.valueAmountSar;

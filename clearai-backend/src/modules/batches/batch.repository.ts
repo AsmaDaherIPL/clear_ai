@@ -8,7 +8,7 @@
  * listItems, countItemsByStatus).
  */
 import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
-import { db } from '../../db/client.js';
+import { db, getPool } from '../../db/client.js';
 import {
   batches,
   batchItems,
@@ -20,10 +20,15 @@ import {
   type BatchMode,
   type BatchRow,
   type BatchStatus,
-  type NewBatchItemRow,
 } from '../../db/schema.js';
 import type { CanonicalLineItem, RawRow } from '../operators/operator-config.types.js';
 import { BatchNotFoundError } from './batch.errors.js';
+import type {
+  GroupedNaqelCsv,
+  TempManifestId,
+  TempAwbId,
+} from './parsers/naqel-csv.grouper.js';
+import { insertManifest, insertAwb } from './manifest.repository.js';
 
 /**
  * One paired (canonical, rawRow) record. The repository writes them into
@@ -46,55 +51,150 @@ export interface InsertBatchInput {
   rowCount: number;
   metadata: Record<string, unknown>;
   items: ReadonlyArray<BatchItemInput>;
+  /**
+   * Optional manifest/AWB hierarchy (PR3). When present, the repository
+   * persists the manifests + AWBs first, then writes each item with its
+   * `awb_id` FK populated. The grouped payload's temp ids are mapped to
+   * real UUIDs inside the transaction; the corresponding canonical's
+   * `awbId` field is overwritten with the real value before insert.
+   *
+   * When absent (legacy path / non-Naqel operators), items are inserted
+   * with `awb_id = NULL` and no manifests/awbs are created.
+   */
+  hierarchy?: GroupedNaqelCsv;
 }
 
 /**
- * Insert a batches row + every batch_items row in a
- * single transaction. Sets initial classification_status='pending';
- * declaration_status='pending' iff mode='classify_and_declare', NULL
- * otherwise (per the DB consistency CHECK).
+ * Insert a batches row + every batch_items row (and optionally
+ * manifests + awbs from a Naqel-style ingest) in a single transaction.
+ * Sets initial classification_status='pending'; declaration_status='pending'
+ * iff mode='classify_and_declare', NULL otherwise (per the DB consistency CHECK).
  */
 export async function insertBatch(input: InsertBatchInput): Promise<BatchRow> {
-  return db().transaction(async (tx) => {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
     const declStatus: DeclarationStatus | null =
       input.mode === 'classify_and_declare' ? 'pending' : null;
 
-    const inserted = await tx
-      .insert(batches)
-      .values({
-        id: input.batchId,
-        operatorId: input.operatorId,
-        mode: input.mode,
-        status: 'pending',
-        classificationStatus: 'pending',
-        declarationStatus: declStatus,
-        sourceBlobKey: input.sourceBlobKey,
-        blobPrefix: input.blobPrefix,
-        rowCount: input.rowCount,
-        metadata: input.metadata,
-      })
-      .returning();
-    const batch = inserted[0]!;
+    const batchInsert = await client.query<BatchRow>(
+      `INSERT INTO batches (
+         id, operator_id, mode, status, classification_status, declaration_status,
+         source_blob_key, blob_prefix, row_count, metadata
+       )
+       VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8::jsonb)
+       RETURNING id, operator_id AS "operatorId", mode, status,
+                 classification_status AS "classificationStatus",
+                 declaration_status AS "declarationStatus",
+                 source_blob_key AS "sourceBlobKey",
+                 result_blob_key AS "resultBlobKey",
+                 blob_prefix AS "blobPrefix",
+                 row_count AS "rowCount", metadata,
+                 error,
+                 created_at AS "createdAt", started_at AS "startedAt",
+                 completed_at AS "completedAt", updated_at AS "updatedAt"`,
+      [
+        input.batchId,
+        input.operatorId,
+        input.mode,
+        declStatus,
+        input.sourceBlobKey,
+        input.blobPrefix,
+        input.rowCount,
+        JSON.stringify(input.metadata),
+      ],
+    );
+    const batch = batchInsert.rows[0]!;
 
-    const rows: NewBatchItemRow[] = input.items.map(({ canonical, rawRow }) => ({
-      id: canonical.itemId,
-      batchId: batch.id,
-      rowIndex: canonical.rowIndex,
-      canonical,
-      rawRow,
-      status: 'pending',
-    }));
+    // PR3 hierarchy path. Insert manifests + awbs first; record temp-id
+    // to real-id maps so items can carry awb_id.
+    const manifestIdByTemp = new Map<TempManifestId, string>();
+    const awbIdByTemp = new Map<TempAwbId, string>();
 
-    if (rows.length > 0) {
-      // Chunked insert to avoid hitting Postgres parameter limits.
-      const CHUNK = 200;
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        await tx.insert(batchItems).values(rows.slice(i, i + CHUNK));
+    if (input.hierarchy !== undefined) {
+      for (const m of input.hierarchy.manifests) {
+        const row = await insertManifest(client, {
+          batchId: batch.id,
+          mawbNo: m.mawbNo,
+          manifestedAt: m.manifestedAt,
+        });
+        manifestIdByTemp.set(m.tempId, row.id);
+      }
+      for (const a of input.hierarchy.awbs) {
+        const manifestId = manifestIdByTemp.get(a.manifestTempId);
+        if (manifestId === undefined) {
+          throw new Error(
+            `insertBatch invariant: awb ${a.tempId} references unknown manifest ${a.manifestTempId}`,
+          );
+        }
+        const row = await insertAwb(client, {
+          manifestId,
+          awbNo: a.awbNo,
+          consigneeNationalId: a.consigneeNationalId,
+          consigneeName: a.consigneeName,
+          consigneeMobile: a.consigneeMobile,
+          consigneePhone: a.consigneePhone,
+          consigneeBirthDate: a.consigneeBirthDate,
+          consigneeDest: a.consigneeDest,
+          consigneeDestStation: a.consigneeDestStation,
+        });
+        awbIdByTemp.set(a.tempId, row.id);
       }
     }
 
+    // Items: stamp awb_id when we have a hierarchy, else NULL.
+    const itemRows = input.items.map(({ canonical, rawRow }) => {
+      let awbDbId: string | null = null;
+      // Two paths to surface awb temp id:
+      //  1. The canonical was stamped with the temp id by the caller (e.g.
+      //     parser put GroupedItem.awbTempId on canonical.awbId).
+      //  2. The hierarchy is provided but the canonical doesn't carry it
+      //     (shouldn't happen with the parser; defensive).
+      if (input.hierarchy !== undefined && canonical.awbId !== undefined) {
+        // canonical.awbId at insert time is the TempAwbId; resolve.
+        const realId = awbIdByTemp.get(canonical.awbId as TempAwbId);
+        if (realId !== undefined) awbDbId = realId;
+      }
+      return { canonical, rawRow, awbDbId, finalCanonical: { ...canonical, awbId: awbDbId ?? undefined } };
+    });
+
+    if (itemRows.length > 0) {
+      // Chunked insert via raw SQL so we can fan-out awb_id per row.
+      const CHUNK = 200;
+      for (let i = 0; i < itemRows.length; i += CHUNK) {
+        const chunk = itemRows.slice(i, i + CHUNK);
+        const valuesSql: string[] = [];
+        const params: unknown[] = [];
+        let p = 1;
+        for (const r of chunk) {
+          valuesSql.push(`($${p++}, $${p++}, $${p++}, $${p++}::jsonb, $${p++}::jsonb, 'pending', $${p++})`);
+          params.push(
+            r.finalCanonical.itemId,
+            batch.id,
+            r.finalCanonical.rowIndex,
+            JSON.stringify(r.finalCanonical),
+            JSON.stringify(r.rawRow),
+            r.awbDbId,
+          );
+        }
+        await client.query(
+          `INSERT INTO batch_items (id, batch_id, row_index, canonical, raw_row, status, awb_id)
+           VALUES ${valuesSql.join(', ')}`,
+          params,
+        );
+      }
+    }
+
+    await client.query('COMMIT');
     return batch;
-  });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getBatch(id: string): Promise<BatchRow> {
