@@ -122,9 +122,9 @@ describe('LocalBlobClient (file:// adapter)', () => {
 describe('blob.paths', () => {
   const PREFIX = 'naqel/2026/05/08/aa11bb22-cccc-dddd-eeee-ff0011223344';
 
-  it('declarationRunPrefix builds {operator}/YYYY/MM/DD/{runId} with UTC zero-pad', async () => {
-    const { declarationRunPrefix } = await import('../../src/storage/blob.paths.js');
-    const prefix = declarationRunPrefix({
+  it('batchPrefix builds {operator}/YYYY/MM/DD/{runId} with UTC zero-pad', async () => {
+    const { batchPrefix } = await import('../../src/storage/blob.paths.js');
+    const prefix = batchPrefix({
       operatorSlug: 'naqel',
       // Pick a date that exercises zero-padding on both fields.
       createdAt: new Date(Date.UTC(2026, 4, 8, 23, 59, 59)),

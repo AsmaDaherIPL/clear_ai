@@ -341,7 +341,7 @@ export type VerdictDecision = 'accept' | 'escalate';
 /**
  * BLOCKED_BY_REVIEWER is a reviewer-only state — the pipeline never
  * emits it. Set when a human reviewer chose `decision='block_from_submission'`
- * on a HITL row, flipping the corresponding declaration_run_items row to
+ * on a HITL row, flipping the corresponding batch_items row to
  * status='blocked' + excluded_from_xml=true. The SPA's batch results
  * table renders this as a dedicated pill ("Removed from declaration")
  * distinct from BLOCK (sanity FLAG emitted by the model) and from
@@ -503,7 +503,7 @@ export interface PipelineTrace {
    * `anchored_pick` carries the PickResult + its PickCallTrace.
    *
    * PR 13: anchored stage type files deleted. Fields typed as `unknown`
-   * for DB JSON backward compat (SQL paths in declaration-run.controller
+   * for DB JSON backward compat (SQL paths in batch.controller
    * still read these from persisted rows). Canonical v2 trace lives in
    * pipeline/types.ts PipelineTrace.
    */
@@ -539,7 +539,7 @@ export interface PipelineTrace {
 }
 
 // ---------------------------------------------------------------------------
-// Final pipeline output (consumed by declaration-runs/classification)
+// Final pipeline output (consumed by batches/classification)
 // ---------------------------------------------------------------------------
 
 /**

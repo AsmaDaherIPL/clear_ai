@@ -3,7 +3,7 @@
  * Mirrors decsub.xsd structurally; the renderer translates field by field.
  */
 import type { BatchItemRow, OperatorDeclarationConfigRow } from '../../../db/schema.js';
-import type { BundleStrategy } from '../../../modules/declaration-runs/filings/declaration.types.js';
+import type { BundleStrategy } from '../../../modules/batches/filings/declaration.types.js';
 import type { LookupValue } from '../../../modules/operators/operator-lookups.repository.js';
 import type { OperatorIdentity } from '../../../modules/operators/operator-config.types.js';
 
@@ -34,4 +34,4 @@ export interface RenderInput {
   docRefSuffixOverride?: string;
 }
 
-export type { BundleStrategy } from '../../../modules/declaration-runs/filings/declaration.types.js';
+export type { BundleStrategy } from '../../../modules/batches/filings/declaration.types.js';

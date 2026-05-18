@@ -9,7 +9,7 @@
  *     lv/{filing_id}.xml
  *
  * The prefix is computed once at run creation (UTC-fixed) and stored on
- * declaration_runs.blob_prefix, so reads never recompute date partitions.
+ * batches.blob_prefix, so reads never recompute date partitions.
  *
  * Naming note: the run-level index file is called `run-index.json`, not
  * `manifest.json`. "Manifest" in logistics/ZATCA refers specifically to
@@ -24,7 +24,7 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-export function declarationRunPrefix(params: {
+export function batchPrefix(params: {
   operatorSlug: string;
   createdAt: Date;
   runId: string;

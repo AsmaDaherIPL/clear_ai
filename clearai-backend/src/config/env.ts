@@ -59,7 +59,7 @@ const EnvSchema = z
 
     /**
      * Gate for the pending_infra item status downgrade. Off by default
-     * until migration 0077 (which extends declaration_run_items_status_chk)
+     * until migration 0077 (which extends batch_items_status_chk)
      * has been applied. With this off, infra-degraded rows fall through
      * to the natural status (succeeded/flagged/failed) — same behaviour
      * as pre-PR 3. Flip to 'true' AFTER the migration runs.

@@ -2,7 +2,7 @@
  * Review queue route integration tests.
  *
  * Boots a Fastify instance, seeds a classification_events row + a
- * hitl_queue row (and optionally a declaration_run_items row with a
+ * hitl_queue row (and optionally a batch_items row with a
  * trace), then drives the four endpoints. Hits the live DB so
  * docker-compose Postgres must be up.
  */
@@ -28,7 +28,7 @@ const SEED_CODE_PARENT = '610910000099'; // Other variant — used as alternativ
 
 interface SeedOpts {
   reason?: 'verdict_escalate' | 'sanity_flag' | 'low_information' | 'verifier_uncertain';
-  /** Attach a declaration_run_items row with this trace shape. */
+  /** Attach a batch_items row with this trace shape. */
   withItem?: {
     finalCode: string;
     confidence: number;
@@ -62,8 +62,8 @@ async function seedEventAndQueueRow(opts?: SeedOpts): Promise<{
   );
 
   // The hitl_queue.item_id can either match classification_events.id
-  // (single-shot review) OR match a declaration_run_items.id (batch
-  // review). When withItem is set we seed a DRI row + use its id.
+  // (single-shot review) OR match a batch_items.id (batch
+  // review). When withItem is set we seed a batch-item row + use its id.
   let itemId = eventId;
   if (opts?.withItem) {
     testRowIndexCounter += 1;
@@ -94,8 +94,8 @@ async function seedEventAndQueueRow(opts?: SeedOpts): Promise<{
       },
     };
     await pool.query(
-      `INSERT INTO declaration_run_items (
-        id, declaration_run_id, row_index, canonical, raw_row, status, final_code, trace
+      `INSERT INTO batch_items (
+        id, batch_id, row_index, canonical, raw_row, status, final_code, trace
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         driId,
@@ -149,10 +149,10 @@ beforeAll(async () => {
     testOperatorId = inserted.rows[0]!.id;
   }
 
-  // Seed a parent declaration_run for the with-item tests. One per
+  // Seed a parent batch for the with-item tests. One per
   // test file is fine — child rows get unique row_index.
   const runInsert = await pool.query<{ id: string }>(
-    `INSERT INTO declaration_runs (
+    `INSERT INTO batches (
       operator_id, mode, source_blob_key, row_count, classification_status
     ) VALUES ($1, 'classify_only', 'test/blob', 100, 'pending')
     RETURNING id`,
@@ -169,7 +169,7 @@ afterAll(async () => {
   if (app) await app.close();
   const pool = getPool();
   if (testRunId) {
-    await pool.query(`DELETE FROM declaration_runs WHERE id = $1`, [testRunId]);
+    await pool.query(`DELETE FROM batches WHERE id = $1`, [testRunId]);
   }
   await pool.query(`DELETE FROM classification_events WHERE operator_slug = $1`, [TEST_OPERATOR_SLUG]);
   if (testOperatorId) {
@@ -179,11 +179,11 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  // Order matters: DRI rows reference declaration_runs (kept) and the
+  // Order matters: batch-item rows reference batches (kept) and the
   // hitl_queue references classification_events (deleted). Cascade
   // takes care of hitl_queue.
   const pool = getPool();
-  await pool.query(`DELETE FROM declaration_run_items WHERE declaration_run_id = $1`, [testRunId]);
+  await pool.query(`DELETE FROM batch_items WHERE batch_id = $1`, [testRunId]);
   await pool.query(`DELETE FROM classification_events WHERE operator_slug = $1`, [TEST_OPERATOR_SLUG]);
   testRowIndexCounter = 0;
 });
@@ -238,7 +238,7 @@ describe('GET /classifications/review', () => {
 });
 
 describe('GET /classifications/review/:id', () => {
-  it('returns flattened candidates + current state when DRI row exists', async () => {
+  it('returns flattened candidates + current state when batch-item row exists', async () => {
     const { queueId } = await seedEventAndQueueRow({
       withItem: {
         finalCode: SEED_CODE_T_SHIRT,
@@ -485,7 +485,7 @@ describe('PATCH /classifications/review/:id — override', () => {
 });
 
 describe('PATCH /classifications/review/:id — block_from_submission', () => {
-  it('blocks and sets excluded_from_xml=true on the DRI row', async () => {
+  it('blocks and sets excluded_from_xml=true on the batch-item row', async () => {
     const { queueId, itemId } = await seedEventAndQueueRow({
       reason: 'sanity_flag',
       withItem: {
@@ -515,14 +515,14 @@ describe('PATCH /classifications/review/:id — block_from_submission', () => {
     expect(body.item_blocked.item_id).toBe(itemId);
     expect(body.item_blocked.excluded_from_xml).toBe(true);
 
-    // Verify the DRI row was actually flipped.
+    // Verify the batch-item row was actually flipped.
     const dri = await getPool().query<{
       status: string;
       excluded_from_xml: boolean;
       blocked_reason: string;
     }>(
       `SELECT status, excluded_from_xml, blocked_reason
-         FROM declaration_run_items WHERE id = $1`,
+         FROM batch_items WHERE id = $1`,
       [itemId],
     );
     expect(dri.rows[0]!.status).toBe('blocked');

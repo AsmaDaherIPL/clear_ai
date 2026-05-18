@@ -19,7 +19,7 @@
  *
  *   approve                  Pipeline got it right. final_code unchanged.
  *   override                 Pipeline picked wrong code; reviewer supplies the
- *                            right one. Patches declaration_run_items.final_code
+ *                            right one. Patches batch_items.final_code
  *                            and preserves the original in pipeline_final_code.
  *                            GATED: only allowed when current confidence < 0.60
  *                            (any value at or above is auto-rejected with 403).
@@ -37,14 +37,14 @@
  *                            value IS implausible — but the row STILL ships
  *                            in the XML. Pure audit signal recorded against
  *                            the merchant for downstream data-quality
- *                            tracking. No DRI changes, no XML exclusion.
+ *                            tracking. No batch-item changes, no XML exclusion.
  *                            GATED: only allowed when reason='sanity_flag'
  *                            (422 confirm_flag_wrong_reason otherwise).
  *                            reviewer_code MUST NOT be supplied. Notes
  *                            optional.
  *
  * Override side-effect: when decide.decision='override' (with a 12-digit
- * reviewer_code), the handler patches declaration_run_items in the same
+ * reviewer_code), the handler patches batch_items in the same
  * transaction:
  *   pipeline_final_code := current final_code  (only if NULL — preserve original)
  *   final_code         := reviewer_code
@@ -414,7 +414,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
   // GET /classifications/review/:id — single row + flattened candidates
   //
   // Returns the queue row + reviewer-facing decision context:
-  //   - current_final_code               from declaration_run_items.final_code
+  //   - current_final_code               from batch_items.final_code
   //   - current_classification_confidence from trace.meta.pick.confidence
   //   - current_sanity_verdict           from trace.meta.sanity.verdict
   //   - current_sanity_rationale         from trace.meta.sanity.rationale
@@ -433,9 +433,9 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
     const { id } = parsed.data;
 
     const pool = getPool();
-    // Join declaration_run_items so the reviewer-facing UI can render
+    // Join batch_items so the reviewer-facing UI can render
     // current state (final_code, excluded_from_xml) without a second
-    // fetch. LEFT JOIN because single-shot reviews have no DRI row.
+    // fetch. LEFT JOIN because single-shot reviews have no batch-item row.
     const r = await pool.query<
       QueueRowWithPayload & {
         current_final_code: string | null;
@@ -451,7 +451,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
               i.excluded_from_xml       AS excluded_from_xml,
               i.trace                   AS item_trace
          FROM hitl_queue q
-         LEFT JOIN declaration_run_items i ON i.id = q.item_id
+         LEFT JOIN batch_items i ON i.id = q.item_id
         WHERE q.id = $1
         LIMIT 1`,
       [id],
@@ -497,7 +497,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
   // PATCH /classifications/review/:id — decide
   //
   // Replaces the old POST /hitl/queue/:id/review. Override flow patches
-  // declaration_run_items.final_code transactionally so the batch items
+  // batch_items.final_code transactionally so the batch items
   // table reflects the reviewer's decision immediately. Block flow sets
   // excluded_from_xml=true on the row (no XML rendering today; the
   // column is recorded for the future XML builder).
@@ -524,7 +524,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
     // For override: enforce the 0.60 confidence gate + the candidate-set
     // constraint. Both checks read from the persisted item trace (the
     // pre-review snapshot — review payload could be stale if the row
-    // was re-classified, but in practice DRI.trace is immutable post-
+    // was re-classified, but in practice batch_items.trace is immutable post-
     // dispatch). We do these BEFORE opening a transaction so we can fail
     // fast with a clean status code.
     //
@@ -537,16 +537,16 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
       }>(
         `SELECT i.final_code, i.trace
            FROM hitl_queue q
-           LEFT JOIN declaration_run_items i ON i.id = q.item_id
+           LEFT JOIN batch_items i ON i.id = q.item_id
           WHERE q.id = $1
           LIMIT 1`,
         [id],
       );
       // If hitl_queue row missing, fall through to the main UPDATE which
-      // emits the proper 404. If declaration_run_items row missing
+      // emits the proper 404. If batch_items row missing
       // (single-shot review), there's no trace to check candidates
       // against — accept the override unconditionally on the queue row
-      // alone, but the side effect (DRI patch) will no-op as before.
+      // alone, but the side effect (batch-item patch) will no-op as before.
       if (itemPreview.rowCount === 1 && itemPreview.rows[0]!.trace !== null) {
         const trace = itemPreview.rows[0]!.trace;
         const confidence = extractConfidence(trace);
@@ -690,7 +690,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
 
       const queueRow = updateRes.rows[0]!;
 
-      // ---- Override side effect: patch declaration_run_items ----
+      // ---- Override side effect: patch batch_items ----
       let itemPatched: {
         item_id: string;
         previous_final_code: string | null;
@@ -701,7 +701,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
       if (decision === 'override') {
         const itemRes = await client.query<{ final_code: string | null; pipeline_final_code: string | null }>(
           `SELECT final_code, pipeline_final_code
-             FROM declaration_run_items
+             FROM batch_items
             WHERE id = $1
             FOR UPDATE`,
           [queueRow.item_id],
@@ -711,7 +711,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
           const preservePipeline = row.pipeline_final_code === null && row.final_code !== null;
 
           await client.query(
-            `UPDATE declaration_run_items
+            `UPDATE batch_items
                 SET final_code = $2,
                     final_code_source = 'reviewer_override',
                     pipeline_final_code = COALESCE(pipeline_final_code, $3),
@@ -733,7 +733,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      // ---- Block side effect: flip declaration_run_items.excluded_from_xml ----
+      // ---- Block side effect: flip batch_items.excluded_from_xml ----
       let itemBlocked: {
         item_id: string;
         previous_status: string;
@@ -741,12 +741,12 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
       } | null = null;
 
       if (decision === 'block_from_submission') {
-        // Single-shot reviews don't have a DRI row — only the queue row
+        // Single-shot reviews don't have a batch-item row — only the queue row
         // is updated, and the API still reports success. The block has
         // no downstream effect in that case (single-shot results aren't
         // filed through the batch XML pipeline).
         const itemRes = await client.query<{ status: string }>(
-          `UPDATE declaration_run_items
+          `UPDATE batch_items
               SET status = 'blocked',
                   excluded_from_xml = true,
                   blocked_at = now(),

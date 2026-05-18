@@ -89,7 +89,7 @@ export interface OperatorConfig {
 }
 
 /**
- * Verbatim parsed source row. Persisted in `declaration_run_items.raw_row`
+ * Verbatim parsed source row. Persisted in `batch_items.raw_row`
  * (a sibling column of canonical, NOT inside the canonical jsonb) so
  * column-level GRANT/REVOKE can gate PII access.
  *
@@ -133,20 +133,20 @@ export interface ConsigneeAddress {
  *     today's UTC date).
  */
 export interface CanonicalLineItem {
-  /** Stable per-batch identifier; matches declaration_run_items.id once persisted. */
+  /** Stable per-batch identifier; matches batch_items.id once persisted. */
   itemId: string;
   /**
    * Parent batch id when the item is being processed under a batch
-   * (declaration_runs.id). Undefined for single-shot dispatches called via
+   * (batches.id). Undefined for single-shot dispatches called via
    * /classifications/dispatch. Used downstream to populate
    * hitl_queue.batch_id so review rows can be grouped by their
    * originating batch.
    */
-  declarationRunId?: string | undefined;
+  batchId?: string | undefined;
   /** 1-based row position from the source file (post-header). */
   rowIndex: number;
 
-  /** Operator context — uuid is the FK target on declaration_runs; slug is for log context. */
+  /** Operator context — uuid is the FK target on batches; slug is for log context. */
   operatorId: string;
   operatorSlug: string;
 

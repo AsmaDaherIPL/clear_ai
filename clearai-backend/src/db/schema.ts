@@ -64,33 +64,31 @@ export type {
   NewOperatorDeclarationConfigRow,
 } from './schema/operator-declaration-config.js';
 
-export { declarationRuns } from './schema/declaration-runs.js';
+export { batches } from './schema/batches.js';
 export type {
-  DeclarationRunRow,
-  NewDeclarationRunRow,
+  BatchRow,
+  NewBatchRow,
   BatchMode,
   BatchStatus,
   ClassificationStatus,
   DeclarationStatus,
-} from './schema/declaration-runs.js';
+} from './schema/batches.js';
 
-export { declarationRunItems } from './schema/declaration-run-items.js';
+export { batchItems } from './schema/batch-items.js';
 export type {
   BatchItemRow,
-  NewDeclarationRunItemRow,
+  NewBatchItemRow,
   BatchItemStatus,
-} from './schema/declaration-run-items.js';
+} from './schema/batch-items.js';
 
-export { declarationRunFilings } from './schema/declaration-run-filings.js';
+export { batchFilings } from './schema/batch-filings.js';
 export type {
-  DeclarationRunFilingRow,
-  NewDeclarationRunFilingRow,
-  DeclarationRow,
-  NewDeclarationRow,
+  BatchFilingRow,
+  NewBatchFilingRow,
   BundleStrategy,
   FilingStatus,
   FilingZatcaStatus,
-} from './schema/declaration-run-filings.js';
+} from './schema/batch-filings.js';
 
 export { submissionDescriptions } from './schema/submission-descriptions.js';
 export type {

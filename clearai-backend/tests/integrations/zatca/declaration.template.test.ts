@@ -44,7 +44,7 @@ function row(overrides: Partial<{
 }> = {}): BatchItemRow {
   return {
     id: 'item-1',
-    declarationRunId: 'set-1',
+    batchId: 'set-1',
     rowIndex: 1,
     canonical: {
       itemId: 'item-1',

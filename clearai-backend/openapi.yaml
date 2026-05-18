@@ -17,8 +17,9 @@ info:
       - /hitl/queue                    -> /classifications/review
       - POST /hitl/queue/:id/review    -> PATCH /classifications/review/:id
 
-    Internal code/DB still use `declaration_runs` / `hitl_queue`; only the
-    API surface uses the new names. See tracker/API_AUDIT_SPEC_2026-05-12.md.
+    Internal code/DB now use `batches` / `hitl_queue` (renamed from
+    `declaration_runs` in migration 0084). The API surface continues to
+    use `/batches/*`. See tracker/API_AUDIT_SPEC_2026-05-12.md.
 
     Authentication: every endpoint outside `/health` requires BOTH:
       1. A valid Microsoft Entra ID access token, validated by APIM's
@@ -98,7 +99,7 @@ components:
       name: id
       in: path
       required: true
-      description: UUIDv7 of a batch (was declaration_run_id).
+      description: UUIDv7 of a batch.
       schema:
         type: string
         format: uuid
@@ -998,7 +999,7 @@ paths:
       description: |
         Page of items + classification result + trace. 2026-05-12 cutover:
         added `total` / `has_more` / `next_offset` for ergonomic paging.
-        `declaration_run_id` envelope key renamed to `batch_id`.
+        Envelope key is `batch_id`.
       security:
         - apimSharedSecret: []
           entraJwt: ['api://clearai-backend/.default']
@@ -1565,12 +1566,12 @@ paths:
         block_from_submission | confirm_flag) or 'dismissed' (decision=reject).
 
         Side effects per verb:
-          override               atomic patch to declaration_run_items:
+          override               atomic patch to batch_items:
                                    pipeline_final_code := current final_code
                                                           (preserved if NULL)
                                    final_code         := reviewer_code
                                    final_code_source  := 'reviewer_override'
-          block_from_submission  atomic patch to declaration_run_items:
+          block_from_submission  atomic patch to batch_items:
                                    status            := 'blocked'
                                    excluded_from_xml := true
                                    blocked_at        := now()

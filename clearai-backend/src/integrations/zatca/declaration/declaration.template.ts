@@ -33,7 +33,7 @@
  *   • airBLDate / documentDate: defaulted to render-time UTC date. Real
  *     value should come from the source row (a future xlsx will have an
  *     `InvoiceDate` column we'll map to canonical).
- *   • docRefNo: deterministic from declaration_run_id + bundle_index, NOT
+ *   • docRefNo: deterministic from batch_id + bundle_index, NOT
  *     Naqel's per-day counter. See doc-id.ts.
  *   • UnitInvoiceCost: always emitted = ItemCost. Sample 2 omits it, sample
  *     1 includes it. Spec says "If HSCode.UnitPerPrice =true => Amount" —

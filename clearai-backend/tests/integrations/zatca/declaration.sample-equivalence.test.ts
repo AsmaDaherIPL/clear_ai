@@ -155,7 +155,7 @@ function syntheticRow(c: {
 }): BatchItemRow {
   return {
     id: 'item',
-    declarationRunId: 'set',
+    batchId: 'set',
     rowIndex: 1,
     canonical: {
       itemId: 'item',

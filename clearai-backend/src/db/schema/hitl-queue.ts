@@ -9,7 +9,7 @@ import {
   foreignKey,
 } from 'drizzle-orm/pg-core';
 import { classificationEvents } from './classification-events.js';
-import { declarationRuns } from './declaration-runs.js';
+import { batches } from './batches.js';
 
 export const hitlQueue = pgTable(
   'hitl_queue',
@@ -28,18 +28,17 @@ export const hitlQueue = pgTable(
     /**
      * Parent batch id. NULLABLE: single-shot dispatches
      * (POST /classifications/dispatch) produce HITL rows without a parent
-     * batch. FK to declaration_runs(id) ON DELETE CASCADE so deleting a
+     * batch. FK to batches(id) ON DELETE CASCADE so deleting a
      * batch cleans up its review rows. NULL for single-shot reviews.
-     * Added in migration 0075.
+     * Added in migration 0075; FK target renamed in migration 0084.
      */
     batchId: uuid('batch_id'),
 
     /**
      * Canonical item UUID. For batch rows this matches a
-     * declaration_run_items.id. For single-shot rows, it's just the
+     * batch_items.id. For single-shot rows, it's just the
      * classification_events.id (= response.item_id) and has no row in
-     * declaration_run_items. NO FK constraint — see migration 0075
-     * comment for why.
+     * batch_items. NO FK constraint — see migration 0075 comment for why.
      */
     itemId: uuid('item_id').notNull(),
     operatorSlug: varchar('operator_slug', { length: 64 }).notNull(),
@@ -63,10 +62,10 @@ export const hitlQueue = pgTable(
     batchFk: foreignKey({
       name: 'hitl_queue_batch_id_fkey',
       columns: [t.batchId],
-      foreignColumns: [declarationRuns.id],
+      foreignColumns: [batches.id],
     }).onDelete('cascade'),
     // No FK on item_id — single-shot dispatches have an item_id that
-    // only exists in classification_events, not in declaration_run_items.
+    // only exists in classification_events, not in batch_items.
   }),
 );
 

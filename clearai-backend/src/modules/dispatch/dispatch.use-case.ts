@@ -1,9 +1,9 @@
 /**
  * Batch path entry. The single-shot route calls runPipeline directly;
- * this is the per-item chokepoint for /declaration-runs.
+ * this is the per-item chokepoint for /batches.
  *
  * `item.itemId` is canonical — must flow into classification_events.id
- * and declaration_run_items.id so /pipeline/trace/:id resolves either
+ * and batch_items.id so /pipeline/trace/:id resolves either
  * source by the same uuid.
  *
  * Refuses to start when the LLM circuit breaker is tripped (sustained
@@ -80,7 +80,7 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
     await enqueueHitl({
       classification_event_id: itemId,
       item_id: itemId,
-      batch_id: item.declarationRunId ?? null,
+      batch_id: item.batchId ?? null,
       operator_slug: operatorSlug,
       reason: result.hitl.reason,
       cleaned_description: result.hitl.cleaned_description,

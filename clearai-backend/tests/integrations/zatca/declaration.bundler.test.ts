@@ -30,7 +30,7 @@ function row(rowIndex: number, valueAmount: number, currencyCode = 'SAR'): Batch
   const valueAmountSar = valueAmount * rate;
   return {
     id: `item-${rowIndex}`,
-    declarationRunId: 'set-1',
+    batchId: 'set-1',
     rowIndex,
     canonical: { valueAmount, valueAmountSar, currencyCode } as Record<string, unknown>,
     status: 'succeeded',
