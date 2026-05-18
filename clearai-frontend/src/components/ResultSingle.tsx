@@ -518,7 +518,7 @@ function SwitchConfirmPopover({
       {/* Header */}
       <div className="px-5 pt-5 pb-3">
         <p className="m-0 text-[11px] font-mono uppercase tracking-[0.12em] text-[var(--ink-3)]">
-          Confirm code switch
+          {t('act_switch_confirm' as TKey)}
         </p>
       </div>
 
@@ -1006,7 +1006,7 @@ export default function ResultSingle({
                 'px-4 py-3 rounded-[var(--radius)] border',
                 showSanityBlock
                   ? 'bg-[oklch(0.95_0.04_25)] border-[oklch(0.80_0.08_25)] text-[oklch(0.38_0.14_25)]'
-                  : 'bg-[oklch(0.96_0.06_75)] border-[oklch(0.82_0.10_75)] text-[oklch(0.40_0.13_60)]',
+                  : 'bg-[oklch(0.96_0.04_18)] border-[oklch(0.84_0.07_18)] text-[oklch(0.42_0.14_18)]',
               )}
               role="alert"
             >
@@ -1174,7 +1174,7 @@ export default function ResultSingle({
                           key={`a-${a.code}-${i}`}
                           alt={a}
                           currentCode={r.code}
-                          currentLabel={pickLabel(r, 'en')}
+                          currentLabel={pickLabel(r, 'en') ?? data.submission_description?.description_en ?? null}
                           t={t}
                           onPick={onPickAlternative}
                         />
@@ -1195,7 +1195,7 @@ export default function ResultSingle({
                           key={`b-${a.code}-${i}`}
                           alt={a}
                           currentCode={r.code}
-                          currentLabel={pickLabel(r, 'en')}
+                          currentLabel={pickLabel(r, 'en') ?? data.submission_description?.description_en ?? null}
                           t={t}
                           onPick={onPickAlternative}
                         />
