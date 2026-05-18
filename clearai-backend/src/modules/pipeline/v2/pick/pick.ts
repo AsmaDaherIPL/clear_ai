@@ -216,22 +216,57 @@ function parseVerdicts(text: string, allowedCodes: Set<string>): ParsedVerdict[]
   if (!extracted.ok) return null;
   const raw = (extracted.data as { verdicts?: unknown }).verdicts;
   if (!Array.isArray(raw)) return null;
-  const verdicts: ParsedVerdict[] = [];
+  // Dedupe by code with last-write-wins semantics. The picker LLM is
+  // instructed to verdict each candidate exactly once, but Sonnet
+  // occasionally emits the same code twice; double-counting would inflate
+  // tallyPopulation and falsely fire POOL_DOMINATED_BONUS. We keep the
+  // last verdict for a given code (matches `Map.set` ordering when the
+  // model self-corrects mid-output).
+  const byCode = new Map<string, ParsedVerdict>();
   for (const v of raw) {
     const parsed = coerceVerdict(v, allowedCodes);
-    if (parsed !== null) verdicts.push(parsed);
+    if (parsed !== null) byCode.set(parsed.code, parsed);
   }
-  return verdicts;
+  return Array.from(byCode.values());
 }
 
-function topPositive(verdicts: ParsedVerdict[]): PositiveVerdict | null {
-  for (const v of verdicts) {
-    if (v.fit === 'fits') return { code: v.code, fit: 'fits', rationale: v.rationale };
-  }
-  for (const v of verdicts) {
-    if (v.fit === 'partial') return { code: v.code, fit: 'partial', rationale: v.rationale };
-  }
-  return null;
+/**
+ * Pick the highest-confidence positive verdict.
+ *
+ * Tie-break: when multiple verdicts share the same fit class (e.g. two
+ * `fits`), choose the candidate with the highest `rerank_score`. Without
+ * this, the winner was whichever code Sonnet happened to emit first —
+ * non-reproducible across runs of identical input. The rerank_score is
+ * computed deterministically upstream, so winners are now stable.
+ *
+ * If two candidates share both fit and rerank_score, fall back to
+ * lexicographic order on code so the result is fully deterministic.
+ */
+function topPositive(
+  verdicts: ParsedVerdict[],
+  candidates: ReadonlyArray<RerankedCandidate>,
+): PositiveVerdict | null {
+  const rerankByCode = new Map<string, number>();
+  for (const c of candidates) rerankByCode.set(c.code, c.rerank_score);
+  const scoreOf = (v: ParsedVerdict): number => rerankByCode.get(v.code) ?? -Infinity;
+  const bestOf = (fit: 'fits' | 'partial'): PositiveVerdict | null => {
+    let best: ParsedVerdict | null = null;
+    let bestScore = -Infinity;
+    for (const v of verdicts) {
+      if (v.fit !== fit) continue;
+      const s = scoreOf(v);
+      if (
+        best === null ||
+        s > bestScore ||
+        (s === bestScore && v.code.localeCompare(best.code) < 0)
+      ) {
+        best = v;
+        bestScore = s;
+      }
+    }
+    return best === null ? null : { code: best.code, fit, rationale: best.rationale };
+  };
+  return bestOf('fits') ?? bestOf('partial');
 }
 
 function tallyPopulation(
@@ -502,7 +537,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
   }
 
   // No positive verdict.
-  const top = topPositive(verdicts);
+  const top = topPositive(verdicts, candidates);
   const verdict_population = tallyPopulation(verdicts);
   if (top === null) {
     const escalate: PickEscalate = {
@@ -657,7 +692,9 @@ export function computeConfidence(input: {
   // its own ordering).
   let rerank_gap_bonus = 0;
   if (input.candidates.length >= 2) {
-    const sorted = [...input.candidates].sort((a, b) => b.rerank_score - a.rerank_score);
+    const sorted = [...input.candidates].sort(
+      (a, b) => b.rerank_score - a.rerank_score || a.code.localeCompare(b.code),
+    );
     const s1 = sorted[0]!.rerank_score;
     const s2 = sorted[1]!.rerank_score;
     if (s1 > 0 && (s1 - s2) / s1 >= 0.10) {

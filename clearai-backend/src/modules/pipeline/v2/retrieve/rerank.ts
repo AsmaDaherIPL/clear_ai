@@ -141,6 +141,13 @@ export function rerank(
     };
   });
 
-  scored.sort((a, b) => b.rerank_score - a.rerank_score);
+  // Deterministic tie-break on code so the top-N pool is reproducible
+  // across runs of identical input. Matches the policy applied in
+  // retrieve.ts and pick.ts; rerank ties happen when feature vectors
+  // collide (e.g. two siblings with identical chapter agreement +
+  // identity-token overlap on the same arm).
+  scored.sort(
+    (a, b) => b.rerank_score - a.rerank_score || a.code.localeCompare(b.code),
+  );
   return scored.slice(0, cap);
 }

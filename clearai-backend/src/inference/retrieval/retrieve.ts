@@ -204,7 +204,7 @@ export async function retrieveCandidates(
       JOIN zatca_hs_codes h ON h.code = s.code
  LEFT JOIN zatca_hs_code_display d ON d.code = s.code
      WHERE ${stage1Filters.join(' AND ')}
-     ORDER BY s.embedding <=> $1::vector
+     ORDER BY s.embedding <=> $1::vector, s.code
      LIMIT ${recallK}
   `;
   const stage1Rows = (
@@ -284,12 +284,23 @@ export async function retrieveCandidates(
   // (RRF gracefully handles missing arms).
 
   // Sort recalled codes by their BM25 / trigram scores to assign ranks.
+  // Deterministic tie-break: when two rows share a score, fall back to
+  // lexicographic order on code. Without this, V8's sort stability +
+  // Postgres row order decide ranks across runs of identical input,
+  // which downstream produces non-reproducible RRF scores and rerank
+  // pools. Apply the same tiebreak to every sort below.
   const bm25Sorted = [...stage2Rows]
     .filter((r) => r.bm25_score !== null && r.bm25_score > 0)
-    .sort((a, b) => (b.bm25_score ?? 0) - (a.bm25_score ?? 0));
+    .sort(
+      (a, b) =>
+        (b.bm25_score ?? 0) - (a.bm25_score ?? 0) || a.code.localeCompare(b.code),
+    );
   const trgmSorted = [...stage2Rows]
     .filter((r) => r.trgm_score !== null && r.trgm_score > 0)
-    .sort((a, b) => (b.trgm_score ?? 0) - (a.trgm_score ?? 0));
+    .sort(
+      (a, b) =>
+        (b.trgm_score ?? 0) - (a.trgm_score ?? 0) || a.code.localeCompare(b.code),
+    );
   const bm25RankByCode = new Map<string, number>(bm25Sorted.map((r, i) => [r.code, i + 1]));
   const trgmRankByCode = new Map<string, number>(trgmSorted.map((r, i) => [r.code, i + 1]));
 
@@ -333,7 +344,9 @@ export async function retrieveCandidates(
   // Return raw RRF scores (no max-normalisation). Aligns with Elastic / Azure
   // AI Search / OpenSearch reference implementations: dividing by max launders
   // weak retrieval into score=1.0 at top1 and breaks the threshold gate.
-  candidates.sort((a, b) => b.rrf_score - a.rrf_score);
+  candidates.sort(
+    (a, b) => b.rrf_score - a.rrf_score || a.code.localeCompare(b.code),
+  );
 
   return candidates.slice(0, topK);
 }

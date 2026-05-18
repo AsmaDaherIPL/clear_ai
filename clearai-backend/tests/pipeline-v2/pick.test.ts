@@ -574,3 +574,186 @@ describe('computeConfidence — signal-based formula', () => {
     expect(wideGap.signals.rerank_gap_bonus).toBe(0.05);
   });
 });
+
+describe('runPick — deterministic tie-break (L1)', () => {
+  // Regression: before this fix, when two candidates both verdicted
+  // `fits`, the winner was whichever code Sonnet emitted first in its
+  // verdict array — V8 iteration order + LLM token stream. We now pick
+  // the candidate with the highest rerank_score, with code lexicographic
+  // order as the final tiebreak. Same input → same winner across runs.
+  it('picks the fits candidate with the higher rerank_score on a tie', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            // Picker emits low-rerank candidate FIRST. Pre-fix winner = 'a'.
+            { code: 'a', fit: 'fits', rationale: 'r1' },
+            { code: 'b', fit: 'fits', rationale: 'r2' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: null }),
+      candidates: [
+        rc('a', 'merchant_prefix', 0.30),
+        rc('b', 'merchant_prefix', 0.80), // higher rerank_score → must win
+      ],
+      merchant_chapter: null,
+    });
+    expect(r.kind).toBe('accepted');
+    if (r.kind === 'accepted') {
+      expect(r.final_code).toBe('b');
+    }
+  });
+
+  it('falls back to lexicographic code order when rerank_scores tie', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            // Emit 'z' first; after tiebreak 'a' must still win.
+            { code: 'z', fit: 'fits', rationale: 'r1' },
+            { code: 'a', fit: 'fits', rationale: 'r2' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: null }),
+      candidates: [
+        rc('z', 'merchant_prefix', 0.50),
+        rc('a', 'merchant_prefix', 0.50), // identical rerank → lex tiebreak picks 'a'
+      ],
+      merchant_chapter: null,
+    });
+    expect(r.kind).toBe('accepted');
+    if (r.kind === 'accepted') {
+      expect(r.final_code).toBe('a');
+    }
+  });
+
+  it('partial-vs-partial tie also resolves by rerank_score', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            { code: 'p1', fit: 'partial', rationale: 'p1' },
+            { code: 'p2', fit: 'partial', rationale: 'p2' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: null }),
+      candidates: [
+        rc('p1', 'merchant_prefix', 0.10),
+        rc('p2', 'merchant_prefix', 0.90), // higher → wins
+      ],
+      merchant_chapter: null,
+    });
+    if (r.kind === 'accepted') expect(r.final_code).toBe('p2');
+  });
+});
+
+describe('runPick — duplicate verdict dedupe (L2)', () => {
+  // Regression: before this fix, if Sonnet emitted the same code twice,
+  // tallyPopulation double-counted and could falsely fire
+  // POOL_DOMINATED_BONUS (does_not_fit / total >= 0.7). parseVerdicts
+  // now dedupes by code with last-write-wins semantics.
+  it('counts each verdict code exactly once in verdict_population', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            { code: 'a', fit: 'fits', rationale: 'r' },
+            { code: 'b', fit: 'does_not_fit', rationale: 'r' },
+            { code: 'b', fit: 'does_not_fit', rationale: 'duplicate' },
+            { code: 'b', fit: 'does_not_fit', rationale: 'duplicate again' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: null }),
+      candidates: [
+        rc('a', 'merchant_prefix', 0.50),
+        rc('b', 'merchant_prefix', 0.40),
+      ],
+      merchant_chapter: null,
+    });
+    expect(r.kind).toBe('accepted');
+    if (r.kind === 'accepted') {
+      expect(r.verdict_population.fits).toBe(1);
+      expect(r.verdict_population.does_not_fit).toBe(1);
+      // 1/2 = 50% does_not_fit — below the 70% threshold, so
+      // POOL_DOMINATED_BONUS must NOT fire. Pre-fix this was 3/4 = 75%
+      // and the bonus added 0.05 spuriously.
+      expect(r.confidence_signals.pool_cleanness_bonus).toBe(0.10); // pool_clean fires (1 fits, 0 partial); pool_dominated does not
+    }
+  });
+
+  it('last-write-wins when Sonnet emits conflicting verdicts for the same code', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            { code: 'a', fit: 'does_not_fit', rationale: 'first take' },
+            { code: 'a', fit: 'fits', rationale: 'reconsidered' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: null }),
+      candidates: [rc('a', 'merchant_prefix', 0.50)],
+      merchant_chapter: null,
+    });
+    expect(r.kind).toBe('accepted');
+    if (r.kind === 'accepted') {
+      expect(r.final_code).toBe('a');
+      expect(r.fit).toBe('fits'); // last-write-wins
+    }
+  });
+});
+
+describe('runPick — permissive fits invariant (L6)', () => {
+  // Memory rule feedback_picker_permissive_fits.md: when the input
+  // describes a subset of what the leaf covers, the picker should label
+  // `fits` — silence on unconstrained leaf dimensions is not
+  // contradiction. The rule is enforced in the prompt; this test
+  // asserts that when the LLM emits `fits` on a subset-input case,
+  // runPick accepts it cleanly without downgrade or escalation. If
+  // Sonnet drifts toward emitting `does_not_fit` on these cases, the
+  // pilot's HITL backlog will tell us — but downstream code must not
+  // silently re-classify on top of the model's verdict.
+  it('accepts fits when input is a subset of leaf coverage (e.g. cotton t-shirt → "t-shirts of cotton or man-made")', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            {
+              code: '610910000000',
+              fit: 'fits',
+              rationale:
+                'Cotton t-shirt is a subset of leaf coverage "T-shirts, of cotton or man-made fibres" — input silent on knit/woven dimension which leaf does not constrain (GIR 1)',
+            },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ canonical: 'cotton t-shirt', family: '61' }),
+      candidates: [rc('610910000000', 'merchant_prefix', 0.70)],
+      merchant_chapter: '61',
+    });
+    expect(r.kind).toBe('accepted');
+    if (r.kind === 'accepted') {
+      expect(r.fit).toBe('fits');
+      // The picker's verdict is honoured verbatim — no downgrade to
+      // 'partial' just because the input was less specific than the
+      // leaf coverage.
+      expect(r.final_code).toBe('610910000000');
+    }
+  });
+});

@@ -673,7 +673,16 @@ async function fallbackQueryFromMerchant(
   try {
     const ctx = await lookupCatalogContext(code);
     return ctx.leafEn ?? null;
-  } catch {
+  } catch (err) {
+    // Before this log, DB-induced failures here silently escalated the
+    // row to identify_no_query — indistinguishable from genuine "no
+    // query available." Logging lets us tell the two cases apart in
+    // pilot traces without changing the escalate behaviour (still
+    // returns null so the picker short-circuits as before).
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[fallbackQueryFromMerchant] catalog lookup failed for code=${code}: ${reason}`,
+    );
     return null;
   }
 }

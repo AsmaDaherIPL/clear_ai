@@ -141,16 +141,30 @@ export async function runMultiArmRetrieval(
 ): Promise<MultiArmRetrievalResult> {
   const arms: RetrievalArm[] = [scope.primary, ...scope.secondaries];
 
-  const armResults = await Promise.all(arms.map((arm) => runArm(arm, query)));
+  // allSettled (not Promise.all): the docstring above promises arms that
+  // fail return empty arrays. With raw Promise.all, a single arm
+  // rejection discards every arm's work and the row 500s. We want graceful
+  // degradation — a transient DB error on one arm should leave the
+  // others' candidates intact and let the picker work with a smaller pool.
+  const settled = await Promise.allSettled(arms.map((arm) => runArm(arm, query)));
 
   const per_arm_counts: Record<string, number> = {};
   const flat: ScoredCandidate[] = [];
   for (let i = 0; i < arms.length; i++) {
     const arm = arms[i]!;
-    const armCandidates = armResults[i]!;
+    const result = settled[i]!;
     const armKey = arm.kind;
-    per_arm_counts[armKey] = (per_arm_counts[armKey] ?? 0) + armCandidates.length;
-    flat.push(...armCandidates);
+    if (result.status === 'fulfilled') {
+      per_arm_counts[armKey] = (per_arm_counts[armKey] ?? 0) + result.value.length;
+      flat.push(...result.value);
+    } else {
+      per_arm_counts[armKey] = per_arm_counts[armKey] ?? 0;
+      const reason =
+        result.reason instanceof Error ? result.reason.message : String(result.reason);
+      console.warn(
+        `[multi-arm] arm '${armKey}' rejected: ${reason} — treating as 0 candidates`,
+      );
+    }
   }
 
   return { candidates: flat, per_arm_counts };
