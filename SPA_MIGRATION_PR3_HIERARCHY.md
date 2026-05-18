@@ -1,8 +1,8 @@
 # SPA Migration — PR3 manifest/AWB hierarchy + new CSV format
 
-**Backend commit/revision**: TBD (will fill in after deploy)
+**Backend commit/revision**: `d10e71a` on revision `0000140`
 **Backend deploy date**: 2026-05-18 (evening)
-**Status**: backend in flight; SPA must update before the pilot resumes
+**Status**: deployed and healthy on dev. SPA updates are optional for additive endpoints; the new endpoints are live and ready to use whenever the SPA team is ready.
 
 PR3 introduces the customs hierarchy that has been missing from the data
 model: one batch contains many manifests; each manifest contains many
@@ -239,4 +239,5 @@ two SQL statements.
 
 ## Changelog
 
-- 2026-05-18 (evening) — doc created at PR3 prep. Awaiting deploy.
+- 2026-05-18 (evening) — doc created at PR3 prep.
+- 2026-05-18 (evening) — initial deploy of PR3 failed on migration 0086 (NOT NULL on setup_meta.value). Fixed in commit d10e71a; revision 0000140 deployed and healthy. /health HTTP 200 verified.
