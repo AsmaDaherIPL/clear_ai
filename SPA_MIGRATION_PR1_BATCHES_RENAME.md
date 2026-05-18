@@ -201,12 +201,16 @@ The only "code-side" comments still mentioning the old name are historical migra
 
 ## Backend deploy details
 
-- Commit: TBD (will fill in when pushed)
-- Image: `ghcr.io/asmadaheripl/clearai-backend:sha-TBD`
-- Revision: TBD (will be `0000137` after deploy)
+- Commit: `10fdf3e`
+- Image: `ghcr.io/asmadaheripl/clearai-backend:sha-10fdf3e`
+- Revision: `ca-infp-clearai-be-dev-gwc-01--0000137`
 - Previous revision (for revert): `0000136` (sha-063dc4b)
+- Migration applied: `0084_rename_declaration_runs_to_batches.sql`
+- Health check: HTTP 200, deploy verified
+- Status: **Live on dev**. SPA must apply matching field renames before pilot resumes.
 
 ## Changelog
 
 - 2026-05-18 (morning) — doc created at start of PR1 work.
-- 2026-05-18 (afternoon) — backend rename complete. tsc clean, pipeline-v2 tests 190/190. Doc finalised; awaiting backend deploy then SPA pull.
+- 2026-05-18 (afternoon) — backend rename complete. tsc clean, pipeline-v2 tests 190/190.
+- 2026-05-18 (evening) — deployed to dev as revision 0000137. Doc finalised. Hand off to frontend agent.
