@@ -1147,7 +1147,7 @@ export default function ResultSingle({
             </div>
           </div>
 
-          {/* REQUIRED PROCEDURES — hidden for now, will re-enable in a later release.
+          {/* REQUIRED PROCEDURES */}
           {r.procedures && r.procedures.length > 0 && (
             <div>
               <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
@@ -1156,7 +1156,6 @@ export default function ResultSingle({
               <RequiredProcedures procedures={r.procedures} mode="result" />
             </div>
           )}
-          */}
 
           {/*
             CONSIDERED ALTERNATIVES.
