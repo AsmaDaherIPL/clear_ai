@@ -36,6 +36,16 @@ DELETE FROM classification_events
 DELETE FROM setup_meta WHERE key = 'ZATCA_LV_INVOICE_CAP_SAR';
 
 -- ---------- Add ZATCA_LV_CROSS_MANIFEST_ALLOWED (default off) ----------
-INSERT INTO setup_meta (key, value_numeric, value_kind)
-VALUES ('ZATCA_LV_CROSS_MANIFEST_ALLOWED', 0, 'number')
+-- setup_meta has both legacy text `value` (NOT NULL) and the
+-- value_numeric/value_kind columns added in migration 0002. Populate
+-- all three (matches the 0082 pattern) so the NOT NULL on `value` is
+-- satisfied.
+INSERT INTO setup_meta (key, value, description, value_kind, value_numeric)
+VALUES (
+  'ZATCA_LV_CROSS_MANIFEST_ALLOWED',
+  '0',
+  'PR3: cross-manifest LV consolidation flag. 0 = LV pooling is scoped to one manifest per the 2026-05-18 customs spec (default). 1 = LV pooling spans manifests in the same batch.',
+  'number',
+  0
+)
 ON CONFLICT (key) DO NOTHING;
