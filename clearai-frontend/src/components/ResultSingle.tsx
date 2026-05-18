@@ -37,15 +37,31 @@ interface ResultSingleProps {
 /** Cap a description at a char limit, breaking at a word boundary when possible. */
 const ZATCA_DESC_MAX = 250;
 const ALT_DESC_MAX = 120;
+
+/**
+ * Strips ZATCA catalog artifacts from a description string:
+ *   - leading tree-decoration: dashes, hyphens, angle brackets, commas
+ *   - inline runs of "--", ",,", ">>" that come from catalog tree paths
+ *   - collapses multiple spaces and trims
+ */
+function cleanDescription(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/^[\s\-,<>]+/, '')   // leading decoration
+    .replace(/--+/g, ' ')         // double-dash runs -> space
+    .replace(/,,+/g, ',')         // doubled commas -> single
+    .replace(/>>+/g, ' ')         // double angle-bracket runs -> space
+    .replace(/\s{2,}/g, ' ')      // collapse whitespace
+    .trim();
+}
+
 /**
  * Strips HS-codebook decorators (leading "- - -", ">>>", "<<<", etc.)
  * then clamps to max chars at a word boundary.
  */
 function clampDescription(text: string, max: number = ZATCA_DESC_MAX): string {
   if (!text) return text;
-  // Remove leading decoration: sequences of dashes/hyphens, angle brackets,
-  // and their surrounding whitespace (e.g. "- - - ", ">>> ", "<< ").
-  const cleaned = text.replace(/^[\s\-<>]+/, '').trimStart();
+  const cleaned = cleanDescription(text);
   if (cleaned.length <= max) return cleaned;
   const slice = cleaned.slice(0, max);
   const lastSpace = slice.lastIndexOf(' ');
@@ -516,14 +532,17 @@ function SwitchConfirmPopover({
       )}
     >
       {/* Header */}
-      <div className="px-5 pt-5 pb-3">
-        <p className="m-0 text-[11px] font-mono uppercase tracking-[0.12em] text-[var(--ink-3)]">
+      <div className="px-5 pt-5 pb-3 border-b border-[var(--line-2)]">
+        <p className="m-0 text-[11px] font-mono uppercase tracking-[0.12em] text-[var(--ink-3)] mb-1.5">
           {t('act_switch_confirm' as TKey)}
+        </p>
+        <p className="m-0 text-[12px] text-[var(--ink-2)] leading-[1.5]">
+          {t('act_switch_quality_note' as TKey)}
         </p>
       </div>
 
       {/* Two equal-width code cards in a grid */}
-      <div className="px-5 pb-4 grid grid-cols-2 gap-3">
+      <div className="px-5 pt-4 pb-4 grid grid-cols-2 gap-3">
         {/* Current */}
         <div className="flex flex-col gap-2 p-4 rounded-[10px] bg-[var(--line-2)] border border-[var(--line)]">
           <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ink-3)]">
@@ -533,7 +552,7 @@ function SwitchConfirmPopover({
             {fromCode}
           </span>
           <span className="text-[12px] text-[var(--ink-2)] leading-[1.45] line-clamp-3 min-h-[3em]">
-            {fromLabel ?? '—'}
+            {cleanDescription(fromLabel) || '—'}
           </span>
         </div>
 
@@ -546,7 +565,7 @@ function SwitchConfirmPopover({
             {toCode}
           </span>
           <span className="text-[12px] text-[var(--ink-2)] leading-[1.45] line-clamp-3 min-h-[3em]">
-            {toLabel ?? '—'}
+            {cleanDescription(toLabel) || '—'}
           </span>
         </div>
       </div>
