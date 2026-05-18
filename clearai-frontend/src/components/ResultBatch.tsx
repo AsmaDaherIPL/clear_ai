@@ -171,7 +171,7 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
     setDownloadError(null);
     setDownloadLoading(true);
     try {
-      const links = await api.getDeclarationRunDownloadLinks(runId);
+      const links = await api.getBatchFiles(runId);
       setDownloadLinks(links);
     } catch (err) {
       const msg =
@@ -273,7 +273,7 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
     setDownloadError(null);
     setFileFetching((prev) => ({ ...prev, [fileName]: true }));
     try {
-      const blob = await api.getDeclarationRunFile(state.runId, fileName);
+      const blob = await api.getBatchFile(state.runId, fileName);
       // Object URL → anchor click → revoke. Standard "save as" trick that
       // works without prompting in all major browsers.
       const objectUrl = URL.createObjectURL(blob);

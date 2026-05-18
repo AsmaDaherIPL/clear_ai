@@ -17,8 +17,8 @@ import {
   pickLang,
   type DescribeResponse,
   type DispatchItem,
-  type DeclarationRunSummary,
-  type DeclarationRunItem,
+  type BatchSummary,
+  type BatchItem,
   type AlternativeLine,
   type AnchoredPickOutput,
   type AnchoredCandidateSummary,
@@ -283,8 +283,8 @@ const initialModeState: ModeState = {
 export interface BatchState {
   phase: 'idle' | 'uploading' | 'polling' | 'done' | 'error';
   runId: string | null;
-  summary: DeclarationRunSummary | null;
-  items: DeclarationRunItem[];
+  summary: BatchSummary | null;
+  items: BatchItem[];
   errorMessage: string | null;
 }
 const initialBatchState: BatchState = {
@@ -320,7 +320,7 @@ function pollTimeoutMs(rowCount: number | null | undefined): number {
  * Mirrors itemBucket() in BatchResultsTable exactly.
  */
 function deriveCountsFromItems(
-  items: DeclarationRunItem[],
+  items: BatchItem[],
   rowCount: number,
 ): { succeeded: number; flagged: number; blocked: number; failed: number; pending: number } {
   let succeeded = 0, flagged = 0, blocked = 0, failed = 0, processedInArray = 0;
@@ -378,11 +378,11 @@ function parseRetryAfterMs(message: string | null | undefined): number | null {
  * settle in the final terminal fetch via fetchAllClassifications.
  */
 async function fetchFirstPageClassifications(runId: string): Promise<{
-  items: DeclarationRunItem[];
+  items: BatchItem[];
   classification_phase?: 'pending' | 'running' | 'completed' | 'failed';
   total: number;
 }> {
-  const first = await api.getDeclarationRunClassifications(runId, { limit: PAGE_SIZE, offset: 0 });
+  const first = await api.getBatchItems(runId, { limit: PAGE_SIZE, offset: 0 });
   return {
     items: first.items,
     total: first.total ?? first.items.length,
@@ -401,16 +401,16 @@ async function fetchFirstPageClassifications(runId: string): Promise<{
  * from page 0 — previously-fetched pages survive the wait.
  */
 async function fetchAllClassifications(runId: string): Promise<{
-  items: DeclarationRunItem[];
+  items: BatchItem[];
   classification_phase?: 'pending' | 'running' | 'completed' | 'failed';
 }> {
-  const first = await api.getDeclarationRunClassifications(runId, { limit: PAGE_SIZE, offset: 0 });
+  const first = await api.getBatchItems(runId, { limit: PAGE_SIZE, offset: 0 });
   const total = first.total ?? first.items.length;
   const all = [...first.items];
   let page = 1;
   while (all.length < total && page < MAX_PAGES) {
     try {
-      const next = await api.getDeclarationRunClassifications(runId, {
+      const next = await api.getBatchItems(runId, {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
@@ -441,11 +441,11 @@ async function fetchAllClassifications(runId: string): Promise<{
  * temporarily blank out items past page 1 that we'd already loaded.
  */
 function mergeItemsById(
-  prev: DeclarationRunItem[],
-  incoming: DeclarationRunItem[],
-): DeclarationRunItem[] {
+  prev: BatchItem[],
+  incoming: BatchItem[],
+): BatchItem[] {
   if (prev.length === 0) return incoming;
-  const byId = new Map<string, DeclarationRunItem>();
+  const byId = new Map<string, BatchItem>();
   for (const item of prev) byId.set(item.id, item);
   for (const item of incoming) byId.set(item.id, item);
   // Preserve row_index order — server returns in that order; the map
@@ -613,7 +613,7 @@ export default function ClassifyApp() {
         // Before giving up, do one final summary check — the backend may
         // have finished in the window after our last tick.
         try {
-          const summary = await api.getDeclarationRun(runId);
+          const summary = await api.getBatch(runId);
           if (summary.status === 'completed' || summary.status === 'failed') {
             const finalCls = await fetchAllClassifications(runId);
             setBatchState((s) => ({
@@ -651,10 +651,10 @@ export default function ClassifyApp() {
         // We merge this with derived counts in the same setState call below
         // to avoid a visible flash where backend-reported failed counts show
         // before our client-side derivation corrects them.
-        let seedSummary: Awaited<ReturnType<typeof api.getDeclarationRun>> | null = null;
+        let seedSummary: Awaited<ReturnType<typeof api.getBatch>> | null = null;
         if (knownRowCount === null) {
           try {
-            seedSummary = await api.getDeclarationRun(runId);
+            seedSummary = await api.getBatch(runId);
             knownRowCount = seedSummary.row_count ?? null;
           } catch {
             // Non-fatal: skeleton won't know the expected count but
@@ -686,7 +686,7 @@ export default function ClassifyApp() {
             /* swallow — keep whatever's in state */
           }
           try {
-            const finalSummary = await api.getDeclarationRun(runId);
+            const finalSummary = await api.getBatch(runId);
             setBatchState((s) => ({ ...s, summary: finalSummary }));
           } catch {
             /* non-fatal — counts from items are still visible */
@@ -781,7 +781,7 @@ export default function ClassifyApp() {
       // Show the result panel while we fetch — keeps the URL in sync.
       setBatchState({ ...initialBatchState, phase: 'polling', runId: urlRunId });
       try {
-        const summary = await api.getDeclarationRun(urlRunId);
+        const summary = await api.getBatch(urlRunId);
         if (summary.status === 'completed' || summary.status === 'failed') {
           // Already done — skip the poll loop entirely and jump straight to
           // the final result so the user never sees "Processing" on refresh.

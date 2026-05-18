@@ -14,7 +14,7 @@ import { useMemo, useCallback, useState } from 'react';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { pickLang, type DeclarationRunItem, type ReviewQueueRow, type AlternativeLine, ApiError } from '@/lib/api';
+import { pickLang, type BatchItem, type ReviewQueueRow, type AlternativeLine, ApiError } from '@/lib/api';
 import { api } from '@/lib/api';
 import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 import { DataTable } from './DataTable';
@@ -54,7 +54,7 @@ function clampChars(text: string, max: number): string {
  * counted as "failed" in the filter chips during active polling.
  */
 function itemBucket(
-  item: DeclarationRunItem,
+  item: BatchItem,
   isComplete = false,
 ): 'succeeded' | 'flagged' | 'blocked' | 'failed' | null {
   const hasError = Boolean(item.error);
@@ -108,7 +108,7 @@ const BREAKDOWN_DESC_MAX = 38;
  * Tariff (last) row uses accent ink on the code + label so the eye lands
  * on the answer; upper rows are subdued context.
  */
-function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
+function CodeBreakdownCell({ item }: { item: BatchItem }) {
   const resolved = item.classification_result?.resolved_hs_code ?? null;
   const pathEn = pickLang(item.resolved_hs_code_description?.full_hierarchy, 'en');
   const breakdown = useMemo(() => buildBreakdown(resolved, pathEn), [resolved, pathEn]);
@@ -162,7 +162,7 @@ function CodeBreakdownCell({ item }: { item: DeclarationRunItem }) {
 // Simple cells
 // ---------------------------------------------------------------------------
 
-function MerchantCodeCell({ item }: { item: DeclarationRunItem }) {
+function MerchantCodeCell({ item }: { item: BatchItem }) {
   const merchantCode = item.declared_value?.hs_code ?? null;
   if (!merchantCode) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
@@ -178,7 +178,7 @@ function MerchantCodeCell({ item }: { item: DeclarationRunItem }) {
  * Merchant description — verbatim declared_value.description, full text,
  * wraps freely. No truncation; the row grows to fit.
  */
-function MerchantDescriptionCell({ item }: { item: DeclarationRunItem }) {
+function MerchantDescriptionCell({ item }: { item: BatchItem }) {
   const desc = item.declared_value?.description ?? null;
   if (!desc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   return (
@@ -193,7 +193,7 @@ function MerchantDescriptionCell({ item }: { item: DeclarationRunItem }) {
  * 2-decimal formatting with thousands separators; mono tabular for vertical
  * alignment across rows; muted small-caps currency.
  */
-function ValueCell({ item }: { item: DeclarationRunItem }) {
+function ValueCell({ item }: { item: BatchItem }) {
   const amount = item.value?.amount?.value ?? null;
   const currency = item.value?.amount?.currency ?? null;
   if (amount === null || amount === undefined || !Number.isFinite(amount)) {
@@ -287,8 +287,8 @@ function ManualReviewButton({
 
 function queueRowToReviewItem(
   row: ReviewQueueRow,
-  /** The matching DeclarationRunItem from the batch — used to pull declared value. */
-  matchedItem?: DeclarationRunItem,
+  /** The matching BatchItem from the batch — used to pull declared value. */
+  matchedItem?: BatchItem,
 ): ReviewItem {
   // Description: prefer payload.input (free-text from the trace), then the
   // matched batch item's declared description, then fall back to item_id.
@@ -356,7 +356,7 @@ function queueRowToReviewItem(
 
 interface BatchResultsTableProps {
   expectedRowCount?: number;
-  items: DeclarationRunItem[];
+  items: BatchItem[];
   className?: string;
   /**
    * True when the run has reached a terminal state (completed or failed).
@@ -378,7 +378,7 @@ interface BatchResultsTableProps {
  * flags where the reviewer approves or blocks. PASS rows, failed rows, and
  * rows with no code are not surfaced in this inline queue.
  */
-function needsReview(item: DeclarationRunItem): boolean {
+function needsReview(item: BatchItem): boolean {
   if (item.classification_result == null) return false;
   const verdict = item.classification_result.sanity_verdict?.toUpperCase();
   return verdict === 'FLAG';
@@ -542,7 +542,7 @@ export default function BatchResultsTable({
     [handleAdvanceQueue],
   );
 
-  const columns = useMemo<ColumnDef<DeclarationRunItem, unknown>[]>(() => [
+  const columns = useMemo<ColumnDef<BatchItem, unknown>[]>(() => [
     // size = initial pixel width consumed by TanStack columnSizing state.
     // Users can drag the column edge to override; their widths persist
     // to localStorage. minSize/maxSize clamp the drag.
