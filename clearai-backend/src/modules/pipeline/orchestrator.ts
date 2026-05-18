@@ -233,17 +233,14 @@ export async function runPipeline(
   ]);
 
   // ---- Stage 2b conditional: identify_web fallback ----
-  // Pass the declared value + currency so the prompt's brand-only
-  // handler can use price tier to disambiguate which product line of
-  // a multi-category brand this row represents (e.g. "maxhub" at
-  // 150 SAR → accessory; at 30000 SAR → interactive flat panel).
+  // The price/value hint was removed 2026-05-18 — see runIdentifyWeb's
+  // docstring for why ("iphone 17 at 222 SAR → accessory" miscalls).
+  // Brand-only inputs now commit to the brand's flagship product line
+  // regardless of price; suspicious prices are caught by the sanity
+  // stage and routed to HITL.
   let identify: IdentifyResult = identifyFast;
   if (shouldRunWebFallback(identifyFast)) {
-    const valueHint =
-      typeof item.valueAmount === 'number' && Number.isFinite(item.valueAmount)
-        ? { amount: item.valueAmount, currency: item.currencyCode }
-        : null;
-    identify = await runIdentifyWeb(rawDescription, identifyFast, valueHint);
+    identify = await runIdentifyWeb(rawDescription, identifyFast);
   }
 
   const merchantResolutionTrace = buildResolutionTrace(

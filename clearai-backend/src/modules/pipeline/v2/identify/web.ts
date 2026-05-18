@@ -206,24 +206,19 @@ function parseWebReply(result: LlmCallResult): IdentifyResult {
  * Returns the IdentifyResult that REPLACES the fast pass result for
  * downstream stages.
  *
- * `value_hint` carries the declared line value (in the merchant's
- * currency) plus the currency code, so the brand-only handler in the
- * prompt can use price-band signal to disambiguate which product line
- * of a multi-category brand the row most likely represents. Example:
- * "maxhub" at 150 SAR → accessory (cable / pen), not a 30,000-SAR
- * interactive flat-panel display. Pass null when no value is available
- * (rare — the pipeline always parses one).
+ * The price/value hint was removed from this call on 2026-05-18 after
+ * the "iphone 17 at 222 SAR → must be an iPhone accessory" misclassification:
+ * letting price drive product-line disambiguation made the model invent
+ * accessory hypotheses to rationalise suspicious prices, which then fed
+ * a wrong HS leaf downstream. Brand-only inputs now commit to the
+ * brand's flagship product line regardless of price; suspicious prices
+ * are caught by the sanity stage (FLAG verdict + ratio band) and
+ * routed to HITL, rather than re-classified inside identify.
  */
 export async function runIdentifyWeb(
   raw_description: string,
   previousAttempt: IdentifyResult,
-  value_hint?: { amount: number; currency: string } | null,
 ): Promise<IdentifyResult> {
-  // Normalise the optional value hint so the user payload always
-  // carries the field (null when absent). Tests and older callers
-  // omitting the param degrade gracefully — no price-tier signal but
-  // the brand-only handler can still pick the flagship line.
-  const valueHint = value_hint ?? null;
   const trimmed = raw_description.trim();
   if (trimmed.length === 0) {
     return uninformative('empty input', 'short_circuit', {
@@ -240,13 +235,11 @@ export async function runIdentifyWeb(
   const policy = getLlmStagePolicy('identify_web_fallback');
   const system = await loadPrompt('identify-web.md');
 
-  // Build user payload: raw description + previous_attempt context +
-  // value_hint so the brand-only path can use price tier to choose
-  // which product line of a multi-category brand to commit to.
+  // Build user payload: raw description + previous_attempt context.
+  // No price/value signal — see the function docstring for why.
   const userPayload = JSON.stringify({
     description: trimmed,
     previous_attempt: summarisePrevious(previousAttempt),
-    value_hint: valueHint,
   });
 
   const result = await callLlmWithRetry(

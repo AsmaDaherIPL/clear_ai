@@ -200,10 +200,7 @@ describe('runIdentifyWeb — brand-only rescue (value-hint-driven flagship pick)
         }),
       }),
     );
-    const r = await runIdentifyWeb('maxhub', previousUninformative(), {
-      amount: 28000,
-      currency: 'SAR',
-    });
+    const r = await runIdentifyWeb('maxhub', previousUninformative());
     expect(r.kind).toBe('clean_product');
     if (r.kind === 'clean_product') {
       expect(r.confidence).toBe(0.5);
@@ -228,26 +225,27 @@ describe('runIdentifyWeb — brand-only rescue (value-hint-driven flagship pick)
         }),
       }),
     );
-    const r = await runIdentifyWeb('product', previousUninformative(), null);
+    const r = await runIdentifyWeb('product', previousUninformative());
     if (r.kind === 'clean_product') {
       expect(r.brand_alternatives).toBeUndefined();
     }
   });
 
-  it('forwards value_hint into the user payload so the prompt can use price tier', async () => {
+  // 2026-05-18: value_hint was REMOVED from the identify_web payload after
+  // the "iphone 17 at 222 SAR → accessory" miscall. Brand-only inputs now
+  // commit to the flagship product line regardless of price; sanity stage
+  // catches suspicious prices downstream. Test pins the new contract.
+  it('does not forward any value/price hint into the user payload', async () => {
     mockedCall.mockResolvedValueOnce(
       llmReturns({
         text: JSON.stringify({ kind: 'uninformative', reason: 't' }),
       }),
     );
-    await runIdentifyWeb('maxhub', previousUninformative(), {
-      amount: 150,
-      currency: 'SAR',
-    });
+    await runIdentifyWeb('maxhub', previousUninformative());
     const args = mockedCall.mock.calls[0]![0];
-    expect(args.user).toContain('value_hint');
-    expect(args.user).toContain('"amount":150');
-    expect(args.user).toContain('"currency":"SAR"');
+    expect(args.user).not.toContain('value_hint');
+    expect(args.user).not.toContain('amount');
+    expect(args.user).not.toContain('currency');
   });
 });
 
