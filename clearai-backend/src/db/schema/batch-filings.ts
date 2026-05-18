@@ -21,11 +21,13 @@
  *   • zatca_status NULL        ⇒ both NULL
  *
  * Related tables:
- *   • batches  — FK target (batch_id -> batches.id) ON DELETE CASCADE
+ *   • batches    — FK target (batch_id -> batches.id) ON DELETE CASCADE
+ *   • manifests  — FK target (manifest_id -> manifests.id) ON DELETE SET NULL  (added PR2, NULLABLE)
  */
 import { pgTable, uuid, integer, text, timestamp, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { batches } from './batches.js';
+import { manifests } from './manifests.js';
 
 export type BundleStrategy = 'HV_STANDALONE' | 'LV_BUNDLED';
 
@@ -41,6 +43,13 @@ export const batchFilings = pgTable(
     id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
     /** Parent batch. FK -> batches(id) ON DELETE CASCADE. */
     batchId: uuid('batch_id').notNull(),
+    /**
+     * Parent manifest. FK -> manifests(id) ON DELETE SET NULL. NULLABLE:
+     * legacy filings carry NULL until PR3's bundler sets it. ON DELETE
+     * SET NULL preserves the filing's audit record (blob_key, status,
+     * bayan_no) even if the manifest is purged.
+     */
+    manifestId: uuid('manifest_id'),
     /** 0-based ordinal within the batch's render order. */
     bundleIndex: integer('bundle_index').notNull(),
     /** CHECK-locked closed enum. */
@@ -78,10 +87,19 @@ export const batchFilings = pgTable(
       foreignColumns: [batches.id],
     }).onDelete('cascade'),
 
+    manifestFk: foreignKey({
+      name: 'batch_filings_manifest_id_fk',
+      columns: [t.manifestId],
+      foreignColumns: [manifests.id],
+    }).onDelete('set null'),
+
     batchBundleUniq: unique('batch_filings_batch_bundle_uniq').on(t.batchId, t.bundleIndex),
 
     batchIdx: index('batch_filings_batch_idx').on(t.batchId),
     statusIdx: index('batch_filings_status_idx').on(t.status),
+    manifestIdx: index('batch_filings_manifest_id_idx')
+      .on(t.manifestId)
+      .where(sql`${t.manifestId} IS NOT NULL`),
   }),
 );
 

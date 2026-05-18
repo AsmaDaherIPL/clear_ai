@@ -90,6 +90,24 @@ export type {
   FilingZatcaStatus,
 } from './schema/batch-filings.js';
 
+export { manifests } from './schema/manifests.js';
+export type {
+  ManifestRow,
+  NewManifestRow,
+} from './schema/manifests.js';
+
+export { awbs } from './schema/awbs.js';
+export type {
+  AwbRow,
+  NewAwbRow,
+} from './schema/awbs.js';
+
+export { filingAwbs } from './schema/filing-awbs.js';
+export type {
+  FilingAwbRow,
+  NewFilingAwbRow,
+} from './schema/filing-awbs.js';
+
 export { submissionDescriptions } from './schema/submission-descriptions.js';
 export type {
   SubmissionDescriptionRow,

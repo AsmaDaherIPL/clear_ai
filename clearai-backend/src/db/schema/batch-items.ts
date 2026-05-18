@@ -22,11 +22,13 @@
  *
  * Related tables:
  *   • batches         — FK target (batch_id -> batches.id) ON DELETE CASCADE
+ *   • awbs            — FK target (awb_id -> awbs.id) ON DELETE SET NULL  (added PR2, NULLABLE)
  *   • zatca_hs_codes  — FK target (final_code -> zatca_hs_codes.code) ON DELETE RESTRICT
  */
 import { pgTable, uuid, integer, varchar, char, jsonb, text, timestamp, boolean, foreignKey, index, unique } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { batches } from './batches.js';
+import { awbs } from './awbs.js';
 import { hsCodes } from './zatca-hs-codes.js';
 import type { CanonicalLineItem, RawRow } from '../../modules/operators/operator-config.types.js';
 
@@ -47,6 +49,15 @@ export const batchItems = pgTable(
 
     /** Parent batch. FK -> batches(id) ON DELETE CASCADE. */
     batchId: uuid('batch_id').notNull(),
+
+    /**
+     * Parent AWB (house waybill). FK -> awbs(id) ON DELETE SET NULL.
+     * NULLABLE: legacy rows ingested before PR3 carry NULL here. PR3's
+     * parser populates this for new rows; PR3's bundler relies on it for
+     * AWB-level HV/LV gating. ON DELETE SET NULL preserves the item row
+     * and its classification audit even if the AWB is purged.
+     */
+    awbId: uuid('awb_id'),
 
     /** 1-based row position from the source file (post-header). */
     rowIndex: integer('row_index').notNull(),
@@ -148,6 +159,12 @@ export const batchItems = pgTable(
       foreignColumns: [batches.id],
     }).onDelete('cascade'),
 
+    awbFk: foreignKey({
+      name: 'batch_items_awb_id_fk',
+      columns: [t.awbId],
+      foreignColumns: [awbs.id],
+    }).onDelete('set null'),
+
     finalCodeFk: foreignKey({
       name: 'batch_items_final_code_fk',
       columns: [t.finalCode],
@@ -162,6 +179,15 @@ export const batchItems = pgTable(
      * satisfies ORDER BY row_index without an in-memory sort.
      */
     batchRowIdx: index('batch_items_batch_row_idx').on(t.batchId, t.rowIndex),
+
+    /**
+     * Partial index on awb_id (NULL excluded) — covers "all items under AWB X"
+     * lookups the new read API needs without polluting the index with
+     * legacy rows that have NULL awb_id.
+     */
+    awbIdx: index('batch_items_awb_id_idx')
+      .on(t.awbId)
+      .where(sql`${t.awbId} IS NOT NULL`),
   }),
 );
 

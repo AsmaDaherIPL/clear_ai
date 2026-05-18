@@ -561,6 +561,13 @@
       "when": 1779200000000,
       "tag": "0084_rename_declaration_runs_to_batches",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1779210000000,
+      "tag": "0085_manifest_awb_filing_awbs",
+      "breakpoints": true
     }
   ]
 }
