@@ -608,12 +608,60 @@ export function retrievalQueryFromTrace(trace: PipelineTrace): string | null {
 
 /**
  * Derive ClassificationStatus from a PipelineTrace.
+ *
+ * **THIS IS THE CANONICAL DERIVATION** (PR5 / TASKS S1 #2 / L3, 2026-05-19).
+ * Previously the same logic was duplicated in three call sites
+ * (orchestrator.ts:classificationStatusFor, dispatch-v1.ts:this function,
+ * pipeline.routes.ts) with slightly different rules — same trace, three
+ * answers. The orchestrator's classificationStatusFor is now a thin
+ * wrapper around this function. Routes and dispatch-v1 read this
+ * function's output directly.
+ *
+ * Rules (priority order):
+ *   1. pick.kind === 'escalate'                         → ZERO_SIGNAL
+ *   2. verify?.result === 'UNCERTAIN'                   → DRIFT
+ *   3. clean_product + identify.confidence < 0.60       → DRIFT
+ *      (brand-only-rescue path — identify was a guess, even if pick
+ *       said fits, downstream review must double-check)
+ *   4. clean_product + pick.fit === 'fits'              → AGREEMENT
+ *   5. otherwise                                        → DRIFT
  */
-export function classificationStatusFromTrace(trace: PipelineTrace): ClassificationStatus | null {
-  if (trace.pick.kind === 'escalate') return 'ZERO_SIGNAL';
-  if (trace.verify?.result === 'UNCERTAIN') return 'DRIFT';
-  if (trace.identify.kind === 'clean_product' && trace.pick.fit === 'fits') return 'AGREEMENT';
+const IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD_FOR_STATUS = 0.60;
+
+/**
+ * Bare-input form of the canonical classification_status derivation.
+ * Use this when you have the raw fields but no PipelineTrace object
+ * (e.g. reading stored JSONB and walking actions). The full-trace form
+ * `classificationStatusFromTrace` below is a thin wrapper.
+ */
+export function deriveClassificationStatus(input: {
+  pickKind: 'accepted' | 'escalate' | null | undefined;
+  pickFit: 'fits' | 'partial' | 'does_not_fit' | null | undefined;
+  identifyKind: 'clean_product' | 'multi_product' | 'uninformative' | null | undefined;
+  identifyConfidence: number | null | undefined;
+  verifyResult: 'PASS' | 'UNCERTAIN' | null | undefined;
+}): ClassificationStatus | null {
+  if (input.pickKind === 'escalate') return 'ZERO_SIGNAL';
+  if (input.verifyResult === 'UNCERTAIN') return 'DRIFT';
+  if (
+    input.identifyKind === 'clean_product' &&
+    typeof input.identifyConfidence === 'number' &&
+    input.identifyConfidence < IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD_FOR_STATUS
+  ) {
+    return 'DRIFT';
+  }
+  if (input.identifyKind === 'clean_product' && input.pickFit === 'fits') return 'AGREEMENT';
   return 'DRIFT';
+}
+
+export function classificationStatusFromTrace(trace: PipelineTrace): ClassificationStatus | null {
+  return deriveClassificationStatus({
+    pickKind: trace.pick.kind,
+    pickFit: trace.pick.kind === 'accepted' ? trace.pick.fit : null,
+    identifyKind: trace.identify.kind,
+    identifyConfidence: trace.identify.kind === 'clean_product' ? trace.identify.confidence : null,
+    verifyResult: trace.verify?.result ?? null,
+  });
 }
 
 /**

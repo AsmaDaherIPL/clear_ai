@@ -19,6 +19,7 @@ import {
   assembleDispatchV1,
   classificationConfidenceFromTrace,
   classificationStatusFromTrace,
+  deriveClassificationStatus,
   retrievalQueryFromTrace,
 } from './trace/dispatch-v1.js';
 import { recordClassificationEvent } from './events/recorder.js';
@@ -330,18 +331,40 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
           | undefined) ?? {};
       const v2RetrievalQuery =
         identifyOutput.kind === 'clean_product' ? identifyOutput.canonical ?? null : null;
+      // PR5 / TASKS S1 #2 (L3): single canonical derivation. Previously
+      // this site re-derived the status inline and was missing the
+      // brand-rescue → DRIFT branch (rows with identify.confidence < 0.60
+      // were labelled AGREEMENT here while the orchestrator labelled
+      // them DRIFT — same row, different status depending on which
+      // endpoint the SPA hit). Use deriveClassificationStatus with the
+      // raw fields extracted from the stored JSONB trace.
+      const verifyAction = trace ? findActionInTrace(trace, 'verify') : null;
+      const verifyOutput =
+        (verifyAction?.output as { result?: 'PASS' | 'UNCERTAIN' } | undefined) ?? {};
+      const identifyConfidenceFromTrace =
+        (identifyAction?.output as { confidence?: number } | undefined)?.confidence ?? null;
       const v2ClassificationStatus: ClassificationStatus | null =
-        arch === 'v2'
-          ? (trace?.summary as { pipeline_architecture: string } & Record<string, unknown> | undefined) &&
-            pickOutput.kind === 'escalate'
-              ? 'ZERO_SIGNAL'
-              : pickOutput.kind === 'accepted' &&
-                identifyOutput.kind === 'clean_product' &&
-                pickOutput.fit === 'fits'
-                ? 'AGREEMENT'
-                : pickOutput.kind === 'accepted'
-                  ? 'DRIFT'
-                  : null
+        arch === 'v2' && trace
+          ? deriveClassificationStatus({
+              pickKind:
+                pickOutput.kind === 'accepted' || pickOutput.kind === 'escalate'
+                  ? pickOutput.kind
+                  : null,
+              pickFit:
+                pickOutput.fit === 'fits' ||
+                pickOutput.fit === 'partial' ||
+                pickOutput.fit === 'does_not_fit'
+                  ? pickOutput.fit
+                  : null,
+              identifyKind:
+                identifyOutput.kind === 'clean_product' ||
+                identifyOutput.kind === 'multi_product' ||
+                identifyOutput.kind === 'uninformative'
+                  ? identifyOutput.kind
+                  : null,
+              identifyConfidence: identifyConfidenceFromTrace,
+              verifyResult: verifyOutput.result ?? null,
+            })
           : null;
       const v2PickerConfidence =
         pickOutput.kind === 'accepted' && typeof pickOutput.confidence === 'number'

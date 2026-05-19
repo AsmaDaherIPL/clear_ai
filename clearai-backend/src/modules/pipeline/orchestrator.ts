@@ -75,10 +75,17 @@ function shouldRunWebFallback(fastResult: IdentifyResult): boolean {
 /**
  * Derive ClassificationStatus from pick + verify + identify.
  *
- *   pick escalate                          -> ZERO_SIGNAL
- *   pick accepted + verify UNCERTAIN       -> DRIFT
- *   pick accepted + verify PASS + clean_product + fits  -> AGREEMENT
- *   anything else (partial fit, etc.)      -> DRIFT
+ * **CANONICAL DERIVATION LIVES IN dispatch-v1.classificationStatusFromTrace**
+ * (PR5 / TASKS S1 #2 / L3, 2026-05-19). The function below mirrors that
+ * logic exactly so the orchestrator can compute the status at result-build
+ * time without constructing a full PipelineTrace first. If you change one,
+ * change the other in lockstep — there's a test that pins they agree.
+ *
+ *   pick escalate                                            -> ZERO_SIGNAL
+ *   pick accepted + verify UNCERTAIN                         -> DRIFT
+ *   pick accepted + identify.confidence < HITL_THRESHOLD     -> DRIFT (brand-rescue)
+ *   pick accepted + verify PASS + clean_product + fits       -> AGREEMENT
+ *   anything else (partial fit, etc.)                        -> DRIFT
  */
 function classificationStatusFor(
   pick: PickResult,
@@ -87,11 +94,6 @@ function classificationStatusFor(
 ): ClassificationStatus | null {
   if (pick.kind === 'escalate') return 'ZERO_SIGNAL';
   if (verify?.result === 'UNCERTAIN') return 'DRIFT';
-  // Brand-only rescue path: identify committed at low confidence
-  // (typically 0.40-0.55). Even if pick.fit === 'fits', the
-  // classification is a brand-based inference, not a description
-  // match. Report DRIFT so the SPA renders the "low confidence /
-  // please review" treatment instead of the green AGREEMENT pill.
   if (
     identify.kind === 'clean_product' &&
     identify.confidence < IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD
