@@ -95,6 +95,9 @@ unless noted.
 | — | Identify_web price-hint removal ("iphone 17 at 222 SAR" miscall fix) | `136dea1` |
 | 17 | Ambiguous-bare-noun table in identify-fast.md (playmat, yoga mat, doormat, trimmer, pencil + pre-existing 5) + prompt trimmed -127 words | `3e8fc2e` (rev 0000142) |
 | 18 | Unconstrained secondary arm when identify is uninformative + merchant resolved cleanly (Trimmer fix) | `2c88116` (rev 0000143) |
+| — | Prompt trim: identify-web.md -1,110 tok (-35%) | `3d0b832` (rev 0000144) |
+| — | Prompt trim: submission-description.md -830 tok (-44%) | `8c6b069` (rev 0000145) |
+| — | Prompt trim: pick.md -350 tok + sanity.md -590 tok (in) -80 tok (out, structured short-form rationale) | `15498f6` (rev 0000146) |
 
 Tracker convention: when picking up a task, move it from its section
 above into the Done table with the commit SHA. Keep both halves of the
