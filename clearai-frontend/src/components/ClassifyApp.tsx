@@ -832,12 +832,16 @@ export default function ClassifyApp() {
     stepTimers.current[m] = [];
   };
 
-  /** Wall-clock progression — purely visual, no per-stage server events. */
+  /**
+   * Step display — hold at step 1 throughout the request.
+   * We have no SSE/WebSocket events from the backend to know which
+   * pipeline stage is active, so advancing on a wall-clock timer would
+   * lie to operators. Showing step 1 active with a pulsing indicator
+   * is honest: "classifying — no per-stage progress available yet."
+   */
   const startStepProgression = (m: ClassifyMode) => {
     clearStepTimers(m);
     patchMode(m, { activeStep: 1 });
-    stepTimers.current[m].push(window.setTimeout(() => patchMode(m, { activeStep: 2 }), 700));
-    stepTimers.current[m].push(window.setTimeout(() => patchMode(m, { activeStep: 3 }), 2200));
   };
 
   const handleSubmit = async (

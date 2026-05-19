@@ -69,9 +69,15 @@ function clampDescription(text: string, max: number = ZATCA_DESC_MAX): string {
   return `${cut.trimEnd()}…`;
 }
 
-/** Canonical 12-digit Saudi HS code: strip non-digits, right-pad with 0, truncate to 12. */
-function padCodeTo12(code: string | null | undefined): string {
-  return (code ?? '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
+/**
+ * Normalise a pipeline-resolved HS code for display. Strips non-digits.
+ * Never pads — the pipeline always emits exactly 12 digits; if a shorter
+ * code arrives it is rendered at its natural length with placeholder
+ * pair-slots shown as middle-dot so no granularity is fabricated.
+ * (Project rule: trailing zeros are semantic; never auto-pad.)
+ */
+function normaliseCode(code: string | null | undefined): string {
+  return (code ?? '').replace(/\D/g, '');
 }
 
 // `formatCode` (the dotted display form `1509.00.000000`) is retired
@@ -904,7 +910,7 @@ export default function ResultSingle({
   // Code split at HS-6 boundary so the inline render can colour the
   // first 6 digits in --accent and the trailing national/stat
   // extension in --ink. Matches the mockup's `big-code` block.
-  const code12 = padCodeTo12(r.code);
+  const code12 = normaliseCode(r.code);
 
   return (
     // Mockup-correct landing-page layout: centered single column at
@@ -972,7 +978,10 @@ export default function ResultSingle({
                 ];
                 const prefixLengths = [2, 4, 6, 8];
                 const name = names[i] ?? 'Tariff';
-                const prefix = code12.slice(0, prefixLengths[i] ?? 8).replace(/^0+$/, '');
+                const prefixLen = prefixLengths[i] ?? 8;
+                const prefix = prefixLen <= code12.length
+                  ? code12.slice(0, prefixLen).replace(/^0+$/, '')
+                  : '';
                 return prefix ? `${name} ${prefix}` : name;
               };
               return (
@@ -1283,33 +1292,40 @@ export default function ResultSingle({
  * between them).
  */
 function BigCode({ code }: { code: string }) {
-  // code is already padded to 12 chars by the caller.
-  const pairs = [
-    code.slice(0, 2),
-    code.slice(2, 4),
-    code.slice(4, 6),
-    code.slice(6, 8),
-    code.slice(8, 10),
-    code.slice(10, 12),
-  ];
+  // Render at the code's natural length. Pipeline codes are 12 digits;
+  // partial or heading-level codes render fewer pairs with placeholder
+  // slots shown as middle-dot so no granularity is fabricated.
+  const digits = code.replace(/\D/g, '');
+  const pairs: string[] = [];
+  for (let i = 0; i < 12; i += 2) {
+    if (i < digits.length) {
+      pairs.push(digits.slice(i, Math.min(i + 2, digits.length)));
+    } else {
+      pairs.push('');  // empty slot — rendered as placeholder below
+    }
+  }
+  const filledPairs = pairs.filter((_, i) => digits.length > i * 2);
+  const displayPairs = filledPairs.length > 0 ? filledPairs : ['—'];
   return (
     <div className="flex items-center gap-3.5">
       <code
         className="font-mono font-medium leading-none whitespace-nowrap text-[clamp(28px,4.2vw,36px)] tracking-[0.01em]"
-        aria-label={`HS code ${code}`}
+        aria-label={`HS code ${digits || code}`}
       >
-        {pairs.map((pair, i) => (
+        {displayPairs.map((pair, i) => (
           <span key={i}>
             <span className={i < 3 ? 'text-[var(--accent)]' : 'text-[var(--ink)]'}>
               {pair}
             </span>
-            {i < pairs.length - 1 && (
+            {i < displayPairs.length - 1 && (
               <span className="text-[var(--ink-3)] font-normal px-[1px]">.</span>
             )}
           </span>
         ))}
       </code>
-      <CopyIconButton text={code} title="Copy 12-digit HS code" />
+      {digits.length > 0 && (
+        <CopyIconButton text={digits} title={`Copy HS code${digits.length < 12 ? ` (${digits.length} digits)` : ''}`} />
+      )}
     </div>
   );
 }

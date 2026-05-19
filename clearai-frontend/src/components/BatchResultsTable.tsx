@@ -89,14 +89,35 @@ interface BuildBreakdownRow {
 }
 
 function buildBreakdown(finalCode: string | null, pathEn: string | null): BuildBreakdownRow[] {
-  if (!finalCode || finalCode.length !== 12) return [];
+  if (!finalCode) return [];
+  // Strip non-digits; render at the code's natural length — never pad.
+  // (Project rule: trailing zeros are semantic granularity indicators.)
+  const digits = finalCode.replace(/\D/g, '');
+  if (!digits) return [];
   const segments = (pathEn ?? '').split(' > ').map((s) => s.trim()).filter(Boolean);
-  return [
-    { code: finalCode.slice(0, 2), label: 'Chapter',    description: segments[0] ?? '—' },
-    { code: finalCode.slice(0, 4), label: 'Heading',    description: segments[1] ?? segments[0] ?? '—' },
-    { code: finalCode.slice(0, 6), label: 'Subheading', description: segments[2] ?? segments[1] ?? '—' },
-    { code: finalCode,             label: 'Tariff',     description: segments[segments.length - 1] ?? '—' },
-  ];
+  const rows: BuildBreakdownRow[] = [];
+  // Progressive fill: emit only the levels the code actually carries.
+  if (digits.length >= 2) rows.push({ code: digits.slice(0, 2), label: 'Chapter',    description: segments[0] ?? '—' });
+  if (digits.length >= 4) rows.push({ code: digits.slice(0, 4), label: 'Heading',    description: segments[1] ?? segments[0] ?? '—' });
+  if (digits.length >= 6) rows.push({ code: digits.slice(0, 6), label: 'Subheading', description: segments[2] ?? segments[1] ?? '—' });
+  if (digits.length >= 8) rows.push({ code: digits.slice(0, 8), label: 'National',   description: segments[3] ?? segments[2] ?? '—' });
+  if (digits.length >= 10) rows.push({ code: digits.slice(0, 10), label: 'Statistical', description: segments[4] ?? segments[3] ?? '—' });
+  if (digits.length === 12) {
+    // Only add Tariff row distinct from Statistical when fully 12-digit
+    rows.push({ code: digits, label: 'Tariff', description: segments[segments.length - 1] ?? '—' });
+    // Remove the preceding level if it would be a duplicate code
+    if (rows.length > 1 && rows[rows.length - 2].code === digits) {
+      rows.splice(rows.length - 2, 1);
+    }
+  } else if (rows.length > 0) {
+    // Re-label the deepest row as Tariff for < 12-digit codes
+    rows[rows.length - 1] = {
+      ...rows[rows.length - 1],
+      label: 'Tariff',
+      description: segments[segments.length - 1] ?? rows[rows.length - 1].description,
+    };
+  }
+  return rows;
 }
 
 const BREAKDOWN_DESC_MAX = 38;
@@ -189,29 +210,66 @@ function MerchantDescriptionCell({ item }: { item: BatchItem }) {
 }
 
 /**
- * Value cell — SAR-denominated amount + currency code from value.amount.
- * 2-decimal formatting with thousands separators; mono tabular for vertical
- * alignment across rows; muted small-caps currency.
+ * Value cell — dual-axis per the ZATCA currency rule:
+ *   Source axis: declared_value.amount + declared_value.currency (invoice currency)
+ *   SAR axis:    value.amount.value + value.amount.currency (canonical SAR, used for HV/LV)
+ * Both are shown. If source == SAR (or no rate available) only the SAR row renders.
+ * The 1000 SAR HV/LV threshold is applied to the SAR axis only.
  */
 function ValueCell({ item }: { item: BatchItem }) {
-  const amount = item.value?.amount?.value ?? null;
-  const currency = item.value?.amount?.currency ?? null;
-  if (amount === null || amount === undefined || !Number.isFinite(amount)) {
+  // Source axis — what the merchant declared on the invoice
+  const srcAmount = item.declared_value?.amount ?? null;
+  const srcCurrency = item.declared_value?.currency ?? null;
+
+  // SAR axis — canonical converted amount used for pipeline decisions
+  const sarAmount = item.value?.amount?.value ?? null;
+  const sarCurrency = item.value?.amount?.currency ?? null; // should always be 'SAR'
+
+  const fmt = (n: number) =>
+    new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+
+  const hasSrc = srcAmount !== null && Number.isFinite(srcAmount) && srcCurrency;
+  const hasSar = sarAmount !== null && Number.isFinite(sarAmount);
+  const srcIsSar = srcCurrency?.toUpperCase() === 'SAR';
+
+  if (!hasSrc && !hasSar) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   }
-  const formatted = new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+
   return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="font-mono text-[13px] tabular-nums text-[var(--ink)] whitespace-nowrap">
-        {formatted}
-      </span>
-      {currency && (
-        <span className="font-mono text-[10.5px] uppercase tracking-[0.10em] text-[var(--ink-3)]">
-          {currency}
-        </span>
+    <div className="flex flex-col gap-0.5">
+      {/* Source axis (invoice currency) — only when different from SAR */}
+      {hasSrc && !srcIsSar && (
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)] whitespace-nowrap">
+            {fmt(srcAmount!)}
+          </span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)]">
+            {srcCurrency}
+          </span>
+        </div>
+      )}
+      {/* SAR axis — canonical; always shown when available */}
+      {hasSar && (
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)] whitespace-nowrap">
+            {fmt(sarAmount!)}
+          </span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)]">
+            {sarCurrency ?? 'SAR'}
+          </span>
+        </div>
+      )}
+      {/* If only source available and it is SAR, show once */}
+      {hasSrc && !hasSar && srcIsSar && (
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)] whitespace-nowrap">
+            {fmt(srcAmount!)}
+          </span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)]">
+            SAR
+          </span>
+        </div>
       )}
     </div>
   );

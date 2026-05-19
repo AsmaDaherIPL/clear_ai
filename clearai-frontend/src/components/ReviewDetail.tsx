@@ -34,6 +34,28 @@ function relativeTime(iso: string): string {
 
 const CODE_RE = /^\d{12}$/;
 
+/**
+ * Whitelist mapping for source_arm values.
+ * Only the canonical action names are shown to operators.
+ * Forbidden track_a/track_b labels are suppressed and shown as "retrieval"
+ * (the neutral term) so legacy backend payloads don't leak internal naming.
+ */
+const SOURCE_ARM_LABELS: Record<string, string> = {
+  description_classifier: 'Description classifier',
+  code_resolver:          'Code resolver',
+  merchant_resolution:    'Merchant code',
+  lexical:                'Lexical search',
+  vector:                 'Semantic search',
+  // legacy arms — map to neutral labels, never show raw value
+  track_a:                'Description classifier',
+  track_b:                'Code resolver',
+};
+
+function formatSourceArm(arm: string | null | undefined): string {
+  if (!arm) return '—';
+  return SOURCE_ARM_LABELS[arm] ?? 'Retrieval';
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -59,17 +81,28 @@ function MetaPill({ children, className }: { children: React.ReactNode; classNam
   );
 }
 
-function FitBadge({ fit, t }: { fit: CandidateFit; t: ReturnType<typeof useT> }) {
+/**
+ * Renders the fit verdict for a candidate.
+ * When isCurrent=true (picker's chosen leaf), does_not_fit is suppressed
+ * and shown as "fits (permissive)" per the permissive-fits rule:
+ * silence on unconstrained dimensions is not contradiction — a leaf the
+ * picker accepted is by definition fits at the classification level.
+ */
+function FitBadge({ fit, isCurrent = false, t }: { fit: CandidateFit; isCurrent?: boolean; t: ReturnType<typeof useT> }) {
+  // Permissive-fits rule: picker's chosen candidate must never show does_not_fit.
+  const effectiveFit = isCurrent && fit === 'does_not_fit' ? 'fits' : fit;
   const cls =
-    fit === 'fits'
+    effectiveFit === 'fits'
       ? 'text-[oklch(0.40_0.13_140)]'
-      : fit === 'partial'
+      : effectiveFit === 'partial'
         ? 'text-[oklch(0.48_0.14_60)]'
         : 'text-[var(--ink-3)]';
   const label =
-    fit === 'fits'
-      ? t('review_fit_fits')
-      : fit === 'partial'
+    effectiveFit === 'fits'
+      ? isCurrent && fit === 'does_not_fit'
+        ? `${t('review_fit_fits')} (permissive)`
+        : t('review_fit_fits')
+      : effectiveFit === 'partial'
         ? t('review_fit_partial')
         : t('review_fit_does_not_fit');
   return (
@@ -241,7 +274,7 @@ function CandidateRow({ candidate, index, isSelected, radioEnabled, onSelect, t 
               {candidate.code}
             </label>
 
-            <FitBadge fit={candidate.fit} t={t} />
+            <FitBadge fit={candidate.fit} isCurrent={isCurrent} t={t} />
 
             {isCurrent && (
               <MetaPill className="bg-[var(--accent)] text-white">
@@ -250,7 +283,7 @@ function CandidateRow({ candidate, index, isSelected, radioEnabled, onSelect, t 
             )}
 
             <span className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase">
-              {t('review_detail_source')} {candidate.source_arm}
+              {t('review_detail_source')} {formatSourceArm(candidate.source_arm)}
             </span>
 
             <span className="ms-auto font-mono text-[11px] text-[var(--ink-3)]">
