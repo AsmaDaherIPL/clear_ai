@@ -358,27 +358,21 @@ export async function runPipeline(
     fallback_query: fallbackQuery,
   });
 
-  // Last-chance rescue: first picker pass returned all does_not_fit
-  // despite candidates being present. Retry with `last_chance: true`
-  // — the picker's user payload gets a "must pick" instruction and
-  // the result lands at LAST_CHANCE_CONFIDENCE (0.40) → operator
-  // review via the low-confidence HITL rule. Skipped when the
-  // escalate is for a different reason (scope_escalate, no_candidates,
-  // identify_no_query, picker_unavailable) because those don't have
-  // a candidate set worth retrying against.
-  if (
-    pick.kind === 'escalate' &&
-    pick.reason === 'no_candidate_fits' &&
-    reranked.length > 0
-  ) {
-    pick = await runPick({
-      identify,
-      candidates: reranked,
-      merchant_chapter: merchantChapter,
-      fallback_query: fallbackQuery,
-      last_chance: true,
-    });
-  }
+  // Last-chance rescue DISABLED 2026-05-19 (remediation plan §1.1.1).
+  //
+  // Previously: when the first picker pass returned all `does_not_fit`,
+  // the orchestrator retried with `last_chance: true`, which instructed
+  // the model to commit to the "least-wrong leaf" and emitted the
+  // result at LAST_CHANCE_CONFIDENCE (0.40). The row then shipped as
+  // a real classification event (AGREEMENT or DRIFT). This was a
+  // coerced wrong classification recorded as fact — the model had
+  // already verdicted every candidate as does_not_fit, and we forced
+  // it to pick anyway.
+  //
+  // New behaviour: `no_candidate_fits` falls through as an escalate.
+  // buildHitl() routes it to HITL as `verdict_escalate`. The reviewer
+  // sees the top-8 candidates with the LLM's does_not_fit rationales
+  // and supplies the correct code themselves.
 
   if (pick.kind === 'escalate') {
     return buildEscalateResult({

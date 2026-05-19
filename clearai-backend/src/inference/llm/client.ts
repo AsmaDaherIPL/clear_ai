@@ -92,7 +92,11 @@ function finalize(
   stage: LlmStage | undefined,
   attempt: number,
 ): LlmCallResult {
-  recordLlmOutcome(result);
+  // 2026-05-19 (TASKS R5): breaker outcome is recorded ONCE per terminal
+  // call in callLlm (after the inner 429 retry loop completes), NOT here
+  // in per-attempt finalize. Previously 1 logical call → up to 3 breaker
+  // writes (2 inner 429 retries + 1 terminal) which inflated the
+  // transient-rate metric and fired the soft-warn spuriously.
   if (result.status !== 'ok') {
     const cls = classifyLlmOutcome(result);
     // Pino is wired by the fastify app; if unavailable (unit tests, scripts)
@@ -101,15 +105,6 @@ function finalize(
     // eslint-disable-next-line no-console
     console.warn(msg);
   }
-  // Edge-triggered transient-rate warning. Only log on the false -> true
-  // transition so a sustained slow Foundry doesn't fill the log.
-  const bs = breakerStatus();
-  if (bs.transient_warning && !lastTransientWarning) {
-    const pct = Math.round(bs.transient_rate * 100);
-    // eslint-disable-next-line no-console
-    console.warn(`[llm] transient warning: rate=${pct}% over last ${bs.window_size} calls`);
-  }
-  lastTransientWarning = bs.transient_warning;
 
   if (stage) {
     void writeLlmCallMetric({
@@ -275,21 +270,33 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
   for (let attempt = 1; attempt <= INNER_429_MAX_RETRIES + 1; attempt++) {
     last = await callLlmOnce(params, attempt);
     // Success or non-429 failure → return immediately.
-    if (last.status === 'ok') return last;
+    if (last.status === 'ok') break;
     const errStr = last.error ?? '';
     const is429 = /HTTP 429/.test(errStr);
-    if (!is429) return last;
+    if (!is429) break;
     // Exhausted the 429 retry quota → surface the last 429 to the caller.
-    if (attempt > INNER_429_MAX_RETRIES) return last;
+    if (attempt > INNER_429_MAX_RETRIES) break;
     // Compute wait time from the hint, with jitter to spread concurrent
     // callers across the next rate-limit window. If the next sleep would
     // exhaust the budget, give up and return the 429.
     const delay = pickRetryDelayMs(errStr, attempt - 1);
     if (Date.now() - startedAt + delay > INNER_429_BUDGET_MS) {
-      return last;
+      break;
     }
     await new Promise((r) => setTimeout(r, delay));
   }
+  // 2026-05-19 (TASKS R5): record the breaker outcome ONCE per logical
+  // call, with the terminal result. callLlmOnce no longer feeds the
+  // breaker per attempt. Edge-triggered transient warning moved here
+  // too so it reads breakerStatus() once per terminal call.
+  recordLlmOutcome(last!);
+  const bs = breakerStatus();
+  if (bs.transient_warning && !lastTransientWarning) {
+    const pct = Math.round(bs.transient_rate * 100);
+    // eslint-disable-next-line no-console
+    console.warn(`[llm] transient warning: rate=${pct}% over last ${bs.window_size} calls`);
+  }
+  lastTransientWarning = bs.transient_warning;
   return last!;
 }
 

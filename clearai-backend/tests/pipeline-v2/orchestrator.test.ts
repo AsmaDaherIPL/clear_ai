@@ -428,18 +428,16 @@ describe('runPipelineV2 — sanity FLAG → HITL', () => {
 });
 
 describe('runPipelineV2 — picker escalate → HITL verdict_escalate', () => {
-  it('routes to verdict_escalate when picker returns no_candidate_fits AND last-chance retry ALSO refuses', async () => {
-    // After the 2026-05-16 rescue rules: the orchestrator retries the
-    // picker with last_chance=true when the first pass returns
-    // no_candidate_fits with candidates_after_rerank > 0. This test
-    // pins the case where the SECOND pass also refuses (genuinely
-    // unsalvageable retrieval pool) — the row escalates honestly.
+  // 2026-05-19 (remediation plan §1.1.1): last_chance retry was DISABLED.
+  // When the first picker pass returns no_candidate_fits we no longer
+  // retry with `last_chance: true` (which would coerce a wrong pick at
+  // confidence 0.40 and ship it as a real classification). Instead the
+  // row falls through to buildHitl() as verdict_escalate.
+
+  it('routes to verdict_escalate when picker returns no_candidate_fits — single pick call, no retry', async () => {
     runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify());
     resolveMerchantMock.mockResolvedValueOnce({ state: 'active', resolved_code: '610910000000' });
     runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('610910000000')], per_arm_counts: { merchant_prefix: 1 } });
-    // First pass: no_candidate_fits (the "you didn't pick anything" outcome)
-    runPickMock.mockResolvedValueOnce(escalatePick('no_candidate_fits'));
-    // Second pass (last-chance): picker STILL refuses → escalate honest
     runPickMock.mockResolvedValueOnce(escalatePick('no_candidate_fits'));
 
     const r = await runPipelineV2(item(), 'naqel', 'i-esc');
@@ -447,26 +445,24 @@ describe('runPipelineV2 — picker escalate → HITL verdict_escalate', () => {
     expect(r.classification_status).toBe('ZERO_SIGNAL');
     expect(r.hitl?.reason).toBe('verdict_escalate');
     expect(runSanityMock).not.toHaveBeenCalled();
-    // Two picker calls confirms the last-chance retry fired
-    expect(runPickMock).toHaveBeenCalledTimes(2);
-    // Second call should have been with last_chance=true
-    expect(runPickMock.mock.calls[1]![0].last_chance).toBe(true);
+    // ONE picker call — last_chance retry retired.
+    expect(runPickMock).toHaveBeenCalledTimes(1);
+    expect(runPickMock.mock.calls[0]![0].last_chance).toBeUndefined();
   });
 
-  it('last-chance retry rescues a no_candidate_fits to an accepted partial when second pass commits', async () => {
+  it('no_candidate_fits never produces an accepted row, regardless of candidate pool size', async () => {
     runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify());
     resolveMerchantMock.mockResolvedValueOnce({ state: 'active', resolved_code: '610910000000' });
     runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('610910000000')], per_arm_counts: { merchant_prefix: 1 } });
-    // First pass: no_candidate_fits
     runPickMock.mockResolvedValueOnce(escalatePick('no_candidate_fits'));
-    // Second pass (last-chance): picker commits at low confidence
-    runPickMock.mockResolvedValueOnce(acceptedPick('610910000000', { picked_from_arm: 'merchant_prefix' }));
-    runSanityMock.mockResolvedValueOnce({ verdict: 'PASS', rationale: 'plausible', latency_ms: 800, degraded: false });
 
-    const r = await runPipelineV2(item(), 'naqel', 'i-rescue');
-    expect(r.final_code).toBe('610910000000');
-    expect(runPickMock).toHaveBeenCalledTimes(2);
-    expect(runPickMock.mock.calls[1]![0].last_chance).toBe(true);
+    const r = await runPipelineV2(item(), 'naqel', 'i-no-rescue');
+    // Previously the last_chance retry might have rescued this with a
+    // partial pick at conf 0.40. Now it correctly escalates to HITL
+    // with no code — the reviewer supplies the right code.
+    expect(r.final_code).toBeNull();
+    expect(r.hitl?.reason).toBe('verdict_escalate');
+    expect(runPickMock).toHaveBeenCalledTimes(1);
   });
 
   it('routes to low_information when identify_no_query + identify uninformative+genuine', async () => {

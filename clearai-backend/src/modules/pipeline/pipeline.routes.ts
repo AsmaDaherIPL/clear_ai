@@ -213,36 +213,47 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       includeTrace,
     });
 
-    void (async () => {
-      const eventOk = await recordClassificationEvent(
+    // 2026-05-19 (remediation plan §1.4.3 + TASKS D2): the
+    // classification_events write was previously fire-and-forget
+    // inside a `void (async () => ...)()` IIFE. If serialisation, pool
+    // exhaustion, or a logger error fired, the canonical audit row
+    // dropped silently — direct violation of
+    // rule_classification_events_single_source.md.
+    //
+    // Now: await the write before responding 200. Adds ~50-150ms to
+    // the response, which is acceptable for the audit-trail guarantee.
+    // If latency hurts at scale, the next step is a durable outbox
+    // table with a worker — out of scope for PR 1's "stop the bleeding"
+    // pass. The HITL enqueue is also awaited for the same reason
+    // (previously gated on the IIFE completing).
+    const eventOk = await recordClassificationEvent(
+      {
+        operatorId: operatorConfig.id,
+        operatorSlug: V1_OPERATOR_SLUG,
+        request: body,
+        response: v1Response,
+        totalLatencyMs: Date.now() - startedAtMs,
+      },
+      req.log,
+    );
+
+    if (eventOk && result.hitl) {
+      await enqueueHitl(
         {
-          operatorId: operatorConfig.id,
-          operatorSlug: V1_OPERATOR_SLUG,
-          request: body,
-          response: v1Response,
-          totalLatencyMs: Date.now() - startedAtMs,
+          classification_event_id: item.itemId,
+          item_id: item.itemId,
+          batch_id: null,
+          operator_slug: V1_OPERATOR_SLUG,
+          reason: result.hitl.reason,
+          cleaned_description: result.hitl.cleaned_description,
+          verdict_output: null,
+          sanity_result: result.trace.sanity,
+          trace: v1Response.trace,
+          enqueued_at: new Date().toISOString(),
         },
         req.log,
       );
-
-      if (eventOk && result.hitl) {
-        await enqueueHitl(
-          {
-            classification_event_id: item.itemId,
-            item_id: item.itemId,
-            batch_id: null,
-            operator_slug: V1_OPERATOR_SLUG,
-            reason: result.hitl.reason,
-            cleaned_description: result.hitl.cleaned_description,
-            verdict_output: null,
-            sanity_result: result.trace.sanity,
-            trace: v1Response.trace,
-            enqueued_at: new Date().toISOString(),
-          },
-          req.log,
-        );
-      }
-    })();
+    }
 
     return reply.code(200).send({
       operator_slug: V1_OPERATOR_SLUG,

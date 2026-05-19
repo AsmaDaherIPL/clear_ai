@@ -423,8 +423,19 @@ async function attemptPick(params: {
       1,
     );
     lastLlm = llm;
-    if (llm.status !== 'ok' || llm.text === null || llm.text.length === 0) {
+    // Real transport failures escalate immediately — no point retrying
+    // a 5xx/timeout under the parse-retry budget.
+    if (llm.status !== 'ok') {
       return { llm, verdicts: null };
+    }
+    // 2026-05-19 (TASKS PICK-EMPTY-RETRY): Foundry occasionally returns
+    // 200 OK with empty/null text body. Pilot row 126 ("Bcleen") escalated
+    // as `picker_unavailable` with `detail: "picker transport ok: (no
+    // error string)"` because of this. Treat ok-but-empty as a parse-retry-
+    // eligible failure rather than a hard transport escalate.
+    if (llm.text === null || llm.text.length === 0) {
+      attempt += 1;
+      continue;
     }
     const verdicts = parseVerdicts(llm.text, params.allowedCodes);
     lastVerdicts = verdicts;

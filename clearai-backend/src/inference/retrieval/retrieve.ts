@@ -261,10 +261,20 @@ export async function retrieveCandidates(
           ? null
           : Number(row.trgm_score),
     }));
-  } catch {
+  } catch (err) {
     // Stage-2 failure → degrade to vector-only ranking. The picker still
-    // gets candidates; the audit log will show stage2_failed externally
-    // if the caller logs it. Don't crash the request.
+    // gets candidates; don't crash the request.
+    //
+    // 2026-05-19 (TASKS R11): previously this catch swallowed the error
+    // silently — no log, no metric, no signal anywhere that BM25/trigram
+    // ranking was missing. Silent retrieval-quality regressions that
+    // were impossible to attribute. Now we log a structured warning so
+    // operators can see the degradation in container logs.
+    const msg = err instanceof Error ? err.message : String(err);
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[retrieve] stage-2 BM25/trigram failed, falling back to vector-only ranking; ${recalledCodes.length} candidates affected: ${msg.slice(0, 300)}`,
+    );
     stage2Rows = recalledCodes.map((code) => ({ code, bm25_score: null, trgm_score: null }));
   }
 
