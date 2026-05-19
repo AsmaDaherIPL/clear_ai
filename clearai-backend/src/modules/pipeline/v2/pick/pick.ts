@@ -79,6 +79,31 @@ const CONFIDENCE_MIN = 0.05;
 const CONFIDENCE_MAX = 0.99;
 
 /**
+ * Identify-confidence chaining ceiling (added 2026-05-19, TASKS S2 #6).
+ *
+ * The picker's confidence is computed from POOL signals (verdict mix,
+ * rerank gap, arm agreement). A clean pool can produce a high
+ * confidence even when the upstream `identify` was a weak guess —
+ * e.g. brand-only rescue at identify.confidence = 0.42 followed by a
+ * clean pool that scored the winner at 0.75. The composite score
+ * masks the weakest upstream link.
+ *
+ * Fix: when identify is clean_product with low confidence, clamp the
+ * picker's confidence to `identify.confidence + OFFSET`. The chain
+ * reflects "we're only as sure as our weakest stage was."
+ *
+ * OFFSET = 0.10 lets the picker bump a 0.42 identify up to 0.52 max
+ * (still in the HITL band), instead of riding to 0.75 on pool quality
+ * alone.
+ *
+ * Skipped when identify is `uninformative` or `multi_product` (no
+ * confidence number to chain), and when identify.confidence >= 0.75
+ * (already strong enough that the chain doesn't bind).
+ */
+const IDENTIFY_CONF_CEILING_OFFSET = 0.10;
+const IDENTIFY_CONF_CHAIN_THRESHOLD = 0.75;
+
+/**
  * Maximum length of an annotated_candidates rationale on the wire. The
  * picker prompt is told to write a short reason, but a chatty response
  * can blow up the payload — especially on 8-candidate prompts where 8 ×
@@ -99,6 +124,15 @@ interface ParsedVerdict {
   code: string;
   fit: 'fits' | 'partial' | 'does_not_fit';
   rationale: string;
+  /**
+   * Structured GIR cite emitted by the picker LLM. Format: `GIR <1-6>` or
+   * `GIR <1-6>(<a|b|c>)`. Added 2026-05-19 (TASKS L5) — previously we
+   * regex-scraped this from rationale prose, which missed natural variants
+   * like "GIR-3b", "General Interpretive Rule 3(b)". The prompt now asks
+   * the model to emit a dedicated `gir` field per verdict; the regex
+   * fallback stays as a defensive backstop for older model outputs.
+   */
+  gir?: string;
 }
 
 type PositiveVerdict = ParsedVerdict & { fit: 'fits' | 'partial' };
@@ -200,6 +234,22 @@ function traceFromLlm(
   };
 }
 
+/**
+ * Normalise a model-emitted `gir` string into the canonical
+ * `GIR N` or `GIR N(a|b|c)` shape. Accepts everything the regex
+ * fallback accepts, plus simple variants like "3(b)" or "3b". Returns
+ * `null` on unparseable input — caller falls back to the rationale-text
+ * regex if model didn't emit the field.
+ */
+function normaliseGir(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const m = raw.trim().match(/(?:GIR\s*)?([1-6])\s*\(?\s*([abc])?\s*\)?/i);
+  if (!m) return null;
+  const digit = m[1];
+  const letter = m[2];
+  return letter ? `GIR ${digit}(${letter.toLowerCase()})` : `GIR ${digit}`;
+}
+
 function coerceVerdict(raw: unknown, allowedCodes: Set<string>): ParsedVerdict | null {
   if (raw === null || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
@@ -208,7 +258,10 @@ function coerceVerdict(raw: unknown, allowedCodes: Set<string>): ParsedVerdict |
   const rationale = typeof obj.rationale === 'string' ? obj.rationale.trim() : '';
   if (code === null || !allowedCodes.has(code)) return null;
   if (fit !== 'fits' && fit !== 'partial' && fit !== 'does_not_fit') return null;
-  return { code, fit, rationale };
+  const girFromField = normaliseGir(obj.gir);
+  return girFromField !== null
+    ? { code, fit, rationale, gir: girFromField }
+    : { code, fit, rationale };
 }
 
 function parseVerdicts(text: string, allowedCodes: Set<string>): ParsedVerdict[] | null {
@@ -315,6 +368,7 @@ function buildAnnotatedCandidates(
   candidates: RerankedCandidate[],
   verdict_population: { fits: number; partial: number; does_not_fit: number },
   merchant_chapter_disagreement: boolean,
+  identify_confidence?: number,
 ): AnnotatedCandidate[] {
   const byCode = new Map<string, RerankedCandidate>();
   for (const c of candidates) byCode.set(c.code, c);
@@ -330,11 +384,17 @@ function buildAnnotatedCandidates(
     // this?" which is naturally low because the base for does_not_fit
     // is the floor. Reviewers reading the trace can scan a single
     // column instead of mentally re-running the formula per row.
+    //
+    // Identify-conf chaining (2026-05-19) applies to losers too — if
+    // identify was weak, the loser's "what-if confidence" is also
+    // capped, so a 0.42-identify row doesn't show "alt1 at 0.65" when
+    // the upstream signal didn't warrant it.
     const { confidence } = computeConfidence({
       fit: v.fit,
       verdict_population,
       candidates,
       merchant_chapter_disagreement,
+      identify_confidence,
     });
     annotated.push({
       code: v.code,
@@ -566,6 +626,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
         candidates,
         verdict_population,
         /* merchant_chapter_disagreement */ false,
+        /* identify_confidence */ identify.kind === 'clean_product' ? identify.confidence : undefined,
       ),
       trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'ok', false),
     };
@@ -577,10 +638,20 @@ export async function runPick(input: PickInput): Promise<PickResult> {
   const pickedChapter = top.code.slice(0, 2);
   const merchantChapterDisagreement =
     merchant_chapter !== null && pickedChapter !== merchant_chapter;
-  // Audit flag fires when we picked from a non-merchant arm AND merchant
-  // chapter disagrees — diagnostic signal for "merchant code was wrong."
+  // Audit flag fires for two reasons:
+  //
+  //  1. Picked from non-merchant arm AND merchant chapter disagrees —
+  //     diagnostic signal for "merchant code was wrong."
+  //  2. CONTRADICTION case (2026-05-19, TASKS S2 #4 / L1 follow-up):
+  //     two or more candidates verdicted as `fits`. The PR-6 conflict
+  //     mapping (feedback_pr6_conflict_type_outcomes.md) says
+  //     CONTRADICTION = accept + audit_flag. We accept the
+  //     rerank-tiebreak winner (per L1) but flag the row for review
+  //     because two `fits` on different codes is a real disagreement.
+  const contradictionFlag = verdict_population.fits >= 2;
   const auditFlag =
-    pickedArm !== 'merchant_prefix' && merchantChapterDisagreement;
+    (pickedArm !== 'merchant_prefix' && merchantChapterDisagreement) ||
+    contradictionFlag;
 
   // Confidence assignment. Last-chance pass always lands at
   // LAST_CHANCE_CONFIDENCE (0.40) regardless of trace signals because
@@ -602,6 +673,8 @@ export async function runPick(input: PickInput): Promise<PickResult> {
         verdict_population,
         candidates,
         merchant_chapter_disagreement: merchantChapterDisagreement,
+        identify_confidence:
+          identify.kind === 'clean_product' ? identify.confidence : undefined,
       });
   const accepted: PickAccepted = {
     kind: 'accepted',
@@ -609,7 +682,11 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     fit: top.fit,
     confidence,
     confidence_signals: signals,
-    gir_applied: extractGir(top.rationale),
+    // Prefer the picker's structured `gir` field (added 2026-05-19,
+    // TASKS L5). Fall back to regex-scrape of the rationale prose for
+    // backward compatibility with model outputs from before the prompt
+    // change shipped.
+    gir_applied: top.gir ?? extractGir(top.rationale),
     verdict_population,
     picked_from_arm: pickedArm,
     merchant_chapter_disagreement: merchantChapterDisagreement,
@@ -624,6 +701,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
       candidates,
       verdict_population,
       merchantChapterDisagreement,
+      identify.kind === 'clean_product' ? identify.confidence : undefined,
     ),
     trace: traceFromLlm(candidates.length, Date.now() - t0, llm, 'ok', auditFlag),
   };
@@ -669,6 +747,14 @@ export function computeConfidence(input: {
   verdict_population: { fits: number; partial: number; does_not_fit: number };
   candidates: ReadonlyArray<RerankedCandidate>;
   merchant_chapter_disagreement: boolean;
+  /**
+   * Identify-stage self-confidence (0-1). When provided and below
+   * IDENTIFY_CONF_CHAIN_THRESHOLD, the final picker confidence is
+   * clamped at `identify_confidence + IDENTIFY_CONF_CEILING_OFFSET`.
+   * See the constant docstrings for rationale. Pass `undefined` when
+   * identify did not produce a confidence (uninformative / multi_product).
+   */
+  identify_confidence?: number;
 }): { confidence: number; signals: ConfidenceSignals } {
   const base =
     input.fit === 'fits' ? BASE_FITS
@@ -714,7 +800,18 @@ export function computeConfidence(input: {
   }
 
   const raw_total = base + pool_cleanness_bonus + arm_agreement_bonus + rerank_gap_bonus;
-  const confidence = Math.max(CONFIDENCE_MIN, Math.min(CONFIDENCE_MAX, raw_total));
+  let confidence = Math.max(CONFIDENCE_MIN, Math.min(CONFIDENCE_MAX, raw_total));
+
+  // Identify-confidence chaining: when identify was weak (e.g. brand-only
+  // rescue at 0.42), cap pick.confidence so a clean candidate pool can't
+  // mask the weak upstream. See IDENTIFY_CONF_CEILING_OFFSET docstring.
+  if (
+    input.identify_confidence !== undefined &&
+    input.identify_confidence < IDENTIFY_CONF_CHAIN_THRESHOLD
+  ) {
+    const ceiling = input.identify_confidence + IDENTIFY_CONF_CEILING_OFFSET;
+    if (confidence > ceiling) confidence = ceiling;
+  }
 
   return {
     confidence,

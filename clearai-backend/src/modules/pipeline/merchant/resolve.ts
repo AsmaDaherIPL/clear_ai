@@ -166,6 +166,75 @@ export async function resolveMerchant(
 }
 
 /**
+ * Re-run the LLM-pick portion of merchant resolution with the *real*
+ * identify (added 2026-05-19, TASKS L4).
+ *
+ * Why this exists: identify_fast and merchant_resolution run in parallel
+ * in the orchestrator. Merchant gets `placeholderIdentify()` as its
+ * identify argument because the real one isn't ready yet. The
+ * placeholder is `kind=uninformative`, so `queryFromIdentify` returns
+ * null, so `pickAmongReplacements` and `pickUnderPrefix` BOTH return
+ * null without firing an LLM call. The pipeline records the outcome as
+ * `cause: 'llm_pick_failed_replacement'` or `'llm_pick_failed_prefix'`
+ * — even though no LLM ever failed.
+ *
+ * Fix: after identify completes, if merchant's first pass returned
+ * `unknown` due to one of those causes AND the real identify carries a
+ * usable query, retry just the LLM-pick step. Reproduces the original
+ * decision tree without re-doing the deterministic codebook walk.
+ *
+ * Returns the input resolution unchanged when:
+ *   - the first pass already succeeded (anything other than unknown)
+ *   - the cause is not one of the two LLM-pick-failed sentinels
+ *   - the real identify still doesn't carry a query (was uninformative
+ *     too — in that case the original outcome is honest)
+ */
+export async function retryMerchantPickWithIdentify(
+  first: MerchantResolution,
+  identify: IdentifyResult,
+  raw_code: string | null,
+): Promise<MerchantResolution> {
+  if (first.state !== 'unknown') return first;
+  if (
+    first.cause !== 'llm_pick_failed_replacement' &&
+    first.cause !== 'llm_pick_failed_prefix'
+  ) {
+    return first;
+  }
+  if (identify.kind !== 'clean_product') return first;
+  if (raw_code === null || raw_code.length === 0) return first;
+
+  if (first.cause === 'llm_pick_failed_replacement') {
+    // Re-fetch the replacement set from the original 12-digit code.
+    const record = await lookupCode(raw_code);
+    if (record === null || !record.is_deleted) return first;
+    const replacements = record.replacement_codes ?? [];
+    if (replacements.length <= 1) return first;
+    const picked = await pickAmongReplacements(replacements, identify);
+    if (picked === null) return first;
+    return {
+      state: 'llm_picked_replacement',
+      resolved_code: picked,
+      source_code: raw_code,
+      candidates: replacements,
+    };
+  }
+
+  // llm_pick_failed_prefix path
+  const aligned = alignToCodebookPrefix(raw_code);
+  const { children, matched_prefix } = await expandWithFallback(aligned);
+  if (children.length <= 1) return first;
+  const picked = await pickUnderPrefix(children, matched_prefix, identify);
+  if (picked === null) return first;
+  return {
+    state: 'expanded_prefix',
+    resolved_code: picked,
+    valid_prefix: matched_prefix,
+    source_code: raw_code,
+  };
+}
+
+/**
  * Build a MerchantResolutionTrace from a resolution outcome + facts about
  * how we got there. Exported so the orchestrator can attach the trace.
  */

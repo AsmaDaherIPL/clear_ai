@@ -35,6 +35,12 @@ vi.mock('../../src/modules/pipeline/merchant/resolve.js', () => ({
     override_attempted: false,
     override_matched: false,
   }),
+  // 2026-05-19 (PR 2 / TASKS L4): retry the merchant LLM-pick once
+  // real identify lands. The mock is a no-op pass-through: tests
+  // already mock `resolveMerchantMock` to the desired terminal state,
+  // so the retry should not transform it. If a test wants to assert
+  // retry behaviour explicitly, override this mock locally.
+  retryMerchantPickWithIdentify: async (first: unknown) => first,
 }));
 
 const runMultiArmRetrievalMock = vi.fn();

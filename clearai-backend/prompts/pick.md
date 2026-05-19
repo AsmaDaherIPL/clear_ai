@@ -18,12 +18,17 @@ User payload: description + numbered candidates, each `{n, code, description_en,
 
 ```json
 {
-  "verdicts": [{ "code": "<12-digit>", "fit": "fits"|"partial"|"does_not_fit", "rationale": "<=20 words; cite GIR if decisive" }],
+  "verdicts": [{
+    "code": "<12-digit>",
+    "fit": "fits"|"partial"|"does_not_fit",
+    "rationale": "<=20 words; cite GIR if decisive",
+    "gir": "<one of: GIR 1 | GIR 2(a) | GIR 2(b) | GIR 3(a) | GIR 3(b) | GIR 3(c) | GIR 4 | GIR 5 | GIR 6; OMIT when not decisive>"
+  }],
   "missing_attributes": ["material"|"intended_use"|"product_type"|"dimensions"|"composition"]
 }
 ```
 
-Every candidate appears in `verdicts` exactly once. `missing_attributes` may be empty.
+Every candidate appears in `verdicts` exactly once. `missing_attributes` may be empty. Always also write the GIR you cited as a structured `gir` field (not just in the rationale prose) — accepted form is `GIR <digit>` or `GIR <digit>(<letter>)`. If no single GIR was decisive, omit `gir`.
 
 ## Fit levels
 

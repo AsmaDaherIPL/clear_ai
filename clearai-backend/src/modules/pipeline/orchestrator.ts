@@ -37,6 +37,7 @@ import { runIdentifyWeb } from './v2/identify/web.js';
 import {
   resolveMerchant,
   buildResolutionTrace,
+  retryMerchantPickWithIdentify,
 } from './merchant/resolve.js';
 import { selectScopes } from './v2/scope/select.js';
 import { runMultiArmRetrieval } from './v2/retrieve/multi-arm.js';
@@ -222,7 +223,7 @@ export async function runPipeline(
   // ---- Stages 2a + 3 in parallel: identify_fast + merchant_resolution ----
   const opConfig = await loadOperatorPipelineConfig(operatorSlug);
   const merchantStart = Date.now();
-  const [identifyFast, merchantResolution] = await Promise.all([
+  const [identifyFast, merchantResolutionFirstPass] = await Promise.all([
     runIdentifyFast(rawDescription),
     resolveMerchant(
       parsed.item.raw_merchant_code,
@@ -231,6 +232,8 @@ export async function runPipeline(
       opConfig.overridesEnabled,
     ),
   ]);
+  // Mutable below — may be overwritten by L4 retry once identify lands.
+  let merchantResolution = merchantResolutionFirstPass;
 
   // ---- Stage 2b conditional: identify_web fallback ----
   // The price/value hint was removed 2026-05-18 — see runIdentifyWeb's
@@ -242,6 +245,22 @@ export async function runPipeline(
   if (shouldRunWebFallback(identifyFast)) {
     identify = await runIdentifyWeb(rawDescription, identifyFast);
   }
+
+  // 2026-05-19 (TASKS L4): identify_fast and merchant resolution above
+  // run in parallel — merchant got placeholderIdentify() because the
+  // real one wasn't ready. That placeholder is kind=uninformative, so
+  // the LLM-pick paths inside merchant (pickAmongReplacements /
+  // pickUnderPrefix) returned null WITHOUT firing an LLM call. The
+  // pipeline recorded `llm_pick_failed_*` as if an LLM had failed.
+  //
+  // Retry just the LLM-pick step now that the real identify is
+  // available. No-op when the first pass already succeeded or when
+  // identify is still uninformative.
+  merchantResolution = await retryMerchantPickWithIdentify(
+    merchantResolution,
+    identify,
+    parsed.item.raw_merchant_code,
+  );
 
   const merchantResolutionTrace = buildResolutionTrace(
     merchantResolution,
@@ -333,23 +352,23 @@ export async function runPipeline(
   // Two sources, in priority order:
   //   1. Cleanly resolved merchant code → catalog leaf description
   //      (brand-only rescue: "THE RING" + 640420 footwear etc.)
-  //   2. Unknown merchant state but reranked candidates exist → use
-  //      the top reranked candidate's English description as the
-  //      query. Covers the case "merchant prefix recognized at HS8 but
-  //      no exact code match" (row 9: "Dresses" + 62046200) where the
-  //      walk gave us candidates but no leaf to query from.
+  //
+  // 2026-05-19 (TASKS L7): the second fallback (use reranked[0]'s
+  // description as the picker query) was REMOVED. Without an identify
+  // signal AND without a merchant code, asking the picker to verdict
+  // a candidate against its own description is circular: the trace
+  // claimed the row classified normally but it never did. Those rows
+  // now correctly escalate as identify_no_query via the picker's
+  // empty-query short-circuit (pick.ts:439-447), routing to HITL.
   //
   // The result lands at the computed `partial` confidence (typically
   // 0.45 base, lower if signals weak) and the downstream low-confidence
   // HITL rule routes it to operator review. Skipped when identify
   // already supplied a query.
   const fallbackQuery =
-    identify.kind === 'uninformative'
-      ? extractMerchantResolvedCode(merchantResolution) !== null
-        ? await fallbackQueryFromMerchant(merchantResolution)
-        : reranked.length > 0
-          ? reranked[0]!.description_en
-          : null
+    identify.kind === 'uninformative' &&
+    extractMerchantResolvedCode(merchantResolution) !== null
+      ? await fallbackQueryFromMerchant(merchantResolution)
       : null;
   let pick = await runPick({
     identify,
