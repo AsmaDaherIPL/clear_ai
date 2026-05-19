@@ -98,6 +98,23 @@ unless noted.
 | — | Prompt trim: identify-web.md -1,110 tok (-35%) | `3d0b832` (rev 0000144) |
 | — | Prompt trim: submission-description.md -830 tok (-44%) | `8c6b069` (rev 0000145) |
 | — | Prompt trim: pick.md -350 tok + sanity.md -590 tok (in) -80 tok (out, structured short-form rationale) | `15498f6` (rev 0000146) |
+| PR1 | last_chance retired + D2 durable write + PICK-EMPTY-RETRY + R5 breaker + R11 retrieve catch logging | `88a285b` (rev 0000147) |
+| PR2 | L5 structured gir_applied + L4 retry merchant pick + L7 circular query fix + identify-conf chaining + CONTRADICTION audit_flag | `36886f9` (rev 0000148) |
+| PR3 | chapter disagreement balancing (decompose flag, rerank slot guarantee, audit flag symmetric, confidence cap on non-merchant winner) | `f75c462` (rev 0000149) |
+| PR4 | Retrieval telemetry (per-stage trace fields, embedder cache, query metadata, R13 token usage) | `ba5ca45` (rev 0000150) |
+| PR5 | L3 classification_status single source (deriveClassificationStatus canonical helper) | `0fb682a` (rev 0000151) |
+| PR6 | Shadow sampling + hitl_feedback table + cost circuit breaker (other PR6 items DEFERRED — see below) | `d0342e5` (rev 0000152) |
+
+## Still open — moved from PR6 deferrals
+
+The following PR6 items were scoped out because they require deeper plumbing than a bundled-PR budget allows. Pull them into their own focused PRs when ready:
+
+| ID | Item | Why deferred | Effort |
+|---|---|---|---|
+| **PR6.3** | Surface `missing_attributes` to HITL | Requires `PickAccepted.missing_attributes` field + new HITL reason routing + SPA contract change | S |
+| **PR6.5 (L9)** | Merchant taxonomy unification (`partial_family`/`chapter_adjacent` → `partial`) | Touches `normalizeFit` alias used to read historical traces; SPA may have stored values | S |
+| **PR6.6** | Identify_fast multi_product detection | Needs prompt update + parser handling for multi_product output | S |
+| **PR6.7** | Status differentiation (`AMBIGUOUS` for picker_unavailable) | Requires new value in `ClassificationStatus` enum + DB CHECK widen + SPA contract change | S |
 
 Tracker convention: when picking up a task, move it from its section
 above into the Done table with the commit SHA. Keep both halves of the
