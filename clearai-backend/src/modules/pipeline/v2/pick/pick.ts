@@ -79,6 +79,21 @@ const CONFIDENCE_MIN = 0.05;
 const CONFIDENCE_MAX = 0.99;
 
 /**
+ * Confidence ceiling when merchant chapter disagrees AND picker chose a
+ * non-merchant arm (added 2026-05-19, PR3 / TASKS S2 #16).
+ *
+ * Today's chapter_disagreement penalty (-0.10) is too weak: a clean pool
+ * can still push the winner to 0.65+ even when identify and merchant
+ * disagree on chapter. Hard-cap the confidence at 0.55 in that case so
+ * the row routes to HITL automatically via the < 0.60 threshold.
+ *
+ * Applies only when picked_from_arm !== 'merchant_prefix' — if the
+ * picker chose merchant's chapter, the disagreement was resolved in
+ * merchant's favor and the high confidence is honest.
+ */
+const DISAGREEMENT_NON_MERCHANT_CONFIDENCE_CAP = 0.55;
+
+/**
  * Identify-confidence chaining ceiling (added 2026-05-19, TASKS S2 #6).
  *
  * The picker's confidence is computed from POOL signals (verdict mix,
@@ -350,6 +365,43 @@ function countByArm(candidates: RerankedCandidate[]): Record<string, number> {
     counts[c.source_arm] = (counts[c.source_arm] ?? 0) + 1;
   }
   return counts;
+}
+
+/**
+ * Decompose the chapter-agreement signal into 4 pairwise booleans
+ * (added 2026-05-19, PR3 / TASKS S2 #16). NULL when an input is missing
+ * — collapses pairs that can't be computed.
+ */
+function computeChapterMatches(input: {
+  identify_chapter: string | null;
+  merchant_chapter: string | null;
+  pick_chapter: string;
+}): {
+  identify_and_pick: boolean | null;
+  merchant_and_pick: boolean | null;
+  identify_and_merchant: boolean | null;
+  all_three: boolean | null;
+} {
+  const ip =
+    input.identify_chapter !== null
+      ? input.identify_chapter === input.pick_chapter
+      : null;
+  const mp =
+    input.merchant_chapter !== null
+      ? input.merchant_chapter === input.pick_chapter
+      : null;
+  const im =
+    input.identify_chapter !== null && input.merchant_chapter !== null
+      ? input.identify_chapter === input.merchant_chapter
+      : null;
+  const all =
+    ip !== null && mp !== null && im !== null ? ip && mp && im : null;
+  return {
+    identify_and_pick: ip,
+    merchant_and_pick: mp,
+    identify_and_merchant: im,
+    all_three: all,
+  };
 }
 
 /**
@@ -638,20 +690,22 @@ export async function runPick(input: PickInput): Promise<PickResult> {
   const pickedChapter = top.code.slice(0, 2);
   const merchantChapterDisagreement =
     merchant_chapter !== null && pickedChapter !== merchant_chapter;
-  // Audit flag fires for two reasons:
+  // Audit flag fires for three reasons:
   //
-  //  1. Picked from non-merchant arm AND merchant chapter disagrees —
-  //     diagnostic signal for "merchant code was wrong."
-  //  2. CONTRADICTION case (2026-05-19, TASKS S2 #4 / L1 follow-up):
+  //  1. Chapter disagreement (any winner). PR3 / TASKS S2 #16:
+  //     previously this only fired when picked_from_arm !== merchant_prefix,
+  //     so a merchant-arm pick that disagreed with identify's chapter was
+  //     silently accepted. Now it fires whenever merchant chapter and
+  //     pick chapter differ, regardless of arm — reviewers always see
+  //     the disagreement in the trace.
+  //  2. CONTRADICTION (2026-05-19, TASKS S2 #4 / L1 follow-up):
   //     two or more candidates verdicted as `fits`. The PR-6 conflict
   //     mapping (feedback_pr6_conflict_type_outcomes.md) says
-  //     CONTRADICTION = accept + audit_flag. We accept the
-  //     rerank-tiebreak winner (per L1) but flag the row for review
-  //     because two `fits` on different codes is a real disagreement.
+  //     CONTRADICTION = accept + audit_flag.
+  //  3. (future) identity-tokens absent from leaf path — Open task #8,
+  //     deferred to PR9.
   const contradictionFlag = verdict_population.fits >= 2;
-  const auditFlag =
-    (pickedArm !== 'merchant_prefix' && merchantChapterDisagreement) ||
-    contradictionFlag;
+  const auditFlag = merchantChapterDisagreement || contradictionFlag;
 
   // Confidence assignment. Last-chance pass always lands at
   // LAST_CHANCE_CONFIDENCE (0.40) regardless of trace signals because
@@ -675,6 +729,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
         merchant_chapter_disagreement: merchantChapterDisagreement,
         identify_confidence:
           identify.kind === 'clean_product' ? identify.confidence : undefined,
+        picked_from_arm: pickedArm,
       });
   const accepted: PickAccepted = {
     kind: 'accepted',
@@ -690,6 +745,12 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     verdict_population,
     picked_from_arm: pickedArm,
     merchant_chapter_disagreement: merchantChapterDisagreement,
+    chapter_matches: computeChapterMatches({
+      identify_chapter:
+        identify.kind === 'clean_product' ? identify.family_chapter : null,
+      merchant_chapter,
+      pick_chapter: pickedChapter,
+    }),
     candidate_count_by_arm: countByArm(candidates),
     // Per-candidate verdicts the picker emitted. Includes the chosen
     // candidate (UI filters by code !== final_code when rendering as
@@ -755,6 +816,14 @@ export function computeConfidence(input: {
    * identify did not produce a confidence (uninformative / multi_product).
    */
   identify_confidence?: number;
+  /**
+   * Picker's chosen arm (PR3, 2026-05-19). When merchant_chapter_
+   * disagreement is true AND this is NOT 'merchant_prefix', the final
+   * confidence is hard-capped at DISAGREEMENT_NON_MERCHANT_CONFIDENCE_CAP.
+   * Pass undefined for per-candidate annotated calls — the cap applies
+   * only to the winner.
+   */
+  picked_from_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
 }): { confidence: number; signals: ConfidenceSignals } {
   const base =
     input.fit === 'fits' ? BASE_FITS
@@ -811,6 +880,22 @@ export function computeConfidence(input: {
   ) {
     const ceiling = input.identify_confidence + IDENTIFY_CONF_CEILING_OFFSET;
     if (confidence > ceiling) confidence = ceiling;
+  }
+
+  // Disagreement cap (PR3, 2026-05-19): when identify and merchant
+  // disagree on chapter AND the picker chose a non-merchant arm, hard
+  // cap at 0.55 so the row routes to HITL via the < 0.60 threshold.
+  // Skips when picked_from_arm is undefined (per-candidate annotated
+  // calls don't have a "winner arm" yet) or when the picker chose the
+  // merchant arm (disagreement resolved in merchant's favor).
+  if (
+    input.merchant_chapter_disagreement &&
+    input.picked_from_arm !== undefined &&
+    input.picked_from_arm !== 'merchant_prefix'
+  ) {
+    if (confidence > DISAGREEMENT_NON_MERCHANT_CONFIDENCE_CAP) {
+      confidence = DISAGREEMENT_NON_MERCHANT_CONFIDENCE_CAP;
+    }
   }
 
   return {

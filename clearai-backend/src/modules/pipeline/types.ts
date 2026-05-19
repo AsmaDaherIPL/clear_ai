@@ -469,6 +469,23 @@ export interface PickAccepted {
     | 'lexical_tokens';
   /** True iff first-2 of final_code !== first-2 of merchant code (when present). */
   merchant_chapter_disagreement: boolean;
+  /**
+   * Decomposed chapter-agreement signals (added 2026-05-19, PR3 / TASKS S2 #16
+   * + plan §1.2.2). Each is the chapter-pairwise match. NULL components
+   * collapse the pair to `null` (cannot compute). All four are computable
+   * from existing data at write time — pure decomposition for downstream
+   * rerank / verifier / SPA consumers that need the disaggregated view.
+   */
+  chapter_matches: {
+    /** identify.family_chapter === final_code[:2]. NULL when identify isn't clean_product or family_chapter is null. */
+    identify_and_pick: boolean | null;
+    /** merchant_chapter === final_code[:2]. NULL when merchant_chapter is null. */
+    merchant_and_pick: boolean | null;
+    /** identify.family_chapter === merchant_chapter. NULL when either component is null. */
+    identify_and_merchant: boolean | null;
+    /** All three agree (identify, merchant, and pick on the same chapter). NULL when any input is null. */
+    all_three: boolean | null;
+  };
   candidate_count_by_arm: Record<string, number>;
   /**
    * Per-candidate verdicts the picker emitted (top N=8 reranked). The

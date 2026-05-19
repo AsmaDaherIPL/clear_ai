@@ -34,6 +34,26 @@ import type {
 
 export const RERANK_CAP = 8;
 
+/**
+ * When the pool exhibits potential chapter disagreement (identify
+ * proposes a chapter that differs from at least one merchant_prefix
+ * candidate's chapter), guarantee at least this many merchant_prefix
+ * candidates survive into the top-K. Added 2026-05-19 (PR3 / TASKS S2 #16).
+ *
+ * Why: today's reranker awards CHAPTER_AGREEMENT_BOOST (+0.10) to leaves
+ * matching identify.family_chapter. When identify is wrong (e.g. iPad
+ * stylus → chapter 85), every merchant_prefix candidate at the correct
+ * chapter (84) loses the boost and can be demoted out of the top-8.
+ * The picker then never sees the merchant's hypothesis and picks
+ * "least wrong" from the wrong chapter.
+ *
+ * Reserving 2 slots is a lower bound — if more than 2 merchant_prefix
+ * candidates already win their slots organically, the guarantee
+ * doesn't evict them. The guarantee only kicks in to RESCUE merchant
+ * candidates that would otherwise be filtered out.
+ */
+const MERCHANT_PREFIX_RESERVED_SLOTS_ON_DISAGREEMENT = 2;
+
 /** Per-feature contributions to rerank_score. */
 const CHAPTER_AGREEMENT_BOOST = 0.10;
 const IDENTITY_TOKEN_OVERLAP_PER_MATCH = 0.05;
@@ -149,5 +169,56 @@ export function rerank(
   scored.sort(
     (a, b) => b.rerank_score - a.rerank_score || a.code.localeCompare(b.code),
   );
-  return scored.slice(0, cap);
+
+  // Merchant-prefix slot guarantee on chapter disagreement (PR3, 2026-05-19).
+  // Detect: identify proposes a chapter AND there exists ≥1 merchant_prefix
+  // candidate whose chapter differs from identify's. In that case the
+  // reranker may have demoted ALL merchant candidates out of the top-K
+  // because they lost the +0.10 chapter-agreement boost identify's
+  // chapter awards. Reserve up to N top-K slots for the highest-scored
+  // merchant_prefix candidates so the picker can compare both
+  // hypotheses honestly.
+  const identifyChapter =
+    identify.kind === 'clean_product' ? identify.family_chapter : null;
+  const merchantPrefixCandidates = scored.filter(
+    (c) => c.source_arm === 'merchant_prefix',
+  );
+  const hasChapterDisagreement =
+    identifyChapter !== null &&
+    merchantPrefixCandidates.some((c) => chapterOf(c.code) !== identifyChapter);
+
+  if (!hasChapterDisagreement) {
+    return scored.slice(0, cap);
+  }
+
+  const topK = scored.slice(0, cap);
+  const topKCodes = new Set(topK.map((c) => c.code));
+  // The reserved slate: up to N highest-ranked merchant_prefix candidates.
+  const reserved = merchantPrefixCandidates.slice(
+    0,
+    MERCHANT_PREFIX_RESERVED_SLOTS_ON_DISAGREEMENT,
+  );
+  // Find reserved entries that didn't naturally win a top-K slot —
+  // these are the ones we need to rescue.
+  const missing = reserved.filter((c) => !topKCodes.has(c.code));
+  if (missing.length === 0) {
+    // Already enough merchant_prefix in top-K (or no merchant_prefix at
+    // all). Nothing to inject.
+    return topK;
+  }
+  // Evict the lowest-scored non-merchant slots to make room. Never
+  // evict a candidate that is itself in `reserved` (don't reserve a
+  // slot then take it back). topK is already sorted desc by score.
+  const evictable = topK.filter((c) => c.source_arm !== 'merchant_prefix');
+  // Take the cap minus the missing-reserved count, prioritising the
+  // highest-scored entries. Combine: existing topK merchant slots +
+  // top non-merchant survivors + missing reserved.
+  const merchantSurvivors = topK.filter((c) => c.source_arm === 'merchant_prefix');
+  const nonMerchantQuota = Math.max(0, cap - merchantSurvivors.length - missing.length);
+  const nonMerchantKept = evictable.slice(0, nonMerchantQuota);
+  const finalK = [...merchantSurvivors, ...nonMerchantKept, ...missing];
+  finalK.sort(
+    (a, b) => b.rerank_score - a.rerank_score || a.code.localeCompare(b.code),
+  );
+  return finalK;
 }
