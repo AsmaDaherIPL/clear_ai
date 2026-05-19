@@ -181,41 +181,57 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       completedAt,
     });
 
-    const enrichment = await enrichCode(result.final_code, req.log);
-    const catalogPath = await lookupCatalogPath(result.final_code);
-
     // 2026-05-20: when the pipeline could not resolve a code AND the
     // failure was infra-side (Foundry transport timeout, embedder
-    // failure, etc.), surface an explicit error on the response so the
-    // SPA can render "Retry — upstream service is degraded" instead of
-    // "ZERO_SIGNAL — input had no classifiable signal." The two cases
-    // look identical to today's SPA because both produce final_code=null
-    // and classification_status=ZERO_SIGNAL — but they're operationally
-    // very different (infra-side vs. input-side failure).
-    //
-    // Triggers when result.infra_degraded is true AND the row produced
-    // no code. Degraded rows that DID classify (e.g. sanity degraded
-    // but pick succeeded) keep error=null because the classification is
-    // valid; the degradation is recorded in the trace for observability.
-    let responseError: string | null = null;
+    // failure, etc.), short-circuit with a flat error envelope and HTTP
+    // 503 (Service Unavailable). Previously the API returned a
+    // CanonicalItem with final_code=null and classification_status=
+    // ZERO_SIGNAL — identical shape to "input had no signal" rows.
+    // SPA couldn't tell the two apart. Now: transport failures bypass
+    // the CanonicalItem entirely and the SPA gets a non-200 with a
+    // structured error code it can branch on (retry CTA vs. HITL).
     if (result.infra_degraded && result.final_code === null) {
-      // Walk the trace to find which stage actually failed so the error
-      // message is precise.
+      let errorCode = 'infra_degraded';
+      let errorMessage = 'upstream service unavailable, retry';
       const identifyTrace = result.trace.identify;
       if (
         identifyTrace.kind === 'uninformative' &&
         identifyTrace.cause === 'transport'
       ) {
-        responseError = 'identify_transport_failed: upstream LLM service unavailable, retry';
+        errorCode = 'identify_transport_failed';
+        errorMessage = 'upstream LLM service unavailable, retry';
       } else if (
         result.trace.pick.kind === 'escalate' &&
         result.trace.pick.reason === 'picker_unavailable'
       ) {
-        responseError = 'pick_transport_failed: upstream LLM service unavailable, retry';
-      } else {
-        responseError = 'infra_degraded: upstream service unavailable, retry';
+        errorCode = 'pick_transport_failed';
+        errorMessage = 'upstream LLM service unavailable, retry';
       }
+      // Still write the classification_event row (durable audit trail —
+      // we want a record that this row failed at infra, not silently
+      // dropped). HITL enqueue is skipped because there's nothing for a
+      // reviewer to act on; the row should be re-submitted once
+      // upstream recovers.
+      await recordClassificationEvent(
+        {
+          operatorId: operatorConfig.id,
+          operatorSlug: V1_OPERATOR_SLUG,
+          request: body,
+          response: v1Response,
+          totalLatencyMs: Date.now() - startedAtMs,
+        },
+        req.log,
+      );
+      return reply.code(503).send({
+        error: {
+          code: errorCode,
+          message: errorMessage,
+        },
+      });
     }
+
+    const enrichment = await enrichCode(result.final_code, req.log);
+    const catalogPath = await lookupCatalogPath(result.final_code);
 
     const canonical = assembleCanonicalItem({
       id: item.itemId,
@@ -239,17 +255,11 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       fxRateAsOf: item.fxRateAsOf ?? null,
       dutyInfo: enrichment.duty_info,
       procedures: enrichment.procedures,
-      // When error is set, NULL out classification fields so the SPA
-      // doesn't mistake "transport failed" for "we couldn't classify
-      // this input." status=null instead of ZERO_SIGNAL makes the
-      // discriminator unambiguous.
-      classificationStatus:
-        responseError !== null ? null : classificationStatusFromTrace(result.trace),
-      classificationConfidence:
-        responseError !== null ? null : classificationConfidenceFromTrace(result.trace),
-      sanityVerdict: responseError !== null ? null : (result.sanity_verdict ?? null),
+      classificationStatus: classificationStatusFromTrace(result.trace),
+      classificationConfidence: classificationConfidenceFromTrace(result.trace),
+      sanityVerdict: result.sanity_verdict ?? null,
       trace: v1Response.trace,
-      error: responseError,
+      error: null,
       includeTrace,
     });
 
