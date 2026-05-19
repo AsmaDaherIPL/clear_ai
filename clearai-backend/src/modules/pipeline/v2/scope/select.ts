@@ -272,6 +272,25 @@ export function selectScopes(
         });
         auditFlags.push('identify_family_null');
       }
+    } else if (identify.kind === 'uninformative') {
+      // 2026-05-19 (Task 18): identify_web honestly gave up (e.g. bare
+      // noun like "Trimmer" that spans incompatible chapters), but
+      // merchant resolved cleanly to a single prefix. Without a
+      // secondary arm, retrieval returns ONLY the merchant prefix's
+      // candidates — sometimes just 1 — and the picker has no choice
+      // but to verdict whatever the merchant code said. That's
+      // single-opinion classification with no second source.
+      //
+      // Add `unconstrained` so retrieval pulls cross-chapter candidates
+      // as a sanity check. The picker can then compare merchant's
+      // guess against alternatives and verdict honestly. If merchant
+      // was right, the picker picks it; if merchant was wrong, the
+      // picker has a fighting chance to catch it.
+      secondaries.push({
+        kind: 'unconstrained',
+        reason: 'identify_uninformative_merchant_only',
+      });
+      auditFlags.push('identify_family_null');
     }
 
     // Lexical tokens arm. Fires whenever identify produced tokens —

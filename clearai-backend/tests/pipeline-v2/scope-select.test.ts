@@ -372,3 +372,78 @@ describe('selectScopes — determinism', () => {
     expect(r1).toEqual(r2);
   });
 });
+
+describe('selectScopes — uninformative identify with merchant prefix (Task 18, 2026-05-19)', () => {
+  // Pilot row 129 "Trimmer": identify_web returned uninformative ("bare noun
+  // spans chapters 84 and 85 across incompatible product types"), merchant
+  // resolved cleanly to 8465 (woodworking machine-tools). Pre-fix: no
+  // secondary arms; retrieval returned 1 candidate; picker had no real
+  // choice. Post-fix: unconstrained secondary arm is added so retrieval
+  // pulls cross-chapter candidates as a sanity check.
+
+  it('uninformative + clean merchant adds unconstrained secondary arm', () => {
+    const r = selectScopes(uninf(), {
+      state: 'active',
+      resolved_code: '846599000000',
+    });
+    expect(r.primary.kind).toBe('merchant_prefix');
+    const unconstrained = r.secondaries.find((s) => s.kind === 'unconstrained');
+    expect(unconstrained).toBeDefined();
+    if (unconstrained && unconstrained.kind === 'unconstrained') {
+      expect(unconstrained.reason).toBe('identify_uninformative_merchant_only');
+    }
+    expect(r.audit_flags).toContain('identify_family_null');
+  });
+
+  it('uninformative + expanded_prefix merchant also adds unconstrained secondary', () => {
+    // Trimmer-shaped: merchant code expanded to a partial prefix.
+    const r = selectScopes(uninf(), {
+      state: 'expanded_prefix',
+      resolved_code: '846599000000',
+      valid_prefix: '8465990000',
+      source_code: '8465990000',
+    });
+    expect(r.primary.kind).toBe('merchant_prefix');
+    const unconstrained = r.secondaries.find((s) => s.kind === 'unconstrained');
+    expect(unconstrained).toBeDefined();
+  });
+
+  it('uninformative + unknown merchant with matched_prefix → escalate (no change from before)', () => {
+    // Rule 2 still wins when merchant has no usable prefix. This test
+    // pins that Task 18's new branch only fires inside Rule 3, not when
+    // merchant is unusable.
+    const r = selectScopes(uninf(), {
+      state: 'unknown',
+      source_code: '999999999999',
+      cause: 'not_in_codebook',
+      matched_prefix: null,
+    });
+    expect(r.primary.kind).toBe('escalate');
+  });
+
+  it('uninformative + override_applied merchant → no secondaries (override suppression wins)', () => {
+    // Override suppression takes precedence over Task 18's unconstrained
+    // arm — operator's curated override is presumed-authoritative.
+    const r = selectScopes(uninf(), {
+      state: 'override_applied',
+      resolved_code: '847180000000',
+      source_code: '8471804000',
+      override_matched_length: 12,
+    });
+    expect(r.primary.kind).toBe('merchant_prefix');
+    expect(r.secondaries).toEqual([]);
+    expect(r.audit_flags).toContain('override_suppresses_secondary');
+    expect(r.audit_flags).not.toContain('identify_family_null');
+  });
+
+  it('clean_product (not uninformative) does NOT trigger the Task 18 branch', () => {
+    // Pin that the new branch is gated on identify.kind === 'uninformative'.
+    // Clean product with matching family chapter takes the existing path
+    // (no chapter disagreement, no unconstrained added).
+    const r = selectScopes(
+      clean({ family: '61', confidence: 0.9, tokens: [] }),
+      { state: 'active', resolved_code: '610910000000' },
+    );
+    expect(r.secondaries.some((s) => s.kind === 'unconstrained')).toBe(false);
+  });
+});

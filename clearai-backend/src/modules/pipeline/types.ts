@@ -262,7 +262,10 @@ export type RetrievalArm =
     }
   | {
       kind: 'unconstrained';
-      reason: 'composite_product' | 'no_merchant_low_confidence_identify';
+      reason:
+        | 'composite_product'
+        | 'no_merchant_low_confidence_identify'
+        | 'identify_uninformative_merchant_only';
     }
   | {
       kind: 'lexical_tokens';
