@@ -600,6 +600,37 @@ export interface PipelineTrace {
     secondary_candidate_counts: Record<string, number>;
     candidates_before_rerank: number;
     candidates_after_rerank: number;
+    /**
+     * PR4 (TASKS S2 #16 / plan §1.2.1): per-stage retrieval telemetry.
+     * Lets downstream debugging attribute misclassifications to
+     * retrieval vs. rerank vs. pick.
+     */
+    arms_fired?: string[];
+    arms_zero_result_count?: number;
+    /**
+     * Query metadata (PR4 / plan §1.2.3). Helps attribute retrieval
+     * failures to tokenization mismatch. Optional — not all paths
+     * compute it (escalate paths don't construct a query).
+     */
+    query_token_count?: number;
+    query_detected_language?: 'en' | 'ar' | 'fr' | 'unknown';
+    query_is_brand_only?: boolean;
+    /**
+     * Which arm first surfaced the picked code:
+     *   merchant_prefix / family_chapter / unconstrained / lexical_tokens
+     *   / not_in_pool — the picked code was rescued by the picker via
+     *     constrained generation (this should never happen in v2 because
+     *     the picker is constrained to candidates, but kept as a
+     *     sentinel for paranoia / future relaxations).
+     * NULL when the pipeline didn't pick a code (escalate paths).
+     */
+    picked_code_recall_source?:
+      | 'merchant_prefix'
+      | 'family_chapter'
+      | 'unconstrained'
+      | 'lexical_tokens'
+      | 'not_in_pool'
+      | null;
   };
   pick: PickResult;
   verify: VerifierResult | null; // null when pick.kind === 'escalate'

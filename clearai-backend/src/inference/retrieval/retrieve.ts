@@ -117,6 +117,14 @@ interface RetrieveOpts {
   vecWeight?: number;
   bm25Weight?: number;
   trgmWeight?: number;
+  /**
+   * Precomputed query vector (PR4, 2026-05-19). When provided, skips
+   * the embedQuery() call — multi-arm retrieval embeds the query once
+   * per row and passes the vector through to every arm, avoiding the
+   * N×embedder call cost. Pass undefined for single-arm callers; they
+   * embed on demand.
+   */
+  precomputedQueryVec?: number[];
 }
 
 // Soft tie-break for prefix matches. Sized for raw RRF (~0.04 at top1):
@@ -161,7 +169,10 @@ export async function retrieveCandidates(
   } = opts;
 
   const pool = getPool();
-  const queryVec = await embedQuery(query);
+  // PR4: prefer the precomputed query vector when the caller supplies one
+  // (multi-arm embeds once per row and reuses across arms). Embed only
+  // when no vector was supplied.
+  const queryVec = opts.precomputedQueryVec ?? (await embedQuery(query));
   const vecVal = `[${queryVec.join(',')}]`;
 
   // ──────────────────────────────────────────────────────────────────────

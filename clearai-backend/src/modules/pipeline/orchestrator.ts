@@ -304,6 +304,9 @@ export async function runPipeline(
       ? `${identify.canonical}${identify.identity_tokens.length > 0 ? ' ' + identify.identity_tokens.join(' ') : ''}`.trim()
       : rawDescription;
 
+  // PR4 query metadata (lightweight, no external deps).
+  const queryMeta = computeQueryMetadata(query, identify);
+
   const retrieval = await runMultiArmRetrieval(scope, query);
   const dedupedCandidates = dedupeCandidates(retrieval.candidates);
 
@@ -456,6 +459,19 @@ export async function runPipeline(
       secondary_candidate_counts: extractSecondaryCounts(scope, retrieval.per_arm_counts),
       candidates_before_rerank: dedupedCandidates.length,
       candidates_after_rerank: reranked.length,
+      arms_fired: retrieval.arms_fired,
+      arms_zero_result_count: retrieval.arms_zero_result_count,
+      // PR4: which arm first surfaced the picked code. For escalate
+      // outcomes this is null; for accept outcomes we resolve by
+      // checking which arm's candidate set the picked code came from.
+      picked_code_recall_source:
+        pick.kind === 'accepted'
+          ? (reranked.find((c) => c.code === pick.final_code)?.source_arm ??
+            'not_in_pool')
+          : null,
+      query_token_count: queryMeta.tokenCount,
+      query_detected_language: queryMeta.language,
+      query_is_brand_only: queryMeta.isBrandOnly,
     },
     pick,
     verify,
@@ -706,4 +722,55 @@ function extractSecondaryCounts(
     result[arm.kind] = perArmCounts[arm.kind] ?? 0;
   }
   return result;
+}
+
+/**
+ * PR4: lightweight query metadata computed at retrieval time.
+ *
+ * - tokenCount: simple whitespace split count, capped at 64 for sanity.
+ * - language: heuristic — Arabic if >=30% chars are in the Arabic block,
+ *   French if explicit Latin-1 diacritics (à, é, è, etc.), English
+ *   otherwise. Doesn't import franc/cld — these heuristics are
+ *   sufficient for the routing decision we'd make in PR9/PR10.
+ * - isBrandOnly: promoted from identify when identify computed it
+ *   (clean_product brand-only rescue path).
+ */
+function computeQueryMetadata(
+  query: string,
+  identify: IdentifyResult,
+): { tokenCount: number; language: 'en' | 'ar' | 'fr' | 'unknown'; isBrandOnly: boolean } {
+  const trimmed = query.trim();
+  const tokenCount = trimmed.length === 0 ? 0 : Math.min(64, trimmed.split(/\s+/).length);
+  const language = detectLanguage(trimmed);
+  // brand-only: identify confidence in the brand-rescue band (0.40-0.55)
+  // AND identity_tokens contain only brand-class tokens. Approximated by
+  // confidence-band check, which is what identify uses internally.
+  const isBrandOnly =
+    identify.kind === 'clean_product' &&
+    identify.confidence >= 0.40 &&
+    identify.confidence <= 0.55 &&
+    identify.identity_tokens.length > 0;
+  return { tokenCount, language, isBrandOnly };
+}
+
+function detectLanguage(s: string): 'en' | 'ar' | 'fr' | 'unknown' {
+  if (s.length === 0) return 'unknown';
+  let arabic = 0;
+  let total = 0;
+  let hasFrenchDiacritic = false;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0)!;
+    if (cp >= 0x0600 && cp <= 0x06ff) arabic++;
+    if (cp >= 0x00c0 && cp <= 0x00ff && cp !== 0x00d7 && cp !== 0x00f7) {
+      hasFrenchDiacritic = true;
+    }
+    if (cp > 0x20) total++;
+  }
+  if (total === 0) return 'unknown';
+  if (arabic / total >= 0.30) return 'ar';
+  if (hasFrenchDiacritic) return 'fr';
+  // Default to en for Latin text. Other languages fall through as 'en'
+  // — acceptable because the BM25 tokenizer routing only distinguishes
+  // english vs arabic vs skip.
+  return 'en';
 }

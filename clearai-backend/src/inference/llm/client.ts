@@ -22,6 +22,16 @@ export interface LlmCallResult {
   error?: string;
   latencyMs: number;
   model: string;
+  /**
+   * Per-call token usage from the Anthropic response (PR4 / TASKS R13).
+   * Foundry-only deployment means no batch API → concurrency is the
+   * only throughput lever. Per-call cost visibility is the prerequisite
+   * for prompt-trim ROI measurement. Both fields are number when the
+   * response carried usage; undefined when the field was missing or the
+   * call failed before a response was received.
+   */
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 interface AnthropicMessageBlock {
@@ -29,10 +39,16 @@ interface AnthropicMessageBlock {
   text?: string;
 }
 
+interface AnthropicUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+}
+
 interface AnthropicResponse {
   content?: AnthropicMessageBlock[];
   error?: { message?: string; type?: string };
   stop_reason?: string;
+  usage?: AnthropicUsage;
 }
 
 /** Optional tool forwarded to the Anthropic-compatible API (hosted Web Search). */
@@ -197,6 +213,12 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
     const textBlocks =
       json.content?.filter((b) => b.type === 'text').map((b) => b.text ?? '') ?? [];
     const text = textBlocks.length > 0 ? textBlocks.join('\n') : null;
+    // PR4 / TASKS R13: surface per-call token usage so callers can
+    // record cost into the trace and per-batch dashboards.
+    const inputTokens =
+      typeof json.usage?.input_tokens === 'number' ? json.usage.input_tokens : undefined;
+    const outputTokens =
+      typeof json.usage?.output_tokens === 'number' ? json.usage.output_tokens : undefined;
     return finalize(
       {
         status: 'ok',
@@ -204,6 +226,8 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
         raw: json,
         latencyMs: Date.now() - t0,
         model,
+        inputTokens,
+        outputTokens,
       },
       params.stage,
       attempt,

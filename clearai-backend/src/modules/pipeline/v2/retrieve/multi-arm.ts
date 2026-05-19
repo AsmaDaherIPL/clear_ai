@@ -22,6 +22,7 @@ import {
   retrieveCandidates,
   type Candidate,
 } from '../../../../inference/retrieval/retrieve.js';
+import { embedQuery } from '../../../../inference/embeddings/embedder.js';
 import type { RetrievalArm, ScopeSelection, ScoredCandidate } from '../types.js';
 
 /** Per-arm cap. Same as the legacy single-arm cap. */
@@ -77,6 +78,13 @@ function tagged(
 async function runArm(
   arm: RetrievalArm,
   query: string,
+  /**
+   * PR4: precomputed query vector for the main query string. Reused
+   * across all arms that retrieve against the canonical query (merchant_
+   * prefix, family_chapter, unconstrained). The lexical_tokens arm uses
+   * a different query (tokens joined) and embeds its own.
+   */
+  precomputedQueryVec: number[] | undefined,
 ): Promise<ScoredCandidate[]> {
   // escalate arms never retrieve — they short-circuit upstream.
   if (arm.kind === 'escalate') return [];
@@ -85,6 +93,7 @@ async function runArm(
     const candidates = await retrieveCandidates(query, {
       prefixFilter: arm.prefix,
       topK: PER_ARM_TOP_K,
+      precomputedQueryVec,
     });
     return candidates.map((c) => tagged(c, 'merchant_prefix'));
   }
@@ -93,6 +102,7 @@ async function runArm(
     const candidates = await retrieveCandidates(query, {
       prefixFilter: arm.chapter,
       topK: PER_ARM_TOP_K,
+      precomputedQueryVec,
     });
     return candidates.map((c) => tagged(c, 'family_chapter'));
   }
@@ -100,14 +110,14 @@ async function runArm(
   if (arm.kind === 'unconstrained') {
     const candidates = await retrieveCandidates(query, {
       topK: PER_ARM_TOP_K,
+      precomputedQueryVec,
     });
     return candidates.map((c) => tagged(c, 'unconstrained'));
   }
 
   if (arm.kind === 'lexical_tokens') {
-    // Lexical arm query = tokens joined by space. Vector signal is
-    // de-emphasised so BM25 + trigram dominate. No prefixFilter — we
-    // want lexical anchors to surface their own chapter.
+    // Lexical arm query = tokens joined by space. Different query string
+    // → different embedding → embed on demand inside retrieveCandidates.
     const lexicalQuery = arm.tokens.join(' ').trim();
     if (lexicalQuery.length === 0) return [];
     const candidates = await retrieveCandidates(lexicalQuery, {
@@ -126,6 +136,10 @@ export interface MultiArmRetrievalResult {
   candidates: ScoredCandidate[];
   /** Count of candidates returned by each arm before dedupe. */
   per_arm_counts: Record<string, number>;
+  /** PR4: list of arm kinds actually scheduled (after escalate filter). */
+  arms_fired: string[];
+  /** PR4: number of scheduled arms that returned zero candidates. */
+  arms_zero_result_count: number;
 }
 
 /**
@@ -141,12 +155,45 @@ export async function runMultiArmRetrieval(
 ): Promise<MultiArmRetrievalResult> {
   const arms: RetrievalArm[] = [scope.primary, ...scope.secondaries];
 
+  // PR4: embed the main query ONCE here and pass the vector through to
+  // every arm that uses it (merchant_prefix, family_chapter,
+  // unconstrained). Previously each arm called embedQuery independently
+  // — typical 3-arm row paid 3× the embedder cost. The lexical_tokens
+  // arm uses a different query string, so it still embeds on demand.
+  //
+  // Skip the precompute when no arm needs it (only lexical_tokens
+  // and/or escalate arms are scheduled). The embedder may be slow or
+  // hiccup; don't pay the round-trip if no arm will use it.
+  const needsMainQueryVec = arms.some(
+    (a) =>
+      a.kind === 'merchant_prefix' ||
+      a.kind === 'family_chapter' ||
+      a.kind === 'unconstrained',
+  );
+  let mainQueryVec: number[] | undefined;
+  if (needsMainQueryVec && query.trim().length > 0) {
+    try {
+      mainQueryVec = await embedQuery(query);
+    } catch (err) {
+      // Embedder failed — let each arm fall back to its own embed call
+      // (which will fail in the same way, but at least the arm-level
+      // error path is exercised consistently). Log so we know.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[multi-arm] main-query embed failed; arms will retry independently: ${msg.slice(0, 300)}`,
+      );
+      mainQueryVec = undefined;
+    }
+  }
+
   // allSettled (not Promise.all): the docstring above promises arms that
   // fail return empty arrays. With raw Promise.all, a single arm
   // rejection discards every arm's work and the row 500s. We want graceful
   // degradation — a transient DB error on one arm should leave the
   // others' candidates intact and let the picker work with a smaller pool.
-  const settled = await Promise.allSettled(arms.map((arm) => runArm(arm, query)));
+  const settled = await Promise.allSettled(
+    arms.map((arm) => runArm(arm, query, mainQueryVec)),
+  );
 
   const per_arm_counts: Record<string, number> = {};
   const flat: ScoredCandidate[] = [];
@@ -167,5 +214,13 @@ export async function runMultiArmRetrieval(
     }
   }
 
-  return { candidates: flat, per_arm_counts };
+  // PR4 telemetry. arms_fired excludes 'escalate' arms (which never
+  // retrieve). arms_zero_result_count is how many of those that DID
+  // run returned zero candidates — distinct from "the arm failed."
+  const arms_fired = arms.filter((a) => a.kind !== 'escalate').map((a) => a.kind);
+  const arms_zero_result_count = arms_fired.filter(
+    (kind) => (per_arm_counts[kind] ?? 0) === 0,
+  ).length;
+
+  return { candidates: flat, per_arm_counts, arms_fired, arms_zero_result_count };
 }
