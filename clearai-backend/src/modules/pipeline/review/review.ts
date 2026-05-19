@@ -20,12 +20,24 @@ export interface HitlPayload {
    */
   batch_id: string | null;
   operator_slug: string;
-  reason: 'verdict_escalate' | 'sanity_flag' | 'low_information' | 'verifier_uncertain';
+  reason:
+    | 'verdict_escalate'
+    | 'sanity_flag'
+    | 'low_information'
+    | 'verifier_uncertain'
+    | 'missing_attributes'
+    | 'shadow_sample';
   cleaned_description: string;
   verdict_output: StageVerdictOutput | null;
   sanity_result: SanityResult | null;
   trace: unknown;
   enqueued_at: string;
+  /**
+   * PR6 / plan §1.1.2: true when this row reached HITL via the random
+   * 5% AGREEMENT sampler (vs. via a real failure). Persisted in
+   * hitl_queue.shadow_sample for calibration-set construction.
+   */
+  shadow_sample?: boolean;
 }
 
 // Best-effort: a queue write failure must not abort the dispatch response.
@@ -44,8 +56,9 @@ export async function enqueueHitl(
         batch_id,
         operator_slug,
         reason,
-        payload
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        payload,
+        shadow_sample
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         newId(),
         payload.enqueued_at,
@@ -60,6 +73,7 @@ export async function enqueueHitl(
           sanity_result: payload.sanity_result,
           trace: payload.trace,
         }),
+        payload.shadow_sample ?? false,
       ],
     );
   } catch (err) {

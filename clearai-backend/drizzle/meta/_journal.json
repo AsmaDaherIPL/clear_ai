@@ -575,6 +575,13 @@
       "when": 1779220000000,
       "tag": "0086_pr3_manifest_aware_bundler",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1779320000000,
+      "tag": "0087_pr6_hitl_observability",
+      "breakpoints": true
     }
   ]
 }

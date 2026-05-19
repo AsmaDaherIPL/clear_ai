@@ -254,6 +254,40 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
         },
         req.log,
       );
+    } else if (
+      eventOk &&
+      !result.hitl &&
+      classificationStatusFromTrace(result.trace) === 'AGREEMENT'
+    ) {
+      // PR6 / plan §1.1.2: random 5% AGREEMENT shadow sample. AGREEMENT
+      // rows never reach HITL by design — but any future calibration
+      // on HITL data is biased blind to high-confidence wrong picks.
+      // Sample a slice of AGREEMENT rows uniformly so the calibration
+      // set can see them. Production still ships the row (this enqueue
+      // is purely an audit shadow).
+      const rate = parseFloat(process.env.SHADOW_SAMPLE_RATE_PERCENT ?? '5') / 100;
+      if (rate > 0 && Math.random() < rate) {
+        const cleaned =
+          result.trace.identify.kind === 'clean_product'
+            ? result.trace.identify.canonical
+            : item.description;
+        await enqueueHitl(
+          {
+            classification_event_id: item.itemId,
+            item_id: item.itemId,
+            batch_id: null,
+            operator_slug: V1_OPERATOR_SLUG,
+            reason: 'shadow_sample',
+            cleaned_description: cleaned,
+            verdict_output: null,
+            sanity_result: result.trace.sanity,
+            trace: v1Response.trace,
+            enqueued_at: new Date().toISOString(),
+            shadow_sample: true,
+          },
+          req.log,
+        );
+      }
     }
 
     return reply.code(200).send({

@@ -10,6 +10,7 @@
  */
 import { env } from '../../config/env.js';
 import { recordLlmOutcome, classifyLlmOutcome, breakerStatus } from './breaker.js';
+import { assertSonnetBudget, recordLlmCallCost } from './cost-breaker.js';
 import { writeLlmCallMetric } from './metrics.js';
 import type { LlmStage } from './policy.js';
 import type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
@@ -154,6 +155,27 @@ function finalize(
 async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmCallResult> {
   const { ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } = env();
   const model = params.model ?? LLM_MODEL;
+  // PR6 cost circuit breaker: refuse Sonnet calls when the rolling
+  // window cap has been exceeded. Throw so the caller's promise
+  // rejects (existing transport-error path picks it up as `error`
+  // status with a clear message). Haiku is unbudgeted today.
+  try {
+    assertSonnetBudget(model);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return finalize(
+      {
+        status: 'error',
+        text: null,
+        raw: null,
+        error: msg,
+        latencyMs: 0,
+        model,
+      },
+      params.stage,
+      attempt,
+    );
+  }
   const t0 = Date.now();
 
   const body: Record<string, unknown> = {
@@ -314,6 +336,9 @@ export async function callLlm(params: LlmCallParams): Promise<LlmCallResult> {
   // breaker per attempt. Edge-triggered transient warning moved here
   // too so it reads breakerStatus() once per terminal call.
   recordLlmOutcome(last!);
+  // PR6: cost-breaker counter increments once per terminal call,
+  // regardless of inner 429 retries (same logic as failure breaker).
+  recordLlmCallCost(last!.model);
   const bs = breakerStatus();
   if (bs.transient_warning && !lastTransientWarning) {
     const pct = Math.round(bs.transient_rate * 100);
