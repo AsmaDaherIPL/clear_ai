@@ -1125,23 +1125,25 @@ export default function ClassifyApp() {
                   </div>
                 </div>
 
-                <div ref={stepsRef} className="scroll-mt-20">
-                  <ProcessingSteps
-                    visible={phase === 'classifying'}
-                    activeStep={activeStep}
-                    className="mt-6"
-                  />
-                </div>
+                <div className="w-full max-w-[1080px] mx-auto">
+                  <div ref={stepsRef} className="scroll-mt-20">
+                    <ProcessingSteps
+                      visible={phase === 'classifying'}
+                      activeStep={activeStep}
+                      className="mt-6"
+                    />
+                  </div>
 
-                <div ref={errorRef} className="scroll-mt-20">
-                  {phase === 'error' && errorMessage && (
-                    <div
-                      role="alert"
-                      className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
-                    >
-                      {errorMessage}
-                    </div>
-                  )}
+                  <div ref={errorRef} className="scroll-mt-20">
+                    {phase === 'error' && errorMessage && (
+                      <div
+                        role="alert"
+                        className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
+                      >
+                        {errorMessage}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </>
             )}
