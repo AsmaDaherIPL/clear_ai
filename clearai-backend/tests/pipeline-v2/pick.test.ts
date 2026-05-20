@@ -305,6 +305,116 @@ describe('runPick — accepted with audit fields', () => {
     }
   });
 
+  // PR10 / TASKS S2 #3 / L6: subset-contradiction detector.
+  // Picker prompt rule 4: `does_not_fit` = wrong chapter; `partial` = wrong subheading.
+  // A does_not_fit verdict on a candidate whose chapter matches identify
+  // or merchant is a rule-4 violation — fire audit_flag.
+  it('subset-contradiction: does_not_fit on a candidate in identify chapter → audit_flag', async () => {
+    // identify says chapter 61. Picker chose '850440100000' (chapter 85)
+    // but rejected '610910000000' (chapter 61) as does_not_fit — that
+    // candidate should have been `partial`, not `does_not_fit`.
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            { code: '850440100000', fit: 'fits', rationale: 'electronics' },
+            { code: '610910000000', fit: 'does_not_fit', rationale: 'wrong family' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: '61' }),
+      candidates: [
+        rc('850440100000', 'family_chapter', 0.8),
+        rc('610910000000', 'merchant_prefix', 0.3),
+      ],
+      merchant_chapter: null,
+    });
+    expect(r.kind).toBe('accepted');
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(true);
+    }
+  });
+
+  it('subset-contradiction: does_not_fit on a candidate in merchant chapter → audit_flag', async () => {
+    // Merchant says chapter 84. No identify chapter. Picker rejected the
+    // chapter-84 candidate as does_not_fit — that's the rule-4 violation.
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            { code: '850440100000', fit: 'fits', rationale: 'electronics' },
+            { code: '844390000000', fit: 'does_not_fit', rationale: 'wrong family' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: null }),
+      candidates: [
+        rc('850440100000', 'family_chapter', 0.8),
+        rc('844390000000', 'merchant_prefix', 0.3),
+      ],
+      merchant_chapter: '84',
+    });
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(true);
+    }
+  });
+
+  it('subset-contradiction: does_not_fit siblings of the winner do NOT fire audit_flag', async () => {
+    // Picker chose '610910000000' (chapter 61). Rejected '610920000000'
+    // (same chapter) as does_not_fit. That's a sibling rejection — the
+    // picker already evaluated within-chapter siblings. NOT a rule-4
+    // violation.
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            { code: '610910000000', fit: 'fits', rationale: 'match' },
+            { code: '610920000000', fit: 'does_not_fit', rationale: 'wrong subheading' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: '61' }),
+      candidates: [
+        rc('610910000000', 'merchant_prefix', 0.8),
+        rc('610920000000', 'family_chapter', 0.3),
+      ],
+      merchant_chapter: '61',
+    });
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(false);
+    }
+  });
+
+  it('subset-contradiction: no identify chapter AND no merchant chapter → never fires', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [
+            { code: '850440100000', fit: 'fits', rationale: 'match' },
+            { code: '610910000000', fit: 'does_not_fit', rationale: 'wrong family' },
+          ],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: null }),
+      candidates: [
+        rc('850440100000', 'family_chapter', 0.8),
+        rc('610910000000', 'family_chapter', 0.3),
+      ],
+      merchant_chapter: null,
+    });
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(false);
+    }
+  });
+
   it('partial fit on a clean single-arm pool computes a base-only confidence', async () => {
     mockedCall.mockResolvedValueOnce(
       llmReturns({

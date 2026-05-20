@@ -49,7 +49,7 @@ Items struck through with the shipping commit moved into Done; the rest are stil
 |---|---|---|---|---|
 | ~~1~~ | ~~Confidence-formula decision (A / B / C)~~ | **Shipped in PR9** — Zonos-style entropy-based confidence + `confidence_band` categorical labels surfaced to SPA. The flat-bucket regression is fixed; each annotated candidate now carries its entropy share, not a per-fit constant. | — |
 | ~~2~~ | ~~L5~~ | ~~`extractGir` is regex-grep on prose~~ — **Shipped in PR2 (`36886f9`) as structured `gir_applied` field** | — | — |
-| 3 | **L6 deterministic post-LLM check** | Permissive-fits rule enforced only in the prompt. The deterministic catcher for "picker said `does_not_fit` but only constrained leaf dimension is silent in input" hasn't shipped. The test version shipped 2026-05-18 (`7529363`); the production gate is still open. | M |
+| ~~3~~ | ~~L6 deterministic post-LLM check~~ | **Shipped in PR10** — `detectSubsetContradiction` in pick.ts: when picker emits `does_not_fit` on a candidate whose chapter matches identify or merchant, treat as a rule-4 violation ("wrong chapter = does_not_fit; wrong subheading = partial") and fire `audit_flag = true`. Routes the row to HITL via existing audit_flag plumbing. | — |
 | ~~4~~ | ~~L1 audit flag~~ | ~~CONTRADICTION audit flag on `verdict_population.fits >= 2`~~ — **Shipped in PR2 (`36886f9`)** | — | — |
 | ~~5~~ | ~~Sanity FLAG hardening for high-undervaluation-risk categories~~ | **Won't do** (2026-05-20). Per `rule_sanity_is_audit_only.md`: sanity is purely an audit signal, never gates XML. Auto-exclude logic per chapter would be custom per-case code, which is against project policy. XML gating happens via HITL re-render workflow, not from sanity itself. | — |
 | ~~6~~ | ~~Identify-conf chaining into picker~~ | ~~Clamp `pick_conf` to `min(pick_conf, identify_conf + 0.10)`~~ — **Shipped in PR2 (`36886f9`)** | — | — |
@@ -64,16 +64,17 @@ Items struck through with the shipping commit moved into Done; the rest are stil
 | ~~15~~ | ~~BCLEEN-CLASS RECOVERY~~ | ~~Differentiate transient transport failures from genuine ZERO_SIGNAL~~ — **Shipped in PR1 (PICK-EMPTY-RETRY) + PR7 (AMBIGUOUS status)** | — | — |
 | ~~16~~ | ~~CHAPTER-DISAGREEMENT BALANCING~~ | ~~Rerank slot guarantee + picker audit flag + confidence cap~~ — **Shipped in PR3 (`f75c462`)** | — | — |
 
-**Still open in Section 2**: #3 L6 catcher, #7 sanity↔description cross-check, #8 verifier rule 3, #9 taxonomy, #10 R6 cache, #11 embedder swap, #12 reranker tuning, #13 bare-noun gate. (#1 confidence A/B/C shipped in PR9 as entropy-based; #5 closed — won't do per audit-only rule.)
+**Still open in Section 2**: #7 sanity↔description cross-check, #8 verifier rule 3 (identity_tokens absent from leaf), #9 taxonomy, #10 R6 cache, #11 embedder swap, #12 reranker tuning, #13 bare-noun gate. (#1 confidence A/B/C shipped in PR9 as entropy-based; #3 L6 catcher shipped in PR10; #5 closed — won't do per audit-only rule.)
 
 ---
 
-## Recommended sequence (next session, as of PR9)
+## Recommended sequence (next session, as of PR10)
 
-1. **L6 deterministic catcher (Section 2 #3)** — M, ~1 day. Catches "picker said `does_not_fit` but only constrained dimension is silent in input" — prompt drift currently only surfaces via HITL backlog.
-2. **Bare-noun gate (Section 2 #13)** — M, ~1-2 days. Deterministic gate to back up the prompt-side fix.
-3. **HITL-driven XML re-render workflow** (replaces former Section 2 #5) — when a reviewer marks a HITL row for exclusion, the XML for that batch regenerates without that row. Operator-driven, belongs to HITL feature work.
-4. **Frontend migration**: SPA today reads `classification_confidence` (raw number). After PR9, it should switch to `classification_confidence_band` for the reviewer-facing pill. Both fields are on the wire today, but the SPA still shows the decimal. Frontend agent task.
+1. **Bare-noun gate (Section 2 #13)** — M, ~1-2 days. Deterministic gate to back up the prompt-side fix.
+2. **Verifier rule 3 — identity_tokens absent from leaf (Section 2 #8)** — S. Add a third verifier rule that fires UNCERTAIN when picker emits `fits` but none of identify's identity_tokens appear in the leaf path. Catches GIR-4 fallback masquerading as `fits`.
+3. **Sanity↔description cross-check (Section 2 #7)** — S. When sanity FLAGs, regenerate goods_description_ar against the FLAG verdict's product band (or flag in trace).
+4. **HITL-driven XML re-render workflow** — operator-facing feature, replaces former Section 2 #5.
+5. **Frontend migrations** (FE-PR9 + FE-PR7) — confidence band pill + AMBIGUOUS status pill. Backend ready since PR7/PR9.
 
 The five Section-1 cleanup items (L11(a), L9, L12, L11(b)) and the slow accuracy items (#10 R6 cache, #11 embedder swap, #12 reranker tuning) can slot in opportunistically.
 
@@ -111,6 +112,7 @@ unless noted.
 | PR7 | Picker timeout 15s→30s (totalBudget 50s→90s) + AMBIGUOUS classification_status for picker_unavailable (item #8 Dresses fix) + identify_fast multi_product class-shift rule + examples | `999f448` (rev 0000161) |
 | PR8 | R9 balanced-brace JSON parser (replaces silent-corruption "first {-to-last-}" logic) + sanity rationale-verdict reconciliation (fixes today's #2 + #5 internal-PASS-external-FLAG bug) + sanity prompt multi-revision rule | `9fc241f` (rev 0000162) |
 | PR9 | Entropy-based confidence (Zonos-style) + `confidence_band` categorical labels (high/moderate/fair/low/no_result). Replaces flat-bucket per-candidate scores (every does_not_fit = 0.15) with each candidate's share of the entropy distribution. Existing identify-chaining + disagreement caps preserved. SPA reads `classification_confidence_band` instead of raw decimal. | `c17d2c6` (rev 0000163) |
+| PR10 | L6 deterministic subset-contradiction catcher. When picker emits `does_not_fit` on a candidate whose chapter matches identify's `family_chapter` or merchant's chapter, treat as a rule-4 violation (picker prompt says wrong chapter = does_not_fit, wrong subheading = partial). Fires `audit_flag = true` on the winner → row routes to HITL. Excludes sibling-of-winner candidates (chapter equals picked chapter) — those were already evaluated within-chapter. 4 new tests; pipeline-v2 203/203 green. | pending (rev TBD) |
 
 ## Still open — moved from PR6 deferrals
 

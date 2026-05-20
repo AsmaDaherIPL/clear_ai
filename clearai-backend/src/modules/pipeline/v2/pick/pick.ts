@@ -423,6 +423,47 @@ function countByArm(candidates: RerankedCandidate[]): Record<string, number> {
 }
 
 /**
+ * Subset-contradiction detector (PR10, 2026-05-20, TASKS S2 #3 / L6).
+ *
+ * The picker's prompt rule 4 says:
+ *   - `does_not_fit` = wrong chapter/heading
+ *   - `partial`      = wrong subheading
+ *
+ * So a `does_not_fit` verdict on a candidate whose chapter matches
+ * identify's or merchant's chapter is a self-contradiction by the
+ * prompt's own rules. The picker should have emitted `partial`. When
+ * this happens, the candidate set may contain a legitimate alternative
+ * the picker mis-classified as "wrong family entirely" — worth a HITL
+ * look, even when the winner's verdict looks clean on its own.
+ *
+ * Returns true when at least one `does_not_fit` verdict matches the
+ * identify chapter or the merchant chapter (excluding the winner's
+ * code, which got a different verdict, and excluding any candidate
+ * whose chapter equals the picker's own chosen chapter — those are
+ * sibling-comparisons the picker already evaluated explicitly).
+ */
+function detectSubsetContradiction(input: {
+  verdicts: ParsedVerdict[];
+  pickedCode: string;
+  pickedChapter: string;
+  identifyChapter: string | null;
+  merchantChapter: string | null;
+}): boolean {
+  const { verdicts, pickedCode, pickedChapter, identifyChapter, merchantChapter } = input;
+  if (identifyChapter === null && merchantChapter === null) return false;
+  for (const v of verdicts) {
+    if (v.fit !== 'does_not_fit') continue;
+    if (v.code === pickedCode) continue;
+    const ch = v.code.slice(0, 2);
+    if (ch === pickedChapter) continue; // siblings of the winner — fine
+    if (ch === identifyChapter || ch === merchantChapter) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Decompose the chapter-agreement signal into 4 pairwise booleans
  * (added 2026-05-19, PR3 / TASKS S2 #16). NULL when an input is missing
  * — collapses pairs that can't be computed.
@@ -765,10 +806,32 @@ export async function runPick(input: PickInput): Promise<PickResult> {
   //     two or more candidates verdicted as `fits`. The PR-6 conflict
   //     mapping (feedback_pr6_conflict_type_outcomes.md) says
   //     CONTRADICTION = accept + audit_flag.
-  //  3. (future) identity-tokens absent from leaf path — Open task #8,
-  //     deferred to PR9.
+  //  3. Subset-contradiction (PR10, 2026-05-20, TASKS S2 #3 / L6):
+  //     the picker's prompt rule 4 says "wrong chapter/heading =
+  //     does_not_fit; wrong subheading = partial." A `does_not_fit`
+  //     verdict on a candidate whose chapter matches identify's or
+  //     merchant's chapter is a rule-4 violation — the picker should
+  //     have emitted `partial` (right family, wrong leaf) rather than
+  //     `does_not_fit` (wrong family entirely). When this happens, the
+  //     candidate set may contain a partial that should have been
+  //     considered; flag for HITL even when the winner looks fine.
+  //
+  //     Excluded from the check: candidates whose code IS the winner
+  //     (they got a different verdict obviously) and candidates whose
+  //     chapter equals the picked chapter (the picker already evaluated
+  //     siblings).
+  //  4. (future) identity-tokens absent from leaf path — Open task #8.
   const contradictionFlag = verdict_population.fits >= 2;
-  const auditFlag = merchantChapterDisagreement || contradictionFlag;
+  const identifyChapter =
+    identify.kind === 'clean_product' ? identify.family_chapter : null;
+  const subsetContradictionFlag = detectSubsetContradiction({
+    verdicts,
+    pickedCode: top.code,
+    pickedChapter,
+    identifyChapter,
+    merchantChapter: merchant_chapter,
+  });
+  const auditFlag = merchantChapterDisagreement || contradictionFlag || subsetContradictionFlag;
 
   // Confidence assignment. Last-chance pass always lands at
   // LAST_CHANCE_CONFIDENCE (0.40) regardless of trace signals because
