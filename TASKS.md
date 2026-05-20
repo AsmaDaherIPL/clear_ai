@@ -109,7 +109,7 @@ unless noted.
 | PR5 | L3 classification_status single source (deriveClassificationStatus canonical helper) | `0fb682a` (rev 0000151) |
 | PR6 | Shadow sampling + hitl_feedback table + cost circuit breaker (other PR6 items DEFERRED — see below) | `d0342e5` (rev 0000152) |
 | PR7 | Picker timeout 15s→30s (totalBudget 50s→90s) + AMBIGUOUS classification_status for picker_unavailable (item #8 Dresses fix) + identify_fast multi_product class-shift rule + examples | `999f448` (rev 0000161) |
-| PR8 | R9 balanced-brace JSON parser (replaces silent-corruption "first {-to-last-}" logic) + sanity rationale-verdict reconciliation (fixes today's #2 + #5 internal-PASS-external-FLAG bug) + sanity prompt multi-revision rule | pending (rev TBD) |
+| PR8 | R9 balanced-brace JSON parser (replaces silent-corruption "first {-to-last-}" logic) + sanity rationale-verdict reconciliation (fixes today's #2 + #5 internal-PASS-external-FLAG bug) + sanity prompt multi-revision rule | `9fc241f` (rev 0000162) |
 
 ## Still open — moved from PR6 deferrals
 
