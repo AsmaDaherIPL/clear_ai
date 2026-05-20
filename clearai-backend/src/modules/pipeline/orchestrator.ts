@@ -384,6 +384,7 @@ export async function runPipeline(
     candidates: reranked,
     merchant_chapter: merchantChapter,
     fallback_query: fallbackQuery,
+    raw_description: rawDescription,
   });
 
   // Last-chance rescue DISABLED 2026-05-19 (remediation plan §1.1.1).

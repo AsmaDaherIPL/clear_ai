@@ -26,6 +26,7 @@ import {
   runPick,
   computeConfidence,
   deriveConfidenceBand,
+  detectBareNounRisk,
 } from '../../src/modules/pipeline/v2/pick/pick.js';
 import { callLlmWithRetry } from '../../src/inference/llm/client.js';
 import type {
@@ -415,6 +416,111 @@ describe('runPick — accepted with audit fields', () => {
     }
   });
 
+  // PR11 / TASKS S2 #13: bare-noun gate.
+  // Fires when raw_description has <3 significant tokens AND pick.fit !== 'fits'.
+  it('bare-noun gate: 1-token input + partial fit → audit_flag', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [{ code: '610910000000', fit: 'partial', rationale: 'thin' }],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: '61' }),
+      candidates: [rc('610910000000', 'merchant_prefix')],
+      merchant_chapter: '61',
+      raw_description: 'Trimmer',
+    });
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(true);
+    }
+  });
+
+  it('bare-noun gate: 1-token input + fits → audit_flag does NOT fire', async () => {
+    // Clean `fits` on a bare noun: picker is confident; trust it.
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [{ code: '610910000000', fit: 'fits', rationale: 'match' }],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: '61' }),
+      candidates: [rc('610910000000', 'merchant_prefix')],
+      merchant_chapter: '61',
+      raw_description: 'Bracelet',
+    });
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(false);
+    }
+  });
+
+  it('bare-noun gate: rich description + partial fit → audit_flag does NOT fire on bare-noun grounds', async () => {
+    // Note: identify family=61, picked code is chapter 62 → merchant
+    // chapter disagreement does NOT fire because merchant_chapter is
+    // null. subset-contradiction also doesn't fire because the
+    // does_not_fit chapter (any) doesn't match identify's 61. Only
+    // bare-noun could plausibly fire here; this test confirms a rich
+    // description suppresses it.
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [{ code: '620342000000', fit: 'partial', rationale: 'material silent' }],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: '62' }),
+      candidates: [rc('620342000000', 'family_chapter')],
+      merchant_chapter: null,
+      raw_description: 'Lymio Jeans for Men || Men Jeans || Men Jeans Pants',
+    });
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(false);
+    }
+  });
+
+  it('bare-noun gate: null raw_description is a no-op (backward compat)', async () => {
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [{ code: '610910000000', fit: 'partial', rationale: 'thin' }],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: '61' }),
+      candidates: [rc('610910000000', 'merchant_prefix')],
+      merchant_chapter: '61',
+      // raw_description omitted → undefined → null at the helper → inert
+    });
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(false);
+    }
+  });
+
+  it('bare-noun gate: Arabic 2-token bare noun + partial → audit_flag', async () => {
+    // هودي فضفاض = "loose hoody" — 2 Arabic tokens, both significant.
+    mockedCall.mockResolvedValueOnce(
+      llmReturns({
+        text: JSON.stringify({
+          verdicts: [{ code: '610610000001', fit: 'partial', rationale: 'gender silent' }],
+        }),
+      }),
+    );
+    const r = await runPick({
+      identify: id({ family: '61' }),
+      candidates: [rc('610610000001', 'merchant_prefix')],
+      merchant_chapter: '61',
+      raw_description: 'هودي فضفاض',
+    });
+    if (r.kind === 'accepted') {
+      expect(r.trace.audit_flag).toBe(true);
+    }
+  });
+
   it('partial fit on a clean single-arm pool computes a base-only confidence', async () => {
     mockedCall.mockResolvedValueOnce(
       llmReturns({
@@ -488,6 +594,33 @@ describe('runPick — accepted with audit fields', () => {
       merchant_chapter: null,
     });
     if (r.kind === 'accepted') expect(r.final_code).toBe('fits-one');
+  });
+});
+
+describe('detectBareNounRisk (PR11)', () => {
+  it('flags single-noun inputs', () => {
+    expect(detectBareNounRisk('Trimmer').is_bare_noun).toBe(true);
+    expect(detectBareNounRisk('Bracelet').is_bare_noun).toBe(true);
+    expect(detectBareNounRisk('playmat').is_bare_noun).toBe(true);
+    expect(detectBareNounRisk('Dresses').is_bare_noun).toBe(true);
+  });
+
+  it('does not flag rich descriptions', () => {
+    expect(detectBareNounRisk('Crayola - Wedge Tip Scented Washable Markers - 12pcs').is_bare_noun).toBe(false);
+    expect(detectBareNounRisk("L'OREAL TECHNIQUE HiColor Red HiLights Permanent Hair Color").is_bare_noun).toBe(false);
+  });
+
+  it('treats null/empty as inert (no flag)', () => {
+    expect(detectBareNounRisk(null).is_bare_noun).toBe(false);
+    expect(detectBareNounRisk('').is_bare_noun).toBe(false);
+    expect(detectBareNounRisk('   ').is_bare_noun).toBe(false);
+  });
+
+  it('strips units, stopwords, numbers, SKU-shaped tokens', () => {
+    // "500 ml" → ml stripped, 500 stripped → 0 significant tokens
+    expect(detectBareNounRisk('500 ml').significant_token_count).toBe(0);
+    // SKU-shaped: B0F3PQHWTZ (consonant-only alnum >=8) is stripped
+    expect(detectBareNounRisk('Sony B0F3PQHWTZ').significant_token_count).toBe(1);
   });
 });
 

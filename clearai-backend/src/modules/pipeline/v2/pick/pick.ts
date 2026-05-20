@@ -236,6 +236,14 @@ interface PickInput {
    * If the picker STILL refuses on the second pass, escalate honestly.
    */
   last_chance?: boolean;
+  /**
+   * Raw input description (verbatim merchant text). PR11 (2026-05-20)
+   * uses this to detect "bare-noun" inputs — single generic nouns like
+   * "Trimmer", "Bracelet", "playmat" — and fire `audit_flag` when the
+   * picker's verdict is not `fits`. Optional so existing tests don't
+   * have to populate it; when null the bare-noun gate is a no-op.
+   */
+  raw_description?: string | null;
 }
 
 function buildQuery(identify: IdentifyResult, fallback: string | null): string {
@@ -420,6 +428,92 @@ function countByArm(candidates: RerankedCandidate[]): Record<string, number> {
     counts[c.source_arm] = (counts[c.source_arm] ?? 0) + 1;
   }
   return counts;
+}
+
+/**
+ * English stopwords stripped before counting significant tokens in
+ * `detectBareNounRisk`. List is deliberately short — only the words
+ * that obviously add no tariff signal. Customs descriptions are
+ * already terse, so we don't need a heavyweight NLP stoplist.
+ */
+const BARE_NOUN_STOPWORDS = new Set([
+  'a', 'an', 'the',
+  'for', 'with', 'of', 'in', 'on', 'and', 'or', 'to',
+  'made', 'from', 'by', 'per',
+  // Arabic — fewer common stopwords; "ل", "في", "من", "على" are short
+  // enough that the length filter below catches them anyway.
+]);
+
+/**
+ * Units stripped before counting (case-insensitive). Adding a unit
+ * doesn't make a description tariff-meaningful — "500 ml" is still
+ * a quantity, not a product anchor.
+ */
+const BARE_NOUN_UNITS = new Set([
+  'ml', 'l', 'kg', 'g', 'mg', 'lb', 'oz',
+  'cm', 'mm', 'm', 'inch', 'inches', 'in',
+  'pcs', 'pc', 'pack', 'set', 'units', 'unit',
+  'sar', 'usd', 'eur', 'aed',
+  'pair', 'pairs',
+]);
+
+/**
+ * Bare-noun risk detector (PR11, 2026-05-20, TASKS S2 #13).
+ *
+ * Returns true when the raw input description carries fewer than 3
+ * significant tokens — i.e. the merchant gave us essentially a single
+ * generic noun ("Trimmer", "Bracelet", "هودي فضفاض"). Retrieval can
+ * find candidates for these, but the picker's resulting `fit` verdict
+ * is unreliable: a "Trimmer" can be chapter 82 (manual cutting tools),
+ * chapter 84 (machine tools), chapter 85 (hair clippers), or chapter
+ * 96 (clipper-style trimmers). The lexical signal is too thin to
+ * disambiguate without a brand, material, or model.
+ *
+ * Combined with `pick.fit !== 'fits'` at the call site, this becomes
+ * the audit signal: "thin input + uncertain picker → review."
+ *
+ * Tokenisation rules:
+ *   - Lowercase ASCII portions (Arabic preserved)
+ *   - Strip punctuation, parens, slashes, dashes
+ *   - Drop purely numeric tokens (quantities, SKUs)
+ *   - Drop alphanumeric tokens that look like SKU codes (>=8 chars,
+ *     mixed letters+digits, no vowels e.g. "B0F3PQHWTZ")
+ *   - Drop units ("ml", "kg", "pcs", "SAR", etc.)
+ *   - Drop stopwords ("for", "with", "the")
+ *   - Drop tokens of length 1 (mostly punctuation noise)
+ *
+ * Returns false when raw_description is null/empty (gate inert).
+ */
+export function detectBareNounRisk(raw_description: string | null): {
+  is_bare_noun: boolean;
+  significant_token_count: number;
+} {
+  if (raw_description === null || raw_description.trim().length === 0) {
+    return { is_bare_noun: false, significant_token_count: 0 };
+  }
+  const normalized = raw_description
+    .replace(/[(),./\\\-|+:;'"`*?!]/g, ' ') // strip punctuation
+    .replace(/\s+/g, ' ')
+    .trim();
+  const rawTokens = normalized.split(' ').filter((t) => t.length > 1);
+  let significant = 0;
+  for (const t of rawTokens) {
+    const lower = t.toLowerCase();
+    if (BARE_NOUN_STOPWORDS.has(lower)) continue;
+    if (BARE_NOUN_UNITS.has(lower)) continue;
+    // Purely numeric (quantity, year, etc.).
+    if (/^\d+(\.\d+)?$/.test(t)) continue;
+    // SKU-shaped: >=8 chars, mixed alnum, no English vowels — likely
+    // a model number / ASIN / barcode rather than a tariff signal.
+    if (t.length >= 8 && /\d/.test(t) && /[a-z]/i.test(t) && !/[aeiou]/i.test(t)) {
+      continue;
+    }
+    significant += 1;
+  }
+  return {
+    is_bare_noun: significant < 3,
+    significant_token_count: significant,
+  };
 }
 
 /**
@@ -820,7 +914,14 @@ export async function runPick(input: PickInput): Promise<PickResult> {
   //     (they got a different verdict obviously) and candidates whose
   //     chapter equals the picked chapter (the picker already evaluated
   //     siblings).
-  //  4. (future) identity-tokens absent from leaf path — Open task #8.
+  //  4. Bare-noun risk (PR11, 2026-05-20, TASKS S2 #13):
+  //     the raw input description carries fewer than 3 significant
+  //     tokens (e.g. "Trimmer", "Bracelet", "هودي فضفاض") AND the
+  //     picker's verdict is not `fits`. Thin lexical signal + uncertain
+  //     picker → cannot disambiguate reliably; route to HITL.
+  //     Excluded from this gate: clean `fits` verdicts on bare nouns
+  //     (the picker found a confident match; trust it).
+  //  5. (future) identity-tokens absent from leaf path — Open task #8.
   const contradictionFlag = verdict_population.fits >= 2;
   const identifyChapter =
     identify.kind === 'clean_product' ? identify.family_chapter : null;
@@ -831,7 +932,13 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     identifyChapter,
     merchantChapter: merchant_chapter,
   });
-  const auditFlag = merchantChapterDisagreement || contradictionFlag || subsetContradictionFlag;
+  const bareNounRisk = detectBareNounRisk(input.raw_description ?? null);
+  const bareNounFlag = bareNounRisk.is_bare_noun && top.fit !== 'fits';
+  const auditFlag =
+    merchantChapterDisagreement ||
+    contradictionFlag ||
+    subsetContradictionFlag ||
+    bareNounFlag;
 
   // Confidence assignment. Last-chance pass always lands at
   // LAST_CHANCE_CONFIDENCE (0.40) regardless of trace signals because

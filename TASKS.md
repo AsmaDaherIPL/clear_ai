@@ -59,22 +59,21 @@ Items struck through with the shipping commit moved into Done; the rest are stil
 | 10 | **R6** | Embedder retry budget collapse. 5× retries × 30s, no breaker, no cache (partial cache shipped in PR4 — full breaker still open). Worst-case 92s per query blocks one concurrency slot. | M |
 | 11 | **Embedder swap A/B** | Xenova/multilingual-e5-small vs current Foundry embedder. ~500MB heap, 10-15s cold start. Needs eval framework that doesn't exist today. | L |
 | 12 | **Reranker tuning — feature weights** | 6 hardcoded weights, no calibration against HITL reviewer overrides. ~500 labeled rows needed for logistic regression fit. Biggest accuracy lever — but blocked on labels. | L |
-| 13 | **BARE-NOUN-LEAF-HARDENING** | Short generic nouns ("Trimmer", "Bracelet", "playmat") wrong leaf. The prompt-side (ambiguous noun table) shipped in `3e8fc2e`; the deterministic gate (`identity_tokens.length < 2` + `pick.fit !== fits` → require sanity PASS) is still open. | M |
+| ~~13~~ | ~~BARE-NOUN-LEAF-HARDENING~~ | **Shipped in PR11** — `detectBareNounRisk` in pick.ts: when raw input description has <3 significant tokens (after stripping punctuation/numbers/units/stopwords/SKU-shape) AND pick.fit !== 'fits' → fires `audit_flag = true` on the winner. Reshaped from the original `identity_tokens.length < 2` proposal because identify expands bare nouns into 2-3 semantic variants — the right signal is the raw input shape, not identify's output. Audit-only per `rule_sanity_is_audit_only` philosophy: XML still ships, row routes to HITL. | — |
 | ~~14~~ | ~~IDENTIFY-FAST-MULTI-PRODUCT~~ | ~~Comma-separated multi-product detection~~ — **Shipped in PR7 (`999f448`)** | — | — |
 | ~~15~~ | ~~BCLEEN-CLASS RECOVERY~~ | ~~Differentiate transient transport failures from genuine ZERO_SIGNAL~~ — **Shipped in PR1 (PICK-EMPTY-RETRY) + PR7 (AMBIGUOUS status)** | — | — |
 | ~~16~~ | ~~CHAPTER-DISAGREEMENT BALANCING~~ | ~~Rerank slot guarantee + picker audit flag + confidence cap~~ — **Shipped in PR3 (`f75c462`)** | — | — |
 
-**Still open in Section 2**: #7 sanity↔description cross-check, #8 verifier rule 3 (identity_tokens absent from leaf), #9 taxonomy, #10 R6 cache, #11 embedder swap, #12 reranker tuning, #13 bare-noun gate. (#1 confidence A/B/C shipped in PR9 as entropy-based; #3 L6 catcher shipped in PR10; #5 closed — won't do per audit-only rule.)
+**Still open in Section 2**: #7 sanity↔description cross-check, #8 verifier rule 3 (identity_tokens absent from leaf), #9 taxonomy, #10 R6 cache, #11 embedder swap, #12 reranker tuning. (#1 confidence A/B/C shipped in PR9; #3 L6 catcher shipped in PR10; #13 bare-noun gate shipped in PR11; #5 closed — won't do per audit-only rule.)
 
 ---
 
-## Recommended sequence (next session, as of PR10)
+## Recommended sequence (next session, as of PR11)
 
-1. **Bare-noun gate (Section 2 #13)** — M, ~1-2 days. Deterministic gate to back up the prompt-side fix.
-2. **Verifier rule 3 — identity_tokens absent from leaf (Section 2 #8)** — S. Add a third verifier rule that fires UNCERTAIN when picker emits `fits` but none of identify's identity_tokens appear in the leaf path. Catches GIR-4 fallback masquerading as `fits`.
-3. **Sanity↔description cross-check (Section 2 #7)** — S. When sanity FLAGs, regenerate goods_description_ar against the FLAG verdict's product band (or flag in trace).
-4. **HITL-driven XML re-render workflow** — operator-facing feature, replaces former Section 2 #5.
-5. **Frontend migrations** (FE-PR9 + FE-PR7) — confidence band pill + AMBIGUOUS status pill. Backend ready since PR7/PR9.
+1. **Verifier rule 3 — identity_tokens absent from leaf (Section 2 #8)** — S. Add a third verifier rule that fires UNCERTAIN when picker emits `fits` but none of identify's identity_tokens appear in the leaf path. Catches GIR-4 fallback masquerading as `fits`.
+2. **Sanity↔description cross-check (Section 2 #7)** — S. When sanity FLAGs, regenerate goods_description_ar against the FLAG verdict's product band (or flag in trace).
+3. **HITL-driven XML re-render workflow** — operator-facing feature, replaces former Section 2 #5.
+4. **Frontend migrations** (FE-PR9 + FE-PR7) — confidence band pill + AMBIGUOUS status pill. Backend ready since PR7/PR9.
 
 The five Section-1 cleanup items (L11(a), L9, L12, L11(b)) and the slow accuracy items (#10 R6 cache, #11 embedder swap, #12 reranker tuning) can slot in opportunistically.
 
@@ -113,6 +112,7 @@ unless noted.
 | PR8 | R9 balanced-brace JSON parser (replaces silent-corruption "first {-to-last-}" logic) + sanity rationale-verdict reconciliation (fixes today's #2 + #5 internal-PASS-external-FLAG bug) + sanity prompt multi-revision rule | `9fc241f` (rev 0000162) |
 | PR9 | Entropy-based confidence (Zonos-style) + `confidence_band` categorical labels (high/moderate/fair/low/no_result). Replaces flat-bucket per-candidate scores (every does_not_fit = 0.15) with each candidate's share of the entropy distribution. Existing identify-chaining + disagreement caps preserved. SPA reads `classification_confidence_band` instead of raw decimal. | `c17d2c6` (rev 0000163) |
 | PR10 | L6 deterministic subset-contradiction catcher. When picker emits `does_not_fit` on a candidate whose chapter matches identify's `family_chapter` or merchant's chapter, treat as a rule-4 violation (picker prompt says wrong chapter = does_not_fit, wrong subheading = partial). Fires `audit_flag = true` on the winner → row routes to HITL. Excludes sibling-of-winner candidates (chapter equals picked chapter) — those were already evaluated within-chapter. 4 new tests; pipeline-v2 203/203 green. | `c7ef892` (rev 0000164) |
+| PR11 | Bare-noun audit gate (TASKS S2 #13). New `detectBareNounRisk` helper: tokenizes raw input description after stripping punctuation, numbers, units (ml/kg/pcs/SAR), stopwords, SKU-shaped tokens. When <3 significant tokens remain AND pick.fit !== 'fits' → fires `audit_flag = true` on the winner. Catches "Trimmer", "Bracelet", "playmat", "هودي فضفاض" style misclassifications that look-clean-but-aren't. Reshaped from the original `identity_tokens.length < 2` proposal after pilot evidence showed identify expands bare nouns into 2-3 semantic tokens (so the raw input shape is the right signal). Audit-only — XML still ships, row routes to HITL. 9 new tests; pipeline-v2 212/212 green. | pending (rev TBD) |
 
 ## Still open — moved from PR6 deferrals
 
