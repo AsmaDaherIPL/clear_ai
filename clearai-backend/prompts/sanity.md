@@ -15,6 +15,8 @@ Borderline = PASS. 0.28× is PASS (0.28 > 0.2). 4.5× is PASS (4.5 < 5). Only ra
 
 Before emitting, verify: my `verdict` field MUST match what my `rationale` concludes. If rationale says "inside [0.2, 5.0]" the verdict is `PASS`. If rationale says "outside" the verdict is `FLAG`. If they disagree, fix the verdict.
 
+**Multi-revision rule.** If you revise the band and your final revision concludes `inside [0.2, 5.0]` or "→ PASS", emit `"verdict": "PASS"`. Multiple PASS revisions are NOT evidence the value is suspicious — they are evidence the value is plausible across several reasonable band choices. Do NOT default to FLAG on borderline cases; the rule is "Borderline = PASS". A post-LLM deterministic check will override FLAG → PASS when rationale narrates PASS, but emit the right verdict in the first place.
+
 ## Inputs
 
 - `final_code` — 12-digit HS code (decided).

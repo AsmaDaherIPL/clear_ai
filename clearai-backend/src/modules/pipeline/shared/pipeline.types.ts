@@ -464,6 +464,14 @@ export interface SanityResult {
   attempts?: number;
   /** Reason recorded for each attempt that triggered a parse retry. */
   retried_reasons?: string[];
+  /**
+   * True when the post-LLM deterministic check overrode the model's
+   * verdict because rationale narrated PASS but structured field said
+   * FLAG. Helps operators distinguish "model was honest, value really
+   * was borderline" from "model contradicted itself, we trusted the
+   * reasoning trace." Set in PR8 (2026-05-20).
+   */
+  verdict_reconciled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
