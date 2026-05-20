@@ -20,13 +20,15 @@
  *   - Fonts are imported below via @fontsource npm packages.
  */
 
-@import 'tailwindcss';
+/*
+ * All @import rules must precede @tailwindcss and any other directives.
+ * Browsers silently ignore @import rules that appear after non-@import rules.
+ */
 
 /*
  * Material Symbols Outlined — variable font for sidebar icons.
- * Self-hosted via Google Fonts CDN preconnect. We only load the
- * axes we use: FILL 0–1, wght 400, GRAD 0, opsz 20–24.
- * The preconnect + preload are in Layout.astro.
+ * Subset to only the ligature names actually used, keeping the download tiny.
+ * axes: FILL 0-1, wght 100-700, GRAD 0, opsz 20-48
  */
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,0&display=block&text=auto_awesomeupload_filehistorylogoutdock_to_right');
 
@@ -46,6 +48,8 @@
 @import '@fontsource/ibm-plex-mono/400.css';
 @import '@fontsource/ibm-plex-mono/500.css';
 @import '@fontsource/ibm-plex-mono/600.css';
+
+@import 'tailwindcss';
 
 :root {
   /* -------------------------------------------------------------------------
