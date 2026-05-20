@@ -582,12 +582,12 @@ export default function ClassifyApp({ initialMode }: ClassifyAppProps = {}) {
   }, [batchState.runId]);
 
   // Keep ?id=<classification_id> in sync with single-shot results.
-  // When mode is batch, actively clear ?id= (batch's syncRunIdToUrl also
-  // clears it, but being explicit here prevents any race). When mode is
+  // When mode is batch, do nothing here — syncRunIdToUrl already owns the
+  // URL and calling syncClassificationIdToUrl(null) here would wipe ?run=
+  // (that function unconditionally deletes ?run=). When mode is
   // generate/expand, write the current result id or clear if none.
   useEffect(() => {
     if (mode === 'batch') {
-      syncClassificationIdToUrl(null);
       return;
     }
     const id = cur.response?.request_id ?? null;
