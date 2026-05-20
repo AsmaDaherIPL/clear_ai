@@ -1056,7 +1056,10 @@ export default function ClassifyApp({ initialMode }: ClassifyAppProps = {}) {
               Keys swap between single-item and batch modes.
               Text centred in idle; starts-aligned once active.
           ---------------------------------------------------------------- */}
-          {(() => {
+          {/* Hide the page header entirely when a batch run is active —
+              the ResultBatch panel renders its own "Classification results"
+              header matching the prototype. */}
+          {!batchActive && (() => {
             const isBatch = mode === 'batch';
             const eyebrowKey = isBatch ? 'batch_eyebrow' : 'classify_eyebrow';
             const titleKey   = isBatch ? 'batch_title'   : 'classify_title';

@@ -368,31 +368,23 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
 
   return (
     <>
+      {/* No card border/shadow — results sit flat on the page background,
+          matching the prototype exactly. */}
       <div
         className={cn(
-          'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] overflow-hidden',
-          'shadow-[0_1px_2px_rgba(20,15,5,0.04),0_8px_24px_-16px_rgba(20,15,5,0.12)]',
           'animate-[fadeUp_0.35s_ease_both]',
           className,
         )}
       >
         {/* ----------------------------------------------------------------
-            Panel header
+            Panel header — matches prototype: big title + subtitle + buttons
         ---------------------------------------------------------------- */}
-        <div className="relative px-6 pt-6 pb-5 border-b border-[var(--line-2)]">
-          {/* Eyebrow + title row */}
+        <div className="relative pb-5">
+          {/* Title row */}
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              {/* Eyebrow crumb */}
-              <div className="text-[11px] font-semibold tracking-[0.08em] text-[var(--accent-ink)] uppercase mb-2">
-                {state.runId
-                  ? `${t('batch_results_eyebrow_prefix')} #${state.runId.slice(0, 10).toUpperCase()} · ${phase.title.toUpperCase()}`
-                  : phase.title.toUpperCase()
-                }
-              </div>
-
-              {/* Big title */}
-              <h2 className="m-0 text-[30px] leading-tight font-bold tracking-[-0.02em] text-[var(--ink)]">
+              {/* Big title — same as prototype "Classification results" */}
+              <h2 className="m-0 text-[36px] leading-tight font-bold tracking-[-0.02em] text-[var(--ink)]">
                 {t('batch_results_title')}
               </h2>
 
@@ -470,22 +462,23 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
           </div>
 
           {/* ----------------------------------------------------------------
-              Stat cards — 4 columns: Items · Succeeded · Flagged · Bayans
-              (EST. DUTY removed per spec)
+              Stat strip — flat, no card borders, prototype-exact.
+              4 columns: Items · Succeeded · Flagged · Bayans
+              Separated by thin vertical dividers, not box borders.
           ---------------------------------------------------------------- */}
           {summary && (
-            <div className="mt-5 grid grid-cols-4 gap-3">
+            <div className="mt-6 flex items-stretch divide-x divide-[var(--line-2)]">
               {/* Items */}
-              <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
-                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">
+              <div className="pe-8 min-w-[120px]">
+                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
                   {t('batch_stat_items')}
                 </div>
-                <div className="text-[26px] font-bold tracking-[-0.02em] text-[var(--ink)] leading-none">
+                <div className="text-[28px] font-bold tracking-[-0.02em] text-[var(--ink)] leading-none">
                   {summary.row_count
                     ? `${items.filter((i) => i.classification_result != null || i.error).length}/${summary.row_count}`
                     : rowCount}
                 </div>
-                <div className={cn('text-[12px] mt-1', isPolling ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-3)]')}>
+                <div className={cn('text-[12px] mt-1.5', isPolling ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-3)]')}>
                   {isPolling && summary.row_count
                     ? t('batch_stat_items_sub_partial').replace(
                         '{pct}',
@@ -498,28 +491,28 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                 </div>
               </div>
 
-              {/* Succeeded — items with a resolved HS code (includes value-flagged) */}
-              <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
-                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">
+              {/* Succeeded */}
+              <div className="px-8 min-w-[120px]">
+                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
                   {t('batch_stat_succeeded')}
                 </div>
-                <div className="text-[26px] font-bold tracking-[-0.02em] text-[oklch(0.42_0.15_140)] leading-none">
+                <div className="text-[28px] font-bold tracking-[-0.02em] text-[oklch(0.42_0.15_140)] leading-none">
                   {classifiedWithCode}
                 </div>
-                <div className="text-[12px] text-[var(--ink-3)] mt-1">
+                <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
                   {t('batch_stat_succeeded_sub')}
                 </div>
               </div>
 
-              {/* Flagged — items with value plausibility FLAG/BLOCK */}
-              <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
-                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">
+              {/* Flagged */}
+              <div className="px-8 min-w-[120px]">
+                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
                   {t('batch_stat_flagged')}
                 </div>
-                <div className="text-[26px] font-bold tracking-[-0.02em] text-[oklch(0.50_0.16_60)] leading-none">
+                <div className="text-[28px] font-bold tracking-[-0.02em] text-[oklch(0.50_0.16_60)] leading-none">
                   {flaggedCount}
                 </div>
-                <div className="text-[12px] text-[var(--ink-3)] mt-1">
+                <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
                   {t('batch_stat_flagged_sub')}
                 </div>
               </div>
@@ -530,23 +523,23 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                 const lvCount = xmlFiles.filter((f) => f.name.startsWith('lv/')).length;
                 const hvCount = xmlFiles.filter((f) => f.name.startsWith('hv/')).length;
                 return (
-                  <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
-                    <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">
+                  <div className="ps-8 min-w-[140px]">
+                    <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
                       {t('batch_stat_bayans')}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       {hvCount > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[oklch(0.93_0.05_30)] text-[oklch(0.40_0.13_30)] text-[13px] font-bold font-mono">
-                          {hvCount} <span className="text-[11px] font-semibold">{t('batch_hv_label')}</span>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[oklch(0.93_0.05_30)] text-[oklch(0.40_0.13_30)] text-[14px] font-bold font-mono">
+                          {hvCount} <span className="text-[12px] font-semibold">{t('batch_hv_label')}</span>
                         </span>
                       )}
                       {lvCount > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[oklch(0.93_0.06_140)] text-[oklch(0.35_0.12_140)] text-[13px] font-bold font-mono">
-                          {lvCount} <span className="text-[11px] font-semibold">{t('batch_lv_label')}</span>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[oklch(0.93_0.06_140)] text-[oklch(0.35_0.12_140)] text-[14px] font-bold font-mono">
+                          {lvCount} <span className="text-[12px] font-semibold">{t('batch_lv_label')}</span>
                         </span>
                       )}
                       {lvCount === 0 && hvCount === 0 && (
-                        <span className="text-[22px] font-bold tracking-[-0.02em] text-[var(--ink-3)] leading-none">—</span>
+                        <span className="text-[24px] font-bold tracking-[-0.02em] text-[var(--ink-3)] leading-none">—</span>
                       )}
                     </div>
                     <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
@@ -560,16 +553,19 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
 
           {/* Loading skeleton for stats while polling with no summary yet */}
           {!summary && isPolling && (
-            <div className="mt-5 grid grid-cols-4 gap-3">
+            <div className="mt-6 flex items-stretch divide-x divide-[var(--line-2)]">
               {[...Array(4)].map((_, i) => (
-                <div key={i} className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+                <div key={i} className={cn('py-1', i === 0 ? 'pe-8' : i === 3 ? 'ps-8' : 'px-8')}>
                   <div className="h-[10px] w-16 bg-[var(--line-2)] rounded animate-pulse mb-3" />
-                  <div className="h-[26px] w-12 bg-[var(--line-2)] rounded animate-pulse mb-2" />
+                  <div className="h-[28px] w-12 bg-[var(--line-2)] rounded animate-pulse mb-2" />
                   <div className="h-[12px] w-20 bg-[var(--line-2)] rounded animate-pulse" />
                 </div>
               ))}
             </div>
           )}
+
+          {/* Thin separator between stat strip and review banner / table */}
+          {summary && <div className="mt-6 border-t border-[var(--line-2)]" />}
 
           {/* ----------------------------------------------------------------
               Review queue banner — prototype-exact dark card with dot pattern.
@@ -596,7 +592,7 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
 
           {/* Indeterminate progress strip */}
           {isPolling && (
-            <div className="absolute inset-x-0 bottom-0 h-[2px] bg-[var(--line-2)] overflow-hidden" aria-hidden>
+            <div className="mt-4 h-[2px] bg-[var(--line-2)] overflow-hidden rounded-full" aria-hidden>
               <div
                 className="h-full w-1/3 animate-[slide_1.4s_linear_infinite]"
                 style={{ background: 'linear-gradient(90deg, transparent, var(--accent), transparent)' }}

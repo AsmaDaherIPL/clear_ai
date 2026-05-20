@@ -25,8 +25,29 @@ import { DataTable } from './DataTable';
 // Plausibility verdict helpers
 // ---------------------------------------------------------------------------
 
-const PLAUSIBILITY_PASS_CLS = 'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]';
-const PLAUSIBILITY_FLAG_CLS = 'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]';
+// Prototype: border-only pill (no fill), small text
+const PLAUSIBILITY_PASS_CLS = 'border border-[oklch(0.70_0.08_140)] text-[oklch(0.35_0.10_140)] bg-transparent';
+const PLAUSIBILITY_FLAG_CLS = 'border border-[oklch(0.70_0.10_60)]  text-[oklch(0.42_0.14_60)]  bg-transparent';
+
+/**
+ * Format a raw HS code string into dot-separated groups for display.
+ * Prototype shows: 9617.00.11.00 (groups: 4-2-2-2 for 10-digit codes,
+ *                  4-2-2-2-2 for 12-digit codes).
+ * Example: "640500000000" → "6405.00.00.00.00"
+ *          "961700110000" → "9617.00.11.00.00"
+ */
+function formatHsCode(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 4) return digits;
+  const groups: string[] = [digits.slice(0, 4)];
+  let i = 4;
+  while (i < digits.length) {
+    groups.push(digits.slice(i, i + 2));
+    i += 2;
+  }
+  return groups.join('.');
+}
 
 function clampChars(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -164,7 +185,7 @@ function CodeBreakdownModal({ item, lineNumber, onClose }: CodeBreakdownModalPro
             )}
             {resolved && (
               <p className="mt-0.5 font-mono text-[18px] font-bold text-[var(--accent-ink)] tracking-[-0.01em]">
-                {resolved}
+                {formatHsCode(resolved)}
               </p>
             )}
           </div>
@@ -380,7 +401,7 @@ function PlausibilityCell({ item, isComplete }: { item: BatchItem; isComplete: b
 
   if (bucket === 'blocked') {
     return (
-      <span className="inline-block px-2.5 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em] bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]">
+      <span className="inline-block px-2.5 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em] border border-[oklch(0.65_0.10_25)] text-[oklch(0.40_0.12_25)] bg-transparent">
         Blocked
       </span>
     );
@@ -534,9 +555,14 @@ export default function BatchResultsTable({
       cell: ({ row }) => {
         const fc = row.original.classification_result?.resolved_hs_code ?? null;
         if (!fc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
+        const bucket = itemBucket(row.original, isComplete);
+        const isFlagRow = bucket === 'flagged' || bucket === 'blocked';
         return (
           <span className="font-mono text-[13px] font-semibold text-[var(--accent-ink)] whitespace-nowrap tabular-nums">
-            {fc}
+            {formatHsCode(fc)}
+            {isFlagRow && (
+              <span className="ms-1.5 text-[oklch(0.52_0.14_60)] text-[11px]" aria-hidden> ▲</span>
+            )}
           </span>
         );
       },

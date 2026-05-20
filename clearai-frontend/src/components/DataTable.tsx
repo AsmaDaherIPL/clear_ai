@@ -376,8 +376,51 @@ export function DataTable<T extends object>({
       {/* ------------------------------------------------------------- */}
       {(enableGlobalSearch || filterChips || filterExtra) && (
         <div className="flex items-center gap-3 flex-wrap px-[22px] py-3 border-b border-[var(--line-2)]">
+          {/* Filter chips — LEFT side (prototype order) */}
+          {filterChips && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {filterChips.label && (
+                <span className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-1">
+                  {filterChips.label}
+                </span>
+              )}
+              {filterChips.options.map((opt) => {
+                const active =
+                  opt.value === activeChipValue ||
+                  (opt.value === undefined && activeChipValue === undefined);
+                // Render as "Label · count" inline text (prototype style)
+                const chipLabel = opt.count !== undefined
+                  ? `${opt.label} · ${opt.count}`
+                  : opt.label;
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => setChip(opt.value)}
+                    aria-pressed={active}
+                    className={cn(
+                      'inline-flex items-center px-3.5 py-[5px] rounded-full text-[13px] font-medium transition-colors duration-150',
+                      active
+                        ? 'bg-[var(--ink)] text-[var(--bg)]'
+                        : 'bg-transparent text-[var(--ink-2)] hover:text-[var(--ink)]',
+                    )}
+                  >
+                    {chipLabel}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {filterExtra && (
+            <div className="shrink-0">
+              {filterExtra}
+            </div>
+          )}
+
+          {/* Search — RIGHT side (prototype order) */}
           {enableGlobalSearch && (
-            <div className="relative flex-1 min-w-[200px] max-w-[420px]">
+            <div className="relative ms-auto min-w-[200px] max-w-[280px]">
               <Search
                 aria-hidden
                 className="absolute start-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--ink-3)] pointer-events-none"
@@ -396,57 +439,6 @@ export function DataTable<T extends object>({
                   'focus-visible:border-[var(--ink-3)] focus-visible:bg-[var(--surface)]',
                 )}
               />
-            </div>
-          )}
-
-          {filterChips && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {filterChips.label && (
-                <span className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-1">
-                  {filterChips.label}
-                </span>
-              )}
-              {filterChips.options.map((opt) => {
-                const active =
-                  opt.value === activeChipValue ||
-                  (opt.value === undefined && activeChipValue === undefined);
-                return (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    onClick={() => setChip(opt.value)}
-                    aria-pressed={active}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 px-3 py-[5px] rounded-full text-[12px] font-medium border transition-colors duration-150',
-                      active
-                        ? 'bg-[var(--ink)] border-[var(--ink)] text-[var(--bg)]'
-                        : 'bg-[var(--surface)] border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
-                    )}
-                    style={active ? { color: 'var(--bg)' } : undefined}
-                  >
-                    {opt.label}
-                    {opt.count !== undefined && (
-                      <span
-                        className={cn(
-                          'inline-flex items-center justify-center min-w-[18px] h-[18px] px-[5px] rounded-full',
-                          'font-mono text-[10px] tabular-nums leading-none',
-                          active
-                            ? 'bg-white/20 text-inherit'
-                            : 'bg-[var(--line-2)] text-[var(--ink-3)]',
-                        )}
-                      >
-                        {opt.count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {filterExtra && (
-            <div className="ms-auto shrink-0">
-              {filterExtra}
             </div>
           )}
         </div>
@@ -498,9 +490,10 @@ export function DataTable<T extends object>({
                       )}
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
-                      {canSort && (
+                      {/* Sort indicator: only show when actively sorted, not the idle "·" */}
+                      {canSort && sortDir && (
                         <span className="text-[var(--ink-3)] text-[9px] shrink-0" aria-hidden>
-                          {sortDir === 'asc' ? '▲' : sortDir === 'desc' ? '▼' : '·'}
+                          {sortDir === 'asc' ? '▲' : '▼'}
                         </span>
                       )}
                     </span>
