@@ -51,7 +51,7 @@ Items struck through with the shipping commit moved into Done; the rest are stil
 | ~~2~~ | ~~L5~~ | ~~`extractGir` is regex-grep on prose~~ — **Shipped in PR2 (`36886f9`) as structured `gir_applied` field** | — | — |
 | 3 | **L6 deterministic post-LLM check** | Permissive-fits rule enforced only in the prompt. The deterministic catcher for "picker said `does_not_fit` but only constrained leaf dimension is silent in input" hasn't shipped. The test version shipped 2026-05-18 (`7529363`); the production gate is still open. | M |
 | ~~4~~ | ~~L1 audit flag~~ | ~~CONTRADICTION audit flag on `verdict_population.fits >= 2`~~ — **Shipped in PR2 (`36886f9`)** | — | — |
-| 5 | **Sanity FLAG hardening for high-undervaluation-risk categories** | Sanity FLAG routes to HITL but the row still ships in XML. For chapter 85 (consumer electronics), price/product mismatch is the strongest single misclassification signal. Promote FLAG to `excluded_from_xml = true` for this chapter. Today's batch had two of these (Sony at 1 SAR; #9). | S code; product-shaped |
+| ~~5~~ | ~~Sanity FLAG hardening for high-undervaluation-risk categories~~ | **Won't do** (2026-05-20). Per `rule_sanity_is_audit_only.md`: sanity is purely an audit signal, never gates XML. Auto-exclude logic per chapter would be custom per-case code, which is against project policy. XML gating happens via HITL re-render workflow, not from sanity itself. | — |
 | ~~6~~ | ~~Identify-conf chaining into picker~~ | ~~Clamp `pick_conf` to `min(pick_conf, identify_conf + 0.10)`~~ — **Shipped in PR2 (`36886f9`)** | — | — |
 | 7 | **Sanity FLAG description-staleness check** | Sanity sees final HS code + value but not `goods_description_ar`. They run in parallel. If sanity FLAGs, the description should regenerate against the FLAG verdict's product band — or at least flag the trace. | S |
 | 8 | **Verifier rule 3 — identity_tokens absent from leaf path** | Picker can land on a leaf where identity_tokens don't appear anywhere in coverage — usually GIR-4 fallback. Currently no signal. Add deterministic UNCERTAIN trigger. | S |
@@ -64,16 +64,16 @@ Items struck through with the shipping commit moved into Done; the rest are stil
 | ~~15~~ | ~~BCLEEN-CLASS RECOVERY~~ | ~~Differentiate transient transport failures from genuine ZERO_SIGNAL~~ — **Shipped in PR1 (PICK-EMPTY-RETRY) + PR7 (AMBIGUOUS status)** | — | — |
 | ~~16~~ | ~~CHAPTER-DISAGREEMENT BALANCING~~ | ~~Rerank slot guarantee + picker audit flag + confidence cap~~ — **Shipped in PR3 (`f75c462`)** | — | — |
 
-**Still open in Section 2**: #1 (parked), #3 L6 catcher, #5 chapter-85 gate, #7 sanity↔description cross-check, #8 verifier rule 3, #9 taxonomy, #10 R6 cache, #11 embedder swap, #12 reranker tuning, #13 bare-noun gate.
+**Still open in Section 2**: #1 (parked), #3 L6 catcher, #7 sanity↔description cross-check, #8 verifier rule 3, #9 taxonomy, #10 R6 cache, #11 embedder swap, #12 reranker tuning, #13 bare-noun gate. (#5 closed — won't do per audit-only rule.)
 
 ---
 
 ## Recommended sequence (next session, as of PR8)
 
-1. **Sanity chapter-85 gate (Section 2 #5)** — S, half day. Today's batch confirmed two undervaluation cases (Sony at 1 SAR; iPhone-style). Promote chapter-85 sanity FLAG to `excluded_from_xml = true`. Needs a 2-line product confirmation that auto-excluding is the right behavior.
-2. **Confidence formula A/B/C decision (Section 2 #1)** — needs product call before code. The flat-bucket regression is the worst remaining accuracy issue.
-3. **L6 deterministic catcher (Section 2 #3)** — M, ~1 day. Catches "picker said `does_not_fit` but only constrained dimension is silent in input" — prompt drift currently only surfaces via HITL backlog.
-4. **Bare-noun gate (Section 2 #13)** — M, ~1-2 days. Deterministic gate to back up the prompt-side fix.
+1. **Confidence formula A/B/C decision (Section 2 #1)** — needs product call before code. The flat-bucket regression is the worst remaining accuracy issue.
+2. **L6 deterministic catcher (Section 2 #3)** — M, ~1 day. Catches "picker said `does_not_fit` but only constrained dimension is silent in input" — prompt drift currently only surfaces via HITL backlog.
+3. **Bare-noun gate (Section 2 #13)** — M, ~1-2 days. Deterministic gate to back up the prompt-side fix.
+4. **HITL-driven XML re-render workflow** (NEW, replaces Section 2 #5) — when a reviewer marks a HITL row for exclusion, the XML for that batch regenerates without that row. This is the operator-driven equivalent of the "chapter-85 gate" we declined to build. Belongs to the HITL feature work, not the pipeline.
 
 The five Section-1 cleanup items (L11(a), L9, L12, L11(b)) and the slow accuracy items (#10 R6 cache, #11 embedder swap, #12 reranker tuning) can slot in opportunistically.
 
