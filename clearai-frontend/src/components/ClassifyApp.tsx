@@ -969,162 +969,186 @@ export default function ClassifyApp() {
 
   const locale = getLocale();
 
+  /*
+   * The classify page has two visual modes:
+   *
+   *   idle  — header + form are vertically centred in the viewport.
+   *            The EN/AR toggle sits absolutely at the top-right corner
+   *            so it doesn't participate in the flex-centre calculation.
+   *
+   *   active — (classifying / result / error) the centred wrapper lifts up
+   *            and the content flows from the top, making room for the
+   *            result panel that appears below.
+   *
+   * We drive this with a single CSS class toggle on the centring shell.
+   * The transition on transform + padding gives the "lift" feel.
+   */
+  // Centre the page vertically when there is nothing "below" the fold yet.
+  // Covers: authenticated+idle (just the composer), unauthenticated (login card),
+  // and the brief initialising flash. Once a classification is in flight or
+  // done, or once batch mode is active, the layout flows from the top.
+  const batchActive = mode === 'batch' && batchState.phase !== 'idle';
+  const isIdle =
+    authState !== 'authenticated'
+      ? true
+      : (phase === 'idle' && !batchActive);
+
   return (
     <>
-      <main className="w-full max-w-[min(95vw,1280px)] mx-auto px-8 pt-10 pb-16">
+      <main className="w-full max-w-[min(95vw,1280px)] mx-auto px-8 pb-16 relative">
+
+        {/* EN / AR language toggle — fixed top-right, outside the flex-centre shell */}
+        <div className="absolute top-6 end-8 flex items-center gap-1.5 text-[13px] font-semibold z-10">
+          <button
+            type="button"
+            onClick={() => setLocale('en' as Locale)}
+            className="bg-transparent border-0 px-1 py-0.5 cursor-pointer font-[inherit] text-[inherit] transition-colors duration-[120ms]"
+            style={{ color: locale === 'en' ? '#231915' : '#a3958c' }}
+          >EN</button>
+          <span className="text-[#d9cdc2]">/</span>
+          <button
+            type="button"
+            onClick={() => setLocale('ar' as Locale)}
+            className="bg-transparent border-0 px-1 py-0.5 cursor-pointer font-[inherit] text-[inherit] transition-colors duration-[120ms]"
+            style={{ color: locale === 'ar' ? '#231915' : '#a3958c' }}
+          >AR</button>
+        </div>
 
         {/* ----------------------------------------------------------------
-            Page header — matches prototype: eyebrow + h1 + subtitle + lang toggle
+            Centering shell — vertically centres header + composer in idle;
+            transitions up when a classification is in flight or done.
+
+            Strategy: always flex-col the shell. In idle it gets min-h to
+            fill the viewport and justify-center to vertically centre.
+            When active we remove min-h so the shell collapses to content
+            height and add pt-10 for normal-flow top spacing.
+            The opacity+translateY entry animation on the content block
+            provides the "lift" feel while the shell reflows.
         ---------------------------------------------------------------- */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32, gap: 16 }}>
-          <div>
-            <p style={{
-              fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              color: '#b8551b',
-              textTransform: 'uppercase',
-              margin: '0 0 10px',
-            }}>
+        <div
+          className={[
+            'w-full flex flex-col',
+            isIdle
+              ? 'min-h-[calc(100dvh-var(--topbar-height,56px))] justify-center pt-16 pb-8'
+              : 'justify-start pt-10',
+          ].join(' ')}
+        >
+          {/* ----------------------------------------------------------------
+              Page header — eyebrow + h1 + subtitle
+              Text centred in idle; starts-aligned once active.
+          ---------------------------------------------------------------- */}
+          <div
+            className={[
+              'mb-8',
+              isIdle ? 'text-center' : 'text-start',
+            ].join(' ')}
+          >
+            <p
+              className={[
+                'text-[11px] font-semibold tracking-[0.08em] uppercase text-[#b8551b] m-0 mb-2.5',
+                isIdle ? 'animate-[fadeUp_0.4s_ease_both]' : '',
+              ].join(' ')}
+              style={isIdle ? { animationDelay: '0ms' } : undefined}
+            >
               {t('classify_eyebrow')}
             </p>
-            <h1 style={{
-              fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-              fontSize: 'clamp(24px, 3.2vw, 36px)',
-              fontWeight: 600,
-              letterSpacing: '-0.02em',
-              color: '#231915',
-              margin: '0 0 10px',
-              lineHeight: 1.15,
-            }}>
+            <h1
+              className={[
+                'text-[clamp(24px,3.2vw,36px)] font-semibold tracking-[-0.02em] text-[#231915] m-0 mb-2.5 leading-[1.15]',
+                isIdle ? 'animate-[fadeUp_0.4s_ease_both]' : '',
+              ].join(' ')}
+              style={isIdle ? { animationDelay: '60ms' } : undefined}
+            >
               {t('classify_title')}
             </h1>
-            <p style={{
-              fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-              fontSize: 14,
-              color: '#7a6d65',
-              margin: 0,
-              maxWidth: 560,
-              lineHeight: 1.55,
-            }}>
+            <p
+              className={[
+                'text-[14px] text-[#7a6d65] m-0 leading-[1.55]',
+                isIdle ? 'mx-auto max-w-[560px] animate-[fadeUp_0.4s_ease_both]' : 'max-w-[560px]',
+              ].join(' ')}
+              style={isIdle ? { animationDelay: '120ms' } : undefined}
+            >
               {t('classify_subtitle')}
             </p>
           </div>
 
-          {/* EN / AR language toggle — top-right per prototype */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-            fontSize: 13,
-            fontWeight: 600,
-            flexShrink: 0,
-            paddingTop: 4,
-          }}>
-            <button
-              type="button"
-              onClick={() => setLocale('en' as Locale)}
-              style={{
-                background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
-                fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit',
-                color: locale === 'en' ? '#231915' : '#a3958c',
-                transition: 'color 120ms',
-              }}
-            >EN</button>
-            <span style={{ color: '#d9cdc2' }}>/</span>
-            <button
-              type="button"
-              onClick={() => setLocale('ar' as Locale)}
-              style={{
-                background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
-                fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit',
-                color: locale === 'ar' ? '#231915' : '#a3958c',
-                transition: 'color 120ms',
-              }}
-            >AR</button>
+          {/* ----------------------------------------------------------------
+              Classifier body
+          ---------------------------------------------------------------- */}
+          <div className="w-full">
+            {authState === 'initialising' && (
+              <div aria-hidden style={{ minHeight: '200px' }} />
+            )}
+
+            {authState === 'unauthenticated' && (
+              <div className="mt-2">
+                <LoginCard />
+              </div>
+            )}
+
+            {authState === 'authenticated' && (
+              <>
+                {/*
+                  Composer collapser. In batch mode, the moment a file
+                  upload kicks off (`batchState.phase !== 'idle'`) we
+                  collapse just the Composer so the result panel below
+                  gets the full visual weight.
+                */}
+                <div
+                  className={[
+                    'overflow-hidden',
+                    isIdle ? 'animate-[fadeUp_0.4s_ease_both]' : '',
+                  ].join(' ')}
+                  style={{
+                    maxHeight: batchActive ? 0 : 720,
+                    opacity: batchActive ? 0 : 1,
+                    marginTop: batchActive ? 0 : undefined,
+                    pointerEvents: batchActive ? 'none' : 'auto',
+                    transition:
+                      'max-height 0.55s cubic-bezier(0.7, 0, 0.3, 1), opacity 0.3s ease, margin-top 0.3s ease',
+                    ...(isIdle ? { animationDelay: '180ms' } : {}),
+                  }}
+                  aria-hidden={batchActive}
+                >
+                  <div className="w-full max-w-[1080px] mx-auto">
+                    <Composer
+                      mode={mode}
+                      onSubmit={handleSubmit}
+                      onPickFile={handleBatchUpload}
+                      loading={
+                        mode === 'batch'
+                          ? batchState.phase === 'uploading' || batchState.phase === 'polling'
+                          : phase === 'classifying'
+                      }
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+
+                <div ref={stepsRef} className="scroll-mt-20">
+                  <ProcessingSteps
+                    visible={phase === 'classifying'}
+                    activeStep={activeStep}
+                    className="mt-6"
+                  />
+                </div>
+
+                <div ref={errorRef} className="scroll-mt-20">
+                  {phase === 'error' && errorMessage && (
+                    <div
+                      role="alert"
+                      className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
+                    >
+                      {errorMessage}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
-        {/* ----------------------------------------------------------------
-            Classifier body
-        ---------------------------------------------------------------- */}
-        <div className="w-full">
-          {authState === 'initialising' && (
-            <div aria-hidden style={{ minHeight: '200px' }} />
-          )}
-
-          {authState === 'unauthenticated' && (
-            <div className="mt-2">
-              <LoginCard />
-            </div>
-          )}
-
-          {authState === 'authenticated' && (
-            <>
-              {/*
-                Composer collapser. In batch mode, the moment a file
-                upload kicks off (`batchState.phase !== 'idle'`) we
-                collapse just the Composer so the result panel below
-                gets the full visual weight.
-              */}
-              {(() => {
-                const composerCollapsed =
-                  mode === 'batch' && batchState.phase !== 'idle';
-                return (
-                  <div
-                    className="overflow-hidden"
-                    style={{
-                      maxHeight: composerCollapsed ? 0 : 720,
-                      opacity: composerCollapsed ? 0 : 1,
-                      marginTop: composerCollapsed ? 0 : undefined,
-                      pointerEvents: composerCollapsed ? 'none' : 'auto',
-                      transition:
-                        'max-height 0.55s cubic-bezier(0.7, 0, 0.3, 1), opacity 0.3s ease, margin-top 0.3s ease',
-                    }}
-                    aria-hidden={composerCollapsed}
-                  >
-                    <div className="w-full max-w-[1080px] mx-auto">
-                      <Composer
-                        mode={mode}
-                        onSubmit={handleSubmit}
-                        onPickFile={handleBatchUpload}
-                        loading={
-                          mode === 'batch'
-                            ? batchState.phase === 'uploading' || batchState.phase === 'polling'
-                            : phase === 'classifying'
-                        }
-                        className="w-full"
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div ref={stepsRef} className="scroll-mt-20">
-                <ProcessingSteps
-                  visible={phase === 'classifying'}
-                  activeStep={activeStep}
-                  className="mt-6"
-                />
-              </div>
-
-              <div ref={errorRef} className="scroll-mt-20">
-                {phase === 'error' && errorMessage && (
-                  <div
-                    role="alert"
-                    className="mt-6 px-4 py-3 rounded-[var(--radius)] border border-[var(--line)] bg-[var(--line-2)] text-[14px] text-[var(--ink-2)]"
-                  >
-                    {errorMessage}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Result panel — full width of the page column */}
+        {/* Result panel — outside the centering shell so it sits in normal flow */}
         <div ref={resultRef} className="scroll-mt-20">
           {authState === 'authenticated' && (
             <div className="mt-6">
