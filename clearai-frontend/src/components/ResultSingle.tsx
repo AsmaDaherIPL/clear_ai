@@ -1,6 +1,7 @@
 /** Generate-mode result card. Presentational; parent owns the DescribeResponse. */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
@@ -570,84 +571,168 @@ function AlternativeCard({
 }
 
 /**
- * Compare + rationale + confirm panel that appears below the alternatives list
- * when an alternative is selected. Matches prototype's "Compare selection" section.
+ * Modal dialog for confirming an alternative HS code selection.
+ * Shows current vs new code + description, rationale textarea,
+ * Cancel and Update Classification buttons.
+ * Rendered via portal so it sits above the sidebar card.
  */
 function ComparePanel({
   currentCode,
+  currentDescription,
   selectedAlt,
   onConfirm,
+  onCancel,
   t,
 }: {
   currentCode: string;
+  currentDescription: string | null;
   selectedAlt: AlternativeLine;
   onConfirm: (rationale: string) => void;
+  onCancel: () => void;
   t: (key: TKey) => string;
 }) {
   const [rationale, setRationale] = useState('');
   const canConfirm = rationale.trim().length > 0;
 
-  return (
-    <div className="mt-4 pt-4 border-t border-[#e0d6ce]">
-      {/* Eyebrow label */}
-      <div className="font-mono text-[9px] font-bold tracking-[0.1em] uppercase text-[#a3958c] mb-2.5">
-        {t('res_compare_selection' as TKey)}
-      </div>
+  // Lock body scroll while open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
 
-      {/* Two-column comparison grid */}
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        {/* Current */}
-        <div className="p-2.5 rounded-[10px] bg-[#f6f2ed] border border-[#e0d6ce]">
-          <div className="font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#a3958c] mb-1">
-            {t('res_compare_current' as TKey)}
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onCancel]);
+
+  const newDescription = clampDescription(selectedAlt.description_en ?? '', ZATCA_DESC_MAX);
+
+  const modal = (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="compare-dialog-title"
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+        onClick={onCancel}
+        aria-hidden="true"
+      />
+
+      {/* Dialog surface */}
+      <div className="relative w-full max-w-[520px] bg-white rounded-2xl shadow-[0_24px_64px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden animate-[fadeUp_0.2s_ease_both]">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-[#e0d6ce]">
+          <div>
+            <div
+              id="compare-dialog-title"
+              className="font-mono text-[10px] font-bold tracking-[0.1em] uppercase text-[#a3958c] mb-0.5"
+            >
+              {t('res_compare_selection' as TKey)}
+            </div>
+            <p className="text-[15px] font-semibold text-[#231915] m-0">
+              {t('act_update_hs_code' as TKey)}
+            </p>
           </div>
-          <span className="font-mono text-[12px] font-medium text-[#7a6d65] line-through">
-            {currentCode}
-          </span>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Close"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-[#a3958c] hover:text-[#231915] hover:bg-[#f6f2ed] transition-colors duration-150"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        {/* New selection */}
-        <div className="p-2.5 rounded-[10px] bg-[#fff1e5] border border-[rgba(184,85,27,0.4)]">
-          <div className="font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#b8551b] mb-1">
-            {t('res_compare_new' as TKey)}
+
+        {/* Body */}
+        <div className="px-6 py-5 flex flex-col gap-4 overflow-y-auto">
+
+          {/* Two-column comparison */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Current */}
+            <div className="p-3.5 rounded-xl bg-[#f6f2ed] border border-[#e0d6ce] flex flex-col gap-1.5">
+              <div className="font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#a3958c]">
+                {t('res_compare_current' as TKey)}
+              </div>
+              <span className="font-mono text-[13px] font-medium text-[#7a6d65] line-through">
+                {currentCode}
+              </span>
+              {currentDescription && (
+                <p className="m-0 text-[12px] text-[#7a6d65] leading-[1.45]">
+                  {clampDescription(currentDescription, 120)}
+                </p>
+              )}
+            </div>
+            {/* New selection */}
+            <div className="p-3.5 rounded-xl bg-[#fff1e5] border border-[rgba(184,85,27,0.35)] flex flex-col gap-1.5">
+              <div className="font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#b8551b]">
+                {t('res_compare_new' as TKey)}
+              </div>
+              <span className="font-mono text-[13px] font-semibold text-[#b8551b]">
+                {selectedAlt.code}
+              </span>
+              {newDescription && (
+                <p className="m-0 text-[12px] text-[#b8551b]/80 leading-[1.45]">
+                  {newDescription}
+                </p>
+              )}
+            </div>
           </div>
-          <span className="font-mono text-[12px] font-medium text-[#b8551b]">
-            {selectedAlt.code}
-          </span>
+
+          {/* Rationale */}
+          <div>
+            <label className="block font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#7a6d65] mb-1.5">
+              {t('res_compare_rationale_label' as TKey)}
+              {' '}<span className="text-[#b8551b]">*</span>
+            </label>
+            <textarea
+              value={rationale}
+              onChange={(e) => setRationale(e.target.value)}
+              rows={3}
+              placeholder={t('res_compare_rationale_placeholder' as TKey)}
+              autoFocus
+              className="w-full px-3 py-2.5 rounded-[10px] border border-[#e0d6ce] bg-white text-[13px] text-[#231915] leading-[1.5] resize-y outline-none font-[inherit] box-border focus:border-[#b8551b] transition-colors duration-150"
+            />
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div className="flex items-center gap-3 px-6 pb-6 pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 px-4 py-3 rounded-[10px] border border-[#e0d6ce] bg-white text-[14px] font-medium text-[#7a6d65] hover:bg-[#f6f2ed] hover:text-[#231915] transition-colors duration-150 cursor-pointer"
+          >
+            {t('act_cancel' as TKey)}
+          </button>
+          <button
+            type="button"
+            onClick={() => { if (canConfirm) onConfirm(rationale); }}
+            disabled={!canConfirm}
+            className={cn(
+              'flex-[2] px-4 py-3 rounded-[10px] border-none text-[14px] font-semibold transition-[background,color] duration-150',
+              canConfirm
+                ? 'bg-[#b8551b] text-white cursor-pointer hover:bg-[#a04718]'
+                : 'bg-[#f6f2ed] text-[#a3958c] cursor-not-allowed',
+            )}
+          >
+            {t('act_update_hs_code' as TKey)}
+          </button>
         </div>
       </div>
-
-      {/* Rationale textarea */}
-      <div className="mb-2.5">
-        <label className="block font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#7a6d65] mb-1.5">
-          {t('res_compare_rationale_label' as TKey)}
-          {' '}
-          <span className="text-[#b8551b]">*</span>
-        </label>
-        <textarea
-          value={rationale}
-          onChange={(e) => setRationale(e.target.value)}
-          rows={3}
-          placeholder={t('res_compare_rationale_placeholder' as TKey)}
-          className="w-full px-3 py-2.5 rounded-[10px] border border-[#e0d6ce] bg-white text-[13px] text-[#231915] leading-[1.5] resize-y outline-none font-[inherit] box-border focus:border-[#b8551b] transition-colors duration-150"
-        />
-      </div>
-
-      {/* Update HS code button — full width, disabled until rationale filled */}
-      <button
-        type="button"
-        onClick={() => { if (canConfirm) onConfirm(rationale); }}
-        disabled={!canConfirm}
-        className={cn(
-          'w-full px-4 py-3 rounded-[10px] border-none text-[14px] font-semibold transition-[background,color] duration-150',
-          canConfirm
-            ? 'bg-[#b8551b] text-white cursor-pointer'
-            : 'bg-[#f6f2ed] text-[#a3958c] cursor-not-allowed',
-        )}
-      >
-        {t('act_update_hs_code' as TKey)}
-      </button>
     </div>
   );
+
+  // Portal to body so it overlays everything
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }
 
 export default function ResultSingle({
@@ -1116,12 +1201,14 @@ export default function ResultSingle({
                     ))}
                   </div>
 
-                  {/* Compare / rationale / confirm panel — below the list */}
+                  {/* Compare modal — portals to body, appears on alt selection */}
                   {selectedAlt && (
                     <ComparePanel
                       currentCode={r.code ?? ''}
+                      currentDescription={r.label_en ?? r.description_en ?? null}
                       selectedAlt={selectedAlt}
                       onConfirm={(rationale) => handleAltConfirm(selectedAlt.code, rationale)}
+                      onCancel={() => setSelectedAltCode(null)}
                       t={t}
                     />
                   )}
