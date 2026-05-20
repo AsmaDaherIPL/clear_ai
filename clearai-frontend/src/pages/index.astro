@@ -1,8 +1,18 @@
 ---
-import Layout from '../layouts/Layout.astro';
+/**
+ * Home / Classify page.
+ *
+ * Shell: AppShellLayout with "classify" active.
+ * Content: ClassifyApp is wrapped in SignInGate which redirects to /login
+ * if there's no active session.
+ */
+import AppShellLayout from '../layouts/AppShellLayout.astro';
 import ClassifyApp from '../components/ClassifyApp';
+import SignInGate from '../components/SignInGate';
 import '../styles/global.css';
 ---
-<Layout>
-  <ClassifyApp client:load />
-</Layout>
+<AppShellLayout activePage="classify">
+  <SignInGate client:load>
+    <ClassifyApp client:load />
+  </SignInGate>
+</AppShellLayout>

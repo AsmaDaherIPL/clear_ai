@@ -1,7 +1,6 @@
 /** Root React island. Owns mode, phase, request state, drives the page layout. */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import TopBar from './TopBar';
 import Hero from './Hero';
 import ModeTabs, { type ClassifyMode } from './ModeTabs';
 import Composer, { type ComposerExtras } from './Composer';
@@ -966,8 +965,6 @@ export default function ClassifyApp() {
 
   return (
     <>
-      <TopBar />
-
       {/*
         Responsive page column. Width tracks viewport up to a 1180px
         ceiling — clamp keeps it from sprawling on ultrawide monitors
@@ -977,7 +974,7 @@ export default function ClassifyApp() {
         below it. They now share the same 1080px ceiling so the
         composer and result panel align edge-to-edge.
       */}
-      <main className="w-full max-w-[min(95vw,1180px)] mx-auto px-7 pt-20 pb-12">
+      <main className="w-full max-w-[min(95vw,1180px)] mx-auto px-7 pt-10 pb-12">
         <div className="w-full max-w-[1080px] mx-auto">
           <Hero />
 

@@ -1,6 +1,13 @@
 {
   "brand": "كلير AI",
   "brand_meta": "من InfinitePL",
+  "nav_classify": "تصنيف",
+  "nav_bulk": "رفع دفعة",
+  "nav_history": "السجل",
+  "nav_review": "قائمة المراجعة",
+  "nav_collapse": "طيّ الشريط الجانبي",
+  "nav_expand": "توسيع الشريط الجانبي",
+  "nav_menu": "التنقل",
   "eyebrow_text": "مبنيّ على التعريفة الجمركية السعودية الرسمية",
   "title_1": "رمز التعرفة الصحيح،",
   "title_2": "بدقة، لا بتخمين.",

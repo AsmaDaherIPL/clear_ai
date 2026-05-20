@@ -165,24 +165,27 @@ interface SignInGateProps {
 }
 
 /**
- * Back-compat wrapper. Same three-state behaviour as the previous
- * SignInGate but uses the new hook + LoginCard internally. Renders
- * an unstyled stub `<main>` for the unauthenticated state — pages
- * that want the page chrome around the login card should use the
- * `useAuthState` + `<LoginCard />` pattern directly instead.
+ * Auth gate wrapper.
+ *
+ * - 'initialising' — renders nothing (avoids layout flash before MSAL resolves).
+ * - 'unauthenticated' — redirects to /login. The /login page owns the full
+ *   auth UI so the sidebar shell doesn't leak into the login screen.
+ * - 'authenticated' — renders children.
  */
 export default function SignInGate({ children }: SignInGateProps) {
   const state = useAuthState();
-  if (state === 'initialising') return null;
-  if (state === 'unauthenticated') {
+  if (state === 'initialising') {
     return (
-      <main
-        className="grid place-items-center px-7 pt-10 pb-20"
-        style={{ minHeight: 'calc(100vh - 76px)' }}
-      >
-        <LoginCard />
-      </main>
+      <div className="flex items-center justify-center" style={{ minHeight: '100dvh' }}>
+        <span className="w-6 h-6 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin" />
+      </div>
     );
+  }
+  if (state === 'unauthenticated') {
+    if (typeof window !== 'undefined') {
+      window.location.replace('/login');
+    }
+    return null;
   }
   return <>{children}</>;
 }

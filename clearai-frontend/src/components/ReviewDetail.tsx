@@ -14,7 +14,6 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { api, ApiError } from '@/lib/api';
 import type { ReviewQueueRow, ReviewCandidate, CandidateFit, ReviewDecision } from '@/lib/api';
-import TopBar from './TopBar';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -620,7 +619,7 @@ export default function ReviewDetail() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[var(--bg)]">
-        <TopBar />
+
         <div className="max-w-[820px] mx-auto px-6 py-20 text-center">
           <div className="inline-flex items-center gap-2.5 text-[var(--ink-3)] text-[14px]">
             <span className="w-4 h-4 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin" aria-hidden />
@@ -635,7 +634,7 @@ export default function ReviewDetail() {
   if (notFound) {
     return (
       <div className="min-h-screen bg-[var(--bg)]">
-        <TopBar />
+
         <div className="max-w-[820px] mx-auto px-6 py-20 text-center space-y-4">
           <p className="text-[var(--ink-2)] text-[14px]">{t('review_detail_not_found')}</p>
           <button
@@ -659,7 +658,7 @@ export default function ReviewDetail() {
   if (error) {
     return (
       <div className="min-h-screen bg-[var(--bg)]">
-        <TopBar />
+
         <div className="max-w-[820px] mx-auto px-6 py-10">
           <div
             className="px-5 py-4 rounded-[10px] bg-[oklch(0.95_0.07_25)] border border-[oklch(0.88_0.08_25)] text-[13px] text-[oklch(0.35_0.14_25)]"
@@ -688,8 +687,6 @@ export default function ReviewDetail() {
 
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      <TopBar />
-
       {/* Block confirmation modal */}
       {showBlockModal && (
         <BlockModal

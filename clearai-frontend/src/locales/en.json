@@ -1,6 +1,13 @@
 {
   "brand": "Clear AI",
   "brand_meta": "by InfinitePL",
+  "nav_classify": "Classify",
+  "nav_bulk": "Bulk upload",
+  "nav_history": "History",
+  "nav_review": "Review queue",
+  "nav_collapse": "Collapse sidebar",
+  "nav_expand": "Expand sidebar",
+  "nav_menu": "Navigation",
   "eyebrow_text": "Built on the official Saudi customs tariff",
   "title_1": "The right HS code,",
   "title_2": "retrieved, not guessed.",

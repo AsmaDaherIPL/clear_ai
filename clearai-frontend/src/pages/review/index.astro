@@ -1,7 +1,10 @@
 ---
-import Layout from '../../layouts/Layout.astro';
+import AppShellLayout from '../../layouts/AppShellLayout.astro';
 import ReviewQueue from '../../components/ReviewQueue';
+import SignInGate from '../../components/SignInGate';
 ---
-<Layout title="Review Queue — ClearAI">
-  <ReviewQueue client:load />
-</Layout>
+<AppShellLayout activePage="review" title="Review Queue — ClearAI">
+  <SignInGate client:load>
+    <ReviewQueue client:load />
+  </SignInGate>
+</AppShellLayout>

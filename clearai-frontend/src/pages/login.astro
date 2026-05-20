@@ -1,0 +1,16 @@
+---
+/**
+ * /login — standalone authentication page.
+ *
+ * Uses the base Layout (html/head/fonts) but NOT AppShellLayout,
+ * because the sidebar should not render on the login screen.
+ * LoginPage handles its own auth-state check and redirects to '/'
+ * if a valid session already exists.
+ */
+import Layout from '../layouts/Layout.astro';
+import LoginPage from '../components/LoginPage';
+import '../styles/global.css';
+---
+<Layout title="Sign in — Clear AI">
+  <LoginPage client:load />
+</Layout>

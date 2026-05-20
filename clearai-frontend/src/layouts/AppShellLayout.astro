@@ -1,0 +1,32 @@
+---
+/**
+ * AppShellLayout — wraps every authenticated page in the sidebar shell.
+ *
+ * Usage:
+ *   ---
+ *   import AppShellLayout from '@/layouts/AppShellLayout.astro';
+ *   ---
+ *   <AppShellLayout activePage="classify">
+ *     <MyPageComponent client:load />
+ *   </AppShellLayout>
+ *
+ * activePage drives the highlighted nav item.
+ * Valid values: 'classify' | 'bulk' | 'history' | 'review'
+ */
+
+import Layout from './Layout.astro';
+import AppShell, { type PageId } from '@/components/AppShell';
+
+interface Props {
+  activePage: PageId;
+  title?: string;
+}
+
+const { activePage, title } = Astro.props;
+---
+
+<Layout title={title}>
+  <AppShell client:load activePageId={activePage}>
+    <slot />
+  </AppShell>
+</Layout>

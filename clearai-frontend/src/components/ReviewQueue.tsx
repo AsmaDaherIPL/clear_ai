@@ -11,7 +11,6 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { api, ApiError } from '@/lib/api';
 import type { ReviewQueueRow, ReviewReason } from '@/lib/api';
-import TopBar from './TopBar';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,8 +145,6 @@ export default function ReviewQueue() {
 
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      <TopBar />
-
       <main className="max-w-[1080px] mx-auto px-6 py-10">
         {/* Page header */}
         <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">

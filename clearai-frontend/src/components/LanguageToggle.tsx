@@ -5,9 +5,11 @@ import { cn } from '@/lib/utils';
 
 interface LanguageToggleProps {
   className?: string;
+  /** When false (sidebar collapsed), hides the text label. Default true. */
+  showLabel?: boolean;
 }
 
-export default function LanguageToggle({ className }: LanguageToggleProps) {
+export default function LanguageToggle({ className, showLabel = true }: LanguageToggleProps) {
   const t = useT();
   const current = getLocale();
   const other = (current === 'en' ? 'ar' : 'en') as Locale;
@@ -35,13 +37,13 @@ export default function LanguageToggle({ className }: LanguageToggleProps) {
         strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="w-3.5 h-3.5 opacity-70"
+        className="w-3.5 h-3.5 flex-shrink-0 opacity-70"
         aria-hidden="true"
       >
         <circle cx="12" cy="12" r="9" />
         <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
       </svg>
-      <span>{t('langLabel')}</span>
+      {showLabel && <span className="sidebar-label">{t('langLabel')}</span>}
     </button>
   );
 }
