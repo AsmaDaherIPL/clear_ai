@@ -76,10 +76,14 @@ const POLICIES: Record<LlmStage, LlmStagePolicy> = {
   // dominates, so we give it a single 30s attempt; the circuit breaker
   // handles sustained failures.
   identify_web_fallback:     { stage: 'identify_web_fallback',     maxAttempts: 1, timeoutMs: 30000, retryOnParseFailure: false, totalBudgetMs: 30000, onExhausted: 'graceful_degrade' },
-  // Pipeline-rewrite — final picker. 15s per attempt headroom because
-  // a multi-candidate prompt under Foundry load can hit the 10s wall on
-  // first-byte while at quota. 3 attempts × 15s = 50s total budget.
-  pick:                      { stage: 'pick',                      maxAttempts: 3, timeoutMs: 15000, retryOnParseFailure: true,  totalBudgetMs: 50000, onExhausted: 'graceful_degrade' },
+  // Pipeline-rewrite — final picker. 30s per attempt (was 15s, raised
+  // 2026-05-20 after pilot row #8 "Dresses" hit a hard 30s pick on rev
+  // 0000160: identify=3.2s + pick=30s timeout → ZERO_SIGNAL). Foundry
+  // latency for picker calls today shows p50≈9s, p90≈14s, p99≈30s on
+  // multi-candidate prompts; the previous 15s ceiling was triggering
+  // for the long tail (~5-10% of rows). 3 attempts × 30s = 90s total
+  // budget; this is still below the dispatch wall of ~120s.
+  pick:                      { stage: 'pick',                      maxAttempts: 3, timeoutMs: 30000, retryOnParseFailure: true,  totalBudgetMs: 90000, onExhausted: 'graceful_degrade' },
 };
 
 export function getLlmStagePolicy(stage: LlmStage): LlmStagePolicy {

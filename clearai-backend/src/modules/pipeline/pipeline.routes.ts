@@ -410,7 +410,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       const pickAction = trace ? findActionInTrace(trace, 'pick') : null;
       const pickOutput =
         (pickAction?.output as
-          | { kind?: string; confidence?: number; fit?: string }
+          | { kind?: string; confidence?: number; fit?: string; reason?: string }
           | undefined) ?? {};
       const v2RetrievalQuery =
         identifyOutput.kind === 'clean_product' ? identifyOutput.canonical ?? null : null;
@@ -432,6 +432,15 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
               pickKind:
                 pickOutput.kind === 'accepted' || pickOutput.kind === 'escalate'
                   ? pickOutput.kind
+                  : null,
+              pickReason:
+                pickOutput.kind === 'escalate' &&
+                (pickOutput.reason === 'scope_escalate' ||
+                  pickOutput.reason === 'no_candidates' ||
+                  pickOutput.reason === 'no_candidate_fits' ||
+                  pickOutput.reason === 'identify_no_query' ||
+                  pickOutput.reason === 'picker_unavailable')
+                  ? pickOutput.reason
                   : null,
               pickFit:
                 pickOutput.fit === 'fits' ||

@@ -618,13 +618,17 @@ export function retrievalQueryFromTrace(trace: PipelineTrace): string | null {
  * function's output directly.
  *
  * Rules (priority order):
- *   1. pick.kind === 'escalate'                         → ZERO_SIGNAL
- *   2. verify?.result === 'UNCERTAIN'                   → DRIFT
- *   3. clean_product + identify.confidence < 0.60       → DRIFT
+ *   1. pick.kind === 'escalate' + reason='picker_unavailable' → AMBIGUOUS
+ *      (transport failed; identify + retrieval succeeded; retry-eligible)
+ *   2. pick.kind === 'escalate' (any other reason)            → ZERO_SIGNAL
+ *      (genuine "couldn't classify": no_candidates, all does_not_fit,
+ *      scope_escalate, identify_no_query)
+ *   3. verify?.result === 'UNCERTAIN'                   → DRIFT
+ *   4. clean_product + identify.confidence < 0.60       → DRIFT
  *      (brand-only-rescue path — identify was a guess, even if pick
  *       said fits, downstream review must double-check)
- *   4. clean_product + pick.fit === 'fits'              → AGREEMENT
- *   5. otherwise                                        → DRIFT
+ *   5. clean_product + pick.fit === 'fits'              → AGREEMENT
+ *   6. otherwise                                        → DRIFT
  */
 const IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD_FOR_STATUS = 0.60;
 
@@ -633,15 +637,29 @@ const IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD_FOR_STATUS = 0.60;
  * Use this when you have the raw fields but no PipelineTrace object
  * (e.g. reading stored JSONB and walking actions). The full-trace form
  * `classificationStatusFromTrace` below is a thin wrapper.
+ *
+ * PR7 / 2026-05-20: when pick escalates with reason='picker_unavailable'
+ * (Foundry transport timeout / 5xx after retry budget exhausted), emit
+ * AMBIGUOUS instead of ZERO_SIGNAL. Rationale: the row had a clean
+ * identify + retrieval — it failed only because the LLM transport
+ * was unavailable. ZERO_SIGNAL is reserved for "the pipeline could
+ * not produce a defensible code" (garbage input, no candidates, all
+ * does_not_fit). AMBIGUOUS lets the SPA route these rows to the
+ * "retryable / waiting on LLM" HITL bucket separately from the
+ * "we genuinely couldn't classify this" bucket.
  */
 export function deriveClassificationStatus(input: {
   pickKind: 'accepted' | 'escalate' | null | undefined;
+  pickReason: 'scope_escalate' | 'no_candidates' | 'no_candidate_fits' | 'identify_no_query' | 'picker_unavailable' | null | undefined;
   pickFit: 'fits' | 'partial' | 'does_not_fit' | null | undefined;
   identifyKind: 'clean_product' | 'multi_product' | 'uninformative' | null | undefined;
   identifyConfidence: number | null | undefined;
   verifyResult: 'PASS' | 'UNCERTAIN' | null | undefined;
 }): ClassificationStatus | null {
-  if (input.pickKind === 'escalate') return 'ZERO_SIGNAL';
+  if (input.pickKind === 'escalate') {
+    if (input.pickReason === 'picker_unavailable') return 'AMBIGUOUS';
+    return 'ZERO_SIGNAL';
+  }
   if (input.verifyResult === 'UNCERTAIN') return 'DRIFT';
   if (
     input.identifyKind === 'clean_product' &&
@@ -657,6 +675,7 @@ export function deriveClassificationStatus(input: {
 export function classificationStatusFromTrace(trace: PipelineTrace): ClassificationStatus | null {
   return deriveClassificationStatus({
     pickKind: trace.pick.kind,
+    pickReason: trace.pick.kind === 'escalate' ? trace.pick.reason : null,
     pickFit: trace.pick.kind === 'accepted' ? trace.pick.fit : null,
     identifyKind: trace.identify.kind,
     identifyConfidence: trace.identify.kind === 'clean_product' ? trace.identify.confidence : null,

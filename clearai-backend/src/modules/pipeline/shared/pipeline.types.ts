@@ -350,6 +350,7 @@ export type VerdictDecision = 'accept' | 'escalate';
 export type ClassificationStatus =
   | 'AGREEMENT'
   | 'DRIFT'
+  | 'AMBIGUOUS'
   | 'ZERO_SIGNAL'
   | 'BLOCKED_BY_REVIEWER';
 

@@ -104,6 +104,7 @@ unless noted.
 | PR4 | Retrieval telemetry (per-stage trace fields, embedder cache, query metadata, R13 token usage) | `ba5ca45` (rev 0000150) |
 | PR5 | L3 classification_status single source (deriveClassificationStatus canonical helper) | `0fb682a` (rev 0000151) |
 | PR6 | Shadow sampling + hitl_feedback table + cost circuit breaker (other PR6 items DEFERRED — see below) | `d0342e5` (rev 0000152) |
+| PR7 | Picker timeout 15s→30s (totalBudget 50s→90s) + AMBIGUOUS classification_status for picker_unavailable (item #8 Dresses fix) + identify_fast multi_product class-shift rule + examples | pending (rev TBD) |
 
 ## Still open — moved from PR6 deferrals
 
@@ -113,8 +114,8 @@ The following PR6 items were scoped out because they require deeper plumbing tha
 |---|---|---|---|
 | **PR6.3** | Surface `missing_attributes` to HITL | Requires `PickAccepted.missing_attributes` field + new HITL reason routing + SPA contract change | S |
 | **PR6.5 (L9)** | Merchant taxonomy unification (`partial_family`/`chapter_adjacent` → `partial`) | Touches `normalizeFit` alias used to read historical traces; SPA may have stored values | S |
-| **PR6.6** | Identify_fast multi_product detection | Needs prompt update + parser handling for multi_product output | S |
-| **PR6.7** | Status differentiation (`AMBIGUOUS` for picker_unavailable) | Requires new value in `ClassificationStatus` enum + DB CHECK widen + SPA contract change | S |
+| ~~PR6.6~~ | ~~Identify_fast multi_product detection~~ | **Shipped in PR7** — prompt-only update (class-shift rule + examples); parser already handled `multi_product`. | — |
+| ~~PR6.7~~ | ~~Status differentiation (`AMBIGUOUS` for picker_unavailable)~~ | **Shipped in PR7** — TypeScript-only. AGREEMENT/DRIFT/ZERO_SIGNAL aren't stored in a SQL CHECK constraint (derived from JSONB trace), so no DB migration needed. | — |
 
 Tracker convention: when picking up a task, move it from its section
 above into the Done table with the commit SHA. Keep both halves of the

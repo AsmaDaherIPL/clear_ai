@@ -81,7 +81,8 @@ function shouldRunWebFallback(fastResult: IdentifyResult): boolean {
  * time without constructing a full PipelineTrace first. If you change one,
  * change the other in lockstep — there's a test that pins they agree.
  *
- *   pick escalate                                            -> ZERO_SIGNAL
+ *   pick escalate + reason='picker_unavailable'              -> AMBIGUOUS (PR7)
+ *   pick escalate (any other reason)                         -> ZERO_SIGNAL
  *   pick accepted + verify UNCERTAIN                         -> DRIFT
  *   pick accepted + identify.confidence < HITL_THRESHOLD     -> DRIFT (brand-rescue)
  *   pick accepted + verify PASS + clean_product + fits       -> AGREEMENT
@@ -92,7 +93,10 @@ function classificationStatusFor(
   identify: IdentifyResult,
   verify: { result: 'PASS' | 'UNCERTAIN' } | null,
 ): ClassificationStatus | null {
-  if (pick.kind === 'escalate') return 'ZERO_SIGNAL';
+  if (pick.kind === 'escalate') {
+    if (pick.reason === 'picker_unavailable') return 'AMBIGUOUS';
+    return 'ZERO_SIGNAL';
+  }
   if (verify?.result === 'UNCERTAIN') return 'DRIFT';
   if (
     identify.kind === 'clean_product' &&

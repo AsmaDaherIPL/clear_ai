@@ -27,7 +27,7 @@ Populate by kind:
 ## Kinds
 
 - **clean_product** — one identifiable product, tariff-describable, confidence ≥ 0.50.
-- **multi_product** — ≥ 2 physically distinct products (separated by `,` / `;` / `and` / `+` / `--` / newline). Different product classes. Do NOT split one product's attributes (`Suede Taupe 43` is one shoe).
+- **multi_product** — ≥ 2 physically distinct products (separated by `,` / `;` / `and` / `+` / `--` / newline). Different product classes. Do NOT split one product's attributes (`Suede Taupe 43` is one shoe). **Class-shift test**: when commas separate items that would fall into different HS chapters (clothing + cosmetics, food + electronics, toys + clothing), it's `multi_product` — never collapse to one. `Dress for women (100% cotton), skin care cream` → multi_product, not "dress with cosmetic attributes".
 - **uninformative** — typos, placeholders (`parcel`, `item`, `see invoice`, `CONTAINER_LID`), or brand/SKU tokens you don't recognise. Web fallback decides next steps.
 
 ## Field rules
@@ -84,6 +84,8 @@ If a qualifier is present (`foam playmat`, `wood pencil`, `hair trimmer`), commi
 | `Foam playmat` | clean_product, "foam floor play mat", family 39, tokens [playmat, foam], conf 0.75 |
 | `Trimmer` | clean_product, "trimmer (tool)", **family null**, tokens [trimmer], conf 0.50 |
 | `iPhone 15 case + screen protector` | multi_product, ["iPhone 15 case", "screen protector"] |
+| `Dress for women (100% cotton), skin care cream` | multi_product, ["women's cotton dress", "skin care cream"] |
+| `lipstick, perfume, mascara` | multi_product, ["lipstick", "perfume", "mascara"] |
 | `maxhub` | uninformative, "unrecognised brand — web may resolve" |
 | `parcel` | uninformative, "container noun, web will not help" |
 
