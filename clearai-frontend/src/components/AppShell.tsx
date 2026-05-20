@@ -1,97 +1,73 @@
 /**
- * AppShell — persistent sidebar + page content slot.
+ * AppShell — sidebar shell matching the prototype design exactly.
  *
- * Architecture decisions:
- * - Sidebar state (open/collapsed) lives in localStorage under
- *   "sidebar_collapsed" so it persists across page loads without a
- *   server round-trip. Default is open.
- * - The sidebar is position:fixed on the inline-start edge. The main
- *   content area uses margin-inline-start (logical property) so the
- *   layout mirrors correctly in RTL.
- * - CSS transitions (.app-sidebar, .app-main, .sidebar-label, etc.) are
- *   defined in global.css — no inline transition styles here.
- * - Nav items are identified by a string id. The icon map lives here so
- *   SVG nodes don't have to cross the Astro/React serialisation boundary.
- * - Tooltip wraps each nav icon when collapsed so keyboard/screen-reader
- *   users always see the label.
+ * Prototype spec (extracted from ClearAI Prototype _standalone_.html):
+ *   - Width: 248px open, 72px collapsed
+ *   - Background: #ffffff, border-right: 1px solid #ede4dc
+ *   - Header: WordMark left + dock_to_right icon button right (no bottom border)
+ *   - Nav: 3 items — Classify (auto_awesome), Bulk upload (upload_file), History (history)
+ *     Review queue is NOT in prototype sidebar — omitted
+ *   - Active: bg #fff1e5, color #7a3000, font-weight 600
+ *   - Inactive: color #7a6d65, font-weight 500, hover bg #f6f2ed
+ *   - Footer: avatar img + name + workspace + logout icon button
+ *   - Icons: Material Symbols Outlined variable font
+ *   - Collapse: stores in localStorage
+ *
+ * The main content area uses margin-inline-start (logical property) so
+ * RTL mirrors automatically.
  */
 
 import { useState, useEffect, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { useT, type TKey } from '@/lib/i18n';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider,
-} from '@/components/ui/tooltip';
-import LanguageToggle from './LanguageToggle';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { ensureInitialized, getActiveAccount, signOut } from '@/lib/auth';
 
 // ---------------------------------------------------------------------------
-// Page id type
+// Page id type — Review queue handled outside sidebar per prototype
 // ---------------------------------------------------------------------------
 
 export type PageId = 'classify' | 'bulk' | 'history' | 'review';
 
 // ---------------------------------------------------------------------------
-// Nav icon registry — all 20×20, strokeWidth 1.75
+// Material Symbol icon helper — matches prototype Icon component exactly
 // ---------------------------------------------------------------------------
 
-const NAV_ICONS: Record<PageId, ReactNode> = {
-  classify: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5" aria-hidden>
-      <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
-    </svg>
-  ),
-  bulk: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5" aria-hidden>
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="12" y1="18" x2="12" y2="12" />
-      <line x1="9" y1="15" x2="15" y2="15" />
-    </svg>
-  ),
-  history: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5" aria-hidden>
-      <path d="M3 3v5h5" />
-      <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
-      <polyline points="12 7 12 12 15 15" />
-    </svg>
-  ),
-  review: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5" aria-hidden>
-      <path d="M9 11l3 3L22 4" />
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-    </svg>
-  ),
-};
-
-const NAV_LABEL_KEYS: Record<PageId, TKey> = {
-  classify: 'nav_classify' as TKey,
-  bulk:     'nav_bulk'     as TKey,
-  history:  'nav_history'  as TKey,
-  review:   'nav_review'   as TKey,
-};
-
-const NAV_HREFS: Record<PageId, string> = {
-  classify: '/',
-  bulk:     '/?mode=batch',
-  history:  '/history',
-  review:   '/review',
-};
-
-const NAV_ORDER: PageId[] = ['classify', 'bulk', 'history', 'review'];
+function Icon({
+  name,
+  size = 20,
+  fill = 0,
+  weight = 400,
+}: {
+  name: string;
+  size?: number;
+  fill?: number;
+  weight?: number;
+}) {
+  return (
+    <span
+      className="material-symbols-outlined"
+      style={{
+        fontSize: size,
+        fontVariationSettings: `'FILL' ${fill}, 'wght' ${weight}, 'GRAD' 0, 'opsz' ${size}`,
+        lineHeight: 1,
+        flexShrink: 0,
+      }}
+      aria-hidden="true"
+    >
+      {name}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
-// Brand logo mark — exact SVG from prototype source
+// Logo — exact prototype SVG
 // ---------------------------------------------------------------------------
 
-function LogoMark({ size = 22 }: { size?: number; className?: string }) {
-  const w = size;
+function Logo({ size = 22 }: { size?: number }) {
   const h = size * (63 / 60);
   return (
-    <svg width={w} height={h} viewBox="0 0 60 63" fill="none" aria-hidden xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+    <svg width={size} height={h} viewBox="0 0 60 63" fill="none" aria-hidden xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
       <rect width="60" height="11.55" rx="2.8" fill="#15110D" />
       <circle cx="12" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
       <circle cx="26" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
@@ -111,77 +87,125 @@ function LogoMark({ size = 22 }: { size?: number; className?: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Collapse toggle chevron
+// WordMark — logo + "Clear AI" label
 // ---------------------------------------------------------------------------
 
-function CollapseChevron() {
+function WordMark({ size = 22 }: { size?: number }) {
+  const t = useT();
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="w-4 h-4 sidebar-toggle-icon"
-      aria-hidden="true"
+    <a
+      href="/"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 10,
+        textDecoration: 'none',
+        outline: 'none',
+      }}
     >
-      <path d="M15 18l-6-6 6-6" />
-    </svg>
+      <Logo size={size} />
+      <span
+        className="sidebar-wordmark"
+        style={{
+          fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+          fontWeight: 700,
+          fontSize: size * 0.78,
+          letterSpacing: '-0.01em',
+          color: '#231915',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {t('brand' as TKey)}
+      </span>
+    </a>
   );
 }
 
 // ---------------------------------------------------------------------------
-// NavRow
+// Nav items — 3 items matching prototype (no review queue)
+// ---------------------------------------------------------------------------
+
+type NavId = 'classify' | 'bulk' | 'history';
+
+interface NavItem {
+  id: NavId;
+  icon: string;
+  labelKey: TKey;
+  href: string;
+  /** Extra page ids that should light up this nav item */
+  aliases?: PageId[];
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { id: 'classify', icon: 'auto_awesome',  labelKey: 'nav_classify' as TKey, href: '/',       aliases: ['review'] },
+  { id: 'bulk',     icon: 'upload_file',   labelKey: 'nav_bulk'     as TKey, href: '/?mode=batch' },
+  { id: 'history',  icon: 'history',       labelKey: 'nav_history'  as TKey, href: '/history' },
+];
+
+function isNavActive(item: NavItem, activePageId: PageId): boolean {
+  if (item.id === activePageId) return true;
+  return item.aliases?.includes(activePageId) ?? false;
+}
+
+// ---------------------------------------------------------------------------
+// Single nav row
 // ---------------------------------------------------------------------------
 
 function NavRow({
-  pageId,
+  item,
   isActive,
   collapsed,
 }: {
-  pageId: PageId;
+  item: NavItem;
   isActive: boolean;
   collapsed: boolean;
 }) {
   const t = useT();
-  const label = t(NAV_LABEL_KEYS[pageId]);
+  const label = t(item.labelKey);
 
-  const inner = (
+  const btn = (
     <a
-      href={NAV_HREFS[pageId]}
+      href={item.href}
       aria-current={isActive ? 'page' : undefined}
-      className={cn(
-        'group flex items-center gap-3',
-        'px-3 py-2.5 rounded-[10px]',
-        'text-[13.5px] font-medium',
-        'transition-colors duration-150',
-        'outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
-        isActive
-          ? 'bg-[var(--sidebar-nav-active-bg)] text-[var(--sidebar-nav-active-ink)]'
-          : 'text-[var(--ink-2)] hover:bg-[var(--sidebar-nav-hover-bg)] hover:text-[var(--ink)]',
-      )}
+      style={{
+        appearance: 'none' as const,
+        background: isActive ? '#fff1e5' : 'transparent',
+        color: isActive ? '#7a3000' : '#7a6d65',
+        border: 0,
+        padding: collapsed ? '12px 0' : '11px 14px',
+        borderRadius: 10,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: collapsed ? 'center' : 'flex-start',
+        gap: 12,
+        fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+        fontSize: 14,
+        fontWeight: isActive ? 600 : 500,
+        textDecoration: 'none',
+        cursor: 'pointer',
+        width: '100%',
+        transition: 'background 140ms ease, color 140ms ease',
+        outline: 'none',
+        boxSizing: 'border-box' as const,
+      }}
+      onMouseEnter={(e) => {
+        if (!isActive) (e.currentTarget as HTMLAnchorElement).style.background = '#f6f2ed';
+      }}
+      onMouseLeave={(e) => {
+        if (!isActive) (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';
+      }}
     >
-      <span
-        className={cn(
-          'flex-shrink-0 w-5 h-5 flex items-center justify-center',
-          isActive ? 'opacity-100' : 'opacity-55 group-hover:opacity-85',
-        )}
-      >
-        {NAV_ICONS[pageId]}
-      </span>
-      <span className="sidebar-label">{label}</span>
+      <Icon name={item.icon} size={20} fill={isActive ? 1 : 0} weight={isActive ? 500 : 400} />
+      {!collapsed && <span className="sidebar-label">{label}</span>}
     </a>
   );
 
-  if (!collapsed) return inner;
+  if (!collapsed) return btn;
 
   return (
     <Tooltip delayDuration={100}>
-      <TooltipTrigger asChild>{inner}</TooltipTrigger>
-      <TooltipContent side="right" sideOffset={10}>
-        {label}
-      </TooltipContent>
+      <TooltipTrigger asChild>{btn}</TooltipTrigger>
+      <TooltipContent side="right" sideOffset={10}>{label}</TooltipContent>
     </Tooltip>
   );
 }
@@ -228,136 +252,234 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
     });
   }
 
+  const W = collapsed ? 72 : 248;
+
   return (
     <TooltipProvider>
-      {/* Sidebar */}
+      {/* ----------------------------------------------------------------
+          Sidebar
+      ---------------------------------------------------------------- */}
       <aside
-        className={cn(
-          'app-sidebar',
-          'fixed inset-y-0 start-0 z-30',
-          'flex flex-col',
-          'bg-[var(--sidebar-bg)] border-e border-[var(--sidebar-border)]',
-        )}
-        data-collapsed={collapsed ? 'true' : 'false'}
         aria-label={t('nav_menu' as TKey)}
+        style={{
+          width: W,
+          position: 'fixed',
+          inset: '0 auto 0 0',
+          background: '#ffffff',
+          borderRight: '1px solid #ede4dc',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 50,
+          transition: 'width 200ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+          overflow: 'hidden',
+        }}
       >
-        {/* Brand header row */}
-        <div
-          className="flex items-center gap-3 px-3 border-b border-[var(--sidebar-border)] flex-shrink-0 overflow-hidden"
-          style={{ height: 'var(--topbar-height)' }}
-        >
-          <a
-            href="/"
-            className="flex items-center gap-3 min-w-0 text-[var(--ink)] no-underline rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-          >
-            <LogoMark size={22} />
-            <span className="sidebar-wordmark text-[14px] tracking-tight" style={{ fontWeight: 700, color: '#231915', letterSpacing: '-0.01em' }}>
-              {t('brand' as TKey)}
-            </span>
-          </a>
-        </div>
-
-        {/* Nav links */}
-        <nav
-          className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 flex flex-col gap-0.5"
-        >
-          {NAV_ORDER.map((id) => (
-            <NavRow
-              key={id}
-              pageId={id}
-              isActive={id === activePageId}
-              collapsed={collapsed}
-            />
-          ))}
-        </nav>
-
-        {/* Bottom: language toggle + account + collapse button */}
-        <div className="flex-shrink-0 px-2 py-3 border-t border-[var(--sidebar-border)] flex flex-col gap-0.5">
-          {/* Language toggle */}
-          <LanguageToggle
-            showLabel={!collapsed}
-            className={cn(
-              'w-full justify-start! rounded-[10px]! px-3! py-2.5!',
-              'border-transparent! bg-transparent!',
-              'hover:bg-[var(--sidebar-nav-hover-bg)]! hover:border-transparent!',
-              'text-[13.5px]!',
-              collapsed && 'justify-center!',
-            )}
-          />
-
-          {/* Sign out */}
-          {authReady && accountName && (
-            <Tooltip delayDuration={100}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => { void signOut(); }}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-[10px] w-full',
-                    'text-[13.5px] font-medium text-[var(--ink-2)]',
-                    'hover:bg-[var(--sidebar-nav-hover-bg)] hover:text-[var(--ink)]',
-                    'transition-colors duration-150 outline-none',
-                    'focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
-                  )}
-                >
-                  <span
-                    className="flex-shrink-0 w-5 h-5 rounded-full bg-[var(--sidebar-nav-active-bg)] flex items-center justify-center text-[9px] font-bold text-[var(--sidebar-nav-active-ink)] uppercase"
-                    aria-hidden
-                  >
-                    {accountName.charAt(0)}
-                  </span>
-                  <span className="sidebar-label truncate text-start">
-                    {t('signout' as TKey)}
-                  </span>
-                </button>
-              </TooltipTrigger>
-              {collapsed && (
-                <TooltipContent side="right" sideOffset={10}>
-                  {accountName} — {t('signout' as TKey)}
-                </TooltipContent>
-              )}
-            </Tooltip>
-          )}
-
-          {/* Collapse / expand toggle */}
+        {/* Header: wordmark + collapse toggle */}
+        <div style={{
+          padding: collapsed ? '18px 0' : '18px 18px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: collapsed ? 'center' : 'space-between',
+          gap: 8,
+          flexShrink: 0,
+        }}>
+          {!collapsed && <WordMark size={22} />}
           <Tooltip delayDuration={100}>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={toggle}
                 aria-label={collapsed ? t('nav_expand' as TKey) : t('nav_collapse' as TKey)}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-[10px] w-full',
-                  'text-[var(--ink-3)] hover:text-[var(--ink-2)]',
-                  'hover:bg-[var(--sidebar-nav-hover-bg)]',
-                  'transition-colors duration-150 outline-none',
-                  'focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
-                )}
+                style={{
+                  background: 'transparent',
+                  border: 0,
+                  padding: 8,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  color: '#7a6d65',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 120ms ease, color 120ms ease',
+                  flexShrink: 0,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = '#f6f2ed';
+                  (e.currentTarget as HTMLButtonElement).style.color = '#231915';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLButtonElement).style.color = '#7a6d65';
+                }}
               >
-                <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
-                  <CollapseChevron />
-                </span>
-                <span className="sidebar-label text-[13px]">
-                  {t('nav_collapse' as TKey)}
-                </span>
+                <Icon name="dock_to_right" size={20} />
               </button>
             </TooltipTrigger>
-            {collapsed && (
-              <TooltipContent side="right" sideOffset={10}>
-                {t('nav_expand' as TKey)}
-              </TooltipContent>
-            )}
+            <TooltipContent side="right" sideOffset={10}>
+              {collapsed ? t('nav_expand' as TKey) : t('nav_collapse' as TKey)}
+            </TooltipContent>
           </Tooltip>
         </div>
+
+        {/* Nav items */}
+        <nav style={{
+          padding: collapsed ? '8px 8px' : '8px 12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          flexShrink: 0,
+        }}>
+          {NAV_ITEMS.map((item) => (
+            <NavRow
+              key={item.id}
+              item={item}
+              isActive={isNavActive(item, activePageId)}
+              collapsed={collapsed}
+            />
+          ))}
+        </nav>
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Footer: user profile */}
+        {authReady && (
+          <div style={{
+            padding: collapsed ? '12px 8px' : '12px 14px',
+            borderTop: '1px solid #ede4dc',
+            flexShrink: 0,
+          }}>
+            {collapsed ? (
+              /* Collapsed: just avatar */
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => { void signOut(); }}
+                    title={accountName ?? ''}
+                    style={{
+                      width: '100%',
+                      background: 'transparent',
+                      border: 0,
+                      padding: 4,
+                      borderRadius: 10,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <UserAvatar name={accountName} size={36} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={10}>
+                  {accountName} — {t('signout' as TKey)}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              /* Expanded: avatar + name + workspace + logout icon */
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <UserAvatar name={accountName} size={36} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: '#231915',
+                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}>
+                    {accountName ?? '—'}
+                  </div>
+                  <div style={{
+                    fontSize: 11,
+                    color: '#7a6d65',
+                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}>
+                    ClearAI
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { void signOut(); }}
+                  title={t('nav_signout_title' as TKey)}
+                  style={{
+                    background: 'transparent',
+                    border: 0,
+                    padding: 6,
+                    color: '#7a6d65',
+                    cursor: 'pointer',
+                    borderRadius: 8,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    transition: 'color 120ms, background 120ms',
+                    flexShrink: 0,
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.color = '#231915';
+                    (e.currentTarget as HTMLButtonElement).style.background = '#f6f2ed';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.color = '#7a6d65';
+                    (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                  }}
+                >
+                  <Icon name="logout" size={18} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </aside>
 
-      {/* Main content */}
+      {/* ----------------------------------------------------------------
+          Main content — shifts right to clear the sidebar
+      ---------------------------------------------------------------- */}
       <div
-        className="app-main"
-        data-sidebar-collapsed={collapsed ? 'true' : 'false'}
+        style={{
+          marginInlineStart: W,
+          transition: 'margin-inline-start 200ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+          minHeight: '100dvh',
+        }}
       >
         {children}
       </div>
     </TooltipProvider>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UserAvatar — initials fallback (no photo available from MSAL accounts)
+// ---------------------------------------------------------------------------
+
+function UserAvatar({ name, size = 36 }: { name: string | null; size?: number }) {
+  const initials = name
+    ? name.split(' ').map((p) => p.charAt(0).toUpperCase()).slice(0, 2).join('')
+    : '?';
+
+  return (
+    <div
+      aria-hidden
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: '#fff1e5',
+        color: '#7a3000',
+        fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+        fontSize: size * 0.36,
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        letterSpacing: '0.02em',
+      }}
+    >
+      {initials}
+    </div>
   );
 }
