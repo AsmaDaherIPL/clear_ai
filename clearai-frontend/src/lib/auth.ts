@@ -1,5 +1,8 @@
 /**
  * MSAL.js Authorization Code + PKCE setup.
+ * PUBLIC_ENTRA_* vars are baked in at build time by Vite (import.meta.env).
+ * If the deployed bundle shows getMsal() as a bare throw, the build ran
+ * without env vars — ensure CI has PUBLIC_ENTRA_* set in repo Variables.
  *
  * The browser talks directly to APIM, attaching a USER-issued Entra
  * access token. The old SWA-managed-Functions BFF held a

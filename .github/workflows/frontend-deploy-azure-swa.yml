@@ -94,6 +94,14 @@ jobs:
       # access token. The SWA-managed-Functions BFF that used to live at
       # clearai-frontend/api/ was deleted on 2026-05-07 — see commit history
       # if you're chasing the BFF source (clearaiProxy.ts).
+      # Clear Vite's transform cache so import.meta.env substitutions are
+      # always evaluated with the current env vars. Without this, Vite may
+      # reuse a cached transform from a prior run where PUBLIC_* were empty,
+      # producing a bundle where getMsal() was tree-shaken to just a throw.
+      - name: Clear Vite cache
+        working-directory: clearai-frontend
+        run: rm -rf node_modules/.vite
+
       - name: Build SPA
         working-directory: clearai-frontend
         env:
