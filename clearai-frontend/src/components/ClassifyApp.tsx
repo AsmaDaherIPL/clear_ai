@@ -1,7 +1,6 @@
 /** Root React island. Owns mode, phase, request state, drives the page layout. */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import Hero from './Hero';
 import ModeTabs, { type ClassifyMode } from './ModeTabs';
 import Composer, { type ComposerExtras } from './Composer';
 import ProcessingSteps from './ProcessingSteps';
@@ -9,7 +8,7 @@ import ResultSingle from './ResultSingle';
 import ResultBatch from './ResultBatch';
 import Footer from './Footer';
 import { useAuthState, LoginCard } from './SignInGate';
-import { useT } from '@/lib/i18n';
+import { useT, getLocale, setLocale, type Locale } from '@/lib/i18n';
 import {
   api,
   ApiError,
@@ -963,28 +962,90 @@ export default function ClassifyApp() {
     return () => window.cancelAnimationFrame(raf);
   }, [phase]);
 
+  const locale = getLocale();
+
   return (
     <>
-      {/*
-        Responsive page column. Width tracks viewport up to a 1180px
-        ceiling — clamp keeps it from sprawling on ultrawide monitors
-        while honouring narrower laptop screens. The inner wrapper
-        used to be capped at 760px so the composer felt prose-style,
-        but the form was visually narrower than the result cards
-        below it. They now share the same 1080px ceiling so the
-        composer and result panel align edge-to-edge.
-      */}
-      <main className="w-full max-w-[min(95vw,1180px)] mx-auto px-7 pt-10 pb-12">
-        <div className="w-full max-w-[1080px] mx-auto">
-          <Hero />
+      <main className="w-full max-w-[min(95vw,1280px)] mx-auto px-8 pt-10 pb-16">
 
-          {/*
-            Centre slot. While MSAL is initialising we render an
-            invisible spacer matched to the composer's roughly 200px
-            footprint so the page doesn't jump when the auth state
-            resolves. Unauthenticated → LoginCard. Authenticated →
-            ModeTabs + Composer + processing steps + error region.
-          */}
+        {/* ----------------------------------------------------------------
+            Page header — matches prototype: eyebrow + h1 + subtitle + lang toggle
+        ---------------------------------------------------------------- */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32, gap: 16 }}>
+          <div>
+            <p style={{
+              fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              color: '#b8551b',
+              textTransform: 'uppercase',
+              margin: '0 0 10px',
+            }}>
+              {t('classify_eyebrow')}
+            </p>
+            <h1 style={{
+              fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+              fontSize: 'clamp(24px, 3.2vw, 36px)',
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
+              color: '#231915',
+              margin: '0 0 10px',
+              lineHeight: 1.15,
+            }}>
+              {t('classify_title')}
+            </h1>
+            <p style={{
+              fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+              fontSize: 14,
+              color: '#7a6d65',
+              margin: 0,
+              maxWidth: 560,
+              lineHeight: 1.55,
+            }}>
+              {t('classify_subtitle')}
+            </p>
+          </div>
+
+          {/* EN / AR language toggle — top-right per prototype */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+            flexShrink: 0,
+            paddingTop: 4,
+          }}>
+            <button
+              type="button"
+              onClick={() => setLocale('en' as Locale)}
+              style={{
+                background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit',
+                color: locale === 'en' ? '#231915' : '#a3958c',
+                transition: 'color 120ms',
+              }}
+            >EN</button>
+            <span style={{ color: '#d9cdc2' }}>/</span>
+            <button
+              type="button"
+              onClick={() => setLocale('ar' as Locale)}
+              style={{
+                background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 'inherit',
+                color: locale === 'ar' ? '#231915' : '#a3958c',
+                transition: 'color 120ms',
+              }}
+            >AR</button>
+          </div>
+        </div>
+
+        {/* ----------------------------------------------------------------
+            Classifier body
+        ---------------------------------------------------------------- */}
+        <div className="w-full">
           {authState === 'initialising' && (
             <div aria-hidden style={{ minHeight: '200px' }} />
           )}
@@ -1001,9 +1062,7 @@ export default function ClassifyApp() {
                 ModeTabs stays mounted ALWAYS — even during a live batch run.
                 Hiding the mode pills during batch processing trapped the
                 user inside batch view with no visible way to pivot back
-                to Generate / Expand. Tabs are short and unobtrusive; the
-                result panel below still gets visual weight because only
-                the composer (the heavy textarea + dropzone block) collapses.
+                to Generate / Expand.
               */}
               <div className="flex flex-col items-center">
                 <ModeTabs mode={mode} onModeChange={setMode} />
@@ -1013,13 +1072,7 @@ export default function ClassifyApp() {
                 Composer collapser. In batch mode, the moment a file
                 upload kicks off (`batchState.phase !== 'idle'`) we
                 collapse just the Composer so the result panel below
-                gets the full visual weight. The wrapper animates
-                max-height + opacity + margin-top in lockstep on the
-                same cubic-bezier so the page reflow feels intentional.
-
-                Generate / expand modes never collapse — those flows
-                expect the composer to stay editable while results
-                render below it.
+                gets the full visual weight.
               */}
               {(() => {
                 const composerCollapsed =
@@ -1054,7 +1107,6 @@ export default function ClassifyApp() {
                 );
               })()}
 
-              {/* Anchor wrappers stay mounted across phase transitions so refs are stable. */}
               <div ref={stepsRef} className="scroll-mt-20">
                 <ProcessingSteps
                   visible={phase === 'classifying'}
@@ -1077,11 +1129,10 @@ export default function ClassifyApp() {
           )}
         </div>
 
-        {/* Result lives outside the 760 inner wrapper so it breathes at full 1180px. */}
+        {/* Result panel — full width of the page column */}
         <div ref={resultRef} className="scroll-mt-20">
           {authState === 'authenticated' && (
             <div className="mt-6">
-              {/* Single-shot result. Only fills when phase='result' on the active single mode. */}
               {phase === 'result' && (mode === 'generate' || mode === 'expand') && (
                 <ResultSingle
                   visible
@@ -1092,13 +1143,8 @@ export default function ClassifyApp() {
                 />
               )}
               {/*
-                Batch result. Mounts during upload + polling so the user
-                sees progress. Breaks out of the <main>'s 1180px constraint
-                via the classic full-bleed pattern (w-[85vw] + left:50% +
-                -translate-x-1/2 relative to its anchor) so the wide table
-                gets the room it needs without affecting Generate/Expand
-                layouts above. Capped at max-w-[1600px] so it doesn't
-                sprawl on ultrawide monitors.
+                Batch result. Breaks out of the main column constraint via the
+                full-bleed pattern so the wide table gets the room it needs.
               */}
               {mode === 'batch' && batchState.phase !== 'idle' && (
                 <div className="relative left-1/2 -translate-x-1/2 w-[85vw] max-w-[1600px]">
