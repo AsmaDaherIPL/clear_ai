@@ -802,10 +802,10 @@ export default function BatchResultsTable({
         // v6 because column resizing came back; storage shape now includes
         // columnSizing again. Bumping the key invalidates v5 prefs (visibility
         // only) so returning users start with the new default widths once.
-        tableId="batch-results-v7"
-        // value_plausibility_verdict ships hidden by default — togglable
-        // from the Columns menu in the footer. confidence is visible by default.
-        defaultColumnVisibility={{ value_plausibility_verdict: false }}
+        tableId="batch-results-v8"
+        // Both confidence and value_plausibility_verdict are hidden by default.
+        // Operators can re-enable either from the Columns menu in the footer.
+        defaultColumnVisibility={{ value_plausibility_verdict: false, confidence: false }}
         data={items}
         columns={columns}
         expectedRowCount={expectedRowCount}
