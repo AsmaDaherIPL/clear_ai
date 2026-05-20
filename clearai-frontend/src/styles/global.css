@@ -26,11 +26,22 @@
  */
 
 /*
- * Material Symbols Outlined — self-hosted variable font via @fontsource-variable.
- * No Google Fonts CDN request — compatible with strict CSP (style-src 'self').
- * full.css includes all variable axes: FILL, wght, GRAD, opsz.
+ * Material Symbols Outlined — self-hosted variable font, standard subset.
+ * "standard" (~1.5 MB) covers all four axes (FILL, wght, GRAD, opsz) and
+ * the ~2 000 most-used icons. "full" (3.9 MB) was causing CDN truncation —
+ * Azure SWA's CDN was delivering only 1 byte of the file, breaking the font.
+ *
+ * Declared as a direct @font-face (not via @import) because Vite's CSS
+ * minifier strips the space between url() and format(), making the src
+ * descriptor unparseable. The direct block survives minification correctly.
  */
-@import '@fontsource-variable/material-symbols-outlined/full.css';
+@font-face {
+  font-family: 'Material Symbols Outlined Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 700;
+  src: url('@fontsource-variable/material-symbols-outlined/files/material-symbols-outlined-latin-standard-normal.woff2') format('woff2-variations');
+}
 
 /* IBM Plex Sans — Latin, weights 400 500 600 700 */
 @import '@fontsource/ibm-plex-sans/400.css';
