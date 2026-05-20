@@ -104,7 +104,7 @@ unless noted.
 | PR4 | Retrieval telemetry (per-stage trace fields, embedder cache, query metadata, R13 token usage) | `ba5ca45` (rev 0000150) |
 | PR5 | L3 classification_status single source (deriveClassificationStatus canonical helper) | `0fb682a` (rev 0000151) |
 | PR6 | Shadow sampling + hitl_feedback table + cost circuit breaker (other PR6 items DEFERRED — see below) | `d0342e5` (rev 0000152) |
-| PR7 | Picker timeout 15s→30s (totalBudget 50s→90s) + AMBIGUOUS classification_status for picker_unavailable (item #8 Dresses fix) + identify_fast multi_product class-shift rule + examples | pending (rev TBD) |
+| PR7 | Picker timeout 15s→30s (totalBudget 50s→90s) + AMBIGUOUS classification_status for picker_unavailable (item #8 Dresses fix) + identify_fast multi_product class-shift rule + examples | `999f448` (rev 0000161) |
 
 ## Still open — moved from PR6 deferrals
 
