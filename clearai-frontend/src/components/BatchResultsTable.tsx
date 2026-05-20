@@ -735,9 +735,8 @@ export default function BatchResultsTable({
   return (
     <>
       <DataTable
-        tableId="batch-results-v9"
-        // confidence hidden by default; plausibility visible
-        defaultColumnVisibility={{ confidence: false }}
+        tableId="batch-results-v10"
+        // confidence visible by default — matches prototype
         data={items}
         columns={columns}
         expectedRowCount={expectedRowCount}
