@@ -1,18 +1,7 @@
 ---
 /**
- * Home / Classify page.
- *
- * Shell: AppShellLayout with "classify" active.
- * Content: ClassifyApp is wrapped in SignInGate which redirects to /login
- * if there's no active session.
+ * Root redirect — / → /classify.
+ * Astro static redirect; no JS needed.
  */
-import AppShellLayout from '../layouts/AppShellLayout.astro';
-import ClassifyApp from '../components/ClassifyApp';
-import SignInGate from '../components/SignInGate';
-import '../styles/global.css';
+return Astro.redirect('/classify', 301);
 ---
-<AppShellLayout activePage="classify">
-  <SignInGate client:load>
-    <ClassifyApp client:load />
-  </SignInGate>
-</AppShellLayout>

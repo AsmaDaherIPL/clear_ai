@@ -24,10 +24,10 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { ensureInitialized, getActiveAccount, signOut } from '@/lib/auth';
 
 // ---------------------------------------------------------------------------
-// Page id type — Review queue handled outside sidebar per prototype
+// Page id type — three primary routes + review (outside sidebar)
 // ---------------------------------------------------------------------------
 
-export type PageId = 'classify' | 'bulk' | 'history' | 'review';
+export type PageId = 'classify' | 'declare' | 'history' | 'review';
 
 // ---------------------------------------------------------------------------
 // Material Symbol icon helper — matches prototype Icon component exactly
@@ -94,7 +94,7 @@ function WordMark({ size = 22 }: { size?: number }) {
   const t = useT();
   return (
     <a
-      href="/"
+      href="/classify"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -122,10 +122,10 @@ function WordMark({ size = 22 }: { size?: number }) {
 }
 
 // ---------------------------------------------------------------------------
-// Nav items — 3 items matching prototype (no review queue)
+// Nav items — /classify, /declare, /history
 // ---------------------------------------------------------------------------
 
-type NavId = 'classify' | 'bulk' | 'history';
+type NavId = 'classify' | 'declare' | 'history';
 
 interface NavItem {
   id: NavId;
@@ -137,9 +137,9 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'classify', icon: 'auto_awesome',  labelKey: 'nav_classify' as TKey, href: '/',       aliases: ['review'] },
-  { id: 'bulk',     icon: 'upload_file',   labelKey: 'nav_bulk'     as TKey, href: '/?mode=batch' },
-  { id: 'history',  icon: 'history',       labelKey: 'nav_history'  as TKey, href: '/history' },
+  { id: 'classify', icon: 'auto_awesome', labelKey: 'nav_classify' as TKey, href: '/classify', aliases: ['review'] },
+  { id: 'declare',  icon: 'upload_file',  labelKey: 'nav_declare'  as TKey, href: '/declare' },
+  { id: 'history',  icon: 'history',      labelKey: 'nav_history'  as TKey, href: '/history' },
 ];
 
 function isNavActive(item: NavItem, activePageId: PageId): boolean {

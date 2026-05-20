@@ -1,0 +1,18 @@
+---
+/**
+ * /history — classification history.
+ * Placeholder until the history feature is implemented.
+ */
+import AppShellLayout from '../../layouts/AppShellLayout.astro';
+import SignInGate from '../../components/SignInGate';
+import '../../styles/global.css';
+---
+<AppShellLayout activePage="history" title="History — ClearAI">
+  <SignInGate client:load>
+    <div class="w-full max-w-[min(95vw,1280px)] mx-auto px-8 pt-10 pb-16">
+      <p class="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#b8551b] mb-2.5">History</p>
+      <h1 class="text-[clamp(24px,3.2vw,36px)] font-semibold tracking-[-0.02em] text-[#231915] leading-[1.15] mb-2.5">Classification history</h1>
+      <p class="text-[14px] text-[#7a6d65]">Past classifications will appear here.</p>
+    </div>
+  </SignInGate>
+</AppShellLayout>

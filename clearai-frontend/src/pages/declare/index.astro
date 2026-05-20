@@ -1,0 +1,15 @@
+---
+/**
+ * /declare — batch manifest upload and Bayan declaration generation.
+ * Renders ClassifyApp locked to batch mode.
+ */
+import AppShellLayout from '../../layouts/AppShellLayout.astro';
+import ClassifyApp from '../../components/ClassifyApp';
+import SignInGate from '../../components/SignInGate';
+import '../../styles/global.css';
+---
+<AppShellLayout activePage="declare" title="Generate Bayan Declaration — ClearAI">
+  <SignInGate client:load>
+    <ClassifyApp client:load initialMode="batch" />
+  </SignInGate>
+</AppShellLayout>

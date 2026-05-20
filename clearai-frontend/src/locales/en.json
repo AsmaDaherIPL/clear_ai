@@ -12,6 +12,7 @@
   "classify_subtitle": "Describe one product. The model returns an HS code, classification breakdown, and Arabic ZATCA-aligned declaration text.",
   "nav_classify": "Classify",
   "nav_bulk": "Bulk upload",
+  "nav_declare": "Declare",
   "nav_history": "History",
   "nav_review": "Review queue",
   "nav_collapse": "Collapse sidebar",

@@ -498,17 +498,30 @@ function syncClassificationIdToUrl(id: string | null): void {
   window.history.replaceState(null, '', next);
 }
 
-export default function ClassifyApp() {
+interface ClassifyAppProps {
+  /**
+   * Lock the app to a specific mode on mount.
+   * Used by /declare to force batch mode without relying on URL params.
+   * When omitted, mode is inferred from ?mode= or ?run= URL params,
+   * falling back to 'generate'.
+   */
+  initialMode?: ClassifyMode;
+}
+
+export default function ClassifyApp({ initialMode }: ClassifyAppProps = {}) {
   const t = useT();
   // Auth state drives the composer/login swap. The page chrome
   // (TopBar, Hero, Footer) renders the same regardless — only the
   // middle slot changes between the login card (unauthenticated)
   // and the composer + result region (authenticated).
   const authState = useAuthState();
-  // Start in batch mode when the URL carries a ?run= param OR ?mode=batch,
-  // so ResultBatch renders immediately on refresh and direct links to the
-  // batch page (?mode=batch) land on the right view.
+  // Mode priority:
+  //   1. initialMode prop (set by /declare to lock to 'batch')
+  //   2. ?run= param → 'batch'
+  //   3. ?mode= param → named mode
+  //   4. default 'generate'
   const [mode, setMode] = useState<ClassifyMode>(() => {
+    if (initialMode) return initialMode;
     if (typeof window === 'undefined') return 'generate';
     const params = new URLSearchParams(window.location.search);
     const urlMode = params.get('mode');

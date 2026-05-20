@@ -1,0 +1,16 @@
+---
+/**
+ * /classify — single-item HS code classification.
+ * Supports generate and expand modes only.
+ * Batch lives at /declare.
+ */
+import AppShellLayout from '../../layouts/AppShellLayout.astro';
+import ClassifyApp from '../../components/ClassifyApp';
+import SignInGate from '../../components/SignInGate';
+import '../../styles/global.css';
+---
+<AppShellLayout activePage="classify" title="Classify — ClearAI">
+  <SignInGate client:load>
+    <ClassifyApp client:load />
+  </SignInGate>
+</AppShellLayout>
