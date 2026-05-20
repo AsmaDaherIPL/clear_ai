@@ -493,41 +493,27 @@ function AlternativeCard({
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
       aria-pressed={isSelected}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        borderRadius: 12,
-        border: isSelected ? '1px solid #b8551b' : '1px solid #e0d6ce',
-        background: isSelected ? '#fff1e5' : 'white',
-        padding: '14px 16px',
-        cursor: 'pointer',
-        transition: 'border-color 0.12s, background 0.12s',
-        outline: 'none',
-      }}
-      className="focus-visible:ring-2 focus-visible:ring-[#b8551b] focus-visible:ring-offset-1"
+      className={cn(
+        'flex flex-col gap-2 rounded-xl p-[14px_16px] cursor-pointer outline-none',
+        'transition-[border-color,background] duration-[120ms]',
+        'focus-visible:ring-2 focus-visible:ring-[#b8551b] focus-visible:ring-offset-1',
+        isSelected
+          ? 'border border-[#b8551b] bg-[#fff1e5]'
+          : 'border border-[#e0d6ce] bg-white',
+      )}
     >
       {/* Top row: code (left) + match% (right) — prototype layout */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+      <div className="flex justify-between items-center mb-1.5">
         <span
-          style={{
-            fontFamily: 'var(--f-mono, monospace)',
-            fontSize: 14,
-            fontWeight: 700,
-            color: isSelected ? '#b8551b' : '#231915',
-          }}
+          className={cn(
+            'font-mono text-[14px] font-bold',
+            isSelected ? 'text-[#b8551b]' : 'text-[#231915]',
+          )}
         >
           {alt.code}
         </span>
         {matchPct && (
-          <span
-            style={{
-              fontFamily: 'var(--f-mono, monospace)',
-              fontSize: 11,
-              fontWeight: 600,
-              color: '#a3958c',
-            }}
-          >
+          <span className="font-mono text-[11px] font-semibold text-[#a3958c]">
             {matchPct} match
           </span>
         )}
@@ -535,35 +521,28 @@ function AlternativeCard({
 
       {/* Description */}
       {descText && (
-        <p style={{ margin: '0 0 10px', fontSize: 12, lineHeight: 1.5, color: '#7a6d65' }}>
+        <p className="m-0 mb-2.5 text-[12px] leading-[1.5] text-[#7a6d65]">
           {descText}
         </p>
       )}
 
       {/* CTA row: "Use this code →" or "Selected — confirm below" with check_circle */}
       <div
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-          fontSize: 12,
-          fontWeight: 600,
-          color: isSelected ? '#a3958c' : '#b8551b',
-          letterSpacing: '0.02em',
-          transition: 'color 140ms ease',
-        }}
+        className={cn(
+          'inline-flex items-center gap-1.5',
+          'font-sans text-[12px] font-semibold tracking-[0.02em]',
+          'transition-colors duration-[140ms]',
+          isSelected ? 'text-[#a3958c]' : 'text-[#b8551b]',
+        )}
       >
         {isSelected ? (
           <>
             <span
-              className="material-symbols-outlined"
+              className="material-symbols-outlined leading-none text-[#b8551b]"
               aria-hidden="true"
               style={{
                 fontSize: 14,
                 fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 14",
-                color: '#b8551b',
-                lineHeight: 1,
               }}
             >
               check_circle
@@ -574,12 +553,11 @@ function AlternativeCard({
           <>
             {t('act_use_code')}
             <span
-              className="material-symbols-outlined"
+              className="material-symbols-outlined leading-none"
               aria-hidden="true"
               style={{
                 fontSize: 14,
                 fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 14",
-                lineHeight: 1,
               }}
             >
               arrow_forward
@@ -610,95 +588,47 @@ function ComparePanel({
   const canConfirm = rationale.trim().length > 0;
 
   return (
-    <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e0d6ce' }}>
+    <div className="mt-4 pt-4 border-t border-[#e0d6ce]">
       {/* Eyebrow label */}
-      <div
-        className="font-mono tracking-[0.1em] uppercase"
-        style={{ fontSize: 9, fontWeight: 700, color: '#a3958c', marginBottom: 10 }}
-      >
+      <div className="font-mono text-[9px] font-bold tracking-[0.1em] uppercase text-[#a3958c] mb-2.5">
         {t('res_compare_selection' as TKey)}
       </div>
 
       {/* Two-column comparison grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+      <div className="grid grid-cols-2 gap-2 mb-3">
         {/* Current */}
-        <div style={{
-          padding: 10,
-          borderRadius: 10,
-          background: '#f6f2ed',
-          border: '1px solid #e0d6ce',
-        }}>
-          <div
-            className="font-mono tracking-[0.08em] uppercase"
-            style={{ fontSize: 9, fontWeight: 700, color: '#a3958c', marginBottom: 4 }}
-          >
+        <div className="p-2.5 rounded-[10px] bg-[#f6f2ed] border border-[#e0d6ce]">
+          <div className="font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#a3958c] mb-1">
             {t('res_compare_current' as TKey)}
           </div>
-          <span style={{
-            fontFamily: 'var(--f-mono, monospace)',
-            fontSize: 12,
-            fontWeight: 500,
-            color: '#7a6d65',
-            textDecoration: 'line-through',
-          }}>
+          <span className="font-mono text-[12px] font-medium text-[#7a6d65] line-through">
             {currentCode}
           </span>
         </div>
         {/* New selection */}
-        <div style={{
-          padding: 10,
-          borderRadius: 10,
-          background: '#fff1e5',
-          border: '1px solid rgba(184,85,27,0.4)',
-        }}>
-          <div
-            className="font-mono tracking-[0.08em] uppercase"
-            style={{ fontSize: 9, fontWeight: 700, color: '#b8551b', marginBottom: 4 }}
-          >
+        <div className="p-2.5 rounded-[10px] bg-[#fff1e5] border border-[rgba(184,85,27,0.4)]">
+          <div className="font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#b8551b] mb-1">
             {t('res_compare_new' as TKey)}
           </div>
-          <span style={{
-            fontFamily: 'var(--f-mono, monospace)',
-            fontSize: 12,
-            fontWeight: 500,
-            color: '#b8551b',
-          }}>
+          <span className="font-mono text-[12px] font-medium text-[#b8551b]">
             {selectedAlt.code}
           </span>
         </div>
       </div>
 
       {/* Rationale textarea */}
-      <div style={{ marginBottom: 10 }}>
-        <label
-          className="font-mono tracking-[0.08em] uppercase"
-          style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#7a6d65', marginBottom: 6 }}
-        >
+      <div className="mb-2.5">
+        <label className="block font-mono text-[9px] font-bold tracking-[0.08em] uppercase text-[#7a6d65] mb-1.5">
           {t('res_compare_rationale_label' as TKey)}
           {' '}
-          <span style={{ color: '#b8551b' }}>*</span>
+          <span className="text-[#b8551b]">*</span>
         </label>
         <textarea
           value={rationale}
           onChange={(e) => setRationale(e.target.value)}
           rows={3}
           placeholder={t('res_compare_rationale_placeholder' as TKey)}
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            borderRadius: 10,
-            border: '1px solid #e0d6ce',
-            background: 'white',
-            fontSize: 13,
-            color: '#231915',
-            lineHeight: 1.5,
-            resize: 'vertical',
-            outline: 'none',
-            fontFamily: 'inherit',
-            boxSizing: 'border-box',
-          }}
-          onFocus={(e) => { e.target.style.borderColor = '#b8551b'; }}
-          onBlur={(e) => { e.target.style.borderColor = '#e0d6ce'; }}
+          className="w-full px-3 py-2.5 rounded-[10px] border border-[#e0d6ce] bg-white text-[13px] text-[#231915] leading-[1.5] resize-y outline-none font-[inherit] box-border focus:border-[#b8551b] transition-colors duration-150"
         />
       </div>
 
@@ -707,18 +637,12 @@ function ComparePanel({
         type="button"
         onClick={() => { if (canConfirm) onConfirm(rationale); }}
         disabled={!canConfirm}
-        style={{
-          width: '100%',
-          padding: '12px 16px',
-          borderRadius: 10,
-          border: 'none',
-          background: canConfirm ? '#b8551b' : '#f6f2ed',
-          color: canConfirm ? 'white' : '#a3958c',
-          fontSize: 14,
-          fontWeight: 600,
-          cursor: canConfirm ? 'pointer' : 'not-allowed',
-          transition: 'background 0.15s, color 0.15s',
-        }}
+        className={cn(
+          'w-full px-4 py-3 rounded-[10px] border-none text-[14px] font-semibold transition-[background,color] duration-150',
+          canConfirm
+            ? 'bg-[#b8551b] text-white cursor-pointer'
+            : 'bg-[#f6f2ed] text-[#a3958c] cursor-not-allowed',
+        )}
       >
         {t('act_update_hs_code' as TKey)}
       </button>
@@ -936,63 +860,43 @@ export default function ResultSingle({
               });
 
               return (
-                <div className="mt-3" style={{ position: 'relative', paddingInlineStart: 18 }}>
-                  {/* Vertical track line */}
-                  <div style={{
-                    position: 'absolute',
-                    insetInlineStart: 6,
-                    top: 8,
-                    bottom: 8,
-                    width: 2,
-                    background: '#e0d6ce',
-                    borderRadius: 1,
-                  }} />
+                <div className="relative mt-3 ps-[18px]">
+                  {/* Vertical track line — absolute, inset-inline-start 6px */}
+                  <div className="absolute start-[6px] top-2 bottom-2 w-[2px] rounded-[1px] bg-[#e0d6ce]" />
                   {rows.map((row) => (
                     <div
                       key={row.tag}
+                      className="grid items-start py-[10px] gap-[14px]"
                       style={{
-                        display: 'grid',
                         gridTemplateColumns: 'auto auto 1fr',
-                        gap: 14,
-                        alignItems: 'start',
-                        padding: '10px 0',
                         marginInlineStart: row.depth * 12,
                       }}
                     >
                       {/* Tag chip: CH / HD / SH / TR */}
-                      <span style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        letterSpacing: '0.1em',
-                        color: row.isFinal ? '#b8551b' : '#a3958c',
-                        width: 22,
-                        paddingTop: 3,
-                        fontFamily: 'var(--f-mono, monospace)',
-                        lineHeight: 1,
-                        flexShrink: 0,
-                      }}>
+                      <span
+                        className={cn(
+                          'font-mono text-[10px] font-bold tracking-[0.1em] w-[22px] pt-[3px] leading-none shrink-0',
+                          row.isFinal ? 'text-[#b8551b]' : 'text-[#a3958c]',
+                        )}
+                      >
                         {row.tag}
                       </span>
                       {/* Code prefix */}
-                      <span style={{
-                        fontFamily: 'var(--f-mono, monospace)',
-                        fontSize: 14,
-                        fontWeight: 500,
-                        color: row.isFinal ? '#b8551b' : '#231915',
-                        paddingTop: 2,
-                        flexShrink: 0,
-                        whiteSpace: 'nowrap',
-                      }}>
+                      <span
+                        className={cn(
+                          'font-mono text-[14px] font-medium pt-[2px] shrink-0 whitespace-nowrap',
+                          row.isFinal ? 'text-[#b8551b]' : 'text-[#231915]',
+                        )}
+                      >
                         {row.codePrefix}
                       </span>
                       {/* Description */}
-                      <span style={{
-                        fontSize: 14,
-                        color: row.isFinal ? '#231915' : '#7a6d65',
-                        lineHeight: 1.5,
-                        fontWeight: row.isFinal ? 600 : 400,
-                        wordBreak: 'break-word',
-                      }}>
+                      <span
+                        className={cn(
+                          'text-[14px] leading-[1.5] break-words',
+                          row.isFinal ? 'text-[#231915] font-semibold' : 'text-[#7a6d65] font-normal',
+                        )}
+                      >
                         {row.desc}
                       </span>
                     </div>
@@ -1119,90 +1023,40 @@ export default function ResultSingle({
             Prototype pattern: padded={false} card with a gray header bar
             (background #f6f2ed, border-bottom) + padded body rows.
           */}
-          <div
-            className="overflow-hidden"
-            style={{
-              background: 'white',
-              border: '1px solid #e0d6ce',
-              borderRadius: 16,
-            }}
-          >
+          <div className="overflow-hidden bg-white border border-[#e0d6ce] rounded-2xl">
             {/* Header bar — gray background with border-bottom, matches prototype DutyCard */}
-            <div
-              style={{
-                padding: '14px 20px',
-                background: '#f6f2ed',
-                borderBottom: '1px solid #e0d6ce',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-              }}
-            >
+            <div className="flex items-center gap-2.5 px-5 py-[14px] bg-[#f6f2ed] border-b border-[#e0d6ce]">
               <span
-                className="material-symbols-outlined"
+                className="material-symbols-outlined leading-none select-none text-[#a3958c]"
                 aria-hidden="true"
                 style={{
                   fontSize: 18,
                   fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 18",
-                  color: '#a3958c',
-                  lineHeight: 1,
-                  userSelect: 'none',
                 }}
               >
                 policy
               </span>
-              <span style={{
-                fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                color: '#a3958c',
-              }}>
+              <span className="font-sans text-[11px] font-semibold tracking-[0.1em] uppercase text-[#a3958c]">
                 {t('res_sidebar_duty')}
               </span>
             </div>
 
-            {/* Body — prototype uses padding: 20 */}
-            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Body */}
+            <div className="p-5 flex flex-col gap-3.5">
               {/* Import Duty row — label small/muted, value large+bold like prototype */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
-                  paddingBottom: 8,
-                  borderBottom: '1px solid #e0d6ce',
-                }}
-              >
-                <span style={{ fontSize: 14, color: '#7a6d65' }}>
+              <div className="flex justify-between items-baseline pb-2 border-b border-[#e0d6ce]">
+                <span className="text-[14px] text-[#7a6d65]">
                   {t('res_sidebar_duty_import')}
                 </span>
-                <span
-                  style={{
-                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-                    fontSize: 22,
-                    fontWeight: 700,
-                    color: '#231915',
-                    letterSpacing: '-0.01em',
-                  }}
-                >
+                <span className="font-sans text-[22px] font-bold text-[#231915] tracking-[-0.01em]">
                   {importDutyValue}
                 </span>
               </div>
 
               {/* Required Procedures */}
               {r.procedures && r.procedures.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <span style={{
-                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    color: '#a3958c',
-                    marginBottom: 2,
-                  }}>
+                <div className="flex flex-col gap-2">
+                  <span className="font-sans text-[11px] font-semibold tracking-[0.1em] uppercase text-[#a3958c] mb-0.5">
                     {t('res_sidebar_procedures')}
                   </span>
                   <RequiredProcedures procedures={r.procedures} mode="result" />
@@ -1219,59 +1073,33 @@ export default function ResultSingle({
           {(anchoredSummary || altRows.length > 0) && (() => {
             const selectedAlt = altRows.find((a) => a.code === selectedAltCode) ?? null;
             return (
-              <div
-                className="overflow-hidden"
-                style={{
-                  background: 'white',
-                  border: '1px solid #e0d6ce',
-                  borderRadius: 16,
-                }}
-              >
+              <div className="overflow-hidden bg-white border border-[#e0d6ce] rounded-2xl">
                 {/* Header bar — matches prototype AlternativesCard */}
-                <div
-                  style={{
-                    padding: '14px 20px',
-                    background: '#f6f2ed',
-                    borderBottom: '1px solid #e0d6ce',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                  }}
-                >
+                <div className="flex items-center gap-2.5 px-5 py-[14px] bg-[#f6f2ed] border-b border-[#e0d6ce]">
                   <span
-                    className="material-symbols-outlined"
+                    className="material-symbols-outlined leading-none select-none text-[#a3958c]"
                     aria-hidden="true"
                     style={{
                       fontSize: 18,
                       fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 18",
-                      color: '#a3958c',
-                      lineHeight: 1,
-                      userSelect: 'none',
                     }}
                   >
                     account_tree
                   </span>
-                  <span style={{
-                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    color: '#a3958c',
-                  }}>
+                  <span className="font-sans text-[11px] font-semibold tracking-[0.1em] uppercase text-[#a3958c]">
                     {t('res_sidebar_alternatives')}
                   </span>
                 </div>
 
-                {/* Body — prototype uses padding: 20 */}
-                <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 0 }}>
+                {/* Body */}
+                <div className="p-5 flex flex-col">
                   {/* Subtitle */}
-                  <p style={{ margin: '0 0 12px', fontSize: 12, color: '#7a6d65', lineHeight: 1.5, fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
+                  <p className="m-0 mb-3 text-[12px] text-[#7a6d65] leading-[1.5] font-sans">
                     {t('res_alternatives_subtitle' as TKey)}
                   </p>
 
                   {/* Alt cards */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div className="flex flex-col gap-2.5">
                     {altRows.map((a, i) => (
                       <AlternativeCard
                         key={`alt-${a.code}-${i}`}
@@ -1395,8 +1223,7 @@ function BigCode({ code }: { code: string }) {
   return (
     <div className="flex items-center gap-3">
       <code
-        className="font-mono font-bold leading-none whitespace-nowrap"
-        style={{ fontSize: 40, color: '#b8551b' }}
+        className="font-mono font-bold leading-none whitespace-nowrap text-[40px] text-[#b8551b]"
         aria-label={`HS code ${digits || code}`}
       >
         {display}
