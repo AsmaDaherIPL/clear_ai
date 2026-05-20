@@ -460,7 +460,6 @@
   "batch_subtitle": "Drop a CSV, Excel or JSON manifest. We will classify each line against HS codes and surface flags requiring manual review.",
   "drop_manifest_title": "Drop your manifest here",
   "drop_manifest_hint": "CSV, Excel (.xlsx) or JSON · up to 50 MB per file · 50,000 lines max",
-  "drop_run_demo": "Run demo file",
   "drop_csv_template": "Download CSV template",
   "batch_uploading_label": "UPLOADING",
   "batch_step_upload": "Upload to encrypted bucket",

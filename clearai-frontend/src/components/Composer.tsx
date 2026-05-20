@@ -505,23 +505,6 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                 </svg>
                 {t('drop_browse')}
               </button>
-              <button
-                type="button"
-                disabled={loading}
-                className={cn(
-                  'inline-flex items-center gap-2',
-                  'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
-                  'px-5 py-2.5 rounded-full',
-                  'text-[13.5px] font-medium',
-                  'hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-colors duration-150',
-                  'disabled:opacity-50 disabled:pointer-events-none',
-                )}
-              >
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polygon points="5 3 19 12 5 21 5 3" />
-                </svg>
-                {t('drop_run_demo')}
-              </button>
               {batchFile && (
                 <button
                   type="button"
