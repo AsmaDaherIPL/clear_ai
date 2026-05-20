@@ -5,6 +5,7 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { ClassifyMode } from './ModeTabs';
+import type { TKey } from '@/lib/i18n';
 
 export interface ComposerExtras {
   /** Positive numeric value. Always set after submit-time validation. */
@@ -146,6 +147,7 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
   };
 
   return (
+    <>
     <form
       onSubmit={handleSubmit}
       className={cn(
@@ -187,154 +189,142 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
           </div>
 
           {/*
-            Value + currency row — visible in both Generate and Expand modes.
-            Optional commercial context fed to /pipeline/dispatch. The backend
-            Stage-3 sanity check uses this to flag declared values that look
-            implausible for the chosen HS code (e.g. $0.50 watch).
-
-            Layout matches the Landing Page reference:
-              VALUE · [0.00 input] ················· [SAR · ﷼ ▾]   unit price, customs value
-            The currency control is a styled native <select> (not a shadcn
-            Select): keeps RTL keyboard nav free, semantic for assistive tech,
-            and matches the reference exactly via appearance-none + custom
-            background chevron.
+            Unified bottom row — VALUE + currency (left), HS hint (center),
+            submit button (right). Always shown in generate + expand modes.
+            Replaces the old separate value row, expand HS row, and meta bar.
           */}
           {(mode === 'generate' || mode === 'expand') && (
             <div
               className={cn(
-                'flex items-center gap-3 px-[22px] py-2.5 border-t',
+                'flex items-center gap-0 border-t',
                 'transition-colors duration-150',
                 valueRequired
-                  ? 'border-t-[oklch(0.58_0.20_25)] bg-[oklch(0.98_0.015_25)]'
-                  : 'border-t-[var(--line-2)]',
+                  ? 'border-t-[oklch(0.58_0.20_25)]'
+                  : 'border-t-[#ede4dc]',
               )}
+              style={{ background: '#f6f2ed', padding: '12px 18px' }}
             >
-              <label
-                htmlFor="composer-value"
-                className={cn(
-                  'font-mono text-[11px] font-medium tracking-[0.06em] uppercase shrink-0 transition-colors duration-150',
-                  valueRequired ? 'text-[oklch(0.45_0.18_25)]' : 'text-[var(--ink-3)]',
-                )}
-              >
-                {t('value_label')}
-              </label>
-              <input
-                id="composer-value"
-                type="text"
-                inputMode="decimal"
-                value={valueAmount}
-                onChange={(e) => {
-                  if (valueRequired) setValueRequired(false);
-                  const cleaned = e.target.value.replace(/[^0-9.]/g, '');
-                  const parts = cleaned.split('.');
-                  const next = parts.length > 1
-                    ? `${parts[0]}.${parts.slice(1).join('').slice(0, 2)}`
-                    : cleaned;
-                  setValueAmount(next.slice(0, 12));
-                }}
-                placeholder="0.00"
-                aria-invalid={valueRequired}
-                aria-describedby={valueRequired ? 'composer-value-error' : undefined}
-                className={cn(
-                  'flex-1 min-w-0 border-0 outline-none bg-transparent font-mono text-base tracking-[0.02em]',
-                  valueRequired
-                    ? 'text-[oklch(0.45_0.18_25)] placeholder:text-[oklch(0.70_0.10_25)]'
-                    : 'text-[var(--ink)] placeholder:text-[var(--ink-3)]',
-                )}
-              />
-              {valueRequired && (
-                <span
-                  id="composer-value-error"
-                  role="alert"
-                  className="text-[11.5px] text-[oklch(0.45_0.18_25)] font-medium shrink-0 whitespace-nowrap"
+              {/* LEFT: VALUE label + numeric input + currency select */}
+              <div className="flex items-center gap-2 shrink-0">
+                <label
+                  htmlFor="composer-value"
+                  className={cn(
+                    'shrink-0 transition-colors duration-150',
+                    valueRequired ? 'text-[oklch(0.45_0.18_25)]' : 'text-[#a3958c]',
+                  )}
+                  style={{
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                  }}
                 >
-                  Required
-                </span>
-              )}
-              <select
-                aria-label={t('value_label')}
-                value={currencyCode}
-                onChange={(e) => setCurrencyCode(e.target.value)}
-                className={cn(
-                  'appearance-none cursor-pointer shrink-0',
-                  'bg-[var(--line-2)] border border-[var(--line)] rounded-md',
-                  'ps-2.5 pe-7 py-[7px]',
-                  'font-mono text-[12px] text-[var(--ink)] tracking-[0.02em]',
-                  'focus:outline-2 focus:outline-[var(--accent)] focus:outline-offset-1',
-                  // Chevron — inline SVG via data URL, mirrored in RTL.
-                  "bg-no-repeat bg-[right_10px_center] rtl:bg-[left_10px_center]",
-                  "bg-[url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l4 4 4-4'/></svg>\")]",
+                  {t('value_label' as TKey)}
+                </label>
+                <input
+                  id="composer-value"
+                  type="text"
+                  inputMode="decimal"
+                  value={valueAmount}
+                  onChange={(e) => {
+                    if (valueRequired) setValueRequired(false);
+                    const cleaned = e.target.value.replace(/[^0-9.]/g, '');
+                    const parts = cleaned.split('.');
+                    const next = parts.length > 1
+                      ? `${parts[0]}.${parts.slice(1).join('').slice(0, 2)}`
+                      : cleaned;
+                    setValueAmount(next.slice(0, 12));
+                  }}
+                  placeholder="0.00"
+                  aria-invalid={valueRequired}
+                  aria-describedby={valueRequired ? 'composer-value-error' : undefined}
+                  className={cn(
+                    'border-0 outline-none bg-transparent w-[80px] tracking-[0.02em]',
+                    valueRequired
+                      ? 'text-[oklch(0.45_0.18_25)] placeholder:text-[oklch(0.70_0.10_25)]'
+                      : 'placeholder:text-[#a3958c]',
+                  )}
+                  style={{
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontSize: '14px',
+                    color: valueRequired ? undefined : '#231915',
+                  }}
+                />
+                {valueRequired && (
+                  <span
+                    id="composer-value-error"
+                    role="alert"
+                    className="text-[11px] text-[oklch(0.45_0.18_25)] font-medium shrink-0 whitespace-nowrap"
+                  >
+                    {t('value_required' as TKey)}
+                  </span>
                 )}
-              >
-                {currencies.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-              {!valueRequired && (
-                <span className="hidden sm:inline text-[12px] text-[var(--ink-3)] shrink-0">
-                  {t('value_hint')}
+                <select
+                  aria-label={t('value_label' as TKey)}
+                  value={currencyCode}
+                  onChange={(e) => setCurrencyCode(e.target.value)}
+                  className={cn(
+                    'appearance-none cursor-pointer shrink-0',
+                    'bg-[var(--surface)] border border-[var(--line)] rounded-md',
+                    'ps-2 pe-6 py-[5px]',
+                    'font-mono text-[11px] text-[var(--ink)] tracking-[0.02em]',
+                    'focus:outline-2 focus:outline-[var(--accent)] focus:outline-offset-1',
+                    "bg-no-repeat bg-[right_8px_center] rtl:bg-[left_8px_center]",
+                    "bg-[url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l4 4 4-4'/></svg>\")]",
+                  )}
+                >
+                  {currencies.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* CENTER: # icon + HS hint text input (always shown, optional) */}
+              <div className="flex-1 flex items-center gap-1.5 px-4 min-w-0">
+                <span
+                  aria-hidden="true"
+                  className="shrink-0 select-none"
+                  style={{ color: '#a3958c', fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px' }}
+                >
+                  #
                 </span>
-              )}
-            </div>
-          )}
+                <input
+                  id="composer-parent"
+                  type="text"
+                  inputMode="numeric"
+                  value={parentCode}
+                  onChange={(e) => setParentCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="HS hint e.g. 8517130000"
+                  className="flex-1 min-w-0 border-0 outline-none bg-transparent tracking-[0.02em] placeholder:text-[#a3958c]"
+                  style={{ fontSize: '13px', color: '#231915' }}
+                />
+              </div>
 
-          {/* Expand-only HS-code row — sits BELOW value per the reference design. */}
-          {mode === 'expand' && (
-            <div className="flex items-center gap-3 px-[22px] py-2.5 border-t border-[var(--line-2)]">
-              <label
-                htmlFor="composer-parent"
-                className="font-mono text-[11px] font-medium text-[var(--ink-3)] tracking-[0.06em] uppercase shrink-0"
-              >
-                {t('parent_label')}
-              </label>
-              <input
-                id="composer-parent"
-                type="text"
-                inputMode="numeric"
-                value={parentCode}
-                onChange={(e) => setParentCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                placeholder="e.g. 910211"
-                className="flex-1 min-w-0 border-0 outline-none bg-transparent font-mono text-base text-[var(--ink)] tracking-[0.02em] placeholder:text-[var(--ink-3)]"
-              />
-            </div>
-          )}
-
-          {/*
-            Meta bar — "EN or AR" hint + submit button.
-            Char counter was removed per the new Landing Page reference; users
-            don't need a live 250-char gauge when the textarea visibly maxes
-            out at ~250 chars and most descriptions are well under that.
-          */}
-          <div className="flex items-center justify-end gap-2 px-3.5 pb-3.5 pt-2">
-            <span className="text-[12px] text-[var(--ink-3)]" aria-live="polite">
-              {atCap
-                ? `${charCount} / ${DESCRIPTION_MAX}`
-                : t('lang_hint')}
-            </span>
-            <div className="flex items-center gap-1.5">
+              {/* RIGHT: submit button — round, orange, 40px */}
               <button
                 type="submit"
-                aria-label="Classify"
+                aria-label={loading ? t('act_classifying' as TKey) : t('nav_classify' as TKey)}
                 disabled={loading || !description.trim() || !parentCodeValid || !valueAmountValid}
                 className={cn(
-                  'w-9 h-9 rounded-full border-0',
-                  'bg-[var(--accent)] text-white',
+                  'shrink-0 rounded-full border-0',
                   'inline-flex items-center justify-center',
-                  'shadow-[0_1px_0_rgba(0,0,0,0.04),0_4px_10px_-3px_rgba(233,123,58,0.5)]',
-                  'transition-[transform,background] duration-150',
-                  'hover:bg-[var(--accent-ink)] active:scale-95',
-                  'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[var(--accent)] disabled:active:scale-100',
+                  'shadow-[0_1px_0_rgba(0,0,0,0.06),0_4px_12px_-3px_rgba(184,85,27,0.45)]',
+                  'transition-[transform,filter] duration-150',
+                  'hover:brightness-110 active:scale-95',
+                  'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:brightness-100 disabled:active:scale-100',
                   'rtl:[&_svg]:scale-x-[-1]',
                 )}
+                style={{ background: '#b8551b', width: '40px', height: '40px' }}
               >
                 {loading ? (
                   <svg
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="currentColor"
+                    stroke="white"
                     strokeWidth="2.2"
                     strokeLinecap="round"
-                    className="w-4 h-4 animate-spin"
+                    className="w-[18px] h-[18px] animate-spin"
                     aria-hidden="true"
                   >
                     <path d="M12 2a10 10 0 0 1 10 10" />
@@ -343,11 +333,11 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                   <svg
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="currentColor"
+                    stroke="white"
                     strokeWidth="2.2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="w-4 h-4"
+                    className="w-[18px] h-[18px]"
                     aria-hidden="true"
                   >
                     <path d="M5 12h14M13 6l6 6-6 6" />
@@ -355,7 +345,24 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                 )}
               </button>
             </div>
-          </div>
+          )}
+
+          {/*
+            Char counter in a small strip — only when at cap, hidden otherwise.
+            Keeps the textarea-only block clean; the meta line below the card
+            replaces the old bottom meta bar.
+          */}
+          {atCap && (
+            <div className="flex justify-end px-[18px] pb-2">
+              <span
+                className="text-[11px] text-[oklch(0.45_0.14_30)]"
+                aria-live="polite"
+                style={{ fontFamily: "'IBM Plex Mono', monospace" }}
+              >
+                {charCount} / {DESCRIPTION_MAX}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -473,5 +480,31 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
         </div>
       )}
     </form>
+
+    {/* Meta bar below the card — keyboard hint (left) + powered-by (right). */}
+    {mode !== 'batch' && (
+      <div className="flex items-center justify-between gap-2 pt-2 px-1">
+        <span
+          style={{
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: '12px',
+            color: '#a3958c',
+          }}
+        >
+          {/* Keyboard shortcut — not a translatable label, it's a key binding */}
+          x + &#8593; to classify
+        </span>
+        <span
+          style={{
+            fontFamily: "'IBM Plex Sans', sans-serif",
+            fontSize: '12px',
+            color: '#a3958c',
+          }}
+        >
+          {t('composer_powered_by' as TKey)}
+        </span>
+      </div>
+    )}
+    </>
   );
 }

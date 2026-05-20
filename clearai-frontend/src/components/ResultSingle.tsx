@@ -929,28 +929,27 @@ export default function ResultSingle({
         {/* ──────────── MAIN COLUMN ──────────── */}
         <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-6 sm:p-[26px] flex flex-col gap-[22px] shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200">
 
-          {/* §1 HEADER — code + copy + Strong-match pill. */}
+          {/* §1 HEADER — code + confidence ring. */}
           <div>
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex flex-col gap-3 min-w-0 flex-1">
                 <div className="font-mono text-[11.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
-                  {t('res_code_saudi')}
+                  {t('res_predicted_code' as TKey)}
                 </div>
                 <BigCode code={code12} />
               </div>
-              <div className="flex flex-wrap items-start gap-2">
-                {/* DRIFT pill removed — "Reviewed by AI" badge is not shown */}
-                {/* Single confidence badge — replaces "Strong match" + raw % chip */}
-                {confidencePct && confidenceBadgeStyle && (
-                  <span
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-mono text-[11.5px] font-medium"
-                    style={{ background: confidenceBadgeStyle.bg, color: confidenceBadgeStyle.color }}
+              {/* Confidence ring indicator */}
+              {confidencePct && confidenceRaw !== null && (
+                <div className="flex flex-col items-center gap-1.5 shrink-0">
+                  <div
+                    className="font-mono text-[10px] text-[var(--ink-3)] tracking-[0.08em] uppercase"
                     title={`Decision: ${data.decision_status} · ${data.decision_reason}`}
                   >
-                    {t('res_confidence_score' as TKey)} {confidencePct}
-                  </span>
-                )}
-              </div>
+                    {t('res_confidence' as TKey)}
+                  </div>
+                  <ConfidenceRing pct={Math.round(confidenceRaw * 100)} />
+                </div>
+              )}
             </div>
 
             {/* "HS code breakdown" label above the breadcrumb table. */}
@@ -1280,6 +1279,83 @@ export default function ResultSingle({
         }}
       />
     </div>
+  );
+}
+
+/**
+ * Circular progress ring for confidence percentage.
+ * 52x52 px SVG — gray track ring + colored progress stroke + center %.
+ * Green for >70%, amber for 35-70%, red for <35%.
+ */
+function ConfidenceRing({ pct }: { pct: number }) {
+  const SIZE = 52;
+  const STROKE = 4;
+  const R = (SIZE - STROKE) / 2;
+  const CIRC = 2 * Math.PI * R;
+  const dash = Math.max(0, Math.min(1, pct / 100)) * CIRC;
+  const gap = CIRC - dash;
+
+  const strokeColor =
+    pct > 70
+      ? 'oklch(0.55 0.15 155)'   // green
+      : pct >= 35
+        ? 'oklch(0.62 0.16 60)'  // amber
+        : 'oklch(0.55 0.18 25)'; // red
+
+  const textColor =
+    pct > 70
+      ? 'oklch(0.34 0.13 145)'
+      : pct >= 35
+        ? 'oklch(0.42 0.14 60)'
+        : 'oklch(0.50 0.13 20)';
+
+  return (
+    <svg
+      width={SIZE}
+      height={SIZE}
+      viewBox={`0 0 ${SIZE} ${SIZE}`}
+      aria-label={`${pct}% confidence`}
+      style={{ display: 'block', flexShrink: 0 }}
+    >
+      {/* Track */}
+      <circle
+        cx={SIZE / 2}
+        cy={SIZE / 2}
+        r={R}
+        fill="none"
+        stroke="#ede4dc"
+        strokeWidth={STROKE}
+      />
+      {/* Progress arc — starts at top (−90deg offset via transform) */}
+      {dash > 0 && (
+        <circle
+          cx={SIZE / 2}
+          cy={SIZE / 2}
+          r={R}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={STROKE}
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${gap}`}
+          transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
+        />
+      )}
+      {/* Center text */}
+      <text
+        x={SIZE / 2}
+        y={SIZE / 2}
+        dominantBaseline="central"
+        textAnchor="middle"
+        fill={textColor}
+        style={{
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: '11px',
+          fontWeight: 600,
+        }}
+      >
+        {pct}%
+      </text>
+    </svg>
   );
 }
 
