@@ -101,9 +101,8 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
   const PARENT_CODE_MIN = 4;
   const parentCodeValid = mode !== 'expand' || parentCode.length >= PARENT_CODE_MIN;
   const parsedValueAmount = (() => {
-    const trimmed = valueAmount.trim();
-    if (!trimmed) return null;
-    const n = Number(trimmed);
+    if (!valueAmount) return null;
+    const n = Number(valueAmount);
     return Number.isFinite(n) && n > 0 ? n : null;
   })();
   const valueAmountValid = mode === 'batch' || parsedValueAmount !== null;
@@ -150,41 +149,41 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
     <>
     <form
       onSubmit={handleSubmit}
-      className={cn(
-        'bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)]',
-        'shadow-[var(--shadow-lift)] text-start',
-        'transition-[border-color,box-shadow] duration-150',
-        'focus-within:border-[oklch(0.78_0.008_70)]',
-        'focus-within:shadow-[0_8px_30px_-10px_rgba(40,28,18,0.16),0_1px_2px_rgba(20,16,12,0.04)]',
-        className,
-      )}
+      className={cn(className)}
+      style={{
+        background: 'var(--surface)',
+        border: `1px solid ${valueRequired ? 'oklch(0.58 0.20 25)' : '#d6ccc4'}`,
+        borderRadius: 20,
+        boxShadow: '0 4px 16px rgba(35,25,21,0.04)',
+        transition: 'border-color 140ms ease, box-shadow 160ms ease',
+      }}
     >
       {/* Textarea pane — generate + expand modes. */}
       {mode !== 'batch' && (
         <div>
-          <div className="px-[22px] pt-[22px] pb-2">
+          <div style={{ padding: '16px 16px 0' }}>
             <textarea
-              rows={2}
+              rows={1}
               value={description}
               maxLength={DESCRIPTION_MAX}
               onChange={(e) =>
-                // Truncate in state — paste can bypass the maxLength attribute.
                 setDescription(e.target.value.slice(0, DESCRIPTION_MAX))
               }
               onKeyDown={(e) => {
-                // Enter submits, Shift+Enter newlines; skip during IME composition.
-                if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
-                if (e.shiftKey) return;
-                e.preventDefault();
-                handleSubmit(e);
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
               }}
               placeholder={t('placeholder')}
               className={cn(
-                'w-full border-0 outline-none resize-none bg-transparent',
-                'text-[17px] leading-[1.5] text-[var(--ink)]',
-                'min-h-7 max-h-[180px] font-[inherit]',
+                'w-full border-0 outline-none bg-transparent',
+                'text-[16px] leading-[1.55] text-[var(--ink)]',
+                'min-h-[28px] max-h-[200px] font-[inherit]',
                 'placeholder:text-[var(--ink-3)]',
+                'resize-none',
               )}
+              style={{ padding: '6px 4px 8px' }}
             />
           </div>
 
@@ -213,216 +212,208 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                padding: '10px 16px 14px',
-                borderTop: '1px solid #ede4dc',
-                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+                gap: 10,
+                padding: '6px 10px 10px',
+                marginTop: 6,
               }}
             >
-              {/* ChatChip: payments icon + VALUE label + numeric input + currency select */}
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  border: valueRequired ? '1px solid oklch(0.58 0.20 25)' : '1px solid #e0d6ce',
-                  background: '#fff',
-                  borderRadius: 20,
-                  padding: '7px 12px',
-                  flexShrink: 0,
-                }}
-              >
-                <span
-                  className="material-symbols-outlined"
-                  aria-hidden="true"
+              {/* Left chip group */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+
+                {/* ChatChip: payments icon + Value label + numeric input + currency select */}
+                <div
                   style={{
-                    fontSize: 15,
-                    fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 16",
-                    color: '#b8551b',
-                    lineHeight: 1,
-                    flexShrink: 0,
-                    userSelect: 'none',
-                  }}
-                >
-                  payments
-                </span>
-                <label
-                  htmlFor="composer-value"
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: '#a3958c',
-                    letterSpacing: '0.04em',
-                    textTransform: 'uppercase',
-                    cursor: 'pointer',
-                    fontFamily: "'IBM Plex Mono', monospace",
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {t('value_label' as TKey)}
-                </label>
-                <input
-                  id="composer-value"
-                  type="text"
-                  inputMode="decimal"
-                  value={valueAmount}
-                  onChange={(e) => {
-                    if (valueRequired) setValueRequired(false);
-                    const cleaned = e.target.value.replace(/[^0-9.]/g, '');
-                    const parts = cleaned.split('.');
-                    const next = parts.length > 1
-                      ? `${parts[0]}.${parts.slice(1).join('').slice(0, 2)}`
-                      : cleaned;
-                    setValueAmount(next.slice(0, 12));
-                  }}
-                  placeholder="0.00"
-                  aria-invalid={valueRequired}
-                  style={{
-                    border: 0,
-                    outline: 'none',
-                    background: 'transparent',
-                    width: 64,
-                    fontFamily: "'IBM Plex Mono', monospace",
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 14px',
+                    height: 38,
+                    background: valueRequired ? 'oklch(0.96 0.03 25)' : '#f6f2ed',
+                    border: valueRequired ? '1px solid oklch(0.58 0.20 25)' : '1px solid #e0d6ce',
+                    borderRadius: 999,
+                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
                     fontSize: 13,
-                    color: valueRequired ? 'oklch(0.45 0.18 25)' : '#231915',
-                    letterSpacing: '0.02em',
-                  }}
-                />
-                <select
-                  aria-label={t('value_label' as TKey)}
-                  value={currencyCode}
-                  onChange={(e) => setCurrencyCode(e.target.value)}
-                  style={{
-                    appearance: 'none',
-                    WebkitAppearance: 'none',
-                    border: 0,
-                    outline: 'none',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    fontFamily: "'IBM Plex Mono', monospace",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: '#a3958c',
-                    letterSpacing: '0.04em',
-                    padding: 0,
+                    color: '#7a6d65',
                     flexShrink: 0,
+                    transition: 'border-color 140ms ease, background 140ms ease',
                   }}
                 >
-                  {currencies.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+                  <span
+                    className="material-symbols-outlined"
+                    aria-hidden="true"
+                    style={{
+                      fontSize: 15,
+                      fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 16",
+                      color: '#7a6d65',
+                      lineHeight: 1,
+                      flexShrink: 0,
+                      userSelect: 'none',
+                    }}
+                  >
+                    payments
+                  </span>
+                  <label
+                    htmlFor="composer-value"
+                    style={{
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {t('value_label' as TKey)}
+                  </label>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#231915' }}>
+                    <input
+                      id="composer-value"
+                      type="number"
+                      inputMode="decimal"
+                      value={valueAmount}
+                      onChange={(e) => {
+                        if (valueRequired) setValueRequired(false);
+                        setValueAmount(e.target.value);
+                      }}
+                      placeholder="0"
+                      aria-invalid={valueRequired}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        width: 70,
+                        border: 0,
+                        outline: 'none',
+                        background: 'transparent',
+                        fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: valueRequired ? 'oklch(0.45 0.18 25)' : '#231915',
+                        padding: 0,
+                        appearance: 'none',
+                      }}
+                    />
+                    <select
+                      aria-label={t('value_label' as TKey)}
+                      value={currencyCode}
+                      onChange={(e) => setCurrencyCode(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        width: 56,
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        border: 0,
+                        outline: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: '#231915',
+                        padding: 0,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {currencies.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </span>
+                </div>
+
+                {/* PartialHsChip: tag icon + "HS hint" static label + mono input */}
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 14px',
+                    height: 38,
+                    background: parentCode ? '#fff1e5' : '#f6f2ed',
+                    border: `1px solid ${parentCode ? '#b8551b' : '#e0d6ce'}`,
+                    borderRadius: 999,
+                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                    fontSize: 13,
+                    transition: 'background 140ms ease, border-color 140ms ease',
+                  }}
+                >
+                  <span
+                    className="material-symbols-outlined"
+                    aria-hidden="true"
+                    style={{
+                      fontSize: 15,
+                      fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 16",
+                      color: parentCode ? '#b8551b' : '#7a6d65',
+                      lineHeight: 1,
+                      flexShrink: 0,
+                      userSelect: 'none',
+                      transition: 'color 140ms ease',
+                    }}
+                  >
+                    tag
+                  </span>
+                  <span style={{ fontWeight: 500, color: parentCode ? '#7a3000' : '#7a6d65', whiteSpace: 'nowrap', userSelect: 'none' }}>
+                    HS hint
+                  </span>
+                  <input
+                    id="composer-parent"
+                    type="text"
+                    inputMode="numeric"
+                    value={parentCode}
+                    onChange={(e) => setParentCode(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                    placeholder="e.g. 8517130000"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      width: 160,
+                      border: 0,
+                      outline: 'none',
+                      background: 'transparent',
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      letterSpacing: '0.04em',
+                      color: parentCode ? '#7a3000' : '#231915',
+                      padding: 0,
+                    }}
+                    className="composer-hs-input"
+                  />
+                </div>
+
               </div>
 
-              {/* PartialHsChip: tag icon + HS hint input */}
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  border: parentCode ? '1px solid #b8551b' : '1px solid #e0d6ce',
-                  background: parentCode ? '#fff6f0' : '#fff',
-                  borderRadius: 20,
-                  padding: '7px 12px',
-                  minWidth: 100,
-                  flex: 1,
-                  maxWidth: 240,
-                  transition: 'border-color 150ms, background 150ms',
-                }}
-              >
-                <span
-                  className="material-symbols-outlined"
-                  aria-hidden="true"
-                  style={{
-                    fontSize: 15,
-                    fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 16",
-                    color: parentCode ? '#b8551b' : '#a3958c',
-                    lineHeight: 1,
-                    flexShrink: 0,
-                    userSelect: 'none',
-                    transition: 'color 150ms',
-                  }}
-                >
-                  tag
-                </span>
-                <input
-                  id="composer-parent"
-                  type="text"
-                  inputMode="numeric"
-                  value={parentCode}
-                  onChange={(e) => setParentCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="HS hint e.g. 8517130000"
-                  style={{
-                    border: 0,
-                    outline: 'none',
-                    background: 'transparent',
-                    flex: 1,
-                    minWidth: 0,
-                    fontSize: 13,
-                    color: '#231915',
-                    letterSpacing: '0.02em',
-                    fontFamily: "'IBM Plex Mono', monospace",
-                  }}
-                  // placeholder color handled via global CSS (.composer-hs-input::placeholder)
-                  className="composer-hs-input"
-                />
-              </div>
-
-              {/* Submit button — 36x36, round, orange */}
-              <button
-                type="submit"
-                aria-label={loading ? t('act_classifying' as TKey) : t('nav_classify' as TKey)}
-                disabled={loading || !description.trim() || !parentCodeValid || !valueAmountValid}
-                style={{
-                  background: '#b8551b',
-                  width: 36,
-                  height: 36,
-                  border: 0,
-                  borderRadius: '50%',
-                  flexShrink: 0,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  boxShadow: '0 1px 0 rgba(0,0,0,0.06), 0 4px 12px -3px rgba(184,85,27,0.45)',
-                  transition: 'filter 150ms, transform 150ms',
-                }}
-                className={cn(
-                  'hover:brightness-110 active:scale-95',
-                  'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:brightness-100 disabled:active:scale-100',
-                  'rtl:[&_svg]:scale-x-[-1]',
-                )}
-              >
-                {loading ? (
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="white"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    width={16}
-                    height={16}
-                    className="animate-spin"
-                    aria-hidden="true"
+              {/* Submit button — 38px round, orange when active, muted when empty */}
+              {(() => {
+                const isDisabled = loading || !description.trim() || !parentCodeValid || !valueAmountValid;
+                return (
+                  <button
+                    type="submit"
+                    aria-label={loading ? t('act_classifying' as TKey) : t('nav_classify' as TKey)}
+                    disabled={isDisabled}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: '50%',
+                      background: isDisabled ? '#f6f2ed' : '#b8551b',
+                      color: isDisabled ? '#a3958c' : '#fff',
+                      border: 0,
+                      cursor: isDisabled ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      transition: 'background 140ms ease',
+                    }}
                   >
-                    <path d="M12 2a10 10 0 0 1 10 10" />
-                  </svg>
-                ) : (
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="white"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    width={16}
-                    height={16}
-                    aria-hidden="true"
-                  >
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
-                )}
-              </button>
+                    {loading ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" width={18} height={18} className="animate-spin" aria-hidden="true">
+                        <path d="M12 2a10 10 0 0 1 10 10" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" width={18} height={18} aria-hidden="true" className="rtl:scale-x-[-1]">
+                        <path d="M5 12h14M13 6l6 6-6 6" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
           )}
         </div>

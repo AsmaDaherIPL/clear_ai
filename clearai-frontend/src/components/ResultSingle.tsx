@@ -932,11 +932,17 @@ export default function ResultSingle({
           <div className="bg-white border border-[var(--line)] rounded-[var(--radius-lg)] p-5 flex flex-col gap-4">
             {/* Duty section header */}
             <div className="flex items-center gap-2">
-              {/* policy Material Symbol icon (outlined, filled via font-variation-settings) */}
+              {/* policy Material Symbol icon */}
               <span
-                className="text-[18px] text-[var(--ink-3)] select-none"
-                style={{ fontFamily: "'Material Symbols Outlined'", fontVariationSettings: "'FILL' 0, 'wght' 300" }}
+                className="material-symbols-outlined"
                 aria-hidden="true"
+                style={{
+                  fontSize: 18,
+                  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
+                  color: 'var(--ink-3)',
+                  lineHeight: 1,
+                  userSelect: 'none',
+                }}
               >
                 policy
               </span>
