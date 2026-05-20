@@ -1,6 +1,12 @@
 {
   "brand": "كلير AI",
   "brand_meta": "من InfinitePL",
+  "login_hero_1": "تصنيف أذكى",
+  "login_hero_2": "لتخليص جمركي أسرع.",
+  "login_hero_accent_1": "أذكى",
+  "login_hero_accent_2": "أسرع",
+  "login_hero_sub": "صنِّف المنتجات وتحقّق من الرموز وأعدّ التصاريح الجمركية في ثوانٍ.",
+  "login_footer": "© ٢٠٢٦ كلير AI · الإصدار ١٫٠",
   "nav_classify": "تصنيف",
   "nav_bulk": "رفع دفعة",
   "nav_history": "السجل",

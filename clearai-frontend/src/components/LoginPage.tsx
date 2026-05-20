@@ -1,63 +1,162 @@
 /**
  * LoginPage — full-screen authentication gate.
  *
- * Visual pattern from the prototype:
- *   - Centered card on the cream background
- *   - Brand logo + wordmark above the card
- *   - Card: title, subtitle, Microsoft SSO button, redirect hint
- *   - Subtle geometric background grid for depth
+ * Pixel-matched to the prototype (ClearAI Prototype _standalone_.html):
+ *   - Background: #fbf9f6 + two animated blob gradients + warm dot grid
+ *   - Top bar: WordMark (logo + "Clear AI" text) left, EN/AR toggle right
+ *   - Headline: IBM Plex Sans, font-weight 400, clamp(40px, 5.6vw, 64px)
+ *   - Accent words (#b8551b): "Smarter" and "faster"
+ *   - Card: white surface, border #ede4dc, title font-weight 500
+ *   - Button: background #231915, font-weight 600
+ *   - Redirect hint: IBM Plex Mono, 12px, color #a3958c
  *
- * This component owns its own auth-state detection. It redirects to '/'
- * the moment MSAL resolves an active account, so users who are already
- * signed in (e.g. refreshed on /login) are bounced immediately.
- *
- * All labels come from the i18n store — no hardcoded strings.
+ * All strings from i18n — no hardcoded labels.
  */
 
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { useT, type TKey } from '@/lib/i18n';
+import { useT, getLocale, setLocale, type Locale, type TKey } from '@/lib/i18n';
 import { ensureInitialized, getActiveAccount, signIn } from '@/lib/auth';
 
 // ---------------------------------------------------------------------------
-// Brand logo mark (canonical, same as AppShell)
+// Logo — exact SVG from prototype source
 // ---------------------------------------------------------------------------
 
-function LogoMark({ className }: { className?: string }) {
+function Logo({ size = 24 }: { size?: number }) {
+  const w = size;
+  const h = size * (63 / 60);
   return (
-    <svg
-      width="36"
-      height="38"
-      viewBox="0 0 60 63"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={cn('flex-shrink-0', className)}
-      aria-hidden="true"
-    >
-      <rect width="60" height="11.55" rx="2.8" fill="currentColor" />
-      <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="currentColor" fillOpacity={0.7} />
-      <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="currentColor" fillOpacity={0.4} />
-      <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="var(--accent)" />
-      <circle cx="52.125" cy="57.225" r="3.5" fill="var(--bg)" fillOpacity={0.9} />
+    <svg width={w} height={h} viewBox="0 0 60 63" fill="none" aria-hidden xmlns="http://www.w3.org/2000/svg">
+      <rect width="60" height="11.55" rx="2.8" fill="#15110D" />
+      <circle cx="12" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+      <circle cx="26" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+      <circle cx="40" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+      <circle cx="52" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+
+      <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="#15110D" fillOpacity="0.7" />
+      <circle cx="25" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+      <circle cx="38" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+      <circle cx="51" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+
+      <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="#594028" fillOpacity="0.4" />
+      <circle cx="38" cy="40.075" r="2.2" fill="#594028" fillOpacity="0.35" />
+      <circle cx="50" cy="40.075" r="2.2" fill="#594028" fillOpacity="0.35" />
+
+      <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="#b8551b" />
+      <circle cx="52.125" cy="57.225" r="2.6" fill="white" fillOpacity="0.9" />
     </svg>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Microsoft 4-square logo (inline, no extra asset)
+// WordMark — logo + "Clear AI" text (font-weight 700, Plus Jakarta Sans)
+// ---------------------------------------------------------------------------
+
+function WordMark({ size = 26 }: { size?: number }) {
+  const t = useT();
+  return (
+    <a
+      href="/"
+      className="inline-flex items-center no-underline outline-none focus-visible:ring-2 focus-visible:ring-[#b8551b] rounded"
+      style={{ gap: 10 }}
+    >
+      <Logo size={size} />
+      <span style={{
+        fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+        fontWeight: 700,
+        fontSize: size * 0.78,
+        letterSpacing: '-0.01em',
+        color: '#231915',
+      }}>
+        {t('brand' as TKey)}
+      </span>
+    </a>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EN / AR language toggle
+// ---------------------------------------------------------------------------
+
+function LangToggle() {
+  const current = getLocale();
+
+  function langBtn(active: boolean) {
+    return {
+      background: 'none',
+      border: 'none',
+      padding: '2px 4px',
+      cursor: 'pointer',
+      fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+      fontSize: 13,
+      fontWeight: 600 as const,
+      color: active ? '#231915' : '#a3958c',
+      transition: 'color 120ms',
+    };
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: "'IBM Plex Sans', system-ui, sans-serif", fontSize: 13, fontWeight: 600 }}>
+      <button type="button" onClick={() => setLocale('en' as Locale)} style={langBtn(current === 'en')}>EN</button>
+      <span style={{ color: '#d9cdc2' }}>/</span>
+      <button type="button" onClick={() => setLocale('ar' as Locale)} style={langBtn(current === 'ar')}>AR</button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Microsoft 4-square logo
 // ---------------------------------------------------------------------------
 
 function MicrosoftLogo() {
   return (
-    <span
-      className="w-[18px] h-[18px] grid grid-cols-2 gap-[2.5px] flex-shrink-0"
-      aria-hidden
-    >
-      <i className="block w-full h-full" style={{ background: '#F25022' }} />
-      <i className="block w-full h-full" style={{ background: '#7FBA00' }} />
-      <i className="block w-full h-full" style={{ background: '#00A4EF' }} />
-      <i className="block w-full h-full" style={{ background: '#FFB900' }} />
-    </span>
+    <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden style={{ flexShrink: 0 }}>
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+      <rect x="12" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="12" width="9" height="9" fill="#00a4ef" />
+      <rect x="12" y="12" width="9" height="9" fill="#ffb900" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hero headline — accent words in #b8551b (c-primary)
+// ---------------------------------------------------------------------------
+
+function HeroHeadline() {
+  const t = useT();
+  const line1 = t('login_hero_1' as TKey);
+  const line2 = t('login_hero_2' as TKey);
+  const acc1  = t('login_hero_accent_1' as TKey);
+  const acc2  = t('login_hero_accent_2' as TKey);
+
+  function highlight(text: string, accent: string) {
+    const parts = text.split(accent);
+    if (parts.length < 2) return <>{text}</>;
+    return (
+      <>
+        {parts[0]}
+        <span style={{ color: '#b8551b' }}>{accent}</span>
+        {parts.slice(1).join(accent)}
+      </>
+    );
+  }
+
+  return (
+    <h1 style={{
+      fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+      fontSize: 'clamp(40px, 5.6vw, 64px)',
+      fontWeight: 400,
+      lineHeight: 1.12,
+      letterSpacing: '-0.025em',
+      color: '#231915',
+      margin: 0,
+      maxWidth: 1040,
+      textAlign: 'center',
+    }}>
+      <span style={{ display: 'block' }}>{highlight(line1, acc1)}</span>
+      <span style={{ display: 'block' }}>{highlight(line2, acc2)}</span>
+    </h1>
   );
 }
 
@@ -70,7 +169,6 @@ export default function LoginPage() {
   const [signingIn, setSigningIn] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // If already authenticated, go home immediately
   useEffect(() => {
     let alive = true;
     ensureInitialized()
@@ -82,18 +180,13 @@ export default function LoginPage() {
           setAuthChecked(true);
         }
       })
-      .catch(() => {
-        if (!alive) return;
-        setAuthChecked(true);
-      });
+      .catch(() => { if (!alive) return; setAuthChecked(true); });
     return () => { alive = false; };
   }, []);
 
   async function handleSignIn() {
     if (signingIn) return;
     setSigningIn(true);
-    // Safety net: if loginRedirect() never fires the navigation within 8s
-    // (popup blocker, MSAL iframe timeout, etc.), reset the spinner.
     const safetyReset = window.setTimeout(() => setSigningIn(false), 8000);
     try {
       await signIn();
@@ -103,130 +196,182 @@ export default function LoginPage() {
     }
   }
 
-  // Don't flash the login UI if auth check is still in-flight
   if (!authChecked) {
     return (
-      <div className="min-h-dvh flex items-center justify-center bg-[var(--bg)]">
-        <span className="w-6 h-6 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin" />
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fbf9f6' }}>
+        <span className="w-5 h-5 rounded-full border-2 border-[#ede4dc] border-t-[#b8551b] animate-spin" />
       </div>
     );
   }
 
   return (
-    <div
-      className={cn(
-        'min-h-dvh flex flex-col items-center justify-center',
-        'bg-[var(--bg)] px-4 py-12',
-        'relative overflow-hidden',
-      )}
-    >
-      {/* Subtle geometric background — fine grid of dots */}
-      <div
-        className="absolute inset-0 pointer-events-none select-none"
-        aria-hidden
-        style={{
-          backgroundImage:
-            'radial-gradient(circle, oklch(0.82 0.008 70 / 0.55) 1px, transparent 1px)',
-          backgroundSize: '28px 28px',
-          maskImage: 'radial-gradient(ellipse 70% 70% at 50% 45%, black 40%, transparent 100%)',
-          WebkitMaskImage:
-            'radial-gradient(ellipse 70% 70% at 50% 45%, black 40%, transparent 100%)',
-        }}
-      />
+    <div style={{
+      minHeight: '100dvh',
+      background: '#fbf9f6',
+      color: '#231915',
+      display: 'flex',
+      flexDirection: 'column',
+      fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+      position: 'relative',
+      overflow: 'hidden',
+    }}>
+      {/* Warm dot grid — rgba(184,85,27,0.16) dots, 22px grid, masked to center */}
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        opacity: 0.5,
+        pointerEvents: 'none',
+        backgroundImage: 'radial-gradient(circle, rgba(184,85,27,0.16) 1px, transparent 1px)',
+        backgroundSize: '22px 22px',
+        maskImage: 'radial-gradient(ellipse at center, black 0%, transparent 75%)',
+        WebkitMaskImage: 'radial-gradient(ellipse at center, black 0%, transparent 75%)',
+      }} />
 
-      {/* Content column */}
-      <div className="relative z-10 w-full max-w-[400px] flex flex-col items-center gap-8">
+      {/* Blob 1 — orange, top-left */}
+      <div style={{
+        position: 'absolute',
+        width: 640, height: 640, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(184,85,27,0.14) 0%, transparent 65%)',
+        left: '10%', top: '-10%',
+        pointerEvents: 'none',
+      }} />
 
-        {/* Brand mark + wordmark above card */}
-        <a
-          href="/"
-          className={cn(
-            'flex flex-col items-center gap-3 no-underline',
-            'outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] rounded-lg',
-          )}
-        >
-          <LogoMark className="text-[var(--ink)]" />
-          <span className="font-semibold text-[18px] tracking-tight text-[var(--ink)]">
-            {t('brand' as TKey)}
-          </span>
-        </a>
+      {/* Blob 2 — green, bottom-right */}
+      <div style={{
+        position: 'absolute',
+        width: 520, height: 520, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(63,107,70,0.08) 0%, transparent 70%)',
+        right: '8%', bottom: '5%',
+        pointerEvents: 'none',
+      }} />
 
-        {/* Card */}
-        <div
-          className={cn(
-            'w-full bg-[var(--surface)] rounded-[var(--radius-lg)]',
-            'border border-[var(--line)]',
-            'px-8 pt-8 pb-7',
-          )}
-          style={{ boxShadow: 'var(--shadow-lift)' }}
-        >
-          {/* Heading */}
-          <h1 className="m-0 mb-2 text-[22px] font-semibold tracking-[-0.02em] text-[var(--ink)] text-center rtl:font-bold">
-            {t('login_title' as TKey)}
-          </h1>
-          <p className="mt-0 mb-7 text-[14px] text-[var(--ink-2)] leading-[1.55] text-center">
-            {t('login_sub' as TKey)}
+      {/* Content above blobs */}
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+
+        {/* Top bar */}
+        <header style={{
+          padding: '28px 40px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <WordMark size={26} />
+          <LangToggle />
+        </header>
+
+        {/* Main content */}
+        <main style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px 24px 80px',
+          textAlign: 'center',
+        }}>
+          <HeroHeadline />
+
+          <p style={{
+            fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+            fontSize: 22,
+            fontWeight: 400,
+            lineHeight: 1.5,
+            color: '#7a6d65',
+            margin: '28px auto 0',
+            maxWidth: 760,
+          }}>
+            {t('login_hero_sub' as TKey)}
           </p>
 
-          {/* SSO button */}
-          <button
-            type="button"
-            onClick={() => { void handleSignIn(); }}
-            disabled={signingIn}
-            className={cn(
-              'w-full inline-flex items-center justify-center gap-3',
-              'px-5 py-[13px] rounded-[10px]',
-              'bg-[var(--ink)] border border-[var(--ink)]',
-              'text-[14px] font-medium tracking-[0.01em]',
-              'transition-[background,transform,opacity] duration-150',
-              'hover:bg-[oklch(0.28_0.01_60)]',
-              'active:translate-y-[1px]',
-              'disabled:opacity-65 disabled:cursor-progress',
-              'outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2',
-            )}
-            style={{ color: '#fff', boxShadow: '0 4px 14px -4px rgba(20,16,12,0.28)' }}
-          >
-            {signingIn ? (
-              <>
-                <span
-                  className="w-4 h-4 rounded-full border-2 border-white/25 border-t-white animate-spin flex-shrink-0"
-                  aria-hidden
-                />
-                <span>{t('login_cta_loading' as TKey)}</span>
-              </>
-            ) : (
-              <>
-                <MicrosoftLogo />
-                <span>{t('login_cta' as TKey)}</span>
-              </>
-            )}
-          </button>
+          {/* Sign-in card */}
+          <div style={{
+            marginTop: 56,
+            width: 'min(440px, 100%)',
+            background: '#ffffff',
+            border: '1px solid #ede4dc',
+            borderRadius: 20,
+            padding: '36px 36px 32px',
+            boxShadow: '0 12px 40px rgba(35,25,21,0.06)',
+            textAlign: 'center',
+          }}>
+            <h2 style={{
+              fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+              fontSize: 20,
+              fontWeight: 500,
+              letterSpacing: '-0.01em',
+              margin: '0 0 24px',
+              color: '#231915',
+            }}>
+              {t('login_title' as TKey)}
+            </h2>
 
-          {/* Redirect hint */}
-          <div className="mt-5 flex items-center justify-center gap-2">
-            <svg
-              className="w-3 h-3 text-[var(--ink-3)] flex-shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
+            <button
+              type="button"
+              onClick={() => { void handleSignIn(); }}
+              disabled={signingIn}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 12,
+                width: '100%',
+                padding: '16px 20px',
+                background: '#231915',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 14,
+                fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                fontSize: 15,
+                fontWeight: 600,
+                cursor: signingIn ? 'wait' : 'pointer',
+                transition: 'filter 120ms ease',
+                opacity: signingIn ? 0.65 : 1,
+              }}
+              onMouseEnter={(e) => { if (!signingIn) (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1.12)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = 'none'; }}
             >
-              <rect x="4" y="11" width="16" height="10" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-            </svg>
-            <span className="font-mono text-[11.5px] text-[var(--ink-3)] tracking-[0.04em]">
-              {t('login_redirect_hint' as TKey)}
-            </span>
-          </div>
-        </div>
+              {signingIn ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-white/25 border-t-white animate-spin flex-shrink-0" aria-hidden />
+                  <span>{t('login_cta_loading' as TKey)}</span>
+                </>
+              ) : (
+                <>
+                  <MicrosoftLogo />
+                  <span>{t('login_cta' as TKey)}</span>
+                </>
+              )}
+            </button>
 
-        {/* Footer attribution */}
-        <p className="text-[12px] text-[var(--ink-3)] text-center">
-          {t('brand_meta' as TKey)}
-        </p>
+            {/* Redirect hint */}
+            <div style={{
+              marginTop: 18,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+              fontSize: 12,
+              color: '#a3958c',
+            }}>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="4" y="11" width="16" height="10" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+              </svg>
+              {t('login_redirect_hint' as TKey)}
+            </div>
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer style={{
+          padding: '20px 40px 32px',
+          textAlign: 'center',
+          fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+          fontSize: 12,
+          color: '#a3958c',
+        }}>
+          {t('login_footer' as TKey)}
+        </footer>
       </div>
     </div>
   );

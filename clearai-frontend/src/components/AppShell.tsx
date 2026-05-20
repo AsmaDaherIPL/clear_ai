@@ -84,25 +84,28 @@ const NAV_HREFS: Record<PageId, string> = {
 const NAV_ORDER: PageId[] = ['classify', 'bulk', 'history', 'review'];
 
 // ---------------------------------------------------------------------------
-// Brand logo mark
+// Brand logo mark — exact SVG from prototype source
 // ---------------------------------------------------------------------------
 
-function LogoMark({ className }: { className?: string }) {
+function LogoMark({ size = 22 }: { size?: number; className?: string }) {
+  const w = size;
+  const h = size * (63 / 60);
   return (
-    <svg
-      width="22"
-      height="23"
-      viewBox="0 0 60 63"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={cn('flex-shrink-0', className)}
-      aria-hidden="true"
-    >
-      <rect width="60" height="11.55" rx="2.8" fill="currentColor" />
-      <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="currentColor" fillOpacity={0.7} />
-      <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="currentColor" fillOpacity={0.4} />
-      <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="var(--accent)" />
-      <circle cx="52.125" cy="57.225" r="3.5" fill="var(--bg)" fillOpacity={0.9} />
+    <svg width={w} height={h} viewBox="0 0 60 63" fill="none" aria-hidden xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+      <rect width="60" height="11.55" rx="2.8" fill="#15110D" />
+      <circle cx="12" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+      <circle cx="26" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+      <circle cx="40" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+      <circle cx="52" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+      <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="#15110D" fillOpacity="0.7" />
+      <circle cx="25" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+      <circle cx="38" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+      <circle cx="51" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+      <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="#594028" fillOpacity="0.4" />
+      <circle cx="38" cy="40.075" r="2.2" fill="#594028" fillOpacity="0.35" />
+      <circle cx="50" cy="40.075" r="2.2" fill="#594028" fillOpacity="0.35" />
+      <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="#b8551b" />
+      <circle cx="52.125" cy="57.225" r="2.6" fill="white" fillOpacity="0.9" />
     </svg>
   );
 }
@@ -247,8 +250,8 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
             href="/"
             className="flex items-center gap-3 min-w-0 text-[var(--ink)] no-underline rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
           >
-            <LogoMark className="text-[var(--ink)]" />
-            <span className="sidebar-wordmark font-semibold text-[14px] tracking-tight">
+            <LogoMark size={22} />
+            <span className="sidebar-wordmark text-[14px] tracking-tight" style={{ fontWeight: 700, color: '#231915', letterSpacing: '-0.01em' }}>
               {t('brand' as TKey)}
             </span>
           </a>

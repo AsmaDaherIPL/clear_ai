@@ -1,6 +1,12 @@
 {
   "brand": "Clear AI",
   "brand_meta": "by InfinitePL",
+  "login_hero_1": "Smarter classification",
+  "login_hero_2": "for faster customs clearance.",
+  "login_hero_accent_1": "Smarter",
+  "login_hero_accent_2": "faster",
+  "login_hero_sub": "Classify products, verify codes, and prepare customs declarations in seconds.",
+  "login_footer": "© 2026 Clear AI · v1.0",
   "nav_classify": "Classify",
   "nav_bulk": "Bulk upload",
   "nav_history": "History",
