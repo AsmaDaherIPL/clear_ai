@@ -1056,9 +1056,14 @@ export default function ResultSingle({
               {/* Required Procedures */}
               {r.procedures && r.procedures.length > 0 && (
                 <div className="flex flex-col gap-2">
-                  <span className="font-sans text-[11px] font-semibold tracking-[0.1em] uppercase text-[#a3958c] mb-0.5">
-                    {t('res_sidebar_procedures')}
-                  </span>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="font-sans text-[11px] font-semibold tracking-[0.1em] uppercase text-[#a3958c]">
+                      {t('res_sidebar_procedures')}
+                    </span>
+                    <span className="inline-flex items-center px-1.5 py-px rounded text-[9px] font-bold tracking-[0.06em] uppercase bg-[oklch(0.93_0.06_270)] text-[oklch(0.42_0.18_270)]">
+                      Beta
+                    </span>
+                  </div>
                   <RequiredProcedures procedures={r.procedures} mode="result" />
                 </div>
               )}
