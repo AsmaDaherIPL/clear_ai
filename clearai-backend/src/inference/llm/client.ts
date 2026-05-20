@@ -197,17 +197,30 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        // 2026-05-20: send BOTH header forms because the Foundry/Azure
-        // APIM front-end at swc-01 began HANGING (no response, no auth
-        // rejection) when only `x-api-key` is sent — but responds 401
-        // immediately to the same key under `api-key`. Diagnosis:
-        // Azure's API Management standard expects `api-key`; the
-        // Anthropic SDK convention is `x-api-key`. Sending both makes
-        // us tolerant to either gateway routing. Foundry deployment
-        // names like `claude-sonnet-4-6-clearai-dev` route through APIM
-        // → upstream Anthropic; the APIM layer authenticates with
-        // `api-key`, the upstream with `x-api-key`. The hang was
-        // observed 2026-05-19 — happens regardless of model.
+        // ---- Auth headers — Foundry quirks documented below ----
+        //
+        // 2026-05-20: full-day outage on dev was traced to Foundry's
+        // Anthropic gateway at swc-01 silently NOT serving requests that
+        // arrive with only `api-key` / `x-api-key` headers (TCP+TLS
+        // accepted, then no response body — abort window hit every time).
+        // Discovered by accident: `Authorization: Bearer <same key>`
+        // returns 200 in <3s for both Sonnet and Haiku on the SAME
+        // deployment, with the SAME key. So the gateway accepts the key
+        // — it just routes only the `Authorization: Bearer` form to the
+        // upstream Anthropic backend; the other two get black-holed.
+        //
+        // Hypothesis: Foundry's "New Foundry" gateway changed the auth
+        // contract on the /anthropic/v1/messages route. Earlier in the
+        // year the route honoured `api-key` + `x-api-key`; today it
+        // honours `Authorization: Bearer`. We send all three so the
+        // code is tolerant if the contract changes again — Foundry
+        // picks whichever header it recognises and ignores the others.
+        //
+        // The previous version of this comment block (and code) said
+        // "send `api-key` + `x-api-key`, that's the fix". That diagnosis
+        // is falsified — see this commit's message + the run on
+        // 2026-05-20 where both headers produced 30-second hangs.
+        Authorization: `Bearer ${ANTHROPIC_API_KEY}`,
         'api-key': ANTHROPIC_API_KEY,
         'x-api-key': ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
