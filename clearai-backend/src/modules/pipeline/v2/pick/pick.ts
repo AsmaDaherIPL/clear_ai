@@ -175,11 +175,34 @@ const BAND_THRESHOLD_MODERATE = 0.50;
 const BAND_THRESHOLD_FAIR = 0.25;
 const BAND_THRESHOLD_LOW = 0.10;
 
-export function deriveConfidenceBand(confidence: number): ConfidenceBand {
+/**
+ * Derive the categorical band from a numeric confidence.
+ *
+ * PR14 (2026-05-20): the `acceptedContext` flag controls the floor.
+ * `no_result` is reserved for escalate paths (no code shipped). When
+ * the picker accepted a code AND that code is shipping in XML — even
+ * if confidence is very low — the band should never be `no_result`,
+ * because the SPA reads that as "no classification at all." The
+ * floor clamps to `low` instead. Today's example: row picking
+ * 620500000000 (heading-level cotton shirt) with entropy 0.05 was
+ * labeled `no_result` even though the code shipped and verifier
+ * correctly flagged UNCERTAIN. PR14 makes that row show `low`,
+ * which matches reality.
+ *
+ * Per-candidate calls (annotated candidates) keep the original floor
+ * — `no_result` on a loser candidate accurately tells the reviewer
+ * "this candidate is essentially nothing" and doesn't conflict with
+ * the winner's status.
+ */
+export function deriveConfidenceBand(
+  confidence: number,
+  acceptedContext: boolean = false,
+): ConfidenceBand {
   if (confidence >= BAND_THRESHOLD_HIGH) return 'high';
   if (confidence >= BAND_THRESHOLD_MODERATE) return 'moderate';
   if (confidence >= BAND_THRESHOLD_FAIR) return 'fair';
   if (confidence >= BAND_THRESHOLD_LOW) return 'low';
+  if (acceptedContext) return 'low';
   return 'no_result';
 }
 
@@ -969,7 +992,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     final_code: top.code,
     fit: top.fit,
     confidence,
-    confidence_band: deriveConfidenceBand(confidence),
+    confidence_band: deriveConfidenceBand(confidence, /* acceptedContext */ true),
     confidence_signals: signals,
     // Prefer the picker's structured `gir` field (added 2026-05-19,
     // TASKS L5). Fall back to regex-scrape of the rationale prose for

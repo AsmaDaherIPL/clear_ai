@@ -618,8 +618,13 @@ export async function handleListClassifications(
         procedures: enrichment?.procedures ?? [],
         classificationStatus: (i.classification_status as VerdictClassificationStatus | null) ?? null,
         classificationConfidence: i.picker_confidence !== null ? Number(i.picker_confidence) : null,
+        // PR14: a stored picker_confidence implies the picker accepted
+        // a code; band floor clamps to 'low' (never 'no_result' for
+        // shipped codes — that label is reserved for escalates).
         classificationConfidenceBand:
-          i.picker_confidence !== null ? deriveConfidenceBand(Number(i.picker_confidence)) : null,
+          i.picker_confidence !== null
+            ? deriveConfidenceBand(Number(i.picker_confidence), true)
+            : null,
         sanityVerdict: (i.sanity_verdict as SanityVerdict | null) ?? null,
         trace: includeTrace ? (i.trace as Record<string, unknown> | null) : null,
         error: i.error,

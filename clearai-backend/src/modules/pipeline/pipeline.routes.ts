@@ -499,7 +499,9 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
         classificationConfidenceBand: (() => {
           const c =
             arch === 'v2' ? v2PickerConfidence : (dcOutput.picker_confidence ?? null);
-          return typeof c === 'number' ? deriveConfidenceBand(c) : null;
+          // PR14: a stored picker_confidence means a code was accepted
+          // and shipped; band floor clamps to 'low' (never 'no_result').
+          return typeof c === 'number' ? deriveConfidenceBand(c, true) : null;
         })(),
         sanityVerdict: (row.sanity_verdict as SanityVerdict | null) ?? null,
         trace: includeTrace ? (trace as Record<string, unknown> | null) : null,

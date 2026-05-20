@@ -896,7 +896,7 @@ describe('computeConfidence — entropy-based formula (PR9)', () => {
 });
 
 describe('deriveConfidenceBand (PR9)', () => {
-  it('maps thresholds correctly', () => {
+  it('maps thresholds correctly (default / per-candidate mode)', () => {
     expect(deriveConfidenceBand(0.95)).toBe('high');
     expect(deriveConfidenceBand(0.75)).toBe('high');
     expect(deriveConfidenceBand(0.74)).toBe('moderate');
@@ -907,6 +907,25 @@ describe('deriveConfidenceBand (PR9)', () => {
     expect(deriveConfidenceBand(0.10)).toBe('low');
     expect(deriveConfidenceBand(0.09)).toBe('no_result');
     expect(deriveConfidenceBand(0)).toBe('no_result');
+  });
+
+  // PR14 (2026-05-20): when a code was actually picked (pick.kind ===
+  // 'accepted'), 'no_result' is misleading because the code is shipping.
+  // Clamp the floor to 'low' in that case. Per-candidate (loser)
+  // callers still get the default semantics.
+  it('clamps floor to "low" when acceptedContext = true', () => {
+    expect(deriveConfidenceBand(0.05, true)).toBe('low');
+    expect(deriveConfidenceBand(0.0, true)).toBe('low');
+    expect(deriveConfidenceBand(0.099, true)).toBe('low');
+    // Above-floor thresholds unchanged
+    expect(deriveConfidenceBand(0.10, true)).toBe('low');
+    expect(deriveConfidenceBand(0.50, true)).toBe('moderate');
+    expect(deriveConfidenceBand(0.75, true)).toBe('high');
+  });
+
+  it('default mode preserved (acceptedContext omitted = false)', () => {
+    // Regression: previous PR9 callers passed only one arg.
+    expect(deriveConfidenceBand(0.05)).toBe('no_result');
   });
 });
 
