@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { api, ApiError, type BatchFile, type DownloadLinks, type BatchItem } from '@/lib/api';
 import type { BatchState } from './ClassifyApp';
 import BatchResultsTable from './BatchResultsTable';
+import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 import { zipSync } from 'fflate';
 
 function humanError(raw: string | null | undefined): string {
@@ -100,6 +101,14 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
   const [fileFetching, setFileFetching] = useState<Record<string, boolean>>({});
   const autoFetchedRunRef = useRef<string | null>(null);
 
+  // Review queue dialog state
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewLoadError, setReviewLoadError] = useState<string | null>(null);
+  const [reviewedCount, setReviewedCount] = useState(0);
+
   const summary = state.summary;
   const items = state.items;
   const isPolling = state.phase === 'uploading' || state.phase === 'polling';
@@ -178,6 +187,11 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
     setDownloadError(null);
     setFileFetching({});
     autoFetchedRunRef.current = null;
+    // Reset review queue state when run changes
+    setReviewQueue([]);
+    setReviewIndex(0);
+    setReviewedCount(0);
+    setReviewLoadError(null);
   }, [state.runId]);
 
   useEffect(() => {
@@ -187,6 +201,123 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
     void fetchDownloadLinks(state.runId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.runId, runDone]);
+
+  // ---------------------------------------------------------------------------
+  // Review queue: fetch + open
+  // ---------------------------------------------------------------------------
+
+  const openResolveQueue = useCallback(async () => {
+    if (!state.runId) return;
+    setReviewLoadError(null);
+    setReviewLoading(true);
+    try {
+      const res = await api.listReviewQueue({ batch_id: state.runId, status: 'pending', limit: 100 });
+      const mapped: ReviewItem[] = res.items.map((row) => {
+        // Determine mode: sanity_flag → value check; everything else → low confidence
+        const flagType: 'value' | 'hs' = row.reason === 'sanity_flag' ? 'value' : 'hs';
+        // Pull description + merchant code from the payload when available
+        const payload = row.payload ?? {};
+        const description = String(payload['description'] ?? payload['product_description'] ?? '');
+        const merchantCode = payload['merchant_code'] != null ? String(payload['merchant_code']) : null;
+        const lineNumber = payload['row_index'] != null ? Number(payload['row_index']) : null;
+        const valueAmount = payload['value_amount'] != null ? Number(payload['value_amount']) : null;
+        const valueCurrency = payload['value_currency'] != null ? String(payload['value_currency']) : 'SAR';
+        const candidates = row.candidates ?? [];
+        return {
+          id: row.id,
+          description,
+          merchantCode,
+          lineNumber,
+          value: valueAmount != null ? { amount: valueAmount, currency: valueCurrency } : null,
+          currentCode: row.current_final_code ?? null,
+          currentConfidence: row.current_classification_confidence ?? null,
+          verdict: row.current_sanity_verdict ?? null,
+          flagType,
+          sanityRationale: row.current_sanity_rationale ?? null,
+          alternatives: candidates.map((c) => ({
+            code: c.code,
+            description_en: c.description_en ?? null,
+            description_ar: c.description_ar ?? null,
+            retrieval_score: c.rerank_score ?? null,
+          })),
+        };
+      });
+      setReviewQueue(mapped);
+      setReviewIndex(0);
+      setReviewedCount(0);
+      setReviewOpen(true);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? `${err.status}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : 'Failed to load review queue.';
+      setReviewLoadError(msg);
+    } finally {
+      setReviewLoading(false);
+    }
+  }, [state.runId]);
+
+  // ---------------------------------------------------------------------------
+  // Review queue: decision handlers
+  // ---------------------------------------------------------------------------
+
+  const handleReviewAccept = useCallback(async (item: ReviewItem) => {
+    try {
+      await api.submitReviewDecision(item.id, { decision: 'approve' });
+    } catch {
+      // Best-effort — move on regardless
+    }
+    setReviewedCount((n) => n + 1);
+    setReviewIndex((i) => {
+      const next = i + 1;
+      if (next >= reviewQueue.length) setReviewOpen(false);
+      return next;
+    });
+  }, [reviewQueue.length]);
+
+  const handleReviewDismiss = useCallback(async (item: ReviewItem) => {
+    try {
+      await api.submitReviewDecision(item.id, { decision: 'reject' });
+    } catch {
+      // Best-effort
+    }
+    setReviewedCount((n) => n + 1);
+    setReviewIndex((i) => {
+      const next = i + 1;
+      if (next >= reviewQueue.length) setReviewOpen(false);
+      return next;
+    });
+  }, [reviewQueue.length]);
+
+  const handleReviewPick = useCallback(async (item: ReviewItem, chosenCode: string) => {
+    try {
+      await api.submitReviewDecision(item.id, { decision: 'override', reviewer_code: chosenCode });
+    } catch {
+      // Best-effort
+    }
+    setReviewedCount((n) => n + 1);
+    setReviewIndex((i) => {
+      const next = i + 1;
+      if (next >= reviewQueue.length) setReviewOpen(false);
+      return next;
+    });
+  }, [reviewQueue.length]);
+
+  const handleReviewBlock = useCallback(async (item: ReviewItem, notes: string) => {
+    try {
+      await api.submitReviewDecision(item.id, { decision: 'block_from_submission', reviewer_notes: notes });
+    } catch {
+      // Best-effort
+    }
+    setReviewedCount((n) => n + 1);
+    setReviewIndex((i) => {
+      const next = i + 1;
+      if (next >= reviewQueue.length) setReviewOpen(false);
+      return next;
+    });
+  }, [reviewQueue.length]);
 
   if (!visible) return null;
 
@@ -450,6 +581,9 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
               flaggedCount={flaggedCount}
               lowConfCount={0}
               valueFlagCount={flaggedCount}
+              loading={reviewLoading}
+              loadError={reviewLoadError}
+              onOpen={openResolveQueue}
             />
           )}
 
@@ -517,6 +651,27 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
           </div>
         )}
       </div>
+
+      {/* Review queue dialog — rendered inside the fragment so it portals to body */}
+      <ReviewDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        item={reviewQueue[reviewIndex] ?? null}
+        queueLength={reviewQueue.length}
+        queueIndex={reviewIndex}
+        reviewedCount={reviewedCount}
+        onPrev={() => setReviewIndex((i) => Math.max(0, i - 1))}
+        onNext={() => setReviewIndex((i) => Math.min(reviewQueue.length - 1, i + 1))}
+        onSkip={() => setReviewIndex((i) => {
+          const next = i + 1;
+          if (next >= reviewQueue.length) setReviewOpen(false);
+          return next;
+        })}
+        onAccept={handleReviewAccept}
+        onDismiss={handleReviewDismiss}
+        onPick={handleReviewPick}
+        onBlock={handleReviewBlock}
+      />
     </>
   );
 }
@@ -529,10 +684,16 @@ function ReviewQueueBanner({
   flaggedCount,
   lowConfCount,
   valueFlagCount,
+  loading,
+  loadError,
+  onOpen,
 }: {
   flaggedCount: number;
   lowConfCount: number;
   valueFlagCount: number;
+  loading?: boolean;
+  loadError?: string | null;
+  onOpen?: () => void;
 }) {
   const t = useT();
 
@@ -590,18 +751,32 @@ function ReviewQueueBanner({
           )}
         </div>
 
-        {/* CTA button */}
-        <button
-          type="button"
-          className={cn(
-            'shrink-0 inline-flex items-center gap-2 px-5 py-3 rounded-[10px]',
-            'text-[14px] font-semibold text-white',
-            'transition-all duration-150 hover:brightness-110',
+        {/* CTA button + error inline */}
+        <div className="shrink-0 flex flex-col items-end gap-1.5">
+          <button
+            type="button"
+            onClick={onOpen}
+            disabled={loading}
+            className={cn(
+              'inline-flex items-center gap-2 px-5 py-3 rounded-[10px]',
+              'text-[14px] font-semibold text-white',
+              'transition-all duration-150 hover:brightness-110 active:brightness-95',
+              'disabled:opacity-60 disabled:cursor-progress',
+            )}
+            style={{ background: 'var(--accent)' }}
+          >
+            {loading ? (
+              <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" aria-hidden />
+            ) : null}
+            {t('batch_review_queue_cta')}
+            {!loading && <span aria-hidden>→</span>}
+          </button>
+          {loadError && (
+            <p className="text-[11px] text-[oklch(0.75_0.10_25)] m-0 max-w-[200px] text-end">
+              {loadError}
+            </p>
           )}
-          style={{ background: 'var(--accent)' }}
-        >
-          {t('batch_review_queue_cta')} →
-        </button>
+        </div>
       </div>
     </div>
   );
