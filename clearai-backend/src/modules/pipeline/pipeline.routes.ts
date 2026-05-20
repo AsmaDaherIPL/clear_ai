@@ -18,10 +18,12 @@ import {
   assembleCanonicalItem,
   assembleDispatchV1,
   classificationConfidenceFromTrace,
+  classificationConfidenceBandFromTrace,
   classificationStatusFromTrace,
   deriveClassificationStatus,
   retrievalQueryFromTrace,
 } from './trace/dispatch-v1.js';
+import { deriveConfidenceBand } from './v2/pick/pick.js';
 import { recordClassificationEvent } from './events/recorder.js';
 import { enqueueHitl } from './review/review.js';
 import { enrichCode, lookupCatalogPath } from '../reference-data/code-enrichment.service.js';
@@ -257,6 +259,7 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
       procedures: enrichment.procedures,
       classificationStatus: classificationStatusFromTrace(result.trace),
       classificationConfidence: classificationConfidenceFromTrace(result.trace),
+      classificationConfidenceBand: classificationConfidenceBandFromTrace(result.trace),
       sanityVerdict: result.sanity_verdict ?? null,
       trace: v1Response.trace,
       error: null,
@@ -493,6 +496,11 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
         classificationConfidence: arch === 'v2'
           ? v2PickerConfidence
           : (dcOutput.picker_confidence ?? null),
+        classificationConfidenceBand: (() => {
+          const c =
+            arch === 'v2' ? v2PickerConfidence : (dcOutput.picker_confidence ?? null);
+          return typeof c === 'number' ? deriveConfidenceBand(c) : null;
+        })(),
         sanityVerdict: (row.sanity_verdict as SanityVerdict | null) ?? null,
         trace: includeTrace ? (trace as Record<string, unknown> | null) : null,
         error: null,

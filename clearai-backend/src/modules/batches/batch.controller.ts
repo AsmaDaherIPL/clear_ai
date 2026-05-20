@@ -16,6 +16,7 @@ import {
 import { getPool } from '../../db/client.js';
 import { enrichCodes } from '../reference-data/code-enrichment.service.js';
 import { assembleCanonicalItem } from '../pipeline/trace/dispatch-v1.js';
+import { deriveConfidenceBand } from '../pipeline/v2/pick/pick.js';
 import type {
   ClassificationStatus as VerdictClassificationStatus,
   SanityVerdict,
@@ -588,6 +589,8 @@ export async function handleListClassifications(
         procedures: enrichment?.procedures ?? [],
         classificationStatus: (i.classification_status as VerdictClassificationStatus | null) ?? null,
         classificationConfidence: i.picker_confidence !== null ? Number(i.picker_confidence) : null,
+        classificationConfidenceBand:
+          i.picker_confidence !== null ? deriveConfidenceBand(Number(i.picker_confidence)) : null,
         sanityVerdict: (i.sanity_verdict as SanityVerdict | null) ?? null,
         trace: includeTrace ? (i.trace as Record<string, unknown> | null) : null,
         error: i.error,

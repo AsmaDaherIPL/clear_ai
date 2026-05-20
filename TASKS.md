@@ -47,7 +47,7 @@ Items struck through with the shipping commit moved into Done; the rest are stil
 
 | Rank | ID | Item | Why it matters | Effort |
 |---|---|---|---|---|
-| 1 | **Confidence-formula decision (A / B / C)** | Still parked from 2026-05-17. Today's `computeConfidence()` flat-buckets all `does_not_fit` candidates (e.g. all score 0.20) — SPA can't rank alternatives. Path A: per-candidate formula on every row. Path B: drop loser confidence entirely. Path C: keep current. **Needs product call.** | M |
+| ~~1~~ | ~~Confidence-formula decision (A / B / C)~~ | **Shipped in PR9** — Zonos-style entropy-based confidence + `confidence_band` categorical labels surfaced to SPA. The flat-bucket regression is fixed; each annotated candidate now carries its entropy share, not a per-fit constant. | — |
 | ~~2~~ | ~~L5~~ | ~~`extractGir` is regex-grep on prose~~ — **Shipped in PR2 (`36886f9`) as structured `gir_applied` field** | — | — |
 | 3 | **L6 deterministic post-LLM check** | Permissive-fits rule enforced only in the prompt. The deterministic catcher for "picker said `does_not_fit` but only constrained leaf dimension is silent in input" hasn't shipped. The test version shipped 2026-05-18 (`7529363`); the production gate is still open. | M |
 | ~~4~~ | ~~L1 audit flag~~ | ~~CONTRADICTION audit flag on `verdict_population.fits >= 2`~~ — **Shipped in PR2 (`36886f9`)** | — | — |
@@ -64,16 +64,16 @@ Items struck through with the shipping commit moved into Done; the rest are stil
 | ~~15~~ | ~~BCLEEN-CLASS RECOVERY~~ | ~~Differentiate transient transport failures from genuine ZERO_SIGNAL~~ — **Shipped in PR1 (PICK-EMPTY-RETRY) + PR7 (AMBIGUOUS status)** | — | — |
 | ~~16~~ | ~~CHAPTER-DISAGREEMENT BALANCING~~ | ~~Rerank slot guarantee + picker audit flag + confidence cap~~ — **Shipped in PR3 (`f75c462`)** | — | — |
 
-**Still open in Section 2**: #1 (parked), #3 L6 catcher, #7 sanity↔description cross-check, #8 verifier rule 3, #9 taxonomy, #10 R6 cache, #11 embedder swap, #12 reranker tuning, #13 bare-noun gate. (#5 closed — won't do per audit-only rule.)
+**Still open in Section 2**: #3 L6 catcher, #7 sanity↔description cross-check, #8 verifier rule 3, #9 taxonomy, #10 R6 cache, #11 embedder swap, #12 reranker tuning, #13 bare-noun gate. (#1 confidence A/B/C shipped in PR9 as entropy-based; #5 closed — won't do per audit-only rule.)
 
 ---
 
-## Recommended sequence (next session, as of PR8)
+## Recommended sequence (next session, as of PR9)
 
-1. **Confidence formula A/B/C decision (Section 2 #1)** — needs product call before code. The flat-bucket regression is the worst remaining accuracy issue.
-2. **L6 deterministic catcher (Section 2 #3)** — M, ~1 day. Catches "picker said `does_not_fit` but only constrained dimension is silent in input" — prompt drift currently only surfaces via HITL backlog.
-3. **Bare-noun gate (Section 2 #13)** — M, ~1-2 days. Deterministic gate to back up the prompt-side fix.
-4. **HITL-driven XML re-render workflow** (NEW, replaces Section 2 #5) — when a reviewer marks a HITL row for exclusion, the XML for that batch regenerates without that row. This is the operator-driven equivalent of the "chapter-85 gate" we declined to build. Belongs to the HITL feature work, not the pipeline.
+1. **L6 deterministic catcher (Section 2 #3)** — M, ~1 day. Catches "picker said `does_not_fit` but only constrained dimension is silent in input" — prompt drift currently only surfaces via HITL backlog.
+2. **Bare-noun gate (Section 2 #13)** — M, ~1-2 days. Deterministic gate to back up the prompt-side fix.
+3. **HITL-driven XML re-render workflow** (replaces former Section 2 #5) — when a reviewer marks a HITL row for exclusion, the XML for that batch regenerates without that row. Operator-driven, belongs to HITL feature work.
+4. **Frontend migration**: SPA today reads `classification_confidence` (raw number). After PR9, it should switch to `classification_confidence_band` for the reviewer-facing pill. Both fields are on the wire today, but the SPA still shows the decimal. Frontend agent task.
 
 The five Section-1 cleanup items (L11(a), L9, L12, L11(b)) and the slow accuracy items (#10 R6 cache, #11 embedder swap, #12 reranker tuning) can slot in opportunistically.
 
@@ -110,6 +110,7 @@ unless noted.
 | PR6 | Shadow sampling + hitl_feedback table + cost circuit breaker (other PR6 items DEFERRED — see below) | `d0342e5` (rev 0000152) |
 | PR7 | Picker timeout 15s→30s (totalBudget 50s→90s) + AMBIGUOUS classification_status for picker_unavailable (item #8 Dresses fix) + identify_fast multi_product class-shift rule + examples | `999f448` (rev 0000161) |
 | PR8 | R9 balanced-brace JSON parser (replaces silent-corruption "first {-to-last-}" logic) + sanity rationale-verdict reconciliation (fixes today's #2 + #5 internal-PASS-external-FLAG bug) + sanity prompt multi-revision rule | `9fc241f` (rev 0000162) |
+| PR9 | Entropy-based confidence (Zonos-style) + `confidence_band` categorical labels (high/moderate/fair/low/no_result). Replaces flat-bucket per-candidate scores (every does_not_fit = 0.15) with each candidate's share of the entropy distribution. Existing identify-chaining + disagreement caps preserved. SPA reads `classification_confidence_band` instead of raw decimal. | pending (rev TBD) |
 
 ## Still open — moved from PR6 deferrals
 

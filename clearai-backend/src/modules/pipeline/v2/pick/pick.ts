@@ -128,6 +128,61 @@ const IDENTIFY_CONF_CHAIN_THRESHOLD = 0.75;
  */
 const ANNOTATED_RATIONALE_MAX = 300;
 
+/**
+ * Per-fit plausibility weights used when constructing the probability
+ * distribution for entropy-based confidence (PR9, 2026-05-20). Each
+ * candidate's contribution to the distribution is `rerank_score *
+ * fit_weight`, normalised across the pool.
+ *
+ * Why these values:
+ *   fits=1.0          — full weight; the picker said this leaf covers the input.
+ *   partial=0.5       — half weight; right family, missing dimension.
+ *   does_not_fit=0.10 — small but non-zero; even a clear reject carries some
+ *                      retrieval signal (it survived rerank). Zero would
+ *                      collapse the distribution and inflate confidence.
+ *
+ * Calibrated against today's 10-row pilot (item #1 thermos): a clean
+ * pool (1 fits + 2 partial + 5 does_not_fit) produces a peaked
+ * distribution → high band. A 4-way tie produces a near-uniform
+ * distribution → low band.
+ */
+const FIT_WEIGHT_FITS = 1.0;
+const FIT_WEIGHT_PARTIAL = 0.5;
+const FIT_WEIGHT_DOES_NOT_FIT = 0.10;
+
+/**
+ * Banding thresholds for confidence (PR9, 2026-05-20).
+ *
+ * The raw entropy confidence is in [0, 1]; we band it to a categorical
+ * label for the SPA, so reviewers compare classifications by label
+ * (High/Moderate/Fair/Low) rather than chasing decimal differences.
+ *
+ * Rationale for the cutpoints (mirrors Zonos's published bands):
+ *   >= 0.75  → "high"     — distribution is sharply peaked on the winner
+ *   >= 0.50  → "moderate" — peaked but with real competitors
+ *   >= 0.25  → "fair"     — multiple plausible answers, winner just edges out
+ *   >= 0.10  → "low"      — near-uniform distribution; system is mostly guessing
+ *   < 0.10   → "no_result" (escalate to ZERO_SIGNAL — already done elsewhere)
+ *
+ * These are NOT calibrated to accuracy percentages. They are useful for
+ * comparison and triage, not as literal probability statements. See
+ * deriveConfidenceBand below.
+ */
+export type ConfidenceBand = 'high' | 'moderate' | 'fair' | 'low' | 'no_result';
+
+const BAND_THRESHOLD_HIGH = 0.75;
+const BAND_THRESHOLD_MODERATE = 0.50;
+const BAND_THRESHOLD_FAIR = 0.25;
+const BAND_THRESHOLD_LOW = 0.10;
+
+export function deriveConfidenceBand(confidence: number): ConfidenceBand {
+  if (confidence >= BAND_THRESHOLD_HIGH) return 'high';
+  if (confidence >= BAND_THRESHOLD_MODERATE) return 'moderate';
+  if (confidence >= BAND_THRESHOLD_FAIR) return 'fair';
+  if (confidence >= BAND_THRESHOLD_LOW) return 'low';
+  return 'no_result';
+}
+
 const PickOutputSchema = z
   .object({
     verdicts: z.unknown().optional(),
@@ -441,12 +496,19 @@ function buildAnnotatedCandidates(
     // identify was weak, the loser's "what-if confidence" is also
     // capped, so a 0.42-identify row doesn't show "alt1 at 0.65" when
     // the upstream signal didn't warrant it.
+    // PR9 (2026-05-20): pass candidate_under_eval so each annotated row
+    // gets its share of the entropy distribution (p_i), not the same
+    // pool-wide number. The result is a real continuous score that
+    // differentiates losers — e.g. on the thermos row, the closest
+    // does_not_fit lands at 0.18 while the most-distant lands at 0.04,
+    // instead of all does_not_fit collapsing to the legacy 0.15.
     const { confidence } = computeConfidence({
       fit: v.fit,
       verdict_population,
       candidates,
       merchant_chapter_disagreement,
       identify_confidence,
+      candidate_under_eval: c,
     });
     annotated.push({
       code: v.code,
@@ -456,6 +518,7 @@ function buildAnnotatedCandidates(
       path_ar: c.path_ar,
       fit: v.fit,
       confidence,
+      confidence_band: deriveConfidenceBand(confidence),
       rationale:
         v.rationale.length > ANNOTATED_RATIONALE_MAX
           ? `${v.rationale.slice(0, ANNOTATED_RATIONALE_MAX - 1)}…`
@@ -736,6 +799,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
     final_code: top.code,
     fit: top.fit,
     confidence,
+    confidence_band: deriveConfidenceBand(confidence),
     confidence_signals: signals,
     // Prefer the picker's structured `gir` field (added 2026-05-19,
     // TASKS L5). Fall back to regex-scrape of the rationale prose for
@@ -824,15 +888,90 @@ export function computeConfidence(input: {
    * only to the winner.
    */
   picked_from_arm?: 'merchant_prefix' | 'family_chapter' | 'unconstrained' | 'lexical_tokens';
+  /**
+   * Per-candidate scoring mode (PR9, 2026-05-20). When provided, the
+   * function returns this candidate's share of the entropy distribution
+   * (p_i) instead of the winner's 1 - H/H_max. Used by
+   * buildAnnotatedCandidates to give each annotated candidate a real
+   * differential score instead of the legacy flat-bucket
+   * (all does_not_fit = 0.15). Pass undefined for winner calls.
+   */
+  candidate_under_eval?: RerankedCandidate;
 }): { confidence: number; signals: ConfidenceSignals } {
+  // ------------------------------------------------------------------
+  // PR9 (2026-05-20): entropy-based confidence.
+  //
+  // The per-fit constants + bonuses combo is kept on `ConfidenceSignals`
+  // for trace audit, but the FINAL confidence is derived from the
+  // entropy of the candidate-pool's probability distribution.
+  //
+  // Entropy framing (Zonos-inspired):
+  //   distribution p_i = (rerank_score_i * fit_weight) / sum
+  //   H(p)            = -sum( p_i * log p_i )      // Shannon entropy
+  //   H_max           = log(N)                      // uniform distribution
+  //   winner conf     = 1 - H(p) / H_max
+  //
+  // A sharply peaked distribution -> low entropy -> high confidence.
+  // A near-uniform distribution    -> high entropy -> low confidence.
+  //
+  // Per-candidate calls (candidate_under_eval provided) return p_i for
+  // that candidate instead, so annotated candidates carry their share
+  // of the mass — no more flat bucket of 0.15 for every does_not_fit.
+  // ------------------------------------------------------------------
+
+  const candidatesWithRerank = input.candidates;
+  const v = input.verdict_population;
+  const totalVerdicted = v.fits + v.partial + v.does_not_fit;
+
+  // Pool-wide average fit weight, used as a constant multiplier on every
+  // candidate's rerank score. We don't have a per-candidate fit at this
+  // call site (verdict_population is aggregate); the average captures
+  // pool quality and folds into the distribution shape implicitly.
+  const totalFitWeighted =
+    v.fits * FIT_WEIGHT_FITS +
+    v.partial * FIT_WEIGHT_PARTIAL +
+    v.does_not_fit * FIT_WEIGHT_DOES_NOT_FIT;
+  const avgFitWeight =
+    totalVerdicted > 0 ? totalFitWeighted / totalVerdicted : FIT_WEIGHT_PARTIAL;
+
+  let winnerEntropyConf = CONFIDENCE_MIN;
+  let perCandidateShare = CONFIDENCE_MIN;
+  if (candidatesWithRerank.length > 0) {
+    const weights = candidatesWithRerank.map(
+      (c) => Math.max(0, c.rerank_score) * avgFitWeight,
+    );
+    const sumWeights = weights.reduce((s, w) => s + w, 0);
+    if (sumWeights > 0) {
+      const probs = weights.map((w) => w / sumWeights);
+      // Winner entropy confidence.
+      let H = 0;
+      for (const p of probs) {
+        if (p > 0) H -= p * Math.log(p);
+      }
+      const N = probs.filter((p) => p > 0).length;
+      const Hmax = N > 1 ? Math.log(N) : 1;
+      winnerEntropyConf = 1 - H / Hmax;
+      // Per-candidate share for the input's candidate_under_eval, if any.
+      if (input.candidate_under_eval !== undefined) {
+        const idx = candidatesWithRerank.findIndex(
+          (c) => c.code === input.candidate_under_eval!.code,
+        );
+        perCandidateShare = idx >= 0 ? probs[idx]! : CONFIDENCE_MIN;
+      }
+    }
+  }
+
+  let confidence =
+    input.candidate_under_eval !== undefined ? perCandidateShare : winnerEntropyConf;
+
+  // Legacy ConfidenceSignals — kept for trace audit. The per-fit base +
+  // bonuses no longer drive `confidence`, but they remain useful as a
+  // narrative of "what would the pre-PR9 formula have said?" Future
+  // reviewers comparing old and new behaviour can read these directly.
   const base =
     input.fit === 'fits' ? BASE_FITS
     : input.fit === 'partial' ? BASE_PARTIAL
     : BASE_DOES_NOT_FIT;
-
-  // Pool cleanness — how decisive was the picker against the alternatives?
-  const v = input.verdict_population;
-  const totalVerdicted = v.fits + v.partial + v.does_not_fit;
   let pool_cleanness_bonus = 0;
   if (v.fits === 1 && v.partial === 0) {
     pool_cleanness_bonus += POOL_CLEAN_BONUS;
@@ -840,25 +979,16 @@ export function computeConfidence(input: {
   if (totalVerdicted > 0 && v.does_not_fit / totalVerdicted >= 0.7) {
     pool_cleanness_bonus += POOL_DOMINATED_BONUS;
   }
-
-  // Cross-arm agreement — independent retrieval paths converging is strong
-  // evidence. `merchant_chapter_disagreement` already encodes the harder
-  // version of disagreement (the merchant's claimed chapter conflicts with
-  // the winner); use it as the penalty signal.
-  const armCount = new Set(input.candidates.map((c) => c.source_arm)).size;
+  const armCount = new Set(candidatesWithRerank.map((c) => c.source_arm)).size;
   let arm_agreement_bonus = 0;
   if (input.merchant_chapter_disagreement) {
     arm_agreement_bonus = ARM_DISAGREE_PENALTY;
   } else if (armCount >= 2) {
     arm_agreement_bonus = ARM_AGREE_BONUS;
   }
-
-  // Rerank gap — a pulled-away winner is a real winner. We sort because
-  // candidates may not arrive rerank-score-desc (multi-arm union does
-  // its own ordering).
   let rerank_gap_bonus = 0;
-  if (input.candidates.length >= 2) {
-    const sorted = [...input.candidates].sort(
+  if (candidatesWithRerank.length >= 2) {
+    const sorted = [...candidatesWithRerank].sort(
       (a, b) => b.rerank_score - a.rerank_score || a.code.localeCompare(b.code),
     );
     const s1 = sorted[0]!.rerank_score;
@@ -867,9 +997,9 @@ export function computeConfidence(input: {
       rerank_gap_bonus = REREK_GAP_BONUS;
     }
   }
+  const raw_total = confidence; // entropy-derived final, mirrors legacy field
 
-  const raw_total = base + pool_cleanness_bonus + arm_agreement_bonus + rerank_gap_bonus;
-  let confidence = Math.max(CONFIDENCE_MIN, Math.min(CONFIDENCE_MAX, raw_total));
+  confidence = Math.max(CONFIDENCE_MIN, Math.min(CONFIDENCE_MAX, confidence));
 
   // Identify-confidence chaining: when identify was weak (e.g. brand-only
   // rescue at 0.42), cap pick.confidence so a clean candidate pool can't

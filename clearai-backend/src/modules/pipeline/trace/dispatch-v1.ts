@@ -521,7 +521,26 @@ export interface CanonicalValue {
 export interface CanonicalClassificationResult {
   resolved_hs_code: string | null;
   classification_status: ClassificationStatus | null;
+  /**
+   * Raw entropy-based confidence (PR9, 2026-05-20). Kept on the wire
+   * for backward compat + engineering audit, but reviewer-facing UI
+   * should render `classification_confidence_band` instead — the raw
+   * number carries false precision (an 85% does NOT mean "right 85%
+   * of the time").
+   */
   classification_confidence: number | null;
+  /**
+   * Categorical band derived from `classification_confidence` (PR9).
+   * SPA's canonical reviewer-facing field. See PickAccepted for
+   * threshold definitions.
+   */
+  classification_confidence_band:
+    | 'high'
+    | 'moderate'
+    | 'fair'
+    | 'low'
+    | 'no_result'
+    | null;
   sanity_verdict: SanityVerdict | null;
 }
 
@@ -555,6 +574,13 @@ export interface AssembleCanonicalParams {
   procedures: unknown[];
   classificationStatus: ClassificationStatus | null;
   classificationConfidence: number | null;
+  classificationConfidenceBand:
+    | 'high'
+    | 'moderate'
+    | 'fair'
+    | 'low'
+    | 'no_result'
+    | null;
   sanityVerdict: SanityVerdict | null;
   trace?: DispatchV1Trace | Record<string, unknown> | null;
   error: string | null;
@@ -588,6 +614,7 @@ export function assembleCanonicalItem(params: AssembleCanonicalParams): Canonica
       resolved_hs_code: params.resolvedHsCode,
       classification_status: params.classificationStatus,
       classification_confidence: params.classificationConfidence,
+      classification_confidence_band: params.classificationConfidenceBand,
       sanity_verdict: params.sanityVerdict,
     },
     error: params.error,
@@ -688,4 +715,16 @@ export function classificationStatusFromTrace(trace: PipelineTrace): Classificat
  */
 export function classificationConfidenceFromTrace(trace: PipelineTrace): number | null {
   return trace.pick.kind === 'accepted' ? trace.pick.confidence : null;
+}
+
+/**
+ * Pull the confidence band from a PipelineTrace (PR9). Returns null when
+ * pick escalated. SPA reads this in preference to the raw confidence
+ * number for reviewer-facing display.
+ */
+export function classificationConfidenceBandFromTrace(
+  trace: PipelineTrace,
+): 'high' | 'moderate' | 'fair' | 'low' | 'no_result' | null {
+  if (trace.pick.kind !== 'accepted') return null;
+  return trace.pick.confidence_band ?? null;
 }

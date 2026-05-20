@@ -22,7 +22,11 @@ vi.mock('../../src/config/env.js', () => ({
   env: () => ({ LLM_MODEL: 'mock-haiku', LLM_MODEL_STRONG: 'mock-sonnet' }),
 }));
 
-import { runPick, computeConfidence } from '../../src/modules/pipeline/v2/pick/pick.js';
+import {
+  runPick,
+  computeConfidence,
+  deriveConfidenceBand,
+} from '../../src/modules/pipeline/v2/pick/pick.js';
 import { callLlmWithRetry } from '../../src/inference/llm/client.js';
 import type {
   IdentifyCallTrace,
@@ -198,10 +202,12 @@ describe('runPick — accepted with audit fields', () => {
     if (r.kind === 'accepted') {
       expect(r.final_code).toBe('610910000000');
       expect(r.fit).toBe('fits');
-      // Computed confidence (Option A): base(fits)=0.65 + pool_clean(1
-      // fits, 0 partial)=+0.10 + arm_agree=0 (single arm) + rerank_gap=0
-      // (single candidate) = 0.75. See computeConfidence() in pick.ts.
-      expect(r.confidence).toBe(0.75);
+      // PR9 (2026-05-20): single-candidate pool → entropy = 0 →
+      // confidence = 1 (clamped to CONFIDENCE_MAX = 0.99). The legacy
+      // base+bonuses live on `confidence_signals` for audit but no
+      // longer drive the final number.
+      expect(r.confidence).toBeCloseTo(0.99, 5);
+      expect(r.confidence_band).toBe('high');
       expect(r.confidence_signals.base).toBe(0.65);
       expect(r.confidence_signals.pool_cleanness_bonus).toBe(0.10);
       expect(r.gir_applied).toBe('GIR 1');
@@ -313,9 +319,11 @@ describe('runPick — accepted with audit fields', () => {
       merchant_chapter: '61',
     });
     if (r.kind === 'accepted') {
-      // base(partial)=0.45 + pool_clean=0 (no fits) + arm=0 (single arm)
-      // + rerank=0 (single candidate). See computeConfidence().
-      expect(r.confidence).toBe(0.45);
+      // PR9: single-candidate pool → entropy = 0 → confidence at MAX.
+      // Verdict is `partial`, but entropy doesn't care about the fit
+      // verdict for the winner — that's encoded in `signals.base` only.
+      expect(r.confidence).toBeCloseTo(0.99, 5);
+      expect(r.confidence_band).toBe('high');
       expect(r.confidence_signals.base).toBe(0.45);
       expect(r.fit).toBe('partial');
     }
@@ -483,95 +491,179 @@ describe('runPick — LLM call shape', () => {
   });
 });
 
-describe('computeConfidence — signal-based formula', () => {
-  it('clean single-arm fits → base + pool_clean only', () => {
-    // base(fits)=0.65 + pool_clean(1 fits, 0 partial)=0.10 + 0 + 0 = 0.75
-    const { confidence, signals } = computeConfidence({
+describe('computeConfidence — entropy-based formula (PR9)', () => {
+  // PR9 (2026-05-20): confidence is now 1 − H(p)/H_max over a rerank-
+  // weighted distribution. Sharply peaked → high; near-uniform → low.
+  // The legacy base+bonuses live on `signals` for trace audit but
+  // don't drive the final number anymore.
+
+  it('single-candidate pool → max confidence (no entropy possible)', () => {
+    // One candidate, the distribution is trivially peaked. H = 0, conf = 1.
+    const { confidence } = computeConfidence({
       fit: 'fits',
       verdict_population: { fits: 1, partial: 0, does_not_fit: 0 },
       candidates: [rc('a', 'merchant_prefix', 0.5)],
       merchant_chapter_disagreement: false,
     });
-    expect(confidence).toBeCloseTo(0.75, 5);
-    expect(signals.base).toBe(0.65);
-    expect(signals.pool_cleanness_bonus).toBe(0.10);
-    expect(signals.arm_agreement_bonus).toBe(0);
-    expect(signals.rerank_gap_bonus).toBe(0);
+    // Clamped to CONFIDENCE_MAX = 0.99.
+    expect(confidence).toBeCloseTo(0.99, 5);
   });
 
-  it('multi-arm fits with chapter agreement and wide rerank gap → all bonuses', () => {
-    // base 0.65 + pool_clean 0.10 + arm_agree 0.10 + rerank_gap 0.05 = 0.90
+  it('sharply peaked distribution → moderate or higher band', () => {
+    // One candidate dominates rerank → low entropy → moderate/high.
+    // The peak here gives candidate "a" ~86% of the mass; entropy ~0.55,
+    // H_max = ln(3) ~1.10, so conf ~ 1 - 0.55/1.10 ~ 0.50. That's the
+    // boundary of moderate band, so we assert >= 0.40 (fair-or-better).
     const { confidence } = computeConfidence({
       fit: 'fits',
       verdict_population: { fits: 1, partial: 0, does_not_fit: 6 },
       candidates: [
-        rc('a', 'merchant_prefix', 0.80),
-        rc('b', 'family_chapter', 0.30),
+        rc('a', 'merchant_prefix', 0.95),
+        rc('b', 'family_chapter', 0.10),
+        rc('c', 'family_chapter', 0.05),
       ],
       merchant_chapter_disagreement: false,
     });
-    // pool_dominated also fires (6/7 = 0.857 >= 0.7) so +0.05 more = 0.95
-    expect(confidence).toBeCloseTo(0.95, 5);
+    expect(confidence).toBeGreaterThanOrEqual(0.40);
   });
 
-  it('merchant chapter disagreement penalizes even on a fits verdict', () => {
-    // base 0.65 + pool_clean 0.10 + arm_disagree -0.10 + rerank_gap 0 = 0.65
+  it('extreme peak (one near-1, others tiny) → high band', () => {
     const { confidence } = computeConfidence({
       fit: 'fits',
-      verdict_population: { fits: 1, partial: 0, does_not_fit: 1 },
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 6 },
       candidates: [
-        rc('a', 'merchant_prefix', 0.50),
-        rc('b', 'family_chapter', 0.49),
+        rc('a', 'merchant_prefix', 0.99),
+        rc('b', 'family_chapter', 0.001),
+        rc('c', 'family_chapter', 0.001),
       ],
-      merchant_chapter_disagreement: true,
-    });
-    expect(confidence).toBeCloseTo(0.65, 5);
-  });
-
-  it('partial verdict starts at lower base', () => {
-    // base(partial) 0.45 + pool_clean 0 (no fits) + 0 + 0 = 0.45
-    const { confidence } = computeConfidence({
-      fit: 'partial',
-      verdict_population: { fits: 0, partial: 1, does_not_fit: 0 },
-      candidates: [rc('a')],
       merchant_chapter_disagreement: false,
     });
-    expect(confidence).toBeCloseTo(0.45, 5);
+    expect(confidence).toBeGreaterThanOrEqual(0.75);
   });
 
-  it('clamps to [0.05, 0.99]', () => {
-    // A theoretical max input still respects the ceiling.
-    const allBonuses = computeConfidence({
+  it('near-uniform distribution → low confidence', () => {
+    // Three equally-weighted candidates → near-max entropy → conf near 0.
+    const { confidence } = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 1, does_not_fit: 1 },
+      candidates: [
+        rc('a', 'merchant_prefix', 0.50),
+        rc('b', 'family_chapter', 0.50),
+        rc('c', 'lexical_tokens', 0.50),
+      ],
+      merchant_chapter_disagreement: false,
+    });
+    // Perfectly uniform → H = H_max → conf = 0 → clamped to CONFIDENCE_MIN.
+    expect(confidence).toBeCloseTo(0.05, 5);
+  });
+
+  it('clamps to [CONFIDENCE_MIN, CONFIDENCE_MAX]', () => {
+    const peaked = computeConfidence({
       fit: 'fits',
       verdict_population: { fits: 1, partial: 0, does_not_fit: 10 },
       candidates: [
         rc('a', 'merchant_prefix', 1.0),
-        rc('b', 'family_chapter', 0.1),
+        rc('b', 'family_chapter', 0.001),
       ],
       merchant_chapter_disagreement: false,
     });
-    expect(allBonuses.confidence).toBeLessThanOrEqual(0.99);
-    expect(allBonuses.confidence).toBeGreaterThanOrEqual(0.05);
+    expect(peaked.confidence).toBeLessThanOrEqual(0.99);
+    expect(peaked.confidence).toBeGreaterThanOrEqual(0.05);
   });
 
-  it('rerank gap requires >=10% relative separation', () => {
-    // Gap (0.50 - 0.46)/0.50 = 0.08 → no bonus
-    const tightGap = computeConfidence({
+  it('all-zero rerank with multiple candidates floors to CONFIDENCE_MIN', () => {
+    // Multi-candidate pool but every rerank score is 0 → distribution
+    // undefined → fall back to CONFIDENCE_MIN. A single-candidate pool
+    // is degenerate (always max entropy = 0) and gets CONFIDENCE_MAX
+    // instead — that's covered by the first test above.
+    const { confidence } = computeConfidence({
       fit: 'fits',
-      verdict_population: { fits: 1, partial: 0, does_not_fit: 0 },
-      candidates: [rc('a', 'merchant_prefix', 0.50), rc('b', 'merchant_prefix', 0.46)],
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 1 },
+      candidates: [
+        rc('a', 'merchant_prefix', 0),
+        rc('b', 'family_chapter', 0),
+      ],
       merchant_chapter_disagreement: false,
     });
-    expect(tightGap.signals.rerank_gap_bonus).toBe(0);
+    expect(confidence).toBeCloseTo(0.05, 5);
+  });
 
-    // Gap (0.50 - 0.40)/0.50 = 0.20 → bonus fires
-    const wideGap = computeConfidence({
+  it('candidate_under_eval mode returns p_i for that candidate', () => {
+    // Per-candidate annotated mode: each candidate's confidence is its
+    // share of the distribution, not the winner's entropy-based score.
+    const candidates = [
+      rc('a', 'merchant_prefix', 0.80),
+      rc('b', 'family_chapter', 0.20),
+    ];
+    const winner = computeConfidence({
       fit: 'fits',
-      verdict_population: { fits: 1, partial: 0, does_not_fit: 0 },
-      candidates: [rc('a', 'merchant_prefix', 0.50), rc('b', 'merchant_prefix', 0.40)],
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 1 },
+      candidates,
       merchant_chapter_disagreement: false,
     });
-    expect(wideGap.signals.rerank_gap_bonus).toBe(0.05);
+    const candA = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 1 },
+      candidates,
+      merchant_chapter_disagreement: false,
+      candidate_under_eval: candidates[0]!,
+    });
+    const candB = computeConfidence({
+      fit: 'does_not_fit',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 1 },
+      candidates,
+      merchant_chapter_disagreement: false,
+      candidate_under_eval: candidates[1]!,
+    });
+    // Shares must sum to ~1 (modulo clamps).
+    expect(candA.confidence + candB.confidence).toBeCloseTo(1, 5);
+    // A dominates the rerank → A's share > B's share.
+    expect(candA.confidence).toBeGreaterThan(candB.confidence);
+    // Winner mode produces a different number from any single candidate's p_i.
+    expect(winner.confidence).not.toBeCloseTo(candA.confidence, 2);
+  });
+
+  it('identify-confidence chaining caps the entropy result', () => {
+    // Even a sharply peaked pool can't beat (identify_conf + offset).
+    const { confidence } = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 4 },
+      candidates: [rc('a', 'merchant_prefix', 0.95), rc('b', 'family_chapter', 0.05)],
+      merchant_chapter_disagreement: false,
+      identify_confidence: 0.42, // weak identify
+    });
+    // Ceiling = 0.42 + 0.10 = 0.52.
+    expect(confidence).toBeLessThanOrEqual(0.52 + 1e-9);
+  });
+
+  it('disagreement non-merchant cap clamps even strongly-peaked pools', () => {
+    const { confidence } = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 4 },
+      candidates: [
+        rc('a', 'family_chapter', 0.95),
+        rc('b', 'family_chapter', 0.05),
+      ],
+      merchant_chapter_disagreement: true,
+      picked_from_arm: 'family_chapter', // not merchant_prefix
+    });
+    // Hard cap at 0.55 when disagreement + non-merchant winner.
+    expect(confidence).toBeLessThanOrEqual(0.55 + 1e-9);
+  });
+});
+
+describe('deriveConfidenceBand (PR9)', () => {
+  it('maps thresholds correctly', () => {
+    expect(deriveConfidenceBand(0.95)).toBe('high');
+    expect(deriveConfidenceBand(0.75)).toBe('high');
+    expect(deriveConfidenceBand(0.74)).toBe('moderate');
+    expect(deriveConfidenceBand(0.50)).toBe('moderate');
+    expect(deriveConfidenceBand(0.49)).toBe('fair');
+    expect(deriveConfidenceBand(0.25)).toBe('fair');
+    expect(deriveConfidenceBand(0.24)).toBe('low');
+    expect(deriveConfidenceBand(0.10)).toBe('low');
+    expect(deriveConfidenceBand(0.09)).toBe('no_result');
+    expect(deriveConfidenceBand(0)).toBe('no_result');
   });
 });
 

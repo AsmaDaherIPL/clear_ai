@@ -388,14 +388,20 @@ export interface AnnotatedCandidate {
   path_ar: string;
   fit: 'fits' | 'partial' | 'does_not_fit';
   /**
-   * Computed confidence for THIS candidate, treating it as if it were
-   * the picker's pick. Same formula as the winner's confidence
-   * (computeConfidence in pick.ts). Lets reviewers compare candidates
-   * on a continuous axis. The winner's confidence on the response
-   * envelope (classification_result.classification_confidence) equals
-   * the confidence on the candidate whose code matches final_code.
+   * Per-candidate share of the entropy distribution (PR9, 2026-05-20).
+   * Replaces the pre-PR9 flat-bucket formula where every does_not_fit
+   * collapsed to 0.15. Now reflects this candidate's slice of the
+   * pool's plausibility mass — useful for comparison, NOT calibrated
+   * to accuracy. Reviewer-facing UI should render `confidence_band`
+   * instead of this raw number.
    */
   confidence: number;
+  /**
+   * Categorical band derived from `confidence` (PR9). The SPA reads
+   * this and shows a pill (High / Moderate / Fair / Low / No result)
+   * to avoid false precision on the raw decimal.
+   */
+  confidence_band: 'high' | 'moderate' | 'fair' | 'low' | 'no_result';
   /** Picker's per-candidate rationale, max 300 chars. */
   rationale: string;
   /** Which retrieval arm surfaced this candidate. */
@@ -442,16 +448,29 @@ export interface PickAccepted {
   final_code: string; // 12-digit
   fit: 'fits' | 'partial';
   /**
-   * Confidence in [0.05, 0.99] computed from trace signals — NOT an
-   * LLM-emitted number. See ConfidenceSignals and computeConfidence().
-   * The 3-tier constant {0.85 / 0.55 / 0.40} approach was retired in
-   * migration 0082 era so two `fits` rows of very different quality
-   * (1 winner vs 4-way ambiguity, cross-arm agreement vs disagreement,
-   * separated rerank winner vs bunched scores) no longer collapse to
-   * the same number.
+   * Entropy-based confidence in [0.05, 0.99] (PR9, 2026-05-20).
+   * Derived from the candidate-pool's probability distribution via
+   * 1 − H(p)/H_max; see computeConfidence() in pick.ts.
+   *
+   * NOT calibrated to accuracy — an 85% does not mean "right 85% of
+   * the time." Useful for comparison between rows: row A at 0.62
+   * has a sharper-peaked candidate distribution than row B at 0.31.
+   *
+   * Reviewer-facing UI should render `confidence_band` instead of
+   * this raw decimal to avoid false precision.
    */
   confidence: number;
-  /** Breakdown of the four signals that produced `confidence`. */
+  /**
+   * Categorical band derived from `confidence` (PR9, 2026-05-20).
+   * The SPA's canonical reviewer-facing surface. Thresholds:
+   *   high     >= 0.75
+   *   moderate >= 0.50
+   *   fair     >= 0.25
+   *   low      >= 0.10
+   *   no_result < 0.10 (escalate to ZERO_SIGNAL elsewhere)
+   */
+  confidence_band: 'high' | 'moderate' | 'fair' | 'low' | 'no_result';
+  /** Breakdown of the legacy signal components (kept for trace audit). */
   confidence_signals: ConfidenceSignals;
   /** "GIR 1", "GIR 3(a)", "GIR 3(b)", "GIR 6", etc. */
   gir_applied: string;
