@@ -197,6 +197,18 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        // 2026-05-20: send BOTH header forms because the Foundry/Azure
+        // APIM front-end at swc-01 began HANGING (no response, no auth
+        // rejection) when only `x-api-key` is sent — but responds 401
+        // immediately to the same key under `api-key`. Diagnosis:
+        // Azure's API Management standard expects `api-key`; the
+        // Anthropic SDK convention is `x-api-key`. Sending both makes
+        // us tolerant to either gateway routing. Foundry deployment
+        // names like `claude-sonnet-4-6-clearai-dev` route through APIM
+        // → upstream Anthropic; the APIM layer authenticates with
+        // `api-key`, the upstream with `x-api-key`. The hang was
+        // observed 2026-05-19 — happens regardless of model.
+        'api-key': ANTHROPIC_API_KEY,
         'x-api-key': ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
