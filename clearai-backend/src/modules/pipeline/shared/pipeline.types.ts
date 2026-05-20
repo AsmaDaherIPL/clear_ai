@@ -452,7 +452,29 @@ export type SanityVerdict = SanityLlmVerdict | null;
 
 export interface SanityResult {
   verdict: SanityLlmVerdict;
+  /**
+   * Legacy single-string rationale. PR12 (2026-05-20) split this into
+   * `rationale_short` + `rationale_detail`; `rationale` is preserved
+   * for backward-compat — populated from `rationale_short` (preferred)
+   * or `rationale_detail` (fallback) so any downstream reader that
+   * hasn't migrated to the new fields keeps working.
+   */
   rationale: string;
+  /**
+   * Human-readable one-sentence rationale (PR12). SPA / reviewer-facing.
+   * Example FLAG: "800 SAR is much higher than typical for an unbranded
+   *               mug (20-100 SAR). About 8 times the upper end."
+   * Example PASS: "200 SAR is in the typical range for a plain cotton
+   *               t-shirt (30-150 SAR)."
+   * 180-char cap, value-only (no diagnostic causes).
+   */
+  rationale_short: string;
+  /**
+   * Structured math rationale (PR12). Engineer-facing + parsed by the
+   * post-LLM reconciliation check. Format:
+   *   `band <low>-<high> <currency>; <value>/<bound>=<ratio>×; <inside|outside> [0.2,5.0]`
+   */
+  rationale_detail: string;
   latency_ms: number;
   /**
    * True when the sanity LLM exhausted retries and the stage degraded to PASS

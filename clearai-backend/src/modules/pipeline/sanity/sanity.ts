@@ -33,10 +33,22 @@ import { getLlmStagePolicy } from '../../../inference/llm/policy.js';
 import { env } from '../../../config/env.js';
 import type { SanityResult } from '../shared/pipeline.types.js';
 
+/**
+ * PR12 (2026-05-20): dual-field rationale.
+ *   - `rationale_short`: one human-readable sentence for SPA / reviewer
+ *   - `rationale_detail`: structured math the post-LLM reconciliation
+ *     check parses
+ *
+ * Legacy `rationale` is still accepted for backward-compat with
+ * in-flight prompt cache or any cached responses; the runtime fills
+ * the missing field from whichever one the model emitted.
+ */
 const SanitySchema = z
   .object({
     verdict: z.enum(['PASS', 'FLAG']).optional(),
-    rationale: z.unknown().optional(),
+    rationale: z.unknown().optional(), // legacy single field
+    rationale_short: z.unknown().optional(),
+    rationale_detail: z.unknown().optional(),
   })
   .passthrough();
 
@@ -91,6 +103,8 @@ export async function runSanity(params: {
     return {
       verdict: 'PASS',
       rationale: 'sanity check skipped: LLM unavailable',
+      rationale_short: 'Value plausibility check skipped (system unavailable).',
+      rationale_detail: 'sanity check skipped: LLM unavailable',
       latency_ms,
       degraded: true,
       attempts,
@@ -102,31 +116,29 @@ export async function runSanity(params: {
   // Anything that isn't a clean PASS becomes FLAG (parse miss, malformed
   // verdict, model returned BLOCK by mistake, etc.). When in doubt, FLAG.
   let verdict: 'PASS' | 'FLAG' = d.verdict === 'PASS' ? 'PASS' : 'FLAG';
-  const rationale = typeof d.rationale === 'string' ? d.rationale : '';
 
-  // PR8 / 2026-05-20 — rationale-verdict reconciliation.
-  //
-  // The sanity prompt has a self-check rule ("verdict MUST match what
-  // rationale concludes") but the model violates it on borderline
-  // multi-revision cases. Today's 10-row batch surfaced two examples:
-  //   #2 L'Oreal hair color 200 SAR: rationale revised the band four
-  //      times, every revision concluded PASS, structured verdict came
-  //      back FLAG.
-  //   #5 Arabic hoody 699 SAR: same pattern — three "Band X → PASS"
-  //      revisions in rationale, verdict FLAG.
-  //
-  // When rationale narrates PASS but verdict says FLAG, trust the
-  // rationale. The model's structured field is the unreliable one
-  // here — it's a single-token choice the model defaults toward FLAG
-  // on uncertainty; the rationale is the actual reasoning trace.
-  //
-  // Symmetric direction (rationale concludes FLAG but verdict PASS) is
-  // NOT overridden. That would weaken the "when in doubt, FLAG" stance
-  // on parse/schema failure paths above. Only the false-positive
-  // direction gets reconciled.
+  // PR12 (2026-05-20): extract both rationale fields. The new prompt
+  // emits `rationale_short` (human-readable, SPA-facing) and
+  // `rationale_detail` (math, engineer/parser-facing). Legacy responses
+  // that only carry `rationale` (e.g. during prompt-cache warmup or a
+  // regressed deploy) fill both fields from the single legacy value.
+  const rawShort = typeof d.rationale_short === 'string' ? d.rationale_short : '';
+  const rawDetail = typeof d.rationale_detail === 'string' ? d.rationale_detail : '';
+  const rawLegacy = typeof d.rationale === 'string' ? d.rationale : '';
+  const rationale_short = rawShort || rawLegacy;
+  const rationale_detail = rawDetail || rawLegacy;
+  // Preserve legacy `rationale` field on the result so any downstream
+  // consumer that wasn't migrated to the new fields keeps working.
+  // Prefer the new short form when both are set.
+  const rationale = rationale_short || rationale_detail;
+
+  // PR8 — rationale-verdict reconciliation. Reads from rationale_detail
+  // (the structured form) when available; falls back to legacy
+  // `rationale` for transitional in-flight responses.
   let verdictReconciled = false;
-  if (verdict === 'FLAG' && rationale) {
-    if (rationaleConcludesPass(rationale)) {
+  const reconciliationText = rationale_detail || rationale_short || rawLegacy;
+  if (verdict === 'FLAG' && reconciliationText) {
+    if (rationaleConcludesPass(reconciliationText)) {
       verdict = 'PASS';
       verdictReconciled = true;
     }
@@ -135,6 +147,8 @@ export async function runSanity(params: {
   return {
     verdict,
     rationale,
+    rationale_short,
+    rationale_detail,
     latency_ms,
     attempts,
     ...(retried_reasons && retried_reasons.length > 0 ? { retried_reasons } : {}),
