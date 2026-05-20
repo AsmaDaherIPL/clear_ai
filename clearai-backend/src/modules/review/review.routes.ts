@@ -101,11 +101,16 @@ const StatusEnum = z.enum(['pending', 'in_review', 'resolved', 'dismissed']);
 // include 'verifier_uncertain' — the orchestrator has been emitting this
 // reason since PR 12 but the filter enum lagged. DB CHECK already allows
 // it (migration 0079).
+// PR15 (2026-05-20) — widened to include `low_confidence_band`, which
+// the orchestrator emits when the picker accepted a code whose band
+// is fair, low, or no_result (policy: only high+moderate bypass HITL).
+// DB CHECK widened in migration 0088.
 const ReasonEnum = z.enum([
   'verdict_escalate',
   'sanity_flag',
   'low_information',
   'verifier_uncertain',
+  'low_confidence_band',
 ]);
 
 // UUIDv7 strict — matches what newId() mints.
@@ -230,7 +235,12 @@ interface QueueRow {
   batch_id: string | null;
   item_id: string;
   operator_slug: string;
-  reason: 'verdict_escalate' | 'sanity_flag' | 'low_information' | 'verifier_uncertain';
+  reason:
+    | 'verdict_escalate'
+    | 'sanity_flag'
+    | 'low_information'
+    | 'verifier_uncertain'
+    | 'low_confidence_band'; // PR15
   status: 'pending' | 'in_review' | 'resolved' | 'dismissed';
   reviewed_at: string | null;
   reviewed_by: string | null;

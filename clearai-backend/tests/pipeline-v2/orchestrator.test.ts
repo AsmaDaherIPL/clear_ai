@@ -158,6 +158,7 @@ function acceptedPick(code = '610910000000', overrides: Partial<Extract<PickResu
     final_code: code,
     fit: overrides.fit ?? 'fits',
     confidence: overrides.confidence ?? 0.85,
+    confidence_band: overrides.confidence_band ?? 'high',
     gir_applied: overrides.gir_applied ?? 'GIR 1',
     verdict_population: overrides.verdict_population ?? { fits: 1, partial: 0, does_not_fit: 0 },
     picked_from_arm: overrides.picked_from_arm ?? 'merchant_prefix',
@@ -415,6 +416,83 @@ describe('runPipelineV2 — parse rejection short-circuit', () => {
     expect(runIdentifyFastMock).not.toHaveBeenCalled();
     expect(runPickMock).not.toHaveBeenCalled();
     expect(runSanityMock).not.toHaveBeenCalled();
+  });
+});
+
+// PR15 — band-based HITL routing tests.
+// Policy: high/moderate bypass review; fair/low/no_result route to HITL
+// via reason 'low_confidence_band'. Status flips to DRIFT correspondingly.
+describe('runPipelineV2 — PR15 band-based HITL routing', () => {
+  it('high band → no HITL, status AGREEMENT', async () => {
+    runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify({ family: '85' }));
+    resolveMerchantMock.mockResolvedValueOnce({ state: 'absent' });
+    runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('852852000000')], per_arm_counts: { family_chapter: 1 } });
+    runPickMock.mockResolvedValueOnce(acceptedPick('852852000000', { confidence: 0.85, confidence_band: 'high' }));
+    runSanityMock.mockResolvedValueOnce({ verdict: 'PASS', rationale: 'in range', latency_ms: 80, attempts: 1, degraded: false });
+
+    const r = await runPipelineV2(item({ valueAmount: 1000 }), 'naqel', 'i-band-high');
+    expect(r.classification_status).toBe('AGREEMENT');
+    expect(r.hitl).toBeNull();
+  });
+
+  it('moderate band → no HITL, status AGREEMENT', async () => {
+    runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify({ family: '85' }));
+    resolveMerchantMock.mockResolvedValueOnce({ state: 'absent' });
+    runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('852852000000')], per_arm_counts: { family_chapter: 1 } });
+    runPickMock.mockResolvedValueOnce(acceptedPick('852852000000', { confidence: 0.62, confidence_band: 'moderate' }));
+    runSanityMock.mockResolvedValueOnce({ verdict: 'PASS', rationale: 'in range', latency_ms: 80, attempts: 1, degraded: false });
+
+    const r = await runPipelineV2(item({ valueAmount: 1000 }), 'naqel', 'i-band-moderate');
+    expect(r.classification_status).toBe('AGREEMENT');
+    expect(r.hitl).toBeNull();
+  });
+
+  it('fair band → HITL low_confidence_band, status DRIFT', async () => {
+    runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify({ family: '85' }));
+    resolveMerchantMock.mockResolvedValueOnce({ state: 'absent' });
+    runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('852852000000')], per_arm_counts: { family_chapter: 1 } });
+    runPickMock.mockResolvedValueOnce(acceptedPick('852852000000', { confidence: 0.32, confidence_band: 'fair' }));
+    runSanityMock.mockResolvedValueOnce({ verdict: 'PASS', rationale: 'in range', latency_ms: 80, attempts: 1, degraded: false });
+
+    const r = await runPipelineV2(item({ valueAmount: 1000 }), 'naqel', 'i-band-fair');
+    expect(r.classification_status).toBe('DRIFT');
+    expect(r.hitl?.reason).toBe('low_confidence_band');
+  });
+
+  it('low band → HITL low_confidence_band, status DRIFT', async () => {
+    runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify({ family: '85' }));
+    resolveMerchantMock.mockResolvedValueOnce({ state: 'absent' });
+    runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('852852000000')], per_arm_counts: { family_chapter: 1 } });
+    runPickMock.mockResolvedValueOnce(acceptedPick('852852000000', { confidence: 0.15, confidence_band: 'low' }));
+    runSanityMock.mockResolvedValueOnce({ verdict: 'PASS', rationale: 'in range', latency_ms: 80, attempts: 1, degraded: false });
+
+    const r = await runPipelineV2(item({ valueAmount: 1000 }), 'naqel', 'i-band-low');
+    expect(r.classification_status).toBe('DRIFT');
+    expect(r.hitl?.reason).toBe('low_confidence_band');
+  });
+
+  it('no_result band (accepted with floor clamp) → HITL low_confidence_band, status DRIFT', async () => {
+    runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify({ family: '85' }));
+    resolveMerchantMock.mockResolvedValueOnce({ state: 'absent' });
+    runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('852852000000')], per_arm_counts: { family_chapter: 1 } });
+    runPickMock.mockResolvedValueOnce(acceptedPick('852852000000', { confidence: 0.05, confidence_band: 'no_result' }));
+    runSanityMock.mockResolvedValueOnce({ verdict: 'PASS', rationale: 'in range', latency_ms: 80, attempts: 1, degraded: false });
+
+    const r = await runPipelineV2(item({ valueAmount: 1000 }), 'naqel', 'i-band-noresult');
+    expect(r.classification_status).toBe('DRIFT');
+    expect(r.hitl?.reason).toBe('low_confidence_band');
+  });
+
+  it('sanity_flag takes precedence over band routing', async () => {
+    // Both signals fire — sanity_flag is more specific, wins.
+    runIdentifyFastMock.mockResolvedValueOnce(cleanIdentify({ family: '85' }));
+    resolveMerchantMock.mockResolvedValueOnce({ state: 'absent' });
+    runMultiArmRetrievalMock.mockResolvedValueOnce({ candidates: [rc('852852000000')], per_arm_counts: { family_chapter: 1 } });
+    runPickMock.mockResolvedValueOnce(acceptedPick('852852000000', { confidence: 0.15, confidence_band: 'low' }));
+    runSanityMock.mockResolvedValueOnce({ verdict: 'FLAG', rationale: 'value too low', latency_ms: 80, attempts: 1, degraded: false });
+
+    const r = await runPipelineV2(item({ valueAmount: 5 }), 'naqel', 'i-band-precedence');
+    expect(r.hitl?.reason).toBe('sanity_flag');
   });
 });
 

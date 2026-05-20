@@ -606,7 +606,15 @@ export interface HitlIntent {
      * operators reviewing should see the rules_triggered list in
      * `DispatchV1Summary.verifier_rules_triggered`.
      */
-    | 'verifier_uncertain';
+    | 'verifier_uncertain'
+    /**
+     * PR15 (2026-05-20): the picker accepted a code but its
+     * `confidence_band` is one of {fair, low, no_result}. Per policy,
+     * only `high` and `moderate` bypass HITL. Bands below moderate
+     * route here. Lower-priority than the rule-based reasons above —
+     * `buildHitl` only emits this when no other reason fires.
+     */
+    | 'low_confidence_band';
   cleaned_description: string;
 }
 

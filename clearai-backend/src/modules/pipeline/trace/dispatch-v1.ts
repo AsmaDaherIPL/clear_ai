@@ -654,8 +654,11 @@ export function retrievalQueryFromTrace(trace: PipelineTrace): string | null {
  *   4. clean_product + identify.confidence < 0.60       → DRIFT
  *      (brand-only-rescue path — identify was a guess, even if pick
  *       said fits, downstream review must double-check)
- *   5. clean_product + pick.fit === 'fits'              → AGREEMENT
- *   6. otherwise                                        → DRIFT
+ *   5. accepted + band ∈ {fair, low, no_result}         → DRIFT (PR15)
+ *      (policy: only high+moderate bypass HITL; lower bands are
+ *      always reviewer-bound)
+ *   6. clean_product + pick.fit === 'fits'              → AGREEMENT
+ *   7. otherwise                                        → DRIFT
  */
 const IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD_FOR_STATUS = 0.60;
 
@@ -679,6 +682,14 @@ export function deriveClassificationStatus(input: {
   pickKind: 'accepted' | 'escalate' | null | undefined;
   pickReason: 'scope_escalate' | 'no_candidates' | 'no_candidate_fits' | 'identify_no_query' | 'picker_unavailable' | null | undefined;
   pickFit: 'fits' | 'partial' | 'does_not_fit' | null | undefined;
+  /**
+   * PR15 (2026-05-20): when the picker accepted a code whose
+   * confidence band is below moderate (fair / low / no_result), the
+   * status must be DRIFT (not AGREEMENT) so the SPA's status pill is
+   * consistent with the HITL routing — `low_confidence_band` rows
+   * are HITL-bound by policy, so they're never green-path AGREEMENT.
+   */
+  pickConfidenceBand: 'high' | 'moderate' | 'fair' | 'low' | 'no_result' | null | undefined;
   identifyKind: 'clean_product' | 'multi_product' | 'uninformative' | null | undefined;
   identifyConfidence: number | null | undefined;
   verifyResult: 'PASS' | 'UNCERTAIN' | null | undefined;
@@ -695,6 +706,16 @@ export function deriveClassificationStatus(input: {
   ) {
     return 'DRIFT';
   }
+  // PR15: a low/fair/no_result band on the accepted code is a HITL-
+  // routable state per policy; never mark such rows as AGREEMENT.
+  if (
+    input.pickKind === 'accepted' &&
+    (input.pickConfidenceBand === 'fair' ||
+      input.pickConfidenceBand === 'low' ||
+      input.pickConfidenceBand === 'no_result')
+  ) {
+    return 'DRIFT';
+  }
   if (input.identifyKind === 'clean_product' && input.pickFit === 'fits') return 'AGREEMENT';
   return 'DRIFT';
 }
@@ -704,6 +725,7 @@ export function classificationStatusFromTrace(trace: PipelineTrace): Classificat
     pickKind: trace.pick.kind,
     pickReason: trace.pick.kind === 'escalate' ? trace.pick.reason : null,
     pickFit: trace.pick.kind === 'accepted' ? trace.pick.fit : null,
+    pickConfidenceBand: trace.pick.kind === 'accepted' ? trace.pick.confidence_band : null,
     identifyKind: trace.identify.kind,
     identifyConfidence: trace.identify.kind === 'clean_product' ? trace.identify.confidence : null,
     verifyResult: trace.verify?.result ?? null,

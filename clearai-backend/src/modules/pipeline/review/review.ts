@@ -26,7 +26,8 @@ export interface HitlPayload {
     | 'low_information'
     | 'verifier_uncertain'
     | 'missing_attributes'
-    | 'shadow_sample';
+    | 'shadow_sample'
+    | 'low_confidence_band';
   cleaned_description: string;
   verdict_output: StageVerdictOutput | null;
   sanity_result: SanityResult | null;

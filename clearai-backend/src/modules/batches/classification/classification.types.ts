@@ -53,7 +53,12 @@ export interface DispatchResult {
   shortCircuit?: boolean;
   /** HITL intent surfaced by the orchestrator. Null when no review is needed. */
   hitl: {
-    reason: 'verdict_escalate' | 'sanity_flag' | 'low_information' | 'verifier_uncertain';
+    reason:
+      | 'verdict_escalate'
+      | 'sanity_flag'
+      | 'low_information'
+      | 'verifier_uncertain'
+      | 'low_confidence_band'; // PR15
     cleaned_description: string;
   } | null;
   /** dispatch-v1 wire response, pre-assembled so callers can record/enqueue. */

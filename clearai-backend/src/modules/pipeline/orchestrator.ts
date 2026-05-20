@@ -104,6 +104,17 @@ function classificationStatusFor(
   ) {
     return 'DRIFT';
   }
+  // PR15 (2026-05-20): bands below moderate route to HITL by policy;
+  // never mark them AGREEMENT. Keeps status consistent with the
+  // `low_confidence_band` HITL routing in buildHitl() below.
+  if (
+    pick.kind === 'accepted' &&
+    (pick.confidence_band === 'fair' ||
+      pick.confidence_band === 'low' ||
+      pick.confidence_band === 'no_result')
+  ) {
+    return 'DRIFT';
+  }
   if (identify.kind === 'clean_product' && pick.fit === 'fits') return 'AGREEMENT';
   return 'DRIFT';
 }
@@ -170,6 +181,23 @@ function buildHitl(
     identify.confidence < IDENTIFY_LOW_CONFIDENCE_HITL_THRESHOLD
   ) {
     return { reason: 'verifier_uncertain', cleaned_description: cleaned };
+  }
+  // PR15 (2026-05-20): band-based routing. Policy:
+  //   high      → accept, no review
+  //   moderate  → accept, no review
+  //   fair      → HITL  (this rule)
+  //   low       → HITL  (this rule)
+  //   no_result → HITL  (this rule; for accepted-with-floor-clamp rows.
+  //                      Genuine escalates were already handled above
+  //                      via verdict_escalate / low_information.)
+  // Fires only when none of the more-specific reasons above matched,
+  // so a sanity FLAG / verifier UNCERTAIN / brand-rescue path keeps
+  // its semantic reason in the HITL queue.
+  if (pick.kind === 'accepted') {
+    const band = pick.confidence_band;
+    if (band === 'fair' || band === 'low' || band === 'no_result') {
+      return { reason: 'low_confidence_band', cleaned_description: cleaned };
+    }
   }
   return null;
 }

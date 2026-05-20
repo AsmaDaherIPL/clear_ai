@@ -665,7 +665,8 @@ export type HitlReason =
   | 'verdict_escalate'
   | 'sanity_flag'
   | 'low_information'
-  | 'verifier_uncertain'; // NEW for the v2 verifier UNCERTAIN routing
+  | 'verifier_uncertain' // NEW for the v2 verifier UNCERTAIN routing
+  | 'low_confidence_band'; // PR15 — band-based routing (fair/low/no_result)
 
 export interface HitlIntent {
   reason: HitlReason;
