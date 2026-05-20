@@ -333,170 +333,232 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
         While polling, an indeterminate progress strip slides across the
         bottom edge of the header so the user always sees motion.
       */}
-      <div className="relative px-[22px] py-[20px] border-b border-[var(--line-2)]">
+      {/* ---- Panel header — prototype design ---- */}
+      <div className="relative px-6 pt-6 pb-5 border-b border-[var(--line-2)]">
+        {/* Eyebrow + title row */}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             {/* Eyebrow crumb */}
-            <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.12em] uppercase flex items-center gap-2">
-              <span>Batch</span>
-              <span className="text-[var(--line)]">·</span>
-              <span>Run</span>
+            <div className="text-[11px] font-semibold tracking-[0.08em] text-[var(--accent-ink)] uppercase mb-2">
+              {state.runId
+                ? `${t('batch_results_eyebrow_prefix')} #${state.runId.slice(0, 10).toUpperCase()} · ${phase.title.toUpperCase()}`
+                : phase.title.toUpperCase()
+              }
             </div>
 
-            {/* Big title + muted phase suffix */}
-            <h2 className="m-0 mt-2 text-[21px] leading-tight font-medium tracking-[-0.015em] text-[var(--ink)]">
-              {phase.title}
-              {phase.suffix && (
-                <span className="text-[var(--ink-3)] font-normal ms-1.5">{phase.suffix}</span>
-              )}
+            {/* Big title */}
+            <h2 className="m-0 text-[30px] leading-tight font-bold tracking-[-0.02em] text-[var(--ink)]">
+              {t('batch_results_title')}
             </h2>
 
-            {/* Run ID — copyable */}
-            {state.runId && (
-              <button
-                type="button"
-                className="mt-1.5 font-mono text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] transition-colors cursor-copy select-all text-start tracking-[0.005em]"
-                title="Click to copy run ID"
-                onClick={() => navigator.clipboard.writeText(state.runId!)}
-              >
-                {state.runId}
-              </button>
-            )}
-
-            {/* Stats row — or loading skeleton while first summary call is in flight.
-                Breakdown counts (succeeded / flagged / failed) are intentionally
-                withheld while the run is still polling: partial counts mid-flight
-                are misleading because items arrive async. Once the run reaches a
-                terminal state the full breakdown is shown. */}
-            {summary ? (
-              <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12.5px]">
-                <Stat value={summary.row_count} label="rows" />
-                {/* Only show the breakdown once the run is terminal */}
-                {!isPolling && (
-                  <>
-                    <span className="text-[var(--line)]">·</span>
-                    <Stat value={summary.succeeded} label="succeeded" tone="ok" />
-                    {(summary.flagged ?? 0) > 0 && (
-                      <>
-                        <span className="text-[var(--line)]">·</span>
-                        <Stat value={summary.flagged} label="flagged" tone="warn" />
-                      </>
-                    )}
-                    {(summary.blocked ?? 0) > 0 && (
-                      <>
-                        <span className="text-[var(--line)]">·</span>
-                        <Stat value={summary.blocked ?? 0} label="blocked" tone="bad" />
-                      </>
-                    )}
-                    {(summary.failed ?? 0) > 0 && (
-                      <>
-                        <span className="text-[var(--line)]">·</span>
-                        <Stat value={summary.failed ?? 0} label="failed" tone="bad" />
-                      </>
-                    )}
-                  </>
-                )}
-                {/* While polling, show pending count so the user knows items are in-flight */}
-                {isPolling && summary.pending > 0 && (
-                  <>
-                    <span className="text-[var(--line)]">·</span>
-                    <Stat value={summary.pending} label="pending" tone="pend" />
-                  </>
-                )}
-              </div>
-            ) : isPolling ? (
-              /* Summary not yet returned — animated skeleton */
-              <div className="mt-3 flex items-center gap-2" aria-label="Loading run info">
-                <span className="h-[13px] w-[52px] rounded bg-[var(--line-2)] animate-pulse" />
-              </div>
-            ) : null}
-
-            {/* "N items queued" callout — visible only during early polling when
-                no items have been processed yet, so the user knows the run has
-                registered their file even before classification starts. */}
-            {summary && isPolling && summary.succeeded === 0 && summary.flagged === 0 &&
-             (summary.failed ?? 0) === 0 && summary.pending > 0 && (
-              <p className="mt-2 m-0 text-[12.5px] text-[var(--ink-3)]">
-                <span className="font-mono tabular-nums font-medium text-[var(--accent-ink)]">
-                  {summary.pending}
-                </span>
-                {' '}items queued for processing
-              </p>
-            )}
-
-            {state.errorMessage && (
-              <p className="text-[13px] text-[var(--accent-ink)] mt-2 m-0" role="alert">
-                {state.errorMessage}
+            {/* Subtitle — filename + item count + hint */}
+            {summary && (
+              <p className="m-0 mt-1.5 text-[14px] text-[var(--ink-2)]">
+                {(summary as any).file_name && <>{(summary as any).file_name} · </>}
+                {summary.row_count} {summary.row_count === 1 ? 'item' : 'items'} · {t('batch_results_subtitle_suffix')}
               </p>
             )}
           </div>
 
-          {/*
-            Right rail — status pill + spinner + (when terminal) the
-            "Start a new batch" reset button. Placing the reset action
-            here (instead of below the panel) means the user can pivot
-            to a new run without scrolling past the entire result table.
-            Only shown when the run has reached terminal so an in-flight
-            run can't be accidentally binned.
-          */}
-          <div className="flex items-center gap-2 shrink-0">
-            {pillKind && <StatusPill kind={pillKind} />}
-            {isPolling && (
-              <div
-                className="w-[22px] h-[22px] rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
-                aria-hidden
-              />
-            )}
+          {/* Right rail — action buttons */}
+          <div className="flex items-center gap-2.5 shrink-0 pt-1">
             {canReset && onReset && (
               <button
                 type="button"
                 onClick={onReset}
                 className={cn(
-                  'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[10px]',
+                  'inline-flex items-center gap-2 px-4 py-2 rounded-[10px]',
                   'border border-[var(--line)] bg-[var(--surface)]',
-                  'text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] hover:border-[var(--ink-3)]',
+                  'text-[13.5px] font-medium text-[var(--ink-2)]',
+                  'hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
                   'transition-colors duration-150',
-                  'animate-[fadeUp_0.35s_ease_both]',
                 )}
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                  className="rtl:scale-x-[-1]"
-                >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="rtl:scale-x-[-1]">
                   <path d="M21 12a9 9 0 1 1-3-6.7" />
                   <path d="M21 4v5h-5" />
                 </svg>
-                {t('batch_start_new')}
+                {t('batch_action_new_upload')}
               </button>
+            )}
+            {/* Declaration bundle button — only when download ready */}
+            {runDone && (() => {
+              const xmlFiles = (downloadLinks?.files ?? []).filter((f) => f.name.endsWith('.xml'));
+              const lvFiles = xmlFiles.filter((f) => f.name.startsWith('lv/'));
+              const hvFiles = xmlFiles.filter((f) => f.name.startsWith('hv/'));
+              const hasXml = lvFiles.length > 0 || hvFiles.length > 0;
+              if (!hasXml) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleDownloadBundle(state.runId!, [...lvFiles, ...hvFiles])}
+                  disabled={bundleDownloading}
+                  className={cn(
+                    'inline-flex items-center gap-2 px-4 py-2 rounded-[10px]',
+                    'bg-[var(--accent)] text-white border border-[var(--accent)]',
+                    'text-[13.5px] font-semibold',
+                    'hover:brightness-110 active:brightness-95 transition-all duration-150',
+                    'disabled:opacity-50 disabled:cursor-progress',
+                  )}
+                >
+                  {bundleDownloading ? (
+                    <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" aria-hidden />
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  )}
+                  {t('batch_action_declaration_bundle')}
+                </button>
+              );
+            })()}
+            {isPolling && (
+              <div className="w-[22px] h-[22px] rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin" aria-hidden />
             )}
           </div>
         </div>
 
-        {/*
-          Indeterminate progress strip — only while polling. A narrow
-          accent gradient slides across a neutral track at the bottom edge
-          of the header, giving the panel a continuous "this is live" cue
-          even when the row counts haven't ticked.
-        */}
+        {/* Stat cards row — 5 cards matching prototype */}
+        {summary && (
+          <div className="mt-5 grid grid-cols-5 gap-3">
+            {/* Items */}
+            <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+              <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">{t('batch_stat_items')}</div>
+              <div className="text-[26px] font-bold tracking-[-0.02em] text-[var(--ink)] leading-none">
+                {summary.row_count ? `${items.filter(i => i.classification_result != null || i.error).length}/${summary.row_count}` : summary.row_count}
+              </div>
+              <div className={cn('text-[12px] mt-1', isPolling ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-3)]')}>
+                {isPolling && summary.row_count
+                  ? t('batch_stat_items_sub_partial').replace('{pct}', Math.round((items.filter(i => i.classification_result != null || i.error).length / summary.row_count) * 100).toString())
+                  : t('batch_stat_items_sub')}
+              </div>
+            </div>
+
+            {/* Succeeded */}
+            <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+              <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">{t('batch_stat_succeeded')}</div>
+              <div className="text-[26px] font-bold tracking-[-0.02em] text-[oklch(0.42_0.15_140)] leading-none">{summary.succeeded ?? 0}</div>
+              <div className="text-[12px] text-[var(--ink-3)] mt-1">{t('batch_stat_succeeded_sub')}</div>
+            </div>
+
+            {/* Flagged */}
+            <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+              <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">{t('batch_stat_flagged')}</div>
+              <div className="text-[26px] font-bold tracking-[-0.02em] text-[oklch(0.50_0.16_60)] leading-none">{summary.flagged ?? 0}</div>
+              <div className="text-[12px] text-[var(--ink-3)] mt-1">{t('batch_stat_flagged_sub')}</div>
+            </div>
+
+            {/* Est. Duty — derived from items */}
+            {(() => {
+              const totalDuty = items.reduce((sum, item) => {
+                const ratePercent = item.duty_info?.rate_percent ?? null;
+                const val = item.value?.amount?.value ?? null;
+                if (ratePercent == null || val == null) return sum;
+                return sum + val * (ratePercent / 100);
+              }, 0);
+              return (
+                <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+                  <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">{t('batch_stat_duty')}</div>
+                  <div className="text-[22px] font-bold tracking-[-0.02em] text-[var(--ink)] leading-none font-mono tabular-nums">
+                    {totalDuty > 0
+                      ? `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(totalDuty)} SAR`
+                      : '—'}
+                  </div>
+                  <div className="text-[12px] text-[var(--ink-3)] mt-1">{t('batch_stat_duty_sub')}</div>
+                </div>
+              );
+            })()}
+
+            {/* Generated Bayans — from file listing */}
+            {(() => {
+              const xmlFiles = (downloadLinks?.files ?? []).filter((f) => f.name.endsWith('.xml'));
+              const lvCount = xmlFiles.filter((f) => f.name.startsWith('lv/')).length;
+              const hvCount = xmlFiles.filter((f) => f.name.startsWith('hv/')).length;
+              return (
+                <div className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+                  <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1">{t('batch_stat_bayans')}</div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {hvCount > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[oklch(0.93_0.05_30)] text-[oklch(0.40_0.13_30)] text-[13px] font-bold font-mono">
+                        {hvCount} <span className="text-[11px] font-semibold">{t('batch_hv_label')}</span>
+                      </span>
+                    )}
+                    {lvCount > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[oklch(0.93_0.06_140)] text-[oklch(0.35_0.12_140)] text-[13px] font-bold font-mono">
+                        {lvCount} <span className="text-[11px] font-semibold">{t('batch_lv_label')}</span>
+                      </span>
+                    )}
+                    {lvCount === 0 && hvCount === 0 && (
+                      <span className="text-[22px] font-bold tracking-[-0.02em] text-[var(--ink-3)] leading-none">—</span>
+                    )}
+                  </div>
+                  <div className="text-[12px] text-[var(--ink-3)] mt-1.5">{t('batch_stat_bayans_sub')}</div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Loading skeleton for stats while polling with no summary yet */}
+        {!summary && isPolling && (
+          <div className="mt-5 grid grid-cols-5 gap-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="rounded-[10px] border border-[var(--line)] bg-[var(--surface)] px-4 py-3">
+                <div className="h-[10px] w-16 bg-[var(--line-2)] rounded animate-pulse mb-3" />
+                <div className="h-[26px] w-12 bg-[var(--line-2)] rounded animate-pulse mb-2" />
+                <div className="h-[12px] w-20 bg-[var(--line-2)] rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Review queue banner — dark card, only when there are flagged items and run is done */}
+        {!isPolling && (summary?.flagged ?? 0) > 0 && (
+          <div className="mt-5 flex items-center gap-4 px-5 py-4 rounded-[12px] bg-[#231915] text-white">
+            <div className="w-10 h-10 rounded-[10px] bg-[var(--accent)] flex items-center justify-center shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M9 9h6M9 13h4" />
+                <path d="M16 16l2 2 4-4" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[oklch(0.70_0.06_55)] mb-0.5">
+                {t('batch_review_queue_label')} · {(summary?.flagged ?? 0)} {t('batch_stat_flagged')}
+              </div>
+              <div className="text-[16px] font-semibold leading-snug">
+                {t('batch_review_queue_below_threshold')}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={cn(
+                'shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-[10px]',
+                'bg-[var(--accent)] text-white border-0',
+                'text-[14px] font-semibold',
+                'hover:brightness-110 transition-all duration-150',
+              )}
+            >
+              {t('batch_review_queue_cta')} →
+            </button>
+          </div>
+        )}
+
+        {/* Error message */}
+        {state.errorMessage && (
+          <p className="text-[13px] text-[var(--accent-ink)] mt-3 m-0" role="alert">
+            {state.errorMessage}
+          </p>
+        )}
+
+        {/* Indeterminate progress strip — only while polling */}
         {isPolling && (
-          <div
-            className="absolute inset-x-0 bottom-0 h-[2px] bg-[var(--line-2)] overflow-hidden"
-            aria-hidden
-          >
+          <div className="absolute inset-x-0 bottom-0 h-[2px] bg-[var(--line-2)] overflow-hidden" aria-hidden>
             <div
               className="h-full w-1/3 animate-[slide_1.4s_linear_infinite]"
-              style={{
-                background:
-                  'linear-gradient(90deg, transparent, var(--accent), transparent)',
-              }}
+              style={{ background: 'linear-gradient(90deg, transparent, var(--accent), transparent)' }}
             />
           </div>
         )}
@@ -547,110 +609,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
             <div className="font-medium mb-1">Run-level error</div>
             <div className="text-[12.5px]">
               {humanError(runError ?? realErrors[0]?.error)}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/*
-        Footer strip — latency + declaration bundle download.
-        Layout: latency (left) | LV/HV summary + download btn (right).
-        Download triggers a client-side zip build: fetches every lv/*.xml
-        and hv/*.xml in parallel, packs them into a zip with two folders,
-        and saves as declaration-bundle-<runId>.zip.
-      */}
-      {(() => {
-        // Derive LV and HV counts from the file listing (when available).
-        const xmlFiles = (downloadLinks?.files ?? []).filter((f) => f.name.endsWith('.xml'));
-        const lvFiles = xmlFiles.filter((f) => f.name.startsWith('lv/'));
-        const hvFiles = xmlFiles.filter((f) => f.name.startsWith('hv/'));
-        const hasXml = lvFiles.length > 0 || hvFiles.length > 0;
-
-        const latencyMs =
-          summary?.completed_at && summary.started_at
-            ? new Date(summary.completed_at).getTime() - new Date(summary.started_at).getTime()
-            : null;
-        const latencyMin = latencyMs != null ? (latencyMs / 60_000).toFixed(1) : null;
-
-        return (
-          <div className="flex items-center justify-between gap-4 px-[22px] py-3.5 border-t border-[var(--line-2)] bg-[var(--line-2)]">
-            {/* Left — latency */}
-            <div className="text-[12.5px] text-[var(--ink-3)]">
-              {latencyMin != null && (
-                <>
-                  <b className="text-[var(--ink-2)] font-medium">{t('meta_latency')}</b>{' '}
-                  {latencyMin} min
-                </>
-              )}
-            </div>
-
-            {/* Right — XML summary + single download button */}
-            <div className="flex flex-col items-end gap-1.5">
-              {/* LV / HV declaration counts — visible once file list is loaded */}
-              {hasXml && (
-                <div className="flex items-center gap-2 text-[12px] text-[var(--ink-3)]">
-                  {lvFiles.length > 0 && (
-                    <span>
-                      <span className="font-mono font-medium text-[var(--ink-2)]">{lvFiles.length}</span>
-                      {' '}LV
-                    </span>
-                  )}
-                  {lvFiles.length > 0 && hvFiles.length > 0 && (
-                    <span className="text-[var(--line)]">·</span>
-                  )}
-                  {hvFiles.length > 0 && (
-                    <span>
-                      <span className="font-mono font-medium text-[var(--ink-2)]">{hvFiles.length}</span>
-                      {' '}HV
-                    </span>
-                  )}
-                  <span className="text-[var(--ink-3)]">declarations</span>
-                </div>
-              )}
-
-              {/* Download bundle button — appears once file list is loaded and xmls exist */}
-              {downloadLoading && (
-                <div className="flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
-                  <span
-                    className="w-3 h-3 rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin"
-                    aria-hidden
-                  />
-                  <span>Building bundle…</span>
-                </div>
-              )}
-              {!downloadLoading && hasXml && state.runId && (
-                <button
-                  type="button"
-                  onClick={() => handleDownloadBundle(state.runId!, [...lvFiles, ...hvFiles])}
-                  disabled={bundleDownloading}
-                  className={cn(
-                    'inline-flex items-center justify-center gap-2.5 min-w-[220px] px-7 py-2.5 rounded-[10px]',
-                    'bg-[var(--accent)] border border-[var(--accent)] text-white',
-                    'text-[14px] font-semibold tracking-wide',
-                    'hover:brightness-110 active:brightness-95 transition-all duration-150',
-                    'disabled:opacity-50 disabled:cursor-progress',
-                  )}
-                >
-                  {bundleDownloading ? (
-                    <>
-                      <span
-                        className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin"
-                        aria-hidden
-                      />
-                      Downloading…
-                    </>
-                  ) : (
-                    <>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                      </svg>
-                      Declaration bundle
-                    </>
-                  )}
-                </button>
-              )}
             </div>
           </div>
         );

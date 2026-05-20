@@ -1034,43 +1034,52 @@ export default function ClassifyApp() {
           ].join(' ')}
         >
           {/* ----------------------------------------------------------------
-              Page header — eyebrow + h1 + subtitle
+              Page header — eyebrow + h1 + subtitle.
+              Keys swap between single-item and batch modes.
               Text centred in idle; starts-aligned once active.
           ---------------------------------------------------------------- */}
-          <div
-            className={[
-              'mb-8',
-              isIdle ? 'text-center' : 'text-start',
-            ].join(' ')}
-          >
-            <p
-              className={[
-                'text-[11px] font-semibold tracking-[0.08em] uppercase text-[#b8551b] m-0 mb-2.5',
-                isIdle ? 'animate-[fadeUp_0.4s_ease_both]' : '',
-              ].join(' ')}
-              style={isIdle ? { animationDelay: '0ms' } : undefined}
-            >
-              {t('classify_eyebrow')}
-            </p>
-            <h1
-              className={[
-                'text-[clamp(24px,3.2vw,36px)] font-semibold tracking-[-0.02em] text-[#231915] m-0 mb-2.5 leading-[1.15]',
-                isIdle ? 'animate-[fadeUp_0.4s_ease_both]' : '',
-              ].join(' ')}
-              style={isIdle ? { animationDelay: '60ms' } : undefined}
-            >
-              {t('classify_title')}
-            </h1>
-            <p
-              className={[
-                'text-[14px] text-[#7a6d65] m-0 leading-[1.55]',
-                isIdle ? 'mx-auto max-w-[560px] animate-[fadeUp_0.4s_ease_both]' : 'max-w-[560px]',
-              ].join(' ')}
-              style={isIdle ? { animationDelay: '120ms' } : undefined}
-            >
-              {t('classify_subtitle')}
-            </p>
-          </div>
+          {(() => {
+            const isBatch = mode === 'batch';
+            const eyebrowKey = isBatch ? 'batch_eyebrow' : 'classify_eyebrow';
+            const titleKey   = isBatch ? 'batch_title'   : 'classify_title';
+            const subKey     = isBatch ? 'batch_subtitle' : 'classify_subtitle';
+            return (
+              <div
+                className={[
+                  'mb-8',
+                  isIdle ? 'text-center' : 'text-start',
+                ].join(' ')}
+              >
+                <p
+                  className={[
+                    'text-[11px] font-semibold tracking-[0.08em] uppercase text-[#b8551b] m-0 mb-2.5',
+                    isIdle ? 'animate-[fadeUp_0.4s_ease_both]' : '',
+                  ].join(' ')}
+                  style={isIdle ? { animationDelay: '0ms' } : undefined}
+                >
+                  {t(eyebrowKey)}
+                </p>
+                <h1
+                  className={[
+                    'text-[clamp(24px,3.2vw,36px)] font-semibold tracking-[-0.02em] text-[#231915] m-0 mb-2.5 leading-[1.15]',
+                    isIdle ? 'animate-[fadeUp_0.4s_ease_both]' : '',
+                  ].join(' ')}
+                  style={isIdle ? { animationDelay: '60ms' } : undefined}
+                >
+                  {t(titleKey)}
+                </h1>
+                <p
+                  className={[
+                    'text-[14px] text-[#7a6d65] m-0 leading-[1.55]',
+                    isIdle ? 'mx-auto max-w-[560px] animate-[fadeUp_0.4s_ease_both]' : 'max-w-[560px]',
+                  ].join(' ')}
+                  style={isIdle ? { animationDelay: '120ms' } : undefined}
+                >
+                  {t(subKey)}
+                </p>
+              </div>
+            );
+          })()}
 
           {/* ----------------------------------------------------------------
               Classifier body
