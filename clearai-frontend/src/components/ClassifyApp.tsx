@@ -176,6 +176,11 @@ function dispatchToDescribe(d: DispatchItem): DescribeResponse {
   //   is actively misleading when the real cause is the picker being down.
   const pickFitReason = (() => {
     if (!accepted) {
+      // ZERO_SIGNAL: the pipeline found nothing classifiable — no candidates,
+      // no retrieval signal. Must map before reading trace (there may be none).
+      if (d.classification_result?.classification_status === 'ZERO_SIGNAL') {
+        return 'zero_signal' as const;
+      }
       const escalateReason = d.trace?.summary?.pick_escalate_reason;
       switch (escalateReason) {
         case 'picker_unavailable': return 'llm_unavailable' as const;
@@ -1080,7 +1085,7 @@ export default function ClassifyApp() {
                     }}
                     aria-hidden={composerCollapsed}
                   >
-                    <div className="flex flex-col items-center">
+                    <div className="w-full max-w-[1080px] mx-auto">
                       <Composer
                         mode={mode}
                         onSubmit={handleSubmit}

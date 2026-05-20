@@ -66,7 +66,9 @@ export type DecisionReason =
   | 'best_effort_heading'
   | 'heading_level_match'
   /** Cleanup detected multiple distinct products in one input. */
-  | 'multi_product_input';
+  | 'multi_product_input'
+  /** Pipeline returned ZERO_SIGNAL — no retrieval signal for this description. */
+  | 'zero_signal';
 
 export type ClassificationStatus = 'AGREEMENT' | 'DRIFT' | 'ZERO_SIGNAL';
 
@@ -1290,6 +1292,7 @@ export function reasonLabel(reason: DecisionReason): string {
     case 'best_effort_heading': return 'Best-effort heading (verify before use)';
     case 'heading_level_match': return 'Heading-level match';
     case 'multi_product_input': return 'Multiple products detected';
+    case 'zero_signal': return 'No result';
   }
 }
 
@@ -1321,6 +1324,8 @@ export function remediationHint(
       return 'We could not identify a product from your input. Describe what it physically is — material, type, and purpose (e.g. "leather sandal with adjustable straps", "cold-pressed olive oil 500ml bottle").';
     case 'multi_product_input':
       return 'Your input contains multiple distinct products. Each one needs its own HS code — please classify them one at a time.';
+    case 'zero_signal':
+      return 'No HS code could be found for this description. Try describing the product more specifically — material, type, and intended use.';
     default:
       return 'We could not classify this input. Try describing the product itself — material, type, and purpose (e.g. "leather sandal with adjustable straps").';
   }

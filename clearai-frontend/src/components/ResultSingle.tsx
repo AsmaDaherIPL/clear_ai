@@ -179,6 +179,7 @@ function pillFor(status: DecisionStatus, reason: DecisionReason): PillSpec {
     return { tone: 'bad', labelKey: 'match_degraded_retry' };
   }
   switch (reason) {
+    case 'zero_signal':              return { tone: 'bad',  labelKey: 'match_no_result' };
     case 'ambiguous_top_candidates': return { tone: 'warn', labelKey: 'match_multi_refine' };
     case 'low_top_score':            return { tone: 'warn', labelKey: 'match_weak_refine' };
     case 'small_top2_gap':           return { tone: 'warn', labelKey: 'match_weak_refine' };
@@ -466,19 +467,18 @@ function ClarifyCard({
 /**
  * Clickable alternative card for the right-column alternatives section.
  * Shows match %, code, description, and a "Use this code" CTA.
- * On selection, shows a confirmation banner with "Update code" button.
+ * When selected, shows "Selected — confirm below" state only.
+ * The compare / rationale / confirm panel is rendered BELOW the list.
  */
 function AlternativeCard({
   alt,
   isSelected,
   onSelect,
-  onConfirm,
   t,
 }: {
   alt: AlternativeLine;
   isSelected: boolean;
   onSelect: () => void;
-  onConfirm: () => void;
   t: (key: TKey) => string;
 }) {
   const matchPct = alt.retrieval_score != null
@@ -493,75 +493,235 @@ function AlternativeCard({
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
       aria-pressed={isSelected}
-      className={cn(
-        'relative flex flex-col gap-2 rounded-[12px] border px-[16px] py-[14px] cursor-pointer transition-all duration-150 outline-none',
-        isSelected
-          ? 'border-[#b8551b] bg-[#fff1e5]'
-          : 'border-[#e8e0d8] bg-white hover:border-[#b8551b] hover:bg-[#fff6f0]',
-        'focus-visible:ring-2 focus-visible:ring-[#b8551b] focus-visible:ring-offset-1',
-      )}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        borderRadius: 12,
+        border: isSelected ? '1px solid #b8551b' : '1px solid #e0d6ce',
+        background: isSelected ? '#fff1e5' : 'white',
+        padding: '14px 16px',
+        cursor: 'pointer',
+        transition: 'border-color 0.12s, background 0.12s',
+        outline: 'none',
+      }}
+      className="focus-visible:ring-2 focus-visible:ring-[#b8551b] focus-visible:ring-offset-1"
     >
-      {/* Top row: match badge + code */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          {matchPct && (
-            <span
-              className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
-              style={{
-                background: 'oklch(0.95 0.05 155)',
-                color: 'oklch(0.34 0.13 145)',
-              }}
-            >
-              {matchPct}
-            </span>
-          )}
+      {/* Top row: code (left) + match% (right) — prototype layout */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <span
+          style={{
+            fontFamily: 'var(--f-mono, monospace)',
+            fontSize: 14,
+            fontWeight: 700,
+            color: isSelected ? '#b8551b' : '#231915',
+          }}
+        >
+          {alt.code}
+        </span>
+        {matchPct && (
           <span
-            className="font-mono text-[14px] font-medium"
-            style={{ color: '#231915' }}
+            style={{
+              fontFamily: 'var(--f-mono, monospace)',
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#a3958c',
+            }}
           >
-            {alt.code}
-          </span>
-        </div>
-        {/* "Use this code" CTA — only when not yet selected */}
-        {!isSelected && (
-          <span
-            className="text-[12px] text-[var(--accent)] font-medium shrink-0 pointer-events-none"
-            aria-hidden="true"
-          >
-            {t('act_use_code')} →
+            {matchPct} match
           </span>
         )}
       </div>
 
       {/* Description */}
       {descText && (
-        <p
-          className="m-0 text-[13px] leading-[1.5]"
-          style={{ color: '#6d6058' }}
-        >
+        <p style={{ margin: '0 0 10px', fontSize: 12, lineHeight: 1.5, color: '#7a6d65' }}>
           {descText}
         </p>
       )}
 
-      {/* Selected confirmation banner */}
-      {isSelected && (
-        <div
-          className="mt-1 pt-3 border-t border-[#e8c8b0] flex items-center justify-between gap-2"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <span className="text-[12px] font-medium" style={{ color: '#b8551b' }}>
-            Selected — confirm below
-          </span>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onConfirm(); }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-[12px] font-semibold text-white transition-all duration-150 hover:brightness-110 active:brightness-95"
-            style={{ background: '#b8551b', border: 'none' }}
+      {/* CTA row: "Use this code →" or "Selected — confirm below" with check_circle */}
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+          fontSize: 12,
+          fontWeight: 600,
+          color: isSelected ? '#a3958c' : '#b8551b',
+          letterSpacing: '0.02em',
+          transition: 'color 140ms ease',
+        }}
+      >
+        {isSelected ? (
+          <>
+            <span
+              className="material-symbols-outlined"
+              aria-hidden="true"
+              style={{
+                fontSize: 14,
+                fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 14",
+                color: '#b8551b',
+                lineHeight: 1,
+              }}
+            >
+              check_circle
+            </span>
+            {t('act_selected_confirm_below' as TKey)}
+          </>
+        ) : (
+          <>
+            {t('act_use_code')}
+            <span
+              className="material-symbols-outlined"
+              aria-hidden="true"
+              style={{
+                fontSize: 14,
+                fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 14",
+                lineHeight: 1,
+              }}
+            >
+              arrow_forward
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compare + rationale + confirm panel that appears below the alternatives list
+ * when an alternative is selected. Matches prototype's "Compare selection" section.
+ */
+function ComparePanel({
+  currentCode,
+  selectedAlt,
+  onConfirm,
+  t,
+}: {
+  currentCode: string;
+  selectedAlt: AlternativeLine;
+  onConfirm: (rationale: string) => void;
+  t: (key: TKey) => string;
+}) {
+  const [rationale, setRationale] = useState('');
+  const canConfirm = rationale.trim().length > 0;
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e0d6ce' }}>
+      {/* Eyebrow label */}
+      <div
+        className="font-mono tracking-[0.1em] uppercase"
+        style={{ fontSize: 9, fontWeight: 700, color: '#a3958c', marginBottom: 10 }}
+      >
+        {t('res_compare_selection' as TKey)}
+      </div>
+
+      {/* Two-column comparison grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+        {/* Current */}
+        <div style={{
+          padding: 10,
+          borderRadius: 10,
+          background: '#f6f2ed',
+          border: '1px solid #e0d6ce',
+        }}>
+          <div
+            className="font-mono tracking-[0.08em] uppercase"
+            style={{ fontSize: 9, fontWeight: 700, color: '#a3958c', marginBottom: 4 }}
           >
-            Update code
-          </button>
+            {t('res_compare_current' as TKey)}
+          </div>
+          <span style={{
+            fontFamily: 'var(--f-mono, monospace)',
+            fontSize: 12,
+            fontWeight: 500,
+            color: '#7a6d65',
+            textDecoration: 'line-through',
+          }}>
+            {currentCode}
+          </span>
         </div>
-      )}
+        {/* New selection */}
+        <div style={{
+          padding: 10,
+          borderRadius: 10,
+          background: '#fff1e5',
+          border: '1px solid rgba(184,85,27,0.4)',
+        }}>
+          <div
+            className="font-mono tracking-[0.08em] uppercase"
+            style={{ fontSize: 9, fontWeight: 700, color: '#b8551b', marginBottom: 4 }}
+          >
+            {t('res_compare_new' as TKey)}
+          </div>
+          <span style={{
+            fontFamily: 'var(--f-mono, monospace)',
+            fontSize: 12,
+            fontWeight: 500,
+            color: '#b8551b',
+          }}>
+            {selectedAlt.code}
+          </span>
+        </div>
+      </div>
+
+      {/* Rationale textarea */}
+      <div style={{ marginBottom: 10 }}>
+        <label
+          className="font-mono tracking-[0.08em] uppercase"
+          style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#7a6d65', marginBottom: 6 }}
+        >
+          {t('res_compare_rationale_label' as TKey)}
+          {' '}
+          <span style={{ color: '#b8551b' }}>*</span>
+        </label>
+        <textarea
+          value={rationale}
+          onChange={(e) => setRationale(e.target.value)}
+          rows={3}
+          placeholder={t('res_compare_rationale_placeholder' as TKey)}
+          style={{
+            width: '100%',
+            padding: '10px 12px',
+            borderRadius: 10,
+            border: '1px solid #e0d6ce',
+            background: 'white',
+            fontSize: 13,
+            color: '#231915',
+            lineHeight: 1.5,
+            resize: 'vertical',
+            outline: 'none',
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+          }}
+          onFocus={(e) => { e.target.style.borderColor = '#b8551b'; }}
+          onBlur={(e) => { e.target.style.borderColor = '#e0d6ce'; }}
+        />
+      </div>
+
+      {/* Update HS code button — full width, disabled until rationale filled */}
+      <button
+        type="button"
+        onClick={() => { if (canConfirm) onConfirm(rationale); }}
+        disabled={!canConfirm}
+        style={{
+          width: '100%',
+          padding: '12px 16px',
+          borderRadius: 10,
+          border: 'none',
+          background: canConfirm ? '#b8551b' : '#f6f2ed',
+          color: canConfirm ? 'white' : '#a3958c',
+          fontSize: 14,
+          fontWeight: 600,
+          cursor: canConfirm ? 'pointer' : 'not-allowed',
+          transition: 'background 0.15s, color 0.15s',
+        }}
+      >
+        {t('act_update_hs_code' as TKey)}
+      </button>
     </div>
   );
 }
@@ -691,7 +851,7 @@ export default function ResultSingle({
     setSelectedAltCode((prev) => (prev === code ? null : code));
   }
 
-  function handleAltConfirm(code: string) {
+  function handleAltConfirm(code: string, _rationale: string) {
     setSelectedAltCode(null);
     onPickAlternative?.(code);
   }
@@ -736,75 +896,107 @@ export default function ResultSingle({
               )}
             </div>
 
-            {/* "HS code breakdown" label above the breadcrumb table. */}
+            {/* "HS code breakdown" label above the breadcrumb tree. */}
             {(r.path_ar || r.path_en) && (
               <div className="mt-4 font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
                 {t('res_code_breakdown' as TKey)}
               </div>
             )}
 
-            {/* Catalog breadcrumb — parse "A > B > C" into a section/heading table. */}
+            {/*
+              Prototype breakdown: vertical track line + CH/HD/SH/TR rows.
+              Each row is a 3-col grid (tag | code | description) with
+              depth * 12px margin-inline-start. Final row (TR) is orange.
+            */}
             {(r.path_ar || r.path_en) && (() => {
               const splitPath = (s: string | null | undefined) =>
                 s ? s.split(/\s*>\s*/).map((seg) => seg.trim()).filter(Boolean) : [];
               const enSegs = splitPath(r.path_en);
-              const arSegs = splitPath(r.path_ar);
-              const count = Math.max(enSegs.length, arSegs.length);
+              const count = enSegs.length;
               if (count === 0) return null;
-              // Level label + digit prefix from the resolved code
-              const levelLabel = (i: number) => {
-                const names = [
-                  t('res_meta_chapter'),
-                  t('res_meta_heading'),
-                  t('res_meta_subheading'),
-                  'National Code',
-                ];
-                const prefixLengths = [2, 4, 6, 8];
-                const name = names[i] ?? 'Tariff';
-                const prefixLen = prefixLengths[i] ?? 8;
-                const prefix = prefixLen <= code12.length
-                  ? code12.slice(0, prefixLen).replace(/^0+$/, '')
-                  : '';
-                return prefix ? `${name} ${prefix}` : name;
-              };
+
+              // Build code prefix for each level.
+              // CH=first 2 digits, HD=first 4, SH=first 6, TR=full code.
+              // Prototype shows: 85 | 8517 | 851713 | 8517130000 (the full resolved code).
+              const prefixLengths = [2, 4, 6, null]; // null = use full code12
+              const levelTags = ['CH', 'HD', 'SH', 'TR'];
+
+              const rows = Array.from({ length: count }, (_, i) => {
+                const tag = levelTags[i] ?? 'TR';
+                const prefixLen = prefixLengths[i] ?? null;
+                // Final (TR) row always shows the full resolved code; others show prefix
+                const codePrefix = prefixLen === null
+                  ? code12
+                  : prefixLen <= code12.length
+                    ? code12.slice(0, prefixLen)
+                    : code12;
+                const desc = enSegs[i] ?? '';
+                const isFinal = i === count - 1;
+                return { tag, codePrefix, desc, depth: i, isFinal };
+              });
+
               return (
-                <div className="mt-3 rounded-[var(--radius)] border border-[var(--line)] overflow-hidden">
-                  {Array.from({ length: count }, (_, i) => {
-                    const en = enSegs[i] ?? null;
-                    const ar = arSegs[i] ?? null;
-                    return (
-                      <div
-                        key={i}
-                        className={cn(
-                          'flex items-start gap-4 px-4 py-3 bg-[var(--surface)]',
-                          i > 0 && 'border-t border-[var(--line-2)]',
-                        )}
-                      >
-                        <div className="w-[110px] flex-shrink-0 pt-[1px]">
-                          <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.06em] uppercase leading-[1.4]">
-                            {levelLabel(i)}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0 flex flex-col gap-1">
-                          {ar && (
-                            <div
-                              dir="rtl"
-                              lang="ar"
-                              className="text-[13px] text-[var(--ink)] leading-[1.55] break-words text-end"
-                              style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-                            >
-                              {ar}
-                            </div>
-                          )}
-                          {en && (
-                            <div className="text-[12px] text-[var(--ink-3)] leading-[1.5] break-words">
-                              {en}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="mt-3" style={{ position: 'relative', paddingInlineStart: 18 }}>
+                  {/* Vertical track line */}
+                  <div style={{
+                    position: 'absolute',
+                    insetInlineStart: 6,
+                    top: 8,
+                    bottom: 8,
+                    width: 2,
+                    background: '#e0d6ce',
+                    borderRadius: 1,
+                  }} />
+                  {rows.map((row) => (
+                    <div
+                      key={row.tag}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'auto auto 1fr',
+                        gap: 14,
+                        alignItems: 'start',
+                        padding: '10px 0',
+                        marginInlineStart: row.depth * 12,
+                      }}
+                    >
+                      {/* Tag chip: CH / HD / SH / TR */}
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        color: row.isFinal ? '#b8551b' : '#a3958c',
+                        width: 22,
+                        paddingTop: 3,
+                        fontFamily: 'var(--f-mono, monospace)',
+                        lineHeight: 1,
+                        flexShrink: 0,
+                      }}>
+                        {row.tag}
+                      </span>
+                      {/* Code prefix */}
+                      <span style={{
+                        fontFamily: 'var(--f-mono, monospace)',
+                        fontSize: 14,
+                        fontWeight: 500,
+                        color: row.isFinal ? '#b8551b' : '#231915',
+                        paddingTop: 2,
+                        flexShrink: 0,
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {row.codePrefix}
+                      </span>
+                      {/* Description */}
+                      <span style={{
+                        fontSize: 14,
+                        color: row.isFinal ? '#231915' : '#7a6d65',
+                        lineHeight: 1.5,
+                        fontWeight: row.isFinal ? 600 : 400,
+                        wordBreak: 'break-word',
+                      }}>
+                        {row.desc}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               );
             })()}
@@ -924,79 +1116,186 @@ export default function ResultSingle({
 
           {/*
             DUTY CARD — Import Duty + Required Procedures in a single block.
-            The VAT row was removed: it always rendered a hardcoded 15% which
-            isn't part of the duty_info payload, and the project rule is to
-            never invent values. Numeric rates come from r.duty.rate_percent;
-            enum statuses (exempted / prohibited) come from r.duty.status.
+            Prototype pattern: padded={false} card with a gray header bar
+            (background #f6f2ed, border-bottom) + padded body rows.
           */}
-          <div className="bg-white border border-[var(--line)] rounded-[var(--radius-lg)] p-5 flex flex-col gap-4">
-            {/* Duty section header */}
-            <div className="flex items-center gap-2">
-              {/* policy Material Symbol icon */}
+          <div
+            className="overflow-hidden"
+            style={{
+              background: 'white',
+              border: '1px solid #e0d6ce',
+              borderRadius: 16,
+            }}
+          >
+            {/* Header bar — gray background with border-bottom, matches prototype DutyCard */}
+            <div
+              style={{
+                padding: '14px 20px',
+                background: '#f6f2ed',
+                borderBottom: '1px solid #e0d6ce',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}
+            >
               <span
                 className="material-symbols-outlined"
                 aria-hidden="true"
                 style={{
                   fontSize: 18,
-                  fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20",
-                  color: 'var(--ink-3)',
+                  fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 18",
+                  color: '#a3958c',
                   lineHeight: 1,
                   userSelect: 'none',
                 }}
               >
                 policy
               </span>
-              <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
+              <span style={{
+                fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                color: '#a3958c',
+              }}>
                 {t('res_sidebar_duty')}
               </span>
             </div>
 
-            {/* Import Duty row */}
-            <div className="flex items-center justify-between gap-3 text-[13.5px]">
-              <span className="text-[var(--ink)]">{t('res_sidebar_duty_import')}</span>
-              <span className="font-mono text-[var(--ink)] font-medium">{importDutyValue}</span>
-            </div>
-
-            {/* Required Procedures — inside the duty card, below the duty row */}
-            {r.procedures && r.procedures.length > 0 && (
-              <div className="border-t border-[var(--line-2)] pt-4 flex flex-col gap-2">
-                <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
-                  {t('res_sidebar_procedures')}
-                </div>
-                <RequiredProcedures procedures={r.procedures} mode="result" />
+            {/* Body — prototype uses padding: 20 */}
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Import Duty row — label small/muted, value large+bold like prototype */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  paddingBottom: 8,
+                  borderBottom: '1px solid #e0d6ce',
+                }}
+              >
+                <span style={{ fontSize: 14, color: '#7a6d65' }}>
+                  {t('res_sidebar_duty_import')}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: '#231915',
+                    letterSpacing: '-0.01em',
+                  }}
+                >
+                  {importDutyValue}
+                </span>
               </div>
-            )}
+
+              {/* Required Procedures */}
+              {r.procedures && r.procedures.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <span style={{
+                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
+                    color: '#a3958c',
+                    marginBottom: 2,
+                  }}>
+                    {t('res_sidebar_procedures')}
+                  </span>
+                  <RequiredProcedures procedures={r.procedures} mode="result" />
+                </div>
+              )}
+            </div>
           </div>
 
           {/*
-            ALTERNATIVES CARD — clickable full cards.
-            v2 + anchored: per-candidate data not on the wire — render
-            aggregate verdict counts (fits / partial / does_not_fit) +
-            GIR rule as a summary line. The picker's `verdict_population`
-            is the source of truth.
-            Legacy (pre-PR-13 rows): union track_a / track_b per-candidate
-            rows. Retained so historic rows still render.
+            ALTERNATIVES CARD — prototype layout.
+            Header: account_tree icon + eyebrow label, gray background with border-bottom.
+            Body: subtitle text + clickable alt cards + compare panel below the list.
           */}
-          {(anchoredSummary || altRows.length > 0) && (
-            <div className="bg-white border border-[var(--line)] rounded-[var(--radius-lg)] p-5 flex flex-col gap-3">
-              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase pb-2 border-b border-[var(--line-2)]">
-                {t('res_sidebar_alternatives')}
-              </div>
+          {(anchoredSummary || altRows.length > 0) && (() => {
+            const selectedAlt = altRows.find((a) => a.code === selectedAltCode) ?? null;
+            return (
+              <div
+                className="overflow-hidden"
+                style={{
+                  background: 'white',
+                  border: '1px solid #e0d6ce',
+                  borderRadius: 16,
+                }}
+              >
+                {/* Header bar — matches prototype AlternativesCard */}
+                <div
+                  style={{
+                    padding: '14px 20px',
+                    background: '#f6f2ed',
+                    borderBottom: '1px solid #e0d6ce',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <span
+                    className="material-symbols-outlined"
+                    aria-hidden="true"
+                    style={{
+                      fontSize: 18,
+                      fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 18",
+                      color: '#a3958c',
+                      lineHeight: 1,
+                      userSelect: 'none',
+                    }}
+                  >
+                    account_tree
+                  </span>
+                  <span style={{
+                    fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
+                    color: '#a3958c',
+                  }}>
+                    {t('res_sidebar_alternatives')}
+                  </span>
+                </div>
 
-              <div className="flex flex-col gap-2.5">
-                {altRows.map((a, i) => (
-                  <AlternativeCard
-                    key={`alt-${a.code}-${i}`}
-                    alt={a}
-                    isSelected={selectedAltCode === a.code}
-                    onSelect={() => handleAltSelect(a.code)}
-                    onConfirm={() => handleAltConfirm(a.code)}
-                    t={t}
-                  />
-                ))}
+                {/* Body — prototype uses padding: 20 */}
+                <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {/* Subtitle */}
+                  <p style={{ margin: '0 0 12px', fontSize: 12, color: '#7a6d65', lineHeight: 1.5, fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
+                    {t('res_alternatives_subtitle' as TKey)}
+                  </p>
+
+                  {/* Alt cards */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {altRows.map((a, i) => (
+                      <AlternativeCard
+                        key={`alt-${a.code}-${i}`}
+                        alt={a}
+                        isSelected={selectedAltCode === a.code}
+                        onSelect={() => handleAltSelect(a.code)}
+                        t={t}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Compare / rationale / confirm panel — below the list */}
+                  {selectedAlt && (
+                    <ComparePanel
+                      currentCode={r.code ?? ''}
+                      selectedAlt={selectedAlt}
+                      onConfirm={(rationale) => handleAltConfirm(selectedAlt.code, rationale)}
+                      t={t}
+                    />
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
         </aside>
       </div>
@@ -1073,44 +1372,34 @@ function ConfidenceRing({ pct }: { pct: number }) {
 }
 
 /**
- * Big inline HS code render: `15.09.20.00.00.00` with the first three
- * 2-digit pairs in --accent and the last three in --ink. Matches the
- * landing-page mockup's `big-code` element exactly. Includes a copy
- * button on the side. Replaces the older 6-cell `CodeMonument` grid
- * (which fragmented the code into floating cells with too much air
- * between them).
+ * Big inline HS code render: `8517.13.00.00` at 40px all-orange.
+ * Prototype spec: fontSize 40, fontWeight 700, color var(--c-primary) = #b8551b.
+ * Groups digits into dotted segments (6.2.2.2) like ZATCA format.
+ * Includes a copy button on the side.
  */
 function BigCode({ code }: { code: string }) {
-  // Render at the code's natural length. Pipeline codes are 12 digits;
-  // partial or heading-level codes render fewer pairs with placeholder
-  // slots shown as middle-dot so no granularity is fabricated.
   const digits = code.replace(/\D/g, '');
-  const pairs: string[] = [];
-  for (let i = 0; i < 12; i += 2) {
-    if (i < digits.length) {
-      pairs.push(digits.slice(i, Math.min(i + 2, digits.length)));
-    } else {
-      pairs.push('');  // empty slot — rendered as placeholder below
-    }
-  }
-  const filledPairs = pairs.filter((_, i) => digits.length > i * 2);
-  const displayPairs = filledPairs.length > 0 ? filledPairs : ['—'];
+  // Format as dotted segments: XXXXXX.XX.XX.XX (6-2-2-2)
+  // If shorter than 12 digits, show what we have with natural breaks.
+  const formatDotted = (d: string): string => {
+    if (!d) return '—';
+    // Build segments: first 6, then pairs
+    const segs: string[] = [];
+    if (d.length >= 1) segs.push(d.slice(0, Math.min(6, d.length)));
+    if (d.length > 6)  segs.push(d.slice(6, Math.min(8, d.length)));
+    if (d.length > 8)  segs.push(d.slice(8, Math.min(10, d.length)));
+    if (d.length > 10) segs.push(d.slice(10, Math.min(12, d.length)));
+    return segs.join('.');
+  };
+  const display = formatDotted(digits);
   return (
-    <div className="flex items-center gap-3.5">
+    <div className="flex items-center gap-3">
       <code
-        className="font-mono font-medium leading-none whitespace-nowrap text-[clamp(28px,4.2vw,36px)] tracking-[0.01em]"
+        className="font-mono font-bold leading-none whitespace-nowrap"
+        style={{ fontSize: 40, color: '#b8551b' }}
         aria-label={`HS code ${digits || code}`}
       >
-        {displayPairs.map((pair, i) => (
-          <span key={i}>
-            <span className={i < 3 ? 'text-[var(--accent)]' : 'text-[var(--ink)]'}>
-              {pair}
-            </span>
-            {i < displayPairs.length - 1 && (
-              <span className="text-[var(--ink-3)] font-normal px-[1px]">.</span>
-            )}
-          </span>
-        ))}
+        {display}
       </code>
       {digits.length > 0 && (
         <CopyIconButton text={digits} title={`Copy HS code${digits.length < 12 ? ` (${digits.length} digits)` : ''}`} />
