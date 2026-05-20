@@ -399,8 +399,37 @@ export async function handleListClassifications(
             i.final_code,
             ${traceColumn}              AS trace,
             i.error,
-            d.path_en                   AS catalog_path_en,
-            d.path_ar                   AS catalog_path_ar,
+            -- PR13 (2026-05-20): when d.path_en is single-segment
+            -- (no ' > '), rebuild the breadcrumb from d.path_codes
+            -- ancestor labels so the API caller always sees the full
+            -- hierarchy without needing the trace. Mirrors the same
+            -- logic in lookupCatalogPath().
+            CASE
+              WHEN d.path_en IS NULL OR position(' > ' IN d.path_en) > 0
+                THEN d.path_en
+              WHEN jsonb_array_length(d.path_codes) < 2
+                THEN d.path_en
+              ELSE COALESCE(
+                (SELECT string_agg(anc.label_en, ' > ' ORDER BY ord)
+                   FROM jsonb_array_elements_text(d.path_codes) WITH ORDINALITY anc_code(code, ord)
+                   JOIN zatca_hs_code_display anc ON anc.code = anc_code.code
+                  WHERE anc.label_en IS NOT NULL AND anc.label_en <> ''),
+                d.path_en
+              )
+            END                          AS catalog_path_en,
+            CASE
+              WHEN d.path_ar IS NULL OR position(' > ' IN d.path_ar) > 0
+                THEN d.path_ar
+              WHEN jsonb_array_length(d.path_codes) < 2
+                THEN d.path_ar
+              ELSE COALESCE(
+                (SELECT string_agg(anc.label_ar, ' > ' ORDER BY ord)
+                   FROM jsonb_array_elements_text(d.path_codes) WITH ORDINALITY anc_code(code, ord)
+                   JOIN zatca_hs_code_display anc ON anc.code = anc_code.code
+                  WHERE anc.label_ar IS NOT NULL AND anc.label_ar <> ''),
+                d.path_ar
+              )
+            END                          AS catalog_path_ar,
             i.goods_description_ar      AS submission_description_ar,
             (i.canonical ->> 'valueAmount')::numeric    AS value_amount,
             (i.canonical ->> 'currencyCode')            AS currency_code,
