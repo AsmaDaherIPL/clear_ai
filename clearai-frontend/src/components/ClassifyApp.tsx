@@ -505,11 +505,16 @@ export default function ClassifyApp() {
   // middle slot changes between the login card (unauthenticated)
   // and the composer + result region (authenticated).
   const authState = useAuthState();
-  // Start in batch mode when the URL carries a ?run= param so ResultBatch
-  // renders immediately on refresh without waiting for the resume effect.
-  const [mode, setMode] = useState<ClassifyMode>(() =>
-    getUrlRunId() ? 'batch' : 'generate'
-  );
+  // Start in batch mode when the URL carries a ?run= param OR ?mode=batch,
+  // so ResultBatch renders immediately on refresh and direct links to the
+  // batch page (?mode=batch) land on the right view.
+  const [mode, setMode] = useState<ClassifyMode>(() => {
+    if (typeof window === 'undefined') return 'generate';
+    const params = new URLSearchParams(window.location.search);
+    const urlMode = params.get('mode');
+    if (urlMode === 'batch' || urlMode === 'expand') return urlMode;
+    return getUrlRunId() ? 'batch' : 'generate';
+  });
 
   const [modeStates, setModeStates] = useState<Record<ClassifyMode, ModeState>>({
     generate: { ...initialModeState },
