@@ -25,9 +25,9 @@ import { DataTable } from './DataTable';
 // Plausibility verdict helpers
 // ---------------------------------------------------------------------------
 
-// Prototype: border-only pill (no fill), small text
-const PLAUSIBILITY_PASS_CLS = 'border border-[oklch(0.70_0.08_140)] text-[oklch(0.35_0.10_140)] bg-transparent';
-const PLAUSIBILITY_FLAG_CLS = 'border border-[oklch(0.70_0.10_60)]  text-[oklch(0.42_0.14_60)]  bg-transparent';
+// Prototype: light-filled pill — subtle tint bg + matching border + muted text
+const PLAUSIBILITY_PASS_CLS = 'bg-[oklch(0.93_0.04_140)] border border-[oklch(0.78_0.07_140)] text-[oklch(0.38_0.09_140)]';
+const PLAUSIBILITY_FLAG_CLS = 'bg-[oklch(0.94_0.05_55)]  border border-[oklch(0.78_0.09_55)]  text-[oklch(0.46_0.12_55)]';
 
 /**
  * Format a raw HS code string into dot-separated groups for display.
@@ -401,7 +401,7 @@ function PlausibilityCell({ item, isComplete }: { item: BatchItem; isComplete: b
 
   if (bucket === 'blocked') {
     return (
-      <span className="inline-block px-2.5 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em] border border-[oklch(0.65_0.10_25)] text-[oklch(0.40_0.12_25)] bg-transparent">
+      <span className="inline-block px-2.5 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em] bg-[oklch(0.93_0.04_25)] border border-[oklch(0.78_0.08_25)] text-[oklch(0.42_0.12_25)]">
         Blocked
       </span>
     );

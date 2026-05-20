@@ -401,8 +401,8 @@ export function DataTable<T extends object>({
                     className={cn(
                       'inline-flex items-center px-3.5 py-[5px] rounded-full text-[13px] font-medium transition-colors duration-150',
                       active
-                        ? 'bg-[var(--ink)] text-[var(--bg)]'
-                        : 'bg-transparent text-[var(--ink-2)] hover:text-[var(--ink)]',
+                        ? 'bg-[var(--line-2)] border border-[var(--line)] text-[var(--ink)]'
+                        : 'bg-transparent text-[var(--ink-3)] hover:text-[var(--ink-2)]',
                     )}
                   >
                     {chipLabel}
