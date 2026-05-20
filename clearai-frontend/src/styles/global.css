@@ -26,11 +26,11 @@
  */
 
 /*
- * Material Symbols Outlined — variable font for sidebar icons.
- * Subset to only the ligature names actually used, keeping the download tiny.
- * axes: FILL 0-1, wght 100-700, GRAD 0, opsz 20-48
+ * Material Symbols Outlined — self-hosted variable font via @fontsource-variable.
+ * No Google Fonts CDN request — compatible with strict CSP (style-src 'self').
+ * full.css includes all variable axes: FILL, wght, GRAD, opsz.
  */
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,0&display=block&text=auto_awesomeupload_filehistorylogoutdock_to_right');
+@import '@fontsource-variable/material-symbols-outlined/full.css';
 
 /* IBM Plex Sans — Latin, weights 400 500 600 700 */
 @import '@fontsource/ibm-plex-sans/400.css';
@@ -171,7 +171,7 @@ html[dir="rtl"] body {
 
 /* Material Symbols — icon rendering */
 .material-symbols-outlined {
-  font-family: 'Material Symbols Outlined';
+  font-family: 'Material Symbols Outlined Variable';
   font-weight: normal;
   font-style: normal;
   display: inline-block;
