@@ -484,8 +484,6 @@
   "batch_stat_succeeded_sub": "جاهزة للتجميع",
   "batch_stat_flagged": "مُعلَّمة",
   "batch_stat_flagged_sub": "بانتظار المراجعة",
-  "batch_stat_duty": "الرسوم التقديرية",
-  "batch_stat_duty_sub": "بناءً على القيم المُعلنة",
   "batch_stat_bayans": "بيانات مُولَّدة",
   "batch_stat_bayans_sub": "جاهزة لتقديم ZATCA",
   "batch_hv_label": "قيمة عالية",

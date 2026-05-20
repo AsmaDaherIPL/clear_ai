@@ -484,8 +484,6 @@
   "batch_stat_succeeded_sub": "ready to bundle",
   "batch_stat_flagged": "FLAGGED",
   "batch_stat_flagged_sub": "awaiting review",
-  "batch_stat_duty": "EST. DUTY",
-  "batch_stat_duty_sub": "based on declared values",
   "batch_stat_bayans": "GENERATED BAYANS",
   "batch_stat_bayans_sub": "ready for ZATCA submission",
   "batch_hv_label": "HV",

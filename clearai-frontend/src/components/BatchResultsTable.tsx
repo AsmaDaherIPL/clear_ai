@@ -8,15 +8,17 @@
  * Eye icon opens a CodeBreakdownModal portal per row.
  * Flag icon appears only on flagged/blocked rows.
  * Confidence column hidden by default; togglable from Columns menu.
+ *
+ * Filter chip semantics:
+ *   "Passed"  = items with a resolved HS code (succeeded + flagged buckets)
+ *   "Flagged" = items with FLAG or BLOCK plausibility verdict
  */
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { pickLang, type BatchItem, type ReviewQueueRow, type AlternativeLine, ApiError } from '@/lib/api';
-import { api } from '@/lib/api';
-import ReviewDialog, { type ReviewItem } from './ReviewDialog';
+import { pickLang, type BatchItem } from '@/lib/api';
 import { DataTable } from './DataTable';
 
 // ---------------------------------------------------------------------------
@@ -432,126 +434,6 @@ function DutyCell({ item }: { item: BatchItem }) {
 }
 
 // ---------------------------------------------------------------------------
-// Manual review CTA button
-// ---------------------------------------------------------------------------
-
-function ManualReviewButton({
-  pendingReview,
-  reviewedCount,
-  onClick,
-}: {
-  pendingReview: number;
-  reviewedCount: number;
-  onClick: () => void;
-}) {
-  const t = useT();
-  const hasPending = pendingReview > 0;
-  const isDisabled = pendingReview === 0 && reviewedCount === 0;
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={isDisabled}
-      title={
-        hasPending
-          ? `${pendingReview} items need review`
-          : 'All flagged items reviewed'
-      }
-      className={cn(
-        'inline-flex items-center gap-[10px] px-[14px] py-[8px] rounded-[9px]',
-        'border bg-[var(--surface)]',
-        'text-[13.5px] font-medium tracking-[-0.005em]',
-        'cursor-pointer transition-all duration-150',
-        'disabled:opacity-40 disabled:cursor-not-allowed disabled:border-[var(--line)] disabled:text-[var(--ink-3)]',
-        hasPending
-          ? 'border-[var(--accent)] text-[var(--ink)] hover:bg-[var(--accent)] hover:text-white'
-          : 'border-[var(--ink)] text-[var(--ink)] hover:bg-[var(--ink)] hover:text-white',
-      )}
-    >
-      {t('review_manual_cta' as TKey)}
-      <span
-        className={cn(
-          'inline-flex items-center justify-center min-w-[20px] h-[20px] px-[6px] rounded-full',
-          'font-mono text-[11px] tabular-nums tracking-[0.02em]',
-          'transition-all duration-150',
-          hasPending
-            ? 'bg-[var(--accent)] text-white'
-            : 'bg-[var(--ink)] text-white',
-        )}
-      >
-        {hasPending ? pendingReview : '✓'}
-      </span>
-      <span
-        className={cn(
-          'font-mono text-[12px] opacity-55 transition-transform duration-150',
-          'group-hover:opacity-100 group-hover:translate-x-[2px]',
-        )}
-        aria-hidden
-      >
-        →
-      </span>
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Map a ReviewQueueRow to a ReviewItem
-// ---------------------------------------------------------------------------
-
-function queueRowToReviewItem(
-  row: ReviewQueueRow,
-  matchedItem?: BatchItem,
-): ReviewItem {
-  const payloadInput =
-    (row.payload as Record<string, unknown> | undefined)?.input as string | undefined;
-  const declaredDesc = matchedItem?.declared_value?.description ?? undefined;
-  const description = payloadInput ?? declaredDesc ?? row.item_id;
-
-  const alternatives = (row.candidates ?? []).map((c) => ({
-    code: c.code,
-    description_en: c.description_en,
-    description_ar: c.description_ar,
-    retrieval_score: c.rerank_score,
-    source_arm: c.source_arm as AlternativeLine['source_arm'],
-  }));
-
-  const flagType: 'value' | 'hs' = row.reason === 'sanity_flag' ? 'value' : 'hs';
-
-  let value: ReviewItem['value'] = null;
-  if (matchedItem?.declared_value?.amount != null && matchedItem.declared_value.currency) {
-    value = {
-      amount: matchedItem.declared_value.amount,
-      currency: matchedItem.declared_value.currency,
-    };
-  } else if (matchedItem?.value?.amount?.value != null && matchedItem.value.amount.currency) {
-    value = {
-      amount: matchedItem.value.amount.value,
-      currency: matchedItem.value.amount.currency,
-    };
-  } else {
-    const pd = (row.payload as Record<string, unknown> | undefined)
-      ?.declared_value as Record<string, unknown> | undefined;
-    if (pd?.amount != null && pd?.currency) {
-      value = { amount: Number(pd.amount), currency: String(pd.currency) };
-    }
-  }
-
-  return {
-    id: row.id,
-    description,
-    value,
-    merchantCode: matchedItem?.declared_value?.hs_code ?? null,
-    currentCode: row.current_final_code ?? null,
-    currentConfidence: row.current_classification_confidence ?? null,
-    verdict: row.current_sanity_verdict ?? null,
-    sanityRationale: row.current_sanity_rationale ?? null,
-    flagType,
-    alternatives,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -563,149 +445,36 @@ interface BatchResultsTableProps {
   batchId?: string;
 }
 
-function needsReview(item: BatchItem): boolean {
-  if (item.classification_result == null) return false;
-  const verdict = item.classification_result.sanity_verdict?.toUpperCase();
-  return verdict === 'FLAG';
-}
-
 export default function BatchResultsTable({
   expectedRowCount,
   items,
   className,
   isComplete = false,
-  batchId,
+  batchId: _batchId,
 }: BatchResultsTableProps) {
   const t = useT();
 
   // Breakdown popup state
   const [breakdownItem, setBreakdownItem] = useState<{ item: BatchItem; line: number | string } | null>(null);
 
-  // Count items per bucket for filter chip counts
+  // Count items per bucket for filter chip counts.
+  // "passed" = any item with a resolved HS code (succeeded OR flagged bucket).
+  // "flagged" = only items with FLAG/BLOCK plausibility.
   const bucketCounts = useMemo(() => {
     const counts = { all: 0, flagged: 0, passed: 0 };
     for (const item of items) {
       const b = itemBucket(item, isComplete);
       if (b === null) continue;
       counts.all++;
-      if (b === 'flagged' || b === 'blocked') counts.flagged++;
-      else if (b === 'succeeded') counts.passed++;
+      if (b === 'flagged' || b === 'blocked') {
+        counts.flagged++;
+        counts.passed++; // flagged items still have a code → also count as "passed"
+      } else if (b === 'succeeded') {
+        counts.passed++;
+      }
     }
     return counts;
   }, [items, isComplete]);
-
-  const reviewCount = useMemo(() => items.filter(needsReview).length, [items]);
-
-  // Review dialog state
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
-  const [reviewIdx, setReviewIdx] = useState(0);
-  const [reviewedCount, setReviewedCount] = useState(0);
-  const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewError, setReviewError] = useState<string | null>(null);
-
-  const reviewTarget = reviewQueue[reviewIdx] ?? null;
-
-  const handleOpenManualReview = useCallback(async () => {
-    if (!batchId) return;
-    setReviewLoading(true);
-    setReviewError(null);
-    try {
-      const listRes = await api.listReviewQueue({
-        batch_id: batchId,
-        status: 'pending',
-        reason: 'sanity_flag',
-        limit: 50,
-      });
-
-      const detailedRows = await Promise.all(
-        listRes.items.map((row) => api.getReviewRow(row.id)),
-      );
-
-      const queue = detailedRows.map((row) => {
-        const matched = items.find((it) => it.id === row.item_id);
-        return queueRowToReviewItem(row, matched);
-      });
-      setReviewQueue(queue);
-      setReviewIdx(0);
-      setReviewedCount(0);
-      setReviewOpen(true);
-    } catch (err: unknown) {
-      const msg =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-          ? err.message
-          : 'Failed to load review queue.';
-      setReviewError(msg);
-    } finally {
-      setReviewLoading(false);
-    }
-  }, [batchId, items]);
-
-  const handleAdvanceQueue = useCallback(() => {
-    setReviewedCount((n) => n + 1);
-    setReviewQueue((q) => {
-      const next = q.filter((_, i) => i !== reviewIdx);
-      setReviewIdx((idx) => Math.min(idx, Math.max(0, next.length - 1)));
-      if (next.length === 0) {
-        setReviewOpen(false);
-      }
-      return next;
-    });
-  }, [reviewIdx]);
-
-  const handleAccept = useCallback(
-    async (item: ReviewItem) => {
-      try { await api.submitReviewDecision(item.id, { decision: 'approve' }); }
-      catch { return; }
-      handleAdvanceQueue();
-    },
-    [handleAdvanceQueue],
-  );
-
-  const handleDismiss = useCallback(
-    async (item: ReviewItem) => {
-      try { await api.submitReviewDecision(item.id, { decision: 'reject' }); }
-      catch { return; }
-      handleAdvanceQueue();
-    },
-    [handleAdvanceQueue],
-  );
-
-  const handlePick = useCallback(
-    async (item: ReviewItem, chosenCode: string) => {
-      try {
-        await api.submitReviewDecision(item.id, { decision: 'override', reviewer_code: chosenCode });
-      } catch (err: unknown) {
-        const msg =
-          err instanceof ApiError ? err.message :
-          err instanceof Error ? err.message :
-          'Override failed.';
-        setReviewError(msg);
-        return;
-      }
-      handleAdvanceQueue();
-    },
-    [handleAdvanceQueue],
-  );
-
-  const handleBlock = useCallback(
-    async (item: ReviewItem, notes: string) => {
-      try {
-        await api.submitReviewDecision(item.id, { decision: 'block_from_submission', reviewer_notes: notes });
-      } catch (err: unknown) {
-        const msg =
-          err instanceof ApiError ? err.message :
-          err instanceof Error ? err.message :
-          'Block failed.';
-        setReviewError(msg);
-        return;
-      }
-      handleAdvanceQueue();
-    },
-    [handleAdvanceQueue],
-  );
 
   // ---------------------------------------------------------------------------
   // Column definitions — prototype-exact order
@@ -809,8 +578,10 @@ export default function BatchResultsTable({
       maxSize: 160,
       filterFn: (row, _id, value) => {
         const b = itemBucket(row.original, isComplete);
+        // "flagged" chip = only plausibility FLAG/BLOCK rows
         if (value === 'flagged') return b === 'flagged' || b === 'blocked';
-        if (value === 'succeeded') return b === 'succeeded';
+        // "passed" chip = any row that has a resolved HS code (succeeded + flagged)
+        if (value === 'passed') return b === 'succeeded' || b === 'flagged' || b === 'blocked';
         return true;
       },
       cell: ({ row }) => <PlausibilityCell item={row.original} isComplete={isComplete} />,
@@ -935,30 +706,6 @@ export default function BatchResultsTable({
     );
   }, []);
 
-  const pendingInQueue = reviewQueue.length;
-  const queueExhausted = !reviewOpen && reviewedCount > 0 && pendingInQueue === 0;
-  const manualReviewCta = isComplete && reviewCount > 0 && !!batchId && !queueExhausted ? (
-    <div className="flex flex-col items-end gap-[4px]">
-      <ManualReviewButton
-        pendingReview={reviewOpen ? pendingInQueue : reviewCount}
-        reviewedCount={reviewedCount}
-        onClick={() => {
-          if (reviewOpen) {
-            setReviewOpen(false);
-          } else {
-            void handleOpenManualReview();
-          }
-        }}
-      />
-      {reviewLoading && (
-        <span className="font-mono text-[11px] text-[var(--ink-3)]">Loading queue…</span>
-      )}
-      {reviewError && !reviewOpen && (
-        <span className="font-mono text-[11px] text-[oklch(0.45_0.14_25)]">{reviewError}</span>
-      )}
-    </div>
-  ) : null;
-
   return (
     <>
       <DataTable
@@ -973,14 +720,13 @@ export default function BatchResultsTable({
         searchPlaceholder={t('batch_search_placeholder' as TKey)}
         filterChips={{
           columnId: 'plausibility',
-          // no label — counts embedded in chips
+          // no label prefix — counts embedded in chips per prototype
           options: [
-            { label: 'All', count: bucketCounts.all },
+            { label: 'All',     count: bucketCounts.all },
             { label: 'Flagged', value: 'flagged', count: bucketCounts.flagged },
-            { label: 'Passed',  value: 'succeeded', count: bucketCounts.passed },
+            { label: 'Passed',  value: 'passed',  count: bucketCounts.passed },
           ],
         }}
-        filterExtra={manualReviewCta}
         emptyState={t('batch_empty_state' as TKey)}
         className={className}
       />
@@ -993,23 +739,6 @@ export default function BatchResultsTable({
           onClose={() => setBreakdownItem(null)}
         />
       )}
-
-      {/* Inline review dialog */}
-      <ReviewDialog
-        open={reviewOpen}
-        onOpenChange={setReviewOpen}
-        item={reviewTarget}
-        queueLength={reviewQueue.length}
-        queueIndex={reviewIdx}
-        reviewedCount={reviewedCount}
-        onPrev={() => setReviewIdx((i) => Math.max(0, i - 1))}
-        onNext={() => setReviewIdx((i) => Math.min(reviewQueue.length - 1, i + 1))}
-        onSkip={() => setReviewIdx((i) => Math.min(reviewQueue.length - 1, i + 1))}
-        onAccept={handleAccept}
-        onDismiss={handleDismiss}
-        onPick={handlePick}
-        onBlock={handleBlock}
-      />
     </>
   );
 }
