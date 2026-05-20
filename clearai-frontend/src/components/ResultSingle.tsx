@@ -1,6 +1,6 @@
 /** Generate-mode result card. Presentational; parent owns the DescribeResponse. */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
@@ -15,7 +15,6 @@ import {
 } from '@/lib/api';
 import SubmissionDescriptionCard from './SubmissionDescriptionCard';
 import RequiredProcedures from './RequiredProcedures';
-import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 
 interface ResultSingleProps {
   visible: boolean;
@@ -458,9 +457,6 @@ function ClarifyCard({
   );
 }
 
-/** Classify an alternative against the chosen code via HS hierarchy (chapter/heading). */
-type Relationship = 'same-family' | 'related-family' | 'cross-family' | 'no-chosen';
-
 // `CodeMonument` (the 6-cell gradient grid) was retired in the
 // mockup-match rebuild. The mockup renders the code as a single
 // inline 12-digit string with `.` separators, the first 6 digits in
@@ -468,301 +464,107 @@ type Relationship = 'same-family' | 'related-family' | 'cross-family' | 'no-chos
 // this file for the replacement.
 
 /**
- * Sidebar alternative row with per-row collapsable description.
- *
- * The mockup shows the sidebar's CONSIDERED ALTERNATIVES as a quiet
- * always-visible list (code + relationship pill). The user added one
- * extra requirement on top: each row should be collapsable on its
- * description. Default is collapsed (just code + pill), and a
- * disclosure caret toggles the EN/AR description text below it. We
- * own per-row open state with a local `useState`; lifting it would
- * complicate the sidebar block without buying anything.
+ * Clickable alternative card for the right-column alternatives section.
+ * Shows match %, code, description, and a "Use this code" CTA.
+ * On selection, shows a confirmation banner with "Update code" button.
  */
-/**
- * Compact confirmation popover shown when the reviewer clicks "Switch to this".
- * Renders A → B: current code with label on the left, candidate code on the right,
- * separated by a right-arrow. Two actions: Confirm (calls onConfirm) or Cancel.
- */
-function SwitchConfirmPopover({
-  fromCode,
-  fromLabel,
-  toCode,
-  toLabel,
-  t,
+function AlternativeCard({
+  alt,
+  isSelected,
+  onSelect,
   onConfirm,
-  onCancel,
+  t,
 }: {
-  fromCode: string;
-  fromLabel: string | null;
-  toCode: string;
-  toLabel: string | null;
-  t: (key: TKey) => string;
+  alt: AlternativeLine;
+  isSelected: boolean;
+  onSelect: () => void;
   onConfirm: () => void;
-  onCancel: () => void;
+  t: (key: TKey) => string;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close on click outside.
-  useEffect(() => {
-    function onPointerDown(e: PointerEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onCancel();
-      }
-    }
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [onCancel]);
-
-  // Close on Escape.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onCancel();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  const matchPct = alt.retrieval_score != null
+    ? `${Math.round(alt.retrieval_score * 100)}%`
+    : null;
+  const descText = clampDescription(alt.description_en ?? '', ALT_DESC_MAX);
 
   return (
     <div
-      ref={ref}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('act_switch_confirm' as TKey)}
+      onClick={onSelect}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
+      aria-pressed={isSelected}
       className={cn(
-        'absolute end-0 top-full mt-2 z-50 w-[min(420px,92vw)]',
-        'bg-[var(--surface)] border border-[var(--line)]',
-        'rounded-[16px]',
-        'shadow-[0_8px_40px_-8px_rgba(0,0,0,0.16),0_2px_8px_-2px_rgba(0,0,0,0.06)]',
-        'animate-[fadeUp_0.15s_ease_both]',
-        'overflow-hidden',
+        'relative flex flex-col gap-2 rounded-[12px] border px-[16px] py-[14px] cursor-pointer transition-all duration-150 outline-none',
+        isSelected
+          ? 'border-[#b8551b] bg-[#fff1e5]'
+          : 'border-[#e8e0d8] bg-white hover:border-[#b8551b] hover:bg-[#fff6f0]',
+        'focus-visible:ring-2 focus-visible:ring-[#b8551b] focus-visible:ring-offset-1',
       )}
     >
-      {/* Header */}
-      <div className="px-5 pt-5 pb-3 border-b border-[var(--line-2)]">
-        <p className="m-0 text-[11px] font-mono uppercase tracking-[0.12em] text-[var(--ink-3)] mb-1.5">
-          {t('act_switch_confirm' as TKey)}
-        </p>
-        <p className="m-0 text-[12px] text-[var(--ink-2)] leading-[1.5]">
-          {t('act_switch_quality_note' as TKey)}
-        </p>
-      </div>
-
-      {/* Two equal-width code cards in a grid */}
-      <div className="px-5 pt-4 pb-4 grid grid-cols-2 gap-3">
-        {/* Current */}
-        <div className="flex flex-col gap-2 p-4 rounded-[10px] bg-[var(--line-2)] border border-[var(--line)]">
-          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--ink-3)]">
-            {t('act_switch_from' as TKey)}
-          </span>
-          <span className="font-mono text-[17px] font-semibold text-[var(--ink)] leading-none tracking-[-0.01em] break-all">
-            {fromCode}
-          </span>
-          <span className="text-[12px] text-[var(--ink-2)] leading-[1.45] line-clamp-3 min-h-[3em]">
-            {cleanDescription(fromLabel) || '—'}
-          </span>
-        </div>
-
-        {/* Switch to */}
-        <div className="flex flex-col gap-2 p-4 rounded-[10px] bg-[var(--surface)] border-2 border-[var(--accent)]">
-          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--accent-ink)]">
-            {t('act_switch_to' as TKey)}
-          </span>
-          <span className="font-mono text-[17px] font-semibold text-[var(--accent-ink)] leading-none tracking-[-0.01em] break-all">
-            {toCode}
-          </span>
-          <span className="text-[12px] text-[var(--ink-2)] leading-[1.45] line-clamp-3 min-h-[3em]">
-            {cleanDescription(toLabel) || '—'}
-          </span>
-        </div>
-      </div>
-
-      {/* Divider + Actions */}
-      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--line-2)] bg-[var(--line-2)]">
-        <button
-          type="button"
-          onClick={onCancel}
-          className={cn(
-            'px-4 py-2 rounded-[8px] text-[13px] font-medium',
-            'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
-            'hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-all duration-150',
-          )}
-        >
-          {t('act_switch_cancel' as TKey)}
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          className={cn(
-            'px-4 py-2 rounded-[8px] text-[13px] font-medium',
-            'bg-[var(--accent)] text-white border border-[var(--accent)]',
-            'hover:brightness-110 transition-all duration-150',
-          )}
-        >
-          {t('act_switch_confirm' as TKey)}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function AlternativeSidebarRow({
-  alt,
-  currentCode,
-  currentLabel,
-  t,
-  onPick,
-}: {
-  alt: AlternativeLine;
-  /** The currently-accepted code (for the A side of the switch confirm). */
-  currentCode: string | null;
-  currentLabel: string | null;
-  t: (key: TKey) => string;
-  /** When provided, renders a "Switch to this" button on hover. */
-  onPick?: (code: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const hasDesc = Boolean(alt.description_en || alt.description_ar);
-
-  function handleSwitchClick() {
-    setConfirming(true);
-  }
-
-  function handleConfirm() {
-    setConfirming(false);
-    onPick?.(alt.code);
-  }
-
-  function handleCancel() {
-    setConfirming(false);
-  }
-
-  return (
-    <div ref={wrapRef} className="relative flex flex-col gap-1 py-1 group">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => hasDesc && setOpen((o) => !o)}
-          disabled={!hasDesc}
-          className={cn(
-            'inline-flex items-center gap-1.5 font-mono text-[14px] font-medium text-[var(--ink)] leading-none',
-            hasDesc ? 'cursor-pointer hover:text-[var(--accent)] transition-colors duration-150' : 'cursor-default',
-          )}
-          aria-expanded={hasDesc ? open : undefined}
-          aria-label={hasDesc ? (open ? t('res_alts_hide_desc') : t('res_alts_show_desc')) : undefined}
-        >
-          {hasDesc && (
-            <svg
-              width="9"
-              height="9"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-              className={cn(
-                'transition-transform duration-150 text-[var(--ink-3)] rtl:scale-x-[-1]',
-                open && 'rotate-90',
-              )}
+      {/* Top row: match badge + code */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          {matchPct && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
+              style={{
+                background: 'oklch(0.95 0.05 155)',
+                color: 'oklch(0.34 0.13 145)',
+              }}
             >
-              <path d="M9 6l6 6-6 6" />
-            </svg>
+              {matchPct}
+            </span>
           )}
-          <span>{alt.code}</span>
-        </button>
-        {onPick && (
-          <button
-            type="button"
-            onClick={handleSwitchClick}
-            className={cn(
-              'inline-flex items-center gap-1 text-[11px] text-[var(--ink-3)]',
-              'hover:text-[var(--accent)] transition-colors duration-150',
-              'opacity-0 group-hover:opacity-100 focus:opacity-100',
-            )}
-            aria-label={t('act_use_code')}
+          <span
+            className="font-mono text-[14px] font-medium"
+            style={{ color: '#231915' }}
           >
-            {t('act_use_code')}
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M5 12h14M13 6l6 6-6 6" />
-            </svg>
-          </button>
+            {alt.code}
+          </span>
+        </div>
+        {/* "Use this code" CTA — only when not yet selected */}
+        {!isSelected && (
+          <span
+            className="text-[12px] text-[var(--accent)] font-medium shrink-0 pointer-events-none"
+            aria-hidden="true"
+          >
+            {t('act_use_code')} →
+          </span>
         )}
       </div>
 
-      {/* Description (expandable) */}
-      {open && hasDesc && (
-        <div className="pe-1 ps-[15px] flex flex-col gap-0.5 animate-[fadeIn_0.15s_ease_both]">
-          {alt.description_en && (
-            <span className="text-[12.5px] text-[var(--ink-2)] leading-[1.45]">
-              {clampDescription(alt.description_en, ALT_DESC_MAX)}
-            </span>
-          )}
-          {alt.description_ar && (
-            <span
-              dir="rtl"
-              lang="ar"
-              className="text-[12.5px] text-[var(--ink-3)] leading-[1.5] text-end"
-              style={{ fontFamily: "'IBM Plex Sans Arabic', sans-serif" }}
-            >
-              {clampDescription(alt.description_ar, ALT_DESC_MAX)}
-            </span>
-          )}
-        </div>
+      {/* Description */}
+      {descText && (
+        <p
+          className="m-0 text-[13px] leading-[1.5]"
+          style={{ color: '#6d6058' }}
+        >
+          {descText}
+        </p>
       )}
 
-      {/* Switch confirmation popover */}
-      {confirming && onPick && (
-        <SwitchConfirmPopover
-          fromCode={currentCode ?? ''}
-          fromLabel={currentLabel}
-          toCode={alt.code}
-          toLabel={alt.description_en ?? null}
-          t={t}
-          onConfirm={handleConfirm}
-          onCancel={handleCancel}
-        />
+      {/* Selected confirmation banner */}
+      {isSelected && (
+        <div
+          className="mt-1 pt-3 border-t border-[#e8c8b0] flex items-center justify-between gap-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span className="text-[12px] font-medium" style={{ color: '#b8551b' }}>
+            Selected — confirm below
+          </span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onConfirm(); }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-[12px] font-semibold text-white transition-all duration-150 hover:brightness-110 active:brightness-95"
+            style={{ background: '#b8551b', border: 'none' }}
+          >
+            Update code
+          </button>
+        </div>
       )}
     </div>
   );
 }
-
-function relationshipFor(altCode: string, chosenCode: string | null | undefined): Relationship {
-  if (!chosenCode) return 'no-chosen';
-  const altChapter = altCode.slice(0, 2);
-  const chosenChapter = chosenCode.slice(0, 2);
-  const altHeading = altCode.slice(0, 4);
-  const chosenHeading = chosenCode.slice(0, 4);
-  if (altHeading === chosenHeading) return 'same-family';
-  if (altChapter === chosenChapter) return 'related-family';
-  return 'cross-family';
-}
-
-/** Pill rendering an alternative's relationship to the chosen code. */
-function RelationshipChip({ rel, label }: { rel: Relationship; label: string }) {
-  if (rel === 'no-chosen') return null;
-  const style =
-    rel === 'cross-family'
-      ? { background: TONE_STYLES.warn.bg, color: TONE_STYLES.warn.fg }
-      : { background: 'var(--line-2)', color: 'var(--ink-3)' };
-  return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium font-mono uppercase tracking-[0.04em]"
-      style={style}
-    >
-      {label}
-    </span>
-  );
-}
-
-/** i18n key per relationship; caller resolves so RelationshipChip stays hook-free. */
-const REL_KEY: Record<Exclude<Relationship, 'no-chosen'>, TKey> = {
-  'same-family': 'rel_same_family',
-  'related-family': 'rel_related_family',
-  'cross-family': 'rel_cross_family',
-};
 
 export default function ResultSingle({
   visible,
@@ -776,7 +578,7 @@ export default function ResultSingle({
   className,
 }: ResultSingleProps) {
   const t = useT();
-  const [reviewOpen, setReviewOpen] = useState(false);
+  const [selectedAltCode, setSelectedAltCode] = useState<string | null>(null);
 
   if (!visible || !data) return null;
 
@@ -841,15 +643,6 @@ export default function ResultSingle({
   // `dutyStatusLabel` directly. The helper stays exported for tests
   // and possible re-use; the local label is no longer needed.
 
-  // Mockup-pivot v2 (May-2, 2nd iteration): single-column layout
-  // language. The pre-v2 build leaned on a two-column grid that
-  // fragmented the page; this version goes back to a centered single
-  // column at max-width 1180 with cards stacked vertically and
-  // sections inside each card separated by --line-2 hairlines (no
-  // gaps). The signature CodeMonument carries the 12-digit HS code
-  // as a 6-column gradient grid — the typographic monument the spec
-  // asks for. See `CodeMonument` above for the rendering rule.
-
   // Strong-match pill: shown only when reconciliation produced AGREEMENT
   // (both tracks agreed) or status is absent (older payloads). Explicitly
   // Sanity flag/block: surface the banner when FLAG or BLOCK.
@@ -872,24 +665,6 @@ export default function ResultSingle({
       ? r.classification_confidence
       : null;
   const confidencePct = confidenceRaw !== null ? `${Math.round(confidenceRaw * 100)}%` : null;
-  // Colour thresholds: >70% green, 35-70% yellow, <35% light red.
-  const confidenceBadgeStyle = (() => {
-    if (confidenceRaw === null) return null;
-    const pct = confidenceRaw * 100;
-    if (pct > 70) return { bg: 'oklch(0.94 0.07 145)', color: 'oklch(0.34 0.13 145)' };
-    if (pct >= 35) return { bg: 'oklch(0.95 0.07 75)',  color: 'oklch(0.42 0.14 60)' };
-    return              { bg: 'oklch(0.95 0.05 20)',  color: 'oklch(0.50 0.13 20)' };
-  })();
-
-  // Build the ReviewItem for the dialog from this DescribeResponse.
-  const reviewItem: ReviewItem = {
-    id: data.request_id ?? 'single-shot',
-    description: data.interpretation?.rewritten_as ?? data.interpretation?.cleaned_as ?? '',
-    currentCode: r?.code ?? null,
-    currentLabel: r?.description_en ?? (r as any)?.label_en ?? null,
-    verdict: sanityVerdict,
-    alternatives: data.alternatives ?? [],
-  };
 
   // Visible alternatives: drop the chosen leaf so it doesn't show as
   // both the picked code (left column) and a sibling (right column).
@@ -912,10 +687,19 @@ export default function ResultSingle({
   // extension in --ink. Matches the mockup's `big-code` block.
   const code12 = normaliseCode(r.code);
 
+  function handleAltSelect(code: string) {
+    setSelectedAltCode((prev) => (prev === code ? null : code));
+  }
+
+  function handleAltConfirm(code: string) {
+    setSelectedAltCode(null);
+    onPickAlternative?.(code);
+  }
+
   return (
     // Mockup-correct landing-page layout: centered single column at
     // 1080px max (matches mockup's `main`), two-column inner grid
-    // (main 1fr + sidebar 280px). Cards stack with 18px gap; the
+    // (main 1.6fr + sidebar 1fr). Cards stack with 18px gap; the
     // mockup uses gaps between cards, NOT hairlines inside one big
     // card — that was the previous mockup-pivot v2 misread.
     <div
@@ -924,7 +708,7 @@ export default function ResultSingle({
         className,
       )}
     >
-      <div className="grid gap-[18px] items-start grid-cols-1 lg:grid-cols-[3fr_2fr] rtl:lg:[&>aside]:order-first">
+      <div className="grid gap-[18px] items-start grid-cols-1 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] rtl:lg:[&>aside]:order-first">
 
         {/* ──────────── MAIN COLUMN ──────────── */}
         <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-6 sm:p-[26px] flex flex-col gap-[22px] shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200">
@@ -1136,37 +920,50 @@ export default function ResultSingle({
         </div>
 
         {/* ──────────── SIDEBAR ──────────── */}
-        <aside className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-[22px] flex flex-col gap-[22px] shadow-[var(--shadow)] hover:shadow-[var(--shadow-lift)] transition-shadow duration-200">
+        <aside className="flex flex-col gap-4">
 
           {/*
-            DUTY & REQUIREMENTS — Import Duty only. The VAT row was
-            removed: it always rendered a hardcoded 15% which isn't part
-            of the duty_info payload, and the project rule is to never
-            invent values. Numeric rates come from r.duty.rate_percent;
+            DUTY CARD — Import Duty + Required Procedures in a single block.
+            The VAT row was removed: it always rendered a hardcoded 15% which
+            isn't part of the duty_info payload, and the project rule is to
+            never invent values. Numeric rates come from r.duty.rate_percent;
             enum statuses (exempted / prohibited) come from r.duty.status.
           */}
-          <div>
-            <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
-              {t('res_sidebar_duty')}
+          <div className="bg-white border border-[var(--line)] rounded-[var(--radius-lg)] p-5 flex flex-col gap-4">
+            {/* Duty section header */}
+            <div className="flex items-center gap-2">
+              {/* policy Material Symbol icon (outlined, filled via font-variation-settings) */}
+              <span
+                className="text-[18px] text-[var(--ink-3)] select-none"
+                style={{ fontFamily: "'Material Symbols Outlined'", fontVariationSettings: "'FILL' 0, 'wght' 300" }}
+                aria-hidden="true"
+              >
+                policy
+              </span>
+              <span className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
+                {t('res_sidebar_duty')}
+              </span>
             </div>
-            <div className="flex items-center justify-between gap-3 py-2 text-[13.5px]">
+
+            {/* Import Duty row */}
+            <div className="flex items-center justify-between gap-3 text-[13.5px]">
               <span className="text-[var(--ink)]">{t('res_sidebar_duty_import')}</span>
               <span className="font-mono text-[var(--ink)] font-medium">{importDutyValue}</span>
             </div>
+
+            {/* Required Procedures — inside the duty card, below the duty row */}
+            {r.procedures && r.procedures.length > 0 && (
+              <div className="border-t border-[var(--line-2)] pt-4 flex flex-col gap-2">
+                <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase">
+                  {t('res_sidebar_procedures')}
+                </div>
+                <RequiredProcedures procedures={r.procedures} mode="result" />
+              </div>
+            )}
           </div>
 
-          {/* REQUIRED PROCEDURES */}
-          {r.procedures && r.procedures.length > 0 && (
-            <div>
-              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
-                {t('res_sidebar_procedures')}
-              </div>
-              <RequiredProcedures procedures={r.procedures} mode="result" />
-            </div>
-          )}
-
           {/*
-            CONSIDERED ALTERNATIVES.
+            ALTERNATIVES CARD — clickable full cards.
             v2 + anchored: per-candidate data not on the wire — render
             aggregate verdict counts (fits / partial / does_not_fit) +
             GIR rule as a summary line. The picker's `verdict_population`
@@ -1174,140 +971,50 @@ export default function ResultSingle({
             Legacy (pre-PR-13 rows): union track_a / track_b per-candidate
             rows. Retained so historic rows still render.
           */}
-          {(anchoredSummary || altRows.length > 0) && (() => {
-            const trackARows = altRows.filter((a) => a.track === 'track_a');
-            const trackBRows = altRows.filter((a) => a.track === 'track_b');
-            const groupless = altRows.filter((a) => !a.track);
-            const hasBothTracks = trackARows.length > 0 && trackBRows.length > 0;
-            return (
-              <div>
-                <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase mb-2.5 pb-2.5 border-b border-[var(--line-2)]">
-                  {t('res_sidebar_alternatives')}
-                </div>
-
-
-                {/* Track A — only label when both tracks present (else no header noise) */}
-                {trackARows.length > 0 && (
-                  <>
-                    {hasBothTracks && (
-                      <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase mt-1 mb-1.5">
-                        {t('res_track_identify' as TKey)}
-                      </div>
-                    )}
-                    <div className="flex flex-col divide-y divide-[var(--line-2)]">
-                      {trackARows.map((a, i) => (
-                        <AlternativeSidebarRow
-                          key={`a-${a.code}-${i}`}
-                          alt={a}
-                          currentCode={r.code}
-                          currentLabel={pickLabel(r, 'en') ?? data.submission_description?.description_en ?? null}
-                          t={t}
-                          onPick={onPickAlternative}
-                        />
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {/* Track B */}
-                {trackBRows.length > 0 && (
-                  <>
-                    <div className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase mt-3 mb-1.5">
-                      {t('res_track_resolve' as TKey)}
-                    </div>
-                    <div className="flex flex-col divide-y divide-[var(--line-2)]">
-                      {trackBRows.map((a, i) => (
-                        <AlternativeSidebarRow
-                          key={`b-${a.code}-${i}`}
-                          alt={a}
-                          currentCode={r.code}
-                          currentLabel={pickLabel(r, 'en') ?? data.submission_description?.description_en ?? null}
-                          t={t}
-                          onPick={onPickAlternative}
-                        />
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {/* Legacy untrack'd alternatives — render as a flat list. */}
-                {groupless.length > 0 && (
-                  <div className="flex flex-col divide-y divide-[var(--line-2)]">
-                    {groupless.map((a, i) => (
-                      <AlternativeSidebarRow
-                        key={`u-${a.code}-${i}`}
-                        alt={a}
-                        currentCode={r.code}
-                        currentLabel={pickLabel(r, 'en')}
-                        t={t}
-                        onPick={onPickAlternative}
-                      />
-                    ))}
-                  </div>
-                )}
-
+          {(anchoredSummary || altRows.length > 0) && (
+            <div className="bg-white border border-[var(--line)] rounded-[var(--radius-lg)] p-5 flex flex-col gap-3">
+              <div className="font-mono text-[11px] text-[var(--ink-3)] tracking-[0.08em] uppercase pb-2 border-b border-[var(--line-2)]">
+                {t('res_sidebar_alternatives')}
               </div>
-            );
-          })()}
+
+              <div className="flex flex-col gap-2.5">
+                {altRows.map((a, i) => (
+                  <AlternativeCard
+                    key={`alt-${a.code}-${i}`}
+                    alt={a}
+                    isSelected={selectedAltCode === a.code}
+                    onSelect={() => handleAltSelect(a.code)}
+                    onConfirm={() => handleAltConfirm(a.code)}
+                    t={t}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
         </aside>
       </div>
-
-      {/* Review dialog — single instance, opened by the "Flag for review" button. */}
-      <ReviewDialog
-        open={reviewOpen}
-        onOpenChange={setReviewOpen}
-        item={reviewItem}
-        onAccept={() => {
-          onReviewAccept?.();
-          setReviewOpen(false);
-          // TODO: POST /reviews { item_id: reviewItem.id, action: 'accepted' }
-        }}
-        onDismiss={() => {
-          onReviewDismiss?.();
-          setReviewOpen(false);
-          // TODO: POST /reviews { item_id: reviewItem.id, action: 'dismissed' }
-        }}
-        onPick={(_item, chosenCode) => {
-          onPickAlternative?.(chosenCode);
-          setReviewOpen(false);
-          // TODO: POST /reviews { item_id: reviewItem.id, action: 'picked', code: chosenCode }
-        }}
-        onBlock={(_item, _notes) => {
-          // Single-shot review doesn't have a HITL queue row to PATCH — no-op.
-          setReviewOpen(false);
-        }}
-      />
     </div>
   );
 }
 
 /**
  * Circular progress ring for confidence percentage.
- * 52x52 px SVG — gray track ring + colored progress stroke + center %.
- * Green for >70%, amber for 35-70%, red for <35%.
+ * Always green (prototype spec) — uses oklch(0.55 0.15 155) stroke
+ * and oklch(0.34 0.13 145) text regardless of percentage value.
+ * 56x56 px SVG — gray track ring + green progress stroke + center %.
  */
 function ConfidenceRing({ pct }: { pct: number }) {
-  const SIZE = 52;
+  const SIZE = 56;
   const STROKE = 4;
   const R = (SIZE - STROKE) / 2;
   const CIRC = 2 * Math.PI * R;
   const dash = Math.max(0, Math.min(1, pct / 100)) * CIRC;
   const gap = CIRC - dash;
 
-  const strokeColor =
-    pct > 70
-      ? 'oklch(0.55 0.15 155)'   // green
-      : pct >= 35
-        ? 'oklch(0.62 0.16 60)'  // amber
-        : 'oklch(0.55 0.18 25)'; // red
-
-  const textColor =
-    pct > 70
-      ? 'oklch(0.34 0.13 145)'
-      : pct >= 35
-        ? 'oklch(0.42 0.14 60)'
-        : 'oklch(0.50 0.13 20)';
+  // Always green per prototype spec — color-coded stroke is removed.
+  const strokeColor = 'oklch(0.55 0.15 155)';
+  const textColor   = 'oklch(0.34 0.13 145)';
 
   return (
     <svg

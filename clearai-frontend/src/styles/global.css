@@ -373,3 +373,13 @@ html[dir="rtl"] .app-sidebar[data-collapsed="true"] .sidebar-toggle-icon {
 .page-fade-in {
   animation: pageFadeIn 180ms ease both;
 }
+
+/*
+ * Composer chip row — HS hint input placeholder.
+ * The input sits inside an inline pill with no Tailwind class available
+ * for ::placeholder styling; this rule provides the muted tone.
+ */
+.composer-hs-input::placeholder {
+  color: #a3958c;
+  opacity: 1;
+}

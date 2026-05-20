@@ -189,35 +189,74 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
           </div>
 
           {/*
-            Unified bottom row — VALUE + currency (left), HS hint (center),
-            submit button (right). Always shown in generate + expand modes.
-            Replaces the old separate value row, expand HS row, and meta bar.
+            Char counter in a small strip — only when at cap, hidden otherwise.
+          */}
+          {atCap && (
+            <div className="flex justify-end px-[18px] pb-1">
+              <span
+                className="text-[11px] text-[oklch(0.45_0.14_30)]"
+                aria-live="polite"
+                style={{ fontFamily: "'IBM Plex Mono', monospace" }}
+              >
+                {charCount} / {DESCRIPTION_MAX}
+              </span>
+            </div>
+          )}
+
+          {/*
+            Chip row — sits at the bottom of the textarea card.
+            VALUE chip (left) + HS hint chip (center/flex) + submit button (right).
+            Always shown in generate + expand modes.
           */}
           {(mode === 'generate' || mode === 'expand') && (
             <div
-              className={cn(
-                'flex items-center gap-0 border-t',
-                'transition-colors duration-150',
-                valueRequired
-                  ? 'border-t-[oklch(0.58_0.20_25)]'
-                  : 'border-t-[#ede4dc]',
-              )}
-              style={{ background: '#f6f2ed', padding: '12px 18px' }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 16px 14px',
+                borderTop: '1px solid #ede4dc',
+                flexWrap: 'wrap',
+              }}
             >
-              {/* LEFT: VALUE label + numeric input + currency select */}
-              <div className="flex items-center gap-2 shrink-0">
+              {/* ChatChip: payments icon + VALUE label + numeric input + currency select */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  border: valueRequired ? '1px solid oklch(0.58 0.20 25)' : '1px solid #e0d6ce',
+                  background: '#fff',
+                  borderRadius: 20,
+                  padding: '7px 12px',
+                  flexShrink: 0,
+                }}
+              >
+                <span
+                  className="material-symbols-outlined"
+                  aria-hidden="true"
+                  style={{
+                    fontSize: 15,
+                    fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 16",
+                    color: '#b8551b',
+                    lineHeight: 1,
+                    flexShrink: 0,
+                    userSelect: 'none',
+                  }}
+                >
+                  payments
+                </span>
                 <label
                   htmlFor="composer-value"
-                  className={cn(
-                    'shrink-0 transition-colors duration-150',
-                    valueRequired ? 'text-[oklch(0.45_0.18_25)]' : 'text-[#a3958c]',
-                  )}
                   style={{
-                    fontFamily: "'IBM Plex Mono', monospace",
-                    fontSize: '11px',
-                    fontWeight: 500,
-                    letterSpacing: '0.06em',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#a3958c',
+                    letterSpacing: '0.04em',
                     textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   {t('value_label' as TKey)}
@@ -238,41 +277,36 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                   }}
                   placeholder="0.00"
                   aria-invalid={valueRequired}
-                  aria-describedby={valueRequired ? 'composer-value-error' : undefined}
-                  className={cn(
-                    'border-0 outline-none bg-transparent w-[80px] tracking-[0.02em]',
-                    valueRequired
-                      ? 'text-[oklch(0.45_0.18_25)] placeholder:text-[oklch(0.70_0.10_25)]'
-                      : 'placeholder:text-[#a3958c]',
-                  )}
                   style={{
+                    border: 0,
+                    outline: 'none',
+                    background: 'transparent',
+                    width: 64,
                     fontFamily: "'IBM Plex Mono', monospace",
-                    fontSize: '14px',
-                    color: valueRequired ? undefined : '#231915',
+                    fontSize: 13,
+                    color: valueRequired ? 'oklch(0.45 0.18 25)' : '#231915',
+                    letterSpacing: '0.02em',
                   }}
                 />
-                {valueRequired && (
-                  <span
-                    id="composer-value-error"
-                    role="alert"
-                    className="text-[11px] text-[oklch(0.45_0.18_25)] font-medium shrink-0 whitespace-nowrap"
-                  >
-                    {t('value_required' as TKey)}
-                  </span>
-                )}
                 <select
                   aria-label={t('value_label' as TKey)}
                   value={currencyCode}
                   onChange={(e) => setCurrencyCode(e.target.value)}
-                  className={cn(
-                    'appearance-none cursor-pointer shrink-0',
-                    'bg-[var(--surface)] border border-[var(--line)] rounded-md',
-                    'ps-2 pe-6 py-[5px]',
-                    'font-mono text-[11px] text-[var(--ink)] tracking-[0.02em]',
-                    'focus:outline-2 focus:outline-[var(--accent)] focus:outline-offset-1',
-                    "bg-no-repeat bg-[right_8px_center] rtl:bg-[left_8px_center]",
-                    "bg-[url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l4 4 4-4'/></svg>\")]",
-                  )}
+                  style={{
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    border: 0,
+                    outline: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#a3958c',
+                    letterSpacing: '0.04em',
+                    padding: 0,
+                    flexShrink: 0,
+                  }}
                 >
                   {currencies.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -280,14 +314,36 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                 </select>
               </div>
 
-              {/* CENTER: # icon + HS hint text input (always shown, optional) */}
-              <div className="flex-1 flex items-center gap-1.5 px-4 min-w-0">
+              {/* PartialHsChip: tag icon + HS hint input */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  border: parentCode ? '1px solid #b8551b' : '1px solid #e0d6ce',
+                  background: parentCode ? '#fff6f0' : '#fff',
+                  borderRadius: 20,
+                  padding: '7px 12px',
+                  minWidth: 100,
+                  flex: 1,
+                  maxWidth: 240,
+                  transition: 'border-color 150ms, background 150ms',
+                }}
+              >
                 <span
+                  className="material-symbols-outlined"
                   aria-hidden="true"
-                  className="shrink-0 select-none"
-                  style={{ color: '#a3958c', fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px' }}
+                  style={{
+                    fontSize: 15,
+                    fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 16",
+                    color: parentCode ? '#b8551b' : '#a3958c',
+                    lineHeight: 1,
+                    flexShrink: 0,
+                    userSelect: 'none',
+                    transition: 'color 150ms',
+                  }}
                 >
-                  #
+                  tag
                 </span>
                 <input
                   id="composer-parent"
@@ -296,26 +352,46 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                   value={parentCode}
                   onChange={(e) => setParentCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   placeholder="HS hint e.g. 8517130000"
-                  className="flex-1 min-w-0 border-0 outline-none bg-transparent tracking-[0.02em] placeholder:text-[#a3958c]"
-                  style={{ fontSize: '13px', color: '#231915' }}
+                  style={{
+                    border: 0,
+                    outline: 'none',
+                    background: 'transparent',
+                    flex: 1,
+                    minWidth: 0,
+                    fontSize: 13,
+                    color: '#231915',
+                    letterSpacing: '0.02em',
+                    fontFamily: "'IBM Plex Mono', monospace",
+                  }}
+                  // placeholder color handled via global CSS (.composer-hs-input::placeholder)
+                  className="composer-hs-input"
                 />
               </div>
 
-              {/* RIGHT: submit button — round, orange, 40px */}
+              {/* Submit button — 36x36, round, orange */}
               <button
                 type="submit"
                 aria-label={loading ? t('act_classifying' as TKey) : t('nav_classify' as TKey)}
                 disabled={loading || !description.trim() || !parentCodeValid || !valueAmountValid}
+                style={{
+                  background: '#b8551b',
+                  width: 36,
+                  height: 36,
+                  border: 0,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 0 rgba(0,0,0,0.06), 0 4px 12px -3px rgba(184,85,27,0.45)',
+                  transition: 'filter 150ms, transform 150ms',
+                }}
                 className={cn(
-                  'shrink-0 rounded-full border-0',
-                  'inline-flex items-center justify-center',
-                  'shadow-[0_1px_0_rgba(0,0,0,0.06),0_4px_12px_-3px_rgba(184,85,27,0.45)]',
-                  'transition-[transform,filter] duration-150',
                   'hover:brightness-110 active:scale-95',
                   'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:brightness-100 disabled:active:scale-100',
                   'rtl:[&_svg]:scale-x-[-1]',
                 )}
-                style={{ background: '#b8551b', width: '40px', height: '40px' }}
               >
                 {loading ? (
                   <svg
@@ -324,7 +400,9 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                     stroke="white"
                     strokeWidth="2.2"
                     strokeLinecap="round"
-                    className="w-[18px] h-[18px] animate-spin"
+                    width={16}
+                    height={16}
+                    className="animate-spin"
                     aria-hidden="true"
                   >
                     <path d="M12 2a10 10 0 0 1 10 10" />
@@ -337,30 +415,14 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
                     strokeWidth="2.2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="w-[18px] h-[18px]"
+                    width={16}
+                    height={16}
                     aria-hidden="true"
                   >
                     <path d="M5 12h14M13 6l6 6-6 6" />
                   </svg>
                 )}
               </button>
-            </div>
-          )}
-
-          {/*
-            Char counter in a small strip — only when at cap, hidden otherwise.
-            Keeps the textarea-only block clean; the meta line below the card
-            replaces the old bottom meta bar.
-          */}
-          {atCap && (
-            <div className="flex justify-end px-[18px] pb-2">
-              <span
-                className="text-[11px] text-[oklch(0.45_0.14_30)]"
-                aria-live="polite"
-                style={{ fontFamily: "'IBM Plex Mono', monospace" }}
-              >
-                {charCount} / {DESCRIPTION_MAX}
-              </span>
             </div>
           )}
         </div>
@@ -491,8 +553,7 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
             color: '#a3958c',
           }}
         >
-          {/* Keyboard shortcut — not a translatable label, it's a key binding */}
-          x + &#8593; to classify
+          Enter to classify
         </span>
         <span
           style={{
