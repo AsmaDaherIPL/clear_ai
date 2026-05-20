@@ -1,16 +1,16 @@
 /**
- * Batch results — non-virtualized table using shadcn/ui primitives via
- * the generic <DataTable />.
+ * Batch results table — prototype-exact design.
  *
  * Column order (left → right):
- *   Line | Merchant code | Merchant description | Value | Classified code |
- *   Classified code breakdown | ZATCA declaration | Value plausibility verdict |
- *   Review (action column, flagged rows only)
+ *   LINE | MERCHANT DETAILS | VALUE | CLASSIFIED CODE | CONF. |
+ *   PLAUSIBILITY | ZATCA DESCRIPTION | DUTY | (eye) | (flag)
  *
- * value_plausibility_verdict ships hidden by default; togglable from the
- * Columns menu in the footer.
+ * Eye icon opens a CodeBreakdownModal portal per row.
+ * Flag icon appears only on flagged/blocked rows.
+ * Confidence column hidden by default; togglable from Columns menu.
  */
-import { useMemo, useCallback, useState } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { type ColumnDef } from '@tanstack/react-table';
 import { useT, type TKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -20,15 +20,11 @@ import ReviewDialog, { type ReviewItem } from './ReviewDialog';
 import { DataTable } from './DataTable';
 
 // ---------------------------------------------------------------------------
-// Pill colour maps + helpers
+// Plausibility verdict helpers
 // ---------------------------------------------------------------------------
 
-const VERDICT_BADGE: Record<string, string> = {
-  succeeded: 'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
-  flagged:   'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]',
-  blocked:   'bg-[oklch(0.92_0.07_25)]  text-[oklch(0.40_0.12_25)]',
-  failed:    'bg-[oklch(0.90_0.08_25)]  text-[oklch(0.35_0.14_25)]',
-};
+const PLAUSIBILITY_PASS_CLS = 'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]';
+const PLAUSIBILITY_FLAG_CLS = 'bg-[oklch(0.93_0.10_60)]  text-[oklch(0.40_0.15_60)]';
 
 function clampChars(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -42,16 +38,10 @@ function clampChars(text: string, max: number): string {
  * Derive the filter/sort bucket for a row.
  *
  *   null      — item has not been processed yet (no error, no classification_result).
- *               Callers should treat null as "pending" and render a skeleton row.
- *   failed    — item was processed but errored OR produced no resolved_hs_code
- *               (HITL escalation, pipeline error, unclassifiable description)
- *   blocked   — sanity_verdict BLOCK (value implausible; code assigned but
- *               submission hard-stopped)
- *   flagged   — sanity_verdict FLAG (soft review flag; code assigned)
- *   succeeded — resolved_hs_code present and no FLAG/BLOCK
- *
- * IMPORTANT: returning null for unprocessed items prevents them from being
- * counted as "failed" in the filter chips during active polling.
+ *   failed    — item was processed but errored OR produced no resolved_hs_code.
+ *   blocked   — sanity_verdict BLOCK.
+ *   flagged   — sanity_verdict FLAG.
+ *   succeeded — resolved_hs_code present and no FLAG/BLOCK.
  */
 function itemBucket(
   item: BatchItem,
@@ -60,15 +50,8 @@ function itemBucket(
   const hasError = Boolean(item.error);
   const hasClassificationResult = item.classification_result != null;
 
-  // No error and no classification_result:
-  //   - During active polling → null (pending, not yet processed)
-  //   - On a completed run  → 'failed' (pipeline never produced a result)
   if (!hasError && !hasClassificationResult) return isComplete ? 'failed' : null;
 
-  // Check sanity verdict BEFORE the no-code guard. BLOCK items may have
-  // no resolved_hs_code (submission hard-stopped), but they are still
-  // 'blocked', not 'failed'. Checking verdict first ensures the bucket
-  // matches the backend's BatchItemStatus exactly.
   const sanity = item.classification_result?.sanity_verdict?.toUpperCase();
   if (sanity === 'BLOCK') return 'blocked';
   if (sanity === 'FLAG') return 'flagged';
@@ -82,148 +65,260 @@ function itemBucket(
 // Code breakdown — Chapter / Heading / Subheading / Tariff rows
 // ---------------------------------------------------------------------------
 
-interface BuildBreakdownRow {
+interface BreakdownRow {
   code: string;
   label: string;
+  abbr: string;
   description: string;
 }
 
-function buildBreakdown(finalCode: string | null, pathEn: string | null): BuildBreakdownRow[] {
+function buildBreakdown(finalCode: string | null, pathEn: string | null): BreakdownRow[] {
   if (!finalCode) return [];
-  // Strip non-digits; render at the code's natural length — never pad.
-  // (Project rule: trailing zeros are semantic granularity indicators.)
   const digits = finalCode.replace(/\D/g, '');
   if (!digits) return [];
   const segments = (pathEn ?? '').split(' > ').map((s) => s.trim()).filter(Boolean);
-  const rows: BuildBreakdownRow[] = [];
-  // Progressive fill: emit only the levels the code actually carries.
-  if (digits.length >= 2) rows.push({ code: digits.slice(0, 2), label: 'Chapter',    description: segments[0] ?? '—' });
-  if (digits.length >= 4) rows.push({ code: digits.slice(0, 4), label: 'Heading',    description: segments[1] ?? segments[0] ?? '—' });
-  if (digits.length >= 6) rows.push({ code: digits.slice(0, 6), label: 'Subheading', description: segments[2] ?? segments[1] ?? '—' });
-  if (digits.length >= 8) rows.push({ code: digits.slice(0, 8), label: 'National',   description: segments[3] ?? segments[2] ?? '—' });
-  if (digits.length >= 10) rows.push({ code: digits.slice(0, 10), label: 'Statistical', description: segments[4] ?? segments[3] ?? '—' });
+  const rows: BreakdownRow[] = [];
+
+  if (digits.length >= 2) rows.push({ code: digits.slice(0, 2),  label: 'Chapter',    abbr: 'CH', description: segments[0] ?? '—' });
+  if (digits.length >= 4) rows.push({ code: digits.slice(0, 4),  label: 'Heading',    abbr: 'HD', description: segments[1] ?? segments[0] ?? '—' });
+  if (digits.length >= 6) rows.push({ code: digits.slice(0, 6),  label: 'Subheading', abbr: 'SH', description: segments[2] ?? segments[1] ?? '—' });
+  if (digits.length >= 8) rows.push({ code: digits.slice(0, 8),  label: 'National',   abbr: 'NT', description: segments[3] ?? segments[2] ?? '—' });
+  if (digits.length >= 10) rows.push({ code: digits.slice(0, 10), label: 'Statistical', abbr: 'ST', description: segments[4] ?? segments[3] ?? '—' });
   if (digits.length === 12) {
-    // Only add Tariff row distinct from Statistical when fully 12-digit
-    rows.push({ code: digits, label: 'Tariff', description: segments[segments.length - 1] ?? '—' });
-    // Remove the preceding level if it would be a duplicate code
+    rows.push({ code: digits, label: 'Tariff', abbr: 'TR', description: segments[segments.length - 1] ?? '—' });
     if (rows.length > 1 && rows[rows.length - 2].code === digits) {
       rows.splice(rows.length - 2, 1);
     }
   } else if (rows.length > 0) {
-    // Re-label the deepest row as Tariff for < 12-digit codes
     rows[rows.length - 1] = {
       ...rows[rows.length - 1],
       label: 'Tariff',
+      abbr: 'TR',
       description: segments[segments.length - 1] ?? rows[rows.length - 1].description,
     };
   }
   return rows;
 }
 
-const BREAKDOWN_DESC_MAX = 38;
+// ---------------------------------------------------------------------------
+// CodeBreakdownModal — portal modal matching prototype exactly
+// ---------------------------------------------------------------------------
 
-/**
- * Code breakdown cell — four-row hierarchy, three inner columns:
- *   [code (mono tabular)]  [LEVEL (small caps)]  [description (truncated)]
- *
- * Tariff (last) row uses accent ink on the code + label so the eye lands
- * on the answer; upper rows are subdued context.
- */
-function CodeBreakdownCell({ item }: { item: BatchItem }) {
+interface CodeBreakdownModalProps {
+  item: BatchItem;
+  lineNumber: number | string;
+  onClose: () => void;
+}
+
+function CodeBreakdownModal({ item, lineNumber, onClose }: CodeBreakdownModalProps) {
+  const t = useT();
   const resolved = item.classification_result?.resolved_hs_code ?? null;
-  const pathEn = pickLang(item.resolved_hs_code_description?.full_hierarchy, 'en');
+  const pathEn   = pickLang(item.resolved_hs_code_description?.full_hierarchy, 'en');
   const breakdown = useMemo(() => buildBreakdown(resolved, pathEn), [resolved, pathEn]);
+  const productName = item.declared_value?.description ?? null;
 
-  if (breakdown.length === 0) {
-    return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
-  }
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
 
-  return (
+  const lineLabel = String(lineNumber).padStart(3, '0');
+
+  const modal = (
     <div
-      className="grid gap-y-1 text-[13px] leading-[1.5]"
-      style={{ gridTemplateColumns: 'auto 72px minmax(0, 1fr)' }}
+      className="fixed inset-0 z-[200] flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${t('batch_col_line' as TKey)} ${lineLabel} · ${t('batch_code_breakdown_title' as TKey)}`}
     >
-      {breakdown.map((b, i) => {
-        const isTariff = i === breakdown.length - 1;
-        return (
-          <div key={i} className="contents">
-            <div
-              className={cn(
-                'font-mono text-[11.5px] tabular-nums whitespace-nowrap pe-3',
-                isTariff ? 'text-[var(--accent-ink)] font-medium' : 'text-[var(--ink)]',
-              )}
-            >
-              {b.code}
-            </div>
-            <div
-              className={cn(
-                'font-mono text-[9.5px] uppercase tracking-[0.10em] self-center',
-                isTariff ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-3)]',
-              )}
-            >
-              {b.label}
-            </div>
-            <div
-              className={cn(
-                'min-w-0 truncate',
-                isTariff ? 'text-[var(--ink)]' : 'text-[var(--ink-2)]',
-              )}
-              title={b.description}
-            >
-              {clampChars(b.description, BREAKDOWN_DESC_MAX)}
-            </div>
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Card */}
+      <div
+        className={cn(
+          'relative z-10 w-[520px] max-w-[calc(100vw-32px)] rounded-[14px]',
+          'bg-[var(--surface)] shadow-[0_20px_60px_-10px_rgba(0,0,0,0.22)]',
+          'overflow-hidden',
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[var(--line-2)]">
+          <div>
+            <p className="font-mono text-[10.5px] tracking-[0.12em] uppercase text-[var(--ink-3)]">
+              {t('batch_col_line' as TKey)} {lineLabel} &middot; {t('batch_code_breakdown_title' as TKey)}
+            </p>
+            {productName && (
+              <p className="mt-1 text-[14px] font-semibold text-[var(--ink)] leading-snug">
+                {clampChars(productName, 60)}
+              </p>
+            )}
+            {resolved && (
+              <p className="mt-0.5 font-mono text-[18px] font-bold text-[var(--accent-ink)] tracking-[-0.01em]">
+                {resolved}
+              </p>
+            )}
           </div>
-        );
-      })}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('batch_code_breakdown_close' as TKey)}
+            className={cn(
+              'w-8 h-8 rounded-full flex items-center justify-center',
+              'text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--line-2)]',
+              'transition-colors duration-100 shrink-0 ms-4',
+              'font-mono text-[18px] leading-none',
+            )}
+          >
+            &times;
+          </button>
+        </div>
+
+        {/* Breakdown table */}
+        {breakdown.length === 0 ? (
+          <div className="px-6 py-8 text-center text-[13px] text-[var(--ink-3)]">
+            {resolved ? resolved : '—'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="bg-[oklch(0.97_0.025_55)]">
+                  <th className="px-5 py-2.5 text-start font-mono text-[9.5px] uppercase tracking-[0.10em] text-[var(--ink-3)] w-[72px]">
+                    Level
+                  </th>
+                  <th className="px-3 py-2.5 text-start font-mono text-[9.5px] uppercase tracking-[0.10em] text-[var(--ink-3)] w-[110px]">
+                    Code
+                  </th>
+                  <th className="px-3 py-2.5 text-start font-mono text-[9.5px] uppercase tracking-[0.10em] text-[var(--ink-3)]">
+                    Description
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {breakdown.map((b, i) => {
+                  const isTariff = i === breakdown.length - 1;
+                  return (
+                    <tr
+                      key={i}
+                      className={cn(
+                        'border-t border-[var(--line-2)]',
+                        isTariff
+                          ? 'bg-[oklch(0.97_0.04_55)]'
+                          : 'bg-[var(--surface)]',
+                      )}
+                    >
+                      <td className="px-5 py-3">
+                        <span
+                          className={cn(
+                            'inline-block font-mono text-[10px] uppercase tracking-[0.12em] px-1.5 py-0.5 rounded',
+                            isTariff
+                              ? 'bg-[var(--accent-ink)] text-white'
+                              : 'bg-[var(--line-2)] text-[var(--ink-3)]',
+                          )}
+                        >
+                          {b.abbr}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span
+                          className={cn(
+                            'font-mono text-[13px] tabular-nums whitespace-nowrap',
+                            isTariff
+                              ? 'text-[var(--accent-ink)] font-semibold'
+                              : 'text-[var(--ink)]',
+                          )}
+                        >
+                          {b.code}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span
+                          className={cn(
+                            'text-[13px] leading-snug',
+                            isTariff ? 'text-[var(--ink)] font-medium' : 'text-[var(--ink-2)]',
+                          )}
+                        >
+                          {clampChars(b.description, 55)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-[var(--line-2)] flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className={cn(
+              'inline-flex items-center px-4 py-2 rounded-[8px] text-[13px] font-medium',
+              'bg-[var(--ink)] text-[var(--bg)] hover:opacity-85 transition-opacity',
+            )}
+          >
+            {t('batch_code_breakdown_close' as TKey)}
+          </button>
+        </div>
+      </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
 }
 
 // ---------------------------------------------------------------------------
-// Simple cells
+// Cell components
 // ---------------------------------------------------------------------------
 
-function MerchantCodeCell({ item }: { item: BatchItem }) {
-  const merchantCode = item.declared_value?.hs_code ?? null;
-  if (!merchantCode) {
+/**
+ * Merged merchant details cell:
+ *   Line 1 — product description (wraps freely)
+ *   Line 2 — SKU / merchant HS code in smaller muted mono
+ */
+function MerchantDetailsCell({ item }: { item: BatchItem }) {
+  const desc = item.declared_value?.description ?? null;
+  const code = item.declared_value?.hs_code ?? null;
+
+  if (!desc && !code) {
     return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   }
-  return (
-    <span className="font-mono text-[12.5px] text-[var(--ink-3)] whitespace-nowrap">
-      {merchantCode}
-    </span>
-  );
-}
 
-/**
- * Merchant description — verbatim declared_value.description, full text,
- * wraps freely. No truncation; the row grows to fit.
- */
-function MerchantDescriptionCell({ item }: { item: BatchItem }) {
-  const desc = item.declared_value?.description ?? null;
-  if (!desc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
   return (
-    <div className="text-[13px] text-[var(--ink-2)] leading-[1.5] break-words whitespace-pre-wrap">
-      {desc}
+    <div className="flex flex-col gap-0.5 min-w-0">
+      {desc && (
+        <div className="text-[13px] text-[var(--ink)] leading-[1.5] break-words">
+          {desc}
+        </div>
+      )}
+      {code && (
+        <div className="font-mono text-[11px] text-[var(--ink-3)] whitespace-nowrap">
+          {code}
+        </div>
+      )}
     </div>
   );
 }
 
 /**
- * Value cell — dual-axis per the ZATCA currency rule:
- *   Source axis: declared_value.amount + declared_value.currency (invoice currency)
- *   SAR axis:    value.amount.value + value.amount.currency (canonical SAR, used for HV/LV)
- * Both are shown. If source == SAR (or no rate available) only the SAR row renders.
- * The 1000 SAR HV/LV threshold is applied to the SAR axis only.
+ * Value cell — dual-axis per the ZATCA currency rule.
  */
 function ValueCell({ item }: { item: BatchItem }) {
-  // Source axis — what the merchant declared on the invoice
-  const srcAmount = item.declared_value?.amount ?? null;
+  const srcAmount   = item.declared_value?.amount ?? null;
   const srcCurrency = item.declared_value?.currency ?? null;
-
-  // SAR axis — canonical converted amount used for pipeline decisions
-  const sarAmount = item.value?.amount?.value ?? null;
-  const sarCurrency = item.value?.amount?.currency ?? null; // should always be 'SAR'
+  const sarAmount   = item.value?.amount?.value ?? null;
+  const sarCurrency = item.value?.amount?.currency ?? null;
 
   const fmt = (n: number) =>
     new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -238,7 +333,6 @@ function ValueCell({ item }: { item: BatchItem }) {
 
   return (
     <div className="flex flex-col gap-0.5">
-      {/* Source axis (invoice currency) — only when different from SAR */}
       {hasSrc && !srcIsSar && (
         <div className="flex items-baseline gap-1.5">
           <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)] whitespace-nowrap">
@@ -249,7 +343,6 @@ function ValueCell({ item }: { item: BatchItem }) {
           </span>
         </div>
       )}
-      {/* SAR axis — canonical; always shown when available */}
       {hasSar && (
         <div className="flex items-baseline gap-1.5">
           <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)] whitespace-nowrap">
@@ -260,7 +353,6 @@ function ValueCell({ item }: { item: BatchItem }) {
           </span>
         </div>
       )}
-      {/* If only source available and it is SAR, show once */}
       {hasSrc && !hasSar && srcIsSar && (
         <div className="flex items-baseline gap-1.5">
           <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)] whitespace-nowrap">
@@ -273,6 +365,70 @@ function ValueCell({ item }: { item: BatchItem }) {
       )}
     </div>
   );
+}
+
+/**
+ * Plausibility pill cell — PASS (green) or FLAG (amber) only.
+ * Unprocessed rows render nothing; failed/blocked show nothing (not plausibility).
+ */
+function PlausibilityCell({ item, isComplete }: { item: BatchItem; isComplete: boolean }) {
+  const t = useT();
+  const bucket = itemBucket(item, isComplete);
+  if (bucket === null || bucket === 'failed') return null;
+
+  if (bucket === 'blocked') {
+    return (
+      <span className="inline-block px-2.5 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em] bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]">
+        Blocked
+      </span>
+    );
+  }
+
+  const isFlag = bucket === 'flagged';
+  return (
+    <span
+      className={cn(
+        'inline-block px-2.5 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em]',
+        isFlag ? PLAUSIBILITY_FLAG_CLS : PLAUSIBILITY_PASS_CLS,
+      )}
+    >
+      {isFlag ? t('batch_plausibility_flag' as TKey) : t('batch_plausibility_pass' as TKey)}
+    </span>
+  );
+}
+
+/**
+ * Duty cell — shows import duty rate or exempted status.
+ */
+function DutyCell({ item }: { item: BatchItem }) {
+  const duty = (item as unknown as Record<string, unknown>).duty_info as {
+    rate?: number | null;
+    status?: string | null;
+  } | null | undefined;
+
+  if (!duty) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
+
+  if (duty.status === 'exempted') {
+    return (
+      <span className="font-mono text-[11.5px] text-[oklch(0.42_0.12_155)]">Exempt</span>
+    );
+  }
+
+  if (duty.status?.startsWith('prohibited')) {
+    return (
+      <span className="font-mono text-[11.5px] text-[oklch(0.40_0.14_25)]">Prohibited</span>
+    );
+  }
+
+  if (duty.rate != null) {
+    return (
+      <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)]">
+        {duty.rate}%
+      </span>
+    );
+  }
+
+  return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,22 +496,18 @@ function ManualReviewButton({
 }
 
 // ---------------------------------------------------------------------------
-// Map a ReviewQueueRow (from the review API) to a ReviewItem (for the dialog)
+// Map a ReviewQueueRow to a ReviewItem
 // ---------------------------------------------------------------------------
 
 function queueRowToReviewItem(
   row: ReviewQueueRow,
-  /** The matching BatchItem from the batch — used to pull declared value. */
   matchedItem?: BatchItem,
 ): ReviewItem {
-  // Description: prefer payload.input (free-text from the trace), then the
-  // matched batch item's declared description, then fall back to item_id.
   const payloadInput =
     (row.payload as Record<string, unknown> | undefined)?.input as string | undefined;
   const declaredDesc = matchedItem?.declared_value?.description ?? undefined;
   const description = payloadInput ?? declaredDesc ?? row.item_id;
 
-  // Map ReviewCandidate[] → AlternativeLine[]
   const alternatives = (row.candidates ?? []).map((c) => ({
     code: c.code,
     description_en: c.description_en,
@@ -364,13 +516,8 @@ function queueRowToReviewItem(
     source_arm: c.source_arm as AlternativeLine['source_arm'],
   }));
 
-  // sanity_flag → value-audit UX; all other reasons → code-flag/candidate UX.
   const flagType: 'value' | 'hs' = row.reason === 'sanity_flag' ? 'value' : 'hs';
 
-  // Pull declared value amount from:
-  //   1. matched batch item's declared_value (most reliable — same row)
-  //   2. matched batch item's canonical value (SAR-converted)
-  //   3. payload.declared_value if available
   let value: ReviewItem['value'] = null;
   if (matchedItem?.declared_value?.amount != null && matchedItem.declared_value.currency) {
     value = {
@@ -383,7 +530,6 @@ function queueRowToReviewItem(
       currency: matchedItem.value.amount.currency,
     };
   } else {
-    // Try payload.declared_value as last resort
     const pd = (row.payload as Record<string, unknown> | undefined)
       ?.declared_value as Record<string, unknown> | undefined;
     if (pd?.amount != null && pd?.currency) {
@@ -392,8 +538,6 @@ function queueRowToReviewItem(
   }
 
   return {
-    // Use the review queue row's id as the ReviewItem id so callbacks can
-    // call PATCH /classifications/review/:id.
     id: row.id,
     description,
     value,
@@ -401,7 +545,6 @@ function queueRowToReviewItem(
     currentCode: row.current_final_code ?? null,
     currentConfidence: row.current_classification_confidence ?? null,
     verdict: row.current_sanity_verdict ?? null,
-    // Pull sanity rationale from the queue row for display in the value-flag banner.
     sanityRationale: row.current_sanity_rationale ?? null,
     flagType,
     alternatives,
@@ -416,26 +559,10 @@ interface BatchResultsTableProps {
   expectedRowCount?: number;
   items: BatchItem[];
   className?: string;
-  /**
-   * True when the run has reached a terminal state (completed or failed).
-   * Affects how unresolved items (no classification_result, no error) are
-   * bucketed: pending during polling, failed once the run is complete.
-   */
   isComplete?: boolean;
-  /**
-   * The batch/run ID. When present and the batch is complete, the "Needs
-   * review" CTA navigates to /review?batch_id=<batchId>&status=pending
-   * instead of opening an inline dialog.
-   */
   batchId?: string;
 }
 
-/**
- * Derive whether a row needs operator review.
- * Only sanity FLAG verdict rows require review — these are value-plausibility
- * flags where the reviewer approves or blocks. PASS rows, failed rows, and
- * rows with no code are not surfaced in this inline queue.
- */
 function needsReview(item: BatchItem): boolean {
   if (item.classification_result == null) return false;
   const verdict = item.classification_result.sanity_verdict?.toUpperCase();
@@ -451,12 +578,25 @@ export default function BatchResultsTable({
 }: BatchResultsTableProps) {
   const t = useT();
 
-  // Count items that need review — used for the badge on the CTA button.
+  // Breakdown popup state
+  const [breakdownItem, setBreakdownItem] = useState<{ item: BatchItem; line: number | string } | null>(null);
+
+  // Count items per bucket for filter chip counts
+  const bucketCounts = useMemo(() => {
+    const counts = { all: 0, flagged: 0, passed: 0 };
+    for (const item of items) {
+      const b = itemBucket(item, isComplete);
+      if (b === null) continue;
+      counts.all++;
+      if (b === 'flagged' || b === 'blocked') counts.flagged++;
+      else if (b === 'succeeded') counts.passed++;
+    }
+    return counts;
+  }, [items, isComplete]);
+
   const reviewCount = useMemo(() => items.filter(needsReview).length, [items]);
 
-  // ---------------------------------------------------------------------------
-  // Review dialog state — queue is fetched lazily when the dialog opens.
-  // ---------------------------------------------------------------------------
+  // Review dialog state
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewQueue, setReviewQueue] = useState<ReviewItem[]>([]);
   const [reviewIdx, setReviewIdx] = useState(0);
@@ -471,9 +611,6 @@ export default function BatchResultsTable({
     setReviewLoading(true);
     setReviewError(null);
     try {
-      // Fetch the pending review queue for this batch. For each row we then
-      // call GET /classifications/review/:id to get full candidates — the list
-      // endpoint only returns a subset of fields.
       const listRes = await api.listReviewQueue({
         batch_id: batchId,
         status: 'pending',
@@ -481,12 +618,10 @@ export default function BatchResultsTable({
         limit: 50,
       });
 
-      // Enrich each row with the full detail (candidates are only on the detail endpoint).
       const detailedRows = await Promise.all(
         listRes.items.map((row) => api.getReviewRow(row.id)),
       );
 
-      // Match each queue row back to the batch item so we can pull declared value.
       const queue = detailedRows.map((row) => {
         const matched = items.find((it) => it.id === row.item_id);
         return queueRowToReviewItem(row, matched);
@@ -506,21 +641,14 @@ export default function BatchResultsTable({
     } finally {
       setReviewLoading(false);
     }
-  }, [batchId]);
-
-  // ---------------------------------------------------------------------------
-  // Dialog action handlers — call the real PATCH endpoint, advance the queue.
-  // ---------------------------------------------------------------------------
+  }, [batchId, items]);
 
   const handleAdvanceQueue = useCallback(() => {
     setReviewedCount((n) => n + 1);
     setReviewQueue((q) => {
-      // Remove the decided item from the queue.
       const next = q.filter((_, i) => i !== reviewIdx);
-      // Keep reviewIdx in bounds.
       setReviewIdx((idx) => Math.min(idx, Math.max(0, next.length - 1)));
       if (next.length === 0) {
-        // Close and fully reset dialog state so no stale overlay lingers.
         setReviewOpen(false);
       }
       return next;
@@ -529,12 +657,8 @@ export default function BatchResultsTable({
 
   const handleAccept = useCallback(
     async (item: ReviewItem) => {
-      try {
-        await api.submitReviewDecision(item.id, { decision: 'approve' });
-      } catch {
-        // Silent — item stays in queue; reviewer can try again.
-        return;
-      }
+      try { await api.submitReviewDecision(item.id, { decision: 'approve' }); }
+      catch { return; }
       handleAdvanceQueue();
     },
     [handleAdvanceQueue],
@@ -542,13 +666,8 @@ export default function BatchResultsTable({
 
   const handleDismiss = useCallback(
     async (item: ReviewItem) => {
-      // "Dismiss" in the dialog maps to "reject" on the API — "I can't decide
-      // on this row". The pipeline code stays untouched, row is dismissed.
-      try {
-        await api.submitReviewDecision(item.id, { decision: 'reject' });
-      } catch {
-        return;
-      }
+      try { await api.submitReviewDecision(item.id, { decision: 'reject' }); }
+      catch { return; }
       handleAdvanceQueue();
     },
     [handleAdvanceQueue],
@@ -557,19 +676,12 @@ export default function BatchResultsTable({
   const handlePick = useCallback(
     async (item: ReviewItem, chosenCode: string) => {
       try {
-        await api.submitReviewDecision(item.id, {
-          decision: 'override',
-          reviewer_code: chosenCode,
-        });
+        await api.submitReviewDecision(item.id, { decision: 'override', reviewer_code: chosenCode });
       } catch (err: unknown) {
-        // If the server rejects (e.g. code not in candidates), surface via
-        // reviewError so the reviewer sees it without the dialog closing.
         const msg =
-          err instanceof ApiError
-            ? err.message
-            : err instanceof Error
-            ? err.message
-            : 'Override failed.';
+          err instanceof ApiError ? err.message :
+          err instanceof Error ? err.message :
+          'Override failed.';
         setReviewError(msg);
         return;
       }
@@ -581,17 +693,12 @@ export default function BatchResultsTable({
   const handleBlock = useCallback(
     async (item: ReviewItem, notes: string) => {
       try {
-        await api.submitReviewDecision(item.id, {
-          decision: 'block_from_submission',
-          reviewer_notes: notes,
-        });
+        await api.submitReviewDecision(item.id, { decision: 'block_from_submission', reviewer_notes: notes });
       } catch (err: unknown) {
         const msg =
-          err instanceof ApiError
-            ? err.message
-            : err instanceof Error
-            ? err.message
-            : 'Block failed.';
+          err instanceof ApiError ? err.message :
+          err instanceof Error ? err.message :
+          'Block failed.';
         setReviewError(msg);
         return;
       }
@@ -600,10 +707,12 @@ export default function BatchResultsTable({
     [handleAdvanceQueue],
   );
 
+  // ---------------------------------------------------------------------------
+  // Column definitions — prototype-exact order
+  // ---------------------------------------------------------------------------
+
   const columns = useMemo<ColumnDef<BatchItem, unknown>[]>(() => [
-    // size = initial pixel width consumed by TanStack columnSizing state.
-    // Users can drag the column edge to override; their widths persist
-    // to localStorage. minSize/maxSize clamp the drag.
+    // LINE
     {
       id: 'line',
       accessorKey: 'row_index',
@@ -613,39 +722,38 @@ export default function BatchResultsTable({
       minSize: 40,
       maxSize: 96,
       cell: ({ getValue }) => (
-        <span className="font-mono text-[12px] text-[var(--ink-2)]">{String(getValue())}</span>
+        <span className="font-mono text-[12px] text-[var(--ink-2)] tabular-nums">
+          {String(getValue()).padStart(3, '0')}
+        </span>
       ),
     },
+
+    // MERCHANT DETAILS (merged code + description)
     {
-      id: 'merchant_code',
-      header: t('batch_col_merchant_code' as TKey),
+      id: 'merchant_details',
+      header: t('batch_col_merchant_details' as TKey),
       enableSorting: false,
-      accessorFn: (row) => row.declared_value?.hs_code ?? '',
-      size: 140,
-      minSize: 120,
-      maxSize: 240,
-      cell: ({ row }) => <MerchantCodeCell item={row.original} />,
-    },
-    {
-      id: 'merchant_description',
-      header: t('batch_col_merchant_description' as TKey),
-      enableSorting: false,
-      accessorFn: (row) => row.declared_value?.description ?? '',
+      accessorFn: (row) =>
+        [row.declared_value?.description ?? '', row.declared_value?.hs_code ?? ''].join(' '),
       size: 260,
-      minSize: 160,
-      maxSize: 600,
-      cell: ({ row }) => <MerchantDescriptionCell item={row.original} />,
+      minSize: 180,
+      maxSize: 480,
+      cell: ({ row }) => <MerchantDetailsCell item={row.original} />,
     },
+
+    // VALUE
     {
       id: 'value',
       header: t('batch_col_value' as TKey),
       enableSorting: true,
       accessorFn: (row) => row.value?.amount?.value ?? 0,
-      size: 130,
-      minSize: 100,
-      maxSize: 220,
+      size: 120,
+      minSize: 90,
+      maxSize: 200,
       cell: ({ row }) => <ValueCell item={row.original} />,
     },
+
+    // CLASSIFIED CODE
     {
       id: 'classified_code',
       header: t('batch_col_classified_code' as TKey),
@@ -658,19 +766,21 @@ export default function BatchResultsTable({
         const fc = row.original.classification_result?.resolved_hs_code ?? null;
         if (!fc) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
         return (
-          <span className="font-mono text-[14px] font-medium text-[var(--accent-ink)] whitespace-nowrap tabular-nums">
+          <span className="font-mono text-[13px] font-semibold text-[var(--accent-ink)] whitespace-nowrap tabular-nums">
             {fc}
           </span>
         );
       },
     },
+
+    // CONF. (hidden by default)
     {
       id: 'confidence',
       header: t('batch_col_confidence' as TKey),
       enableSorting: true,
       accessorFn: (row) => row.classification_result?.classification_confidence ?? null,
-      size: 90,
-      minSize: 70,
+      size: 80,
+      minSize: 64,
       maxSize: 120,
       cell: ({ row }) => {
         const raw = row.original.classification_result?.classification_confidence ?? null;
@@ -681,25 +791,32 @@ export default function BatchResultsTable({
           pct >= 60 ? 'oklch(0.42_0.13_60)' :
                       'oklch(0.42_0.14_25)';
         return (
-          <span
-            className="font-mono text-[12px] tabular-nums"
-            style={{ color: tone }}
-          >
+          <span className="font-mono text-[12px] tabular-nums" style={{ color: tone }}>
             {pct}%
           </span>
         );
       },
     },
+
+    // PLAUSIBILITY (visible by default)
     {
-      id: 'classified_code_breakdown',
-      header: t('batch_col_classified_code_breakdown' as TKey),
-      enableSorting: false,
-      accessorFn: (row) => row.classification_result?.resolved_hs_code ?? '',
-      size: 340,
-      minSize: 240,
-      maxSize: 560,
-      cell: ({ row }) => <CodeBreakdownCell item={row.original} />,
+      id: 'plausibility',
+      header: t('batch_col_plausibility' as TKey),
+      enableSorting: true,
+      accessorFn: (row) => itemBucket(row, isComplete),
+      size: 110,
+      minSize: 90,
+      maxSize: 160,
+      filterFn: (row, _id, value) => {
+        const b = itemBucket(row.original, isComplete);
+        if (value === 'flagged') return b === 'flagged' || b === 'blocked';
+        if (value === 'succeeded') return b === 'succeeded';
+        return true;
+      },
+      cell: ({ row }) => <PlausibilityCell item={row.original} isComplete={isComplete} />,
     },
+
+    // ZATCA DESCRIPTION
     {
       id: 'submission_ar',
       header: t('batch_col_zatca_submission' as TKey),
@@ -726,38 +843,88 @@ export default function BatchResultsTable({
         );
       },
     },
+
+    // DUTY
     {
-      id: 'value_plausibility_verdict',
-      header: t('batch_col_value_plausibility_verdict' as TKey),
-      enableSorting: true,
-      accessorFn: (row) => itemBucket(row, isComplete),
-      size: 140,
-      minSize: 100,
-      maxSize: 220,
-      filterFn: (row, _id, value) => itemBucket(row.original, isComplete) === value,
+      id: 'duty',
+      header: t('batch_col_duty' as TKey),
+      enableSorting: false,
+      size: 80,
+      minSize: 60,
+      maxSize: 120,
+      cell: ({ row }) => <DutyCell item={row.original} />,
+    },
+
+    // ACTIONS — eye icon always, flag icon for flagged rows
+    {
+      id: 'actions',
+      header: '',
+      enableSorting: false,
+      size: 64,
+      minSize: 48,
+      maxSize: 80,
       cell: ({ row }) => {
-        const bucket = itemBucket(row.original, isComplete);
-        // Unprocessed item — no verdict yet, show nothing (row renders as skeleton)
-        if (bucket === null) return null;
-        const labelKey = (
-          bucket === 'succeeded' ? 'batch_verdict_succeeded' :
-          bucket === 'flagged'   ? 'batch_verdict_flagged' :
-          bucket === 'blocked'   ? 'batch_verdict_blocked' :
-                                   'batch_verdict_failed'
-        ) as TKey;
-        const cls = VERDICT_BADGE[bucket];
+        const rowItem = row.original;
+        const bucket = itemBucket(rowItem, isComplete);
+        const lineNum = (rowItem.row_index as number | string | undefined) ?? row.index + 1;
+        const isFlagged = bucket === 'flagged' || bucket === 'blocked';
+        const hasCode = Boolean(rowItem.classification_result?.resolved_hs_code);
+
         return (
-          <span className={cn('inline-block px-2 py-0.5 rounded-full font-mono text-[10.5px] uppercase tracking-[0.04em]', cls)}>
-            {t(labelKey)}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {/* Eye icon — HS code breakdown popup */}
+            {hasCode && (
+              <button
+                type="button"
+                onClick={() => setBreakdownItem({ item: rowItem, line: lineNum })}
+                title="View HS code breakdown"
+                className={cn(
+                  'w-7 h-7 rounded-md flex items-center justify-center',
+                  'text-[var(--ink-3)] hover:text-[var(--ink)] hover:bg-[var(--line-2)]',
+                  'transition-colors duration-100',
+                )}
+              >
+                <span
+                  className="material-symbols-outlined"
+                  style={{
+                    fontSize: 16,
+                    fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 16",
+                    lineHeight: 1,
+                  }}
+                  aria-hidden="true"
+                >
+                  visibility
+                </span>
+              </button>
+            )}
+
+            {/* Flag icon — flagged/blocked rows */}
+            {isFlagged && (
+              <span
+                title="Flagged — needs review"
+                className="w-7 h-7 rounded-md flex items-center justify-center text-[oklch(0.52_0.14_60)]"
+              >
+                <span
+                  className="material-symbols-outlined"
+                  style={{
+                    fontSize: 15,
+                    fontVariationSettings: "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 16",
+                    lineHeight: 1,
+                  }}
+                  aria-hidden="true"
+                >
+                  flag
+                </span>
+              </span>
+            )}
+          </div>
         );
       },
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t]);
+  ], [t, isComplete]);
 
-  // Simple skeleton row — single full-width pulse bar. Avoids encoding any
-  // specific column geometry so it survives column show/hide automatically.
+  // Skeleton row — single full-width pulse bar
   const renderSkeletonRow = useMemo(() => {
     return (_i: number) => (
       <div className="px-[18px] py-[18px] flex items-center gap-3">
@@ -768,10 +935,6 @@ export default function BatchResultsTable({
     );
   }, []);
 
-  // Manual review CTA — only shown once the batch is fully complete, there are
-  // reviewable items, and we have a batchId. Hidden during polling to avoid
-  // confusing partial counts.
-  // Also hidden once the queue has been fully worked through (all reviewed, none pending).
   const pendingInQueue = reviewQueue.length;
   const queueExhausted = !reviewOpen && reviewedCount > 0 && pendingInQueue === 0;
   const manualReviewCta = isComplete && reviewCount > 0 && !!batchId && !queueExhausted ? (
@@ -799,13 +962,9 @@ export default function BatchResultsTable({
   return (
     <>
       <DataTable
-        // v6 because column resizing came back; storage shape now includes
-        // columnSizing again. Bumping the key invalidates v5 prefs (visibility
-        // only) so returning users start with the new default widths once.
-        tableId="batch-results-v8"
-        // Both confidence and value_plausibility_verdict are hidden by default.
-        // Operators can re-enable either from the Columns menu in the footer.
-        defaultColumnVisibility={{ value_plausibility_verdict: false, confidence: false }}
+        tableId="batch-results-v9"
+        // confidence hidden by default; plausibility visible
+        defaultColumnVisibility={{ confidence: false }}
         data={items}
         columns={columns}
         expectedRowCount={expectedRowCount}
@@ -813,13 +972,12 @@ export default function BatchResultsTable({
         enableGlobalSearch
         searchPlaceholder={t('batch_search_placeholder' as TKey)}
         filterChips={{
-          columnId: 'value_plausibility_verdict',
-          label: t('batch_filter_verdict_label' as TKey),
+          columnId: 'plausibility',
+          // no label — counts embedded in chips
           options: [
-            { label: t('batch_filter_verdict_all' as TKey) },
-            { label: t('batch_filter_verdict_succeeded' as TKey), value: 'succeeded' },
-            { label: t('batch_filter_verdict_flagged' as TKey),   value: 'flagged' },
-            { label: t('batch_filter_verdict_failed' as TKey),    value: 'failed' },
+            { label: 'All', count: bucketCounts.all },
+            { label: 'Flagged', value: 'flagged', count: bucketCounts.flagged },
+            { label: 'Passed',  value: 'succeeded', count: bucketCounts.passed },
           ],
         }}
         filterExtra={manualReviewCta}
@@ -827,7 +985,16 @@ export default function BatchResultsTable({
         className={className}
       />
 
-      {/* Inline review dialog — mounted via Portal on document.body, independent of table */}
+      {/* HS Code Breakdown portal modal */}
+      {breakdownItem && (
+        <CodeBreakdownModal
+          item={breakdownItem.item}
+          lineNumber={breakdownItem.line}
+          onClose={() => setBreakdownItem(null)}
+        />
+      )}
+
+      {/* Inline review dialog */}
       <ReviewDialog
         open={reviewOpen}
         onOpenChange={setReviewOpen}

@@ -136,10 +136,10 @@ function useDebouncedSave(tableId: string, delay = 400) {
 export interface FilterChipGroup {
   /** id of the column this chip group filters. */
   columnId: string;
-  /** Group label, e.g. "Verdict". */
-  label: string;
+  /** Group label — omit to hide the label prefix entirely. */
+  label?: string;
   /** Option list. `value: undefined` clears the filter (used for the "All" chip). */
-  options: { label: string; value?: unknown }[];
+  options: { label: string; value?: unknown; count?: number }[];
 }
 
 export interface DataTableProps<T> {
@@ -401,9 +401,11 @@ export function DataTable<T extends object>({
 
           {filterChips && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-1">
-                {filterChips.label}
-              </span>
+              {filterChips.label && (
+                <span className="font-mono text-[10.5px] text-[var(--ink-3)] tracking-[0.08em] uppercase me-1">
+                  {filterChips.label}
+                </span>
+              )}
               {filterChips.options.map((opt) => {
                 const active =
                   opt.value === activeChipValue ||
@@ -415,7 +417,7 @@ export function DataTable<T extends object>({
                     onClick={() => setChip(opt.value)}
                     aria-pressed={active}
                     className={cn(
-                      'inline-flex items-center px-2.5 py-1 rounded-full text-[11.5px] font-medium border transition-colors duration-150',
+                      'inline-flex items-center gap-1.5 px-3 py-[5px] rounded-full text-[12px] font-medium border transition-colors duration-150',
                       active
                         ? 'bg-[var(--ink)] border-[var(--ink)] text-[var(--bg)]'
                         : 'bg-[var(--surface)] border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
@@ -423,6 +425,19 @@ export function DataTable<T extends object>({
                     style={active ? { color: 'var(--bg)' } : undefined}
                   >
                     {opt.label}
+                    {opt.count !== undefined && (
+                      <span
+                        className={cn(
+                          'inline-flex items-center justify-center min-w-[18px] h-[18px] px-[5px] rounded-full',
+                          'font-mono text-[10px] tabular-nums leading-none',
+                          active
+                            ? 'bg-white/20 text-inherit'
+                            : 'bg-[var(--line-2)] text-[var(--ink-3)]',
+                        )}
+                      >
+                        {opt.count}
+                      </span>
+                    )}
                   </button>
                 );
               })}
