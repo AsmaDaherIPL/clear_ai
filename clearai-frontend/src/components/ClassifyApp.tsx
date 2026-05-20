@@ -1,7 +1,7 @@
 /** Root React island. Owns mode, phase, request state, drives the page layout. */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import ModeTabs, { type ClassifyMode } from './ModeTabs';
+import { type ClassifyMode } from './ModeTabs';
 import Composer, { type ComposerExtras } from './Composer';
 import ProcessingSteps from './ProcessingSteps';
 import ResultSingle from './ResultSingle';
@@ -1058,16 +1058,6 @@ export default function ClassifyApp() {
 
           {authState === 'authenticated' && (
             <>
-              {/*
-                ModeTabs stays mounted ALWAYS — even during a live batch run.
-                Hiding the mode pills during batch processing trapped the
-                user inside batch view with no visible way to pivot back
-                to Generate / Expand.
-              */}
-              <div className="flex flex-col items-center">
-                <ModeTabs mode={mode} onModeChange={setMode} />
-              </div>
-
               {/*
                 Composer collapser. In batch mode, the moment a file
                 upload kicks off (`batchState.phase !== 'idle'`) we

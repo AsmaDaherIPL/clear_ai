@@ -543,29 +543,6 @@ export default function Composer({ mode, onSubmit, onPickFile, loading, classNam
       )}
     </form>
 
-    {/* Meta bar below the card — keyboard hint (left) + powered-by (right). */}
-    {mode !== 'batch' && (
-      <div className="flex items-center justify-between gap-2 pt-2 px-1">
-        <span
-          style={{
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: '12px',
-            color: '#a3958c',
-          }}
-        >
-          Enter to classify
-        </span>
-        <span
-          style={{
-            fontFamily: "'IBM Plex Sans', sans-serif",
-            fontSize: '12px',
-            color: '#a3958c',
-          }}
-        >
-          {t('composer_powered_by' as TKey)}
-        </span>
-      </div>
-    )}
-    </>
+</>
   );
 }
