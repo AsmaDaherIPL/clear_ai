@@ -123,6 +123,15 @@ The following PR6 items were scoped out because they require deeper plumbing tha
 | ~~PR6.6~~ | ~~Identify_fast multi_product detection~~ | **Shipped in PR7** — prompt-only update (class-shift rule + examples); parser already handled `multi_product`. | — |
 | ~~PR6.7~~ | ~~Status differentiation (`AMBIGUOUS` for picker_unavailable)~~ | **Shipped in PR7** — TypeScript-only. AGREEMENT/DRIFT/ZERO_SIGNAL aren't stored in a SQL CHECK constraint (derived from JSONB trace), so no DB migration needed. | — |
 
+## Pending frontend migrations (backend-driven contract changes)
+
+The backend ships these fields today; the SPA hasn't migrated yet. Both decimal + band live on the wire so the SPA continues to render decimals until each migration lands.
+
+| ID | Item | Backend ready since | SPA touchpoints |
+|---|---|---|---|
+| **FE-PR9** | Confidence pill: render `classification_confidence_band` (`high`/`moderate`/`fair`/`low`/`no_result`) instead of the raw `classification_confidence` decimal. Add `<ConfidenceBandPill band={...} />` component; add i18n keys (`confidence.band.high` / `.moderate` / `.fair` / `.low` / `.no_result` in `src/locales/{en,ar}.json`); strip the percentage display so reviewers never see "0.42" again — per user rule "show labels not numbers." Per-candidate band (`AnnotatedCandidate.confidence_band`) should also render in the alternatives panel. | PR9 / `c17d2c6` / rev 0000163 | `src/lib/api.ts` (type), `src/components/ResultSingle.tsx:871`, `src/components/BatchResultsTable.tsx:402, 671-676`, `src/components/ReviewQueue.tsx:249`, `src/components/ReviewDetail.tsx:753-757` |
+| **FE-PR7** | Status pill: render new `AMBIGUOUS` classification status with its own pill (separate from `ZERO_SIGNAL`). Today's SPA may collapse them. Background: PR7 split `picker_unavailable` transport failures (AMBIGUOUS) from genuine "couldn't classify" (ZERO_SIGNAL). | PR7 / `999f448` / rev 0000161 | Wherever `classification_status` pills render (BatchResultsTable, ReviewQueue, etc.) |
+
 Tracker convention: when picking up a task, move it from its section
 above into the Done table with the commit SHA. Keep both halves of the
 file synchronised so the section-1/2 table always represents only the
