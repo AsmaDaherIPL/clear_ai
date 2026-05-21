@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { useT, type TKey } from '@/lib/i18n';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { ensureInitialized, getActiveAccount, signOut } from '@/lib/auth';
+import TopBar from './TopBar';
 
 // ---------------------------------------------------------------------------
 // Page id type — three primary routes + review (outside sidebar)
@@ -441,8 +442,11 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
           marginInlineStart: W,
           transition: 'margin-inline-start 200ms cubic-bezier(0.2, 0.8, 0.2, 1)',
           minHeight: '100dvh',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
+        <TopBar />
         {children}
       </div>
     </TooltipProvider>
