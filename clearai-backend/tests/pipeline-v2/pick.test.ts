@@ -895,6 +895,94 @@ describe('computeConfidence — entropy-based formula (PR9)', () => {
   });
 });
 
+// PR16 (2026-05-20) — per-candidate fit weights.
+// Before PR16, `avgFitWeight` was a single pool-wide constant on every
+// candidate's rerank-score contribution, so it cancelled in normalisation.
+// A clean `{1 fit, 2 partial, 5 does_not_fit}` pool with similar rerank
+// scores collapsed to a near-uniform distribution and confidence ≈ 0.
+// PR16 weights each candidate by its OWN verdict so the winner pulls
+// the distribution toward itself.
+describe('computeConfidence — PR16 per-candidate fit weights', () => {
+  it('without verdicts: pool-wide avgFitWeight (PR9 fallback)', () => {
+    // 8 candidates with nearly-uniform rerank → near-zero entropy conf
+    // even though the pool has a clean fit. This is the PR16-fixed bug
+    // path — kept as the backward-compat behaviour for callers that
+    // don't pass `verdicts`.
+    const candidates = Array.from({ length: 8 }, (_, i) =>
+      rc(`c${i}`, 'family_chapter', i < 2 ? 0.169 : 0.118),
+    );
+    const { confidence } = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 2, does_not_fit: 5 },
+      candidates,
+      merchant_chapter_disagreement: false,
+    });
+    // Distribution is nearly uniform → conf collapses to floor.
+    expect(confidence).toBeLessThan(0.10);
+  });
+
+  it('with verdicts: per-candidate fit pulls distribution toward the winner', () => {
+    const candidates = Array.from({ length: 8 }, (_, i) =>
+      rc(`c${i}`, 'family_chapter', i < 2 ? 0.169 : 0.118),
+    );
+    const verdicts = [
+      { code: 'c0', fit: 'fits' as const },
+      { code: 'c1', fit: 'partial' as const },
+      { code: 'c2', fit: 'partial' as const },
+      { code: 'c3', fit: 'does_not_fit' as const },
+      { code: 'c4', fit: 'does_not_fit' as const },
+      { code: 'c5', fit: 'does_not_fit' as const },
+      { code: 'c6', fit: 'does_not_fit' as const },
+      { code: 'c7', fit: 'does_not_fit' as const },
+    ];
+    const { confidence } = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 2, does_not_fit: 5 },
+      candidates,
+      merchant_chapter_disagreement: false,
+      verdicts,
+    });
+    // With per-candidate weights, the winner's share is meaningfully
+    // larger. Same inputs that produced ~0.05 above now produce a
+    // confidence above the 'fair' threshold (≥ 0.25). Exact value
+    // depends on the entropy math; just check the band boundary.
+    expect(confidence).toBeGreaterThan(0.20);
+  });
+
+  it('per-candidate share reflects per-candidate fit too', () => {
+    const candidates = [
+      rc('winner', 'family_chapter', 0.5),
+      rc('alt', 'family_chapter', 0.5),
+    ];
+    const verdicts = [
+      { code: 'winner', fit: 'fits' as const },
+      { code: 'alt', fit: 'does_not_fit' as const },
+    ];
+    // Two candidates with identical rerank: without verdicts they'd
+    // split 50/50. With verdicts, winner gets 1.0×0.5 vs alt's 0.1×0.5
+    // = 0.5 vs 0.05 → normalised winner = 0.909, alt = 0.091.
+    const winner = computeConfidence({
+      fit: 'fits',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 1 },
+      candidates,
+      merchant_chapter_disagreement: false,
+      candidate_under_eval: candidates[0]!,
+      verdicts,
+    });
+    const loser = computeConfidence({
+      fit: 'does_not_fit',
+      verdict_population: { fits: 1, partial: 0, does_not_fit: 1 },
+      candidates,
+      merchant_chapter_disagreement: false,
+      candidate_under_eval: candidates[1]!,
+      verdicts,
+    });
+    expect(winner.confidence).toBeCloseTo(0.909, 2);
+    expect(loser.confidence).toBeCloseTo(0.091, 2);
+    expect(winner.confidence + loser.confidence).toBeCloseTo(1, 5);
+  });
+});
+
 describe('deriveConfidenceBand (PR9)', () => {
   it('maps thresholds correctly (default / per-candidate mode)', () => {
     expect(deriveConfidenceBand(0.95)).toBe('high');

@@ -667,6 +667,7 @@ function buildAnnotatedCandidates(
       merchant_chapter_disagreement,
       identify_confidence,
       candidate_under_eval: c,
+      verdicts, // PR16: per-candidate fit weights
     });
     annotated.push({
       code: v.code,
@@ -986,6 +987,7 @@ export async function runPick(input: PickInput): Promise<PickResult> {
         identify_confidence:
           identify.kind === 'clean_product' ? identify.confidence : undefined,
         picked_from_arm: pickedArm,
+        verdicts, // PR16: per-candidate fit weights
       });
   const accepted: PickAccepted = {
     kind: 'accepted',
@@ -1090,6 +1092,19 @@ export function computeConfidence(input: {
    * (all does_not_fit = 0.15). Pass undefined for winner calls.
    */
   candidate_under_eval?: RerankedCandidate;
+  /**
+   * PR16 (2026-05-20): per-candidate verdict map. Lets the entropy
+   * distribution weight each candidate by its OWN fit verdict instead
+   * of a pool-wide average. Without this, a clean `{1 fit, 2 partial,
+   * 5 does_not_fit}` pool with similar rerank scores produces a near-
+   * uniform distribution (winner confidence ≈ 0) because the constant
+   * avgFitWeight cancels in normalisation.
+   *
+   * Optional for backward compat with tests that pre-date PR16. When
+   * absent, the function falls back to the pool-wide avgFitWeight
+   * (PR9 behaviour).
+   */
+  verdicts?: ReadonlyArray<{ code: string; fit: 'fits' | 'partial' | 'does_not_fit' }>;
 }): { confidence: number; signals: ConfidenceSignals } {
   // ------------------------------------------------------------------
   // PR9 (2026-05-20): entropy-based confidence.
@@ -1116,10 +1131,32 @@ export function computeConfidence(input: {
   const v = input.verdict_population;
   const totalVerdicted = v.fits + v.partial + v.does_not_fit;
 
-  // Pool-wide average fit weight, used as a constant multiplier on every
-  // candidate's rerank score. We don't have a per-candidate fit at this
-  // call site (verdict_population is aggregate); the average captures
-  // pool quality and folds into the distribution shape implicitly.
+  // PR16 (2026-05-20): per-candidate fit lookup. When `verdicts` is
+  // supplied, each candidate's rerank_score is multiplied by ITS OWN
+  // fit weight (fits=1.0, partial=0.5, does_not_fit=0.10) — so the
+  // winning fitter pulls the distribution toward itself even when
+  // rerank scores are clustered. Without it (PR9 behaviour), the
+  // constant pool-wide avgFitWeight cancels in normalisation and the
+  // distribution collapses to "whatever rerank gave us," producing
+  // near-uniform shares (and near-zero entropy confidence) for any
+  // pool where rerank doesn't strongly separate candidates.
+  const fitByCode = new Map<string, 'fits' | 'partial' | 'does_not_fit'>();
+  if (input.verdicts !== undefined) {
+    for (const verd of input.verdicts) {
+      fitByCode.set(verd.code, verd.fit);
+    }
+  }
+  const fitWeightFor = (code: string): number => {
+    const fit = fitByCode.get(code);
+    if (fit === 'fits') return FIT_WEIGHT_FITS;
+    if (fit === 'partial') return FIT_WEIGHT_PARTIAL;
+    if (fit === 'does_not_fit') return FIT_WEIGHT_DOES_NOT_FIT;
+    return undefined as unknown as number; // sentinel: no verdict map provided
+  };
+
+  // Fallback (PR9): pool-wide average fit weight, used when `verdicts`
+  // not supplied. The average captures pool quality but cancels in
+  // normalisation — kept for backward compat with tests pre-PR16.
   const totalFitWeighted =
     v.fits * FIT_WEIGHT_FITS +
     v.partial * FIT_WEIGHT_PARTIAL +
@@ -1130,9 +1167,11 @@ export function computeConfidence(input: {
   let winnerEntropyConf = CONFIDENCE_MIN;
   let perCandidateShare = CONFIDENCE_MIN;
   if (candidatesWithRerank.length > 0) {
-    const weights = candidatesWithRerank.map(
-      (c) => Math.max(0, c.rerank_score) * avgFitWeight,
-    );
+    const weights = candidatesWithRerank.map((c) => {
+      const fw = fitWeightFor(c.code);
+      const effectiveWeight = Number.isFinite(fw) ? fw : avgFitWeight;
+      return Math.max(0, c.rerank_score) * effectiveWeight;
+    });
     const sumWeights = weights.reduce((s, w) => s + w, 0);
     if (sumWeights > 0) {
       const probs = weights.map((w) => w / sumWeights);
