@@ -26,6 +26,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 import type { AlternativeLine } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
@@ -42,6 +43,11 @@ export interface ReviewItem {
   currentLabel?: string | null;
   currentConfidence?: number | null;
   verdict?: string | null;
+  /** reason from the queue row — drives which UI branch to show */
+  reason?: string | null;
+  /** can_override from the detail row — gates the override button */
+  canOverride?: boolean | null;
+  /** @deprecated use reason === 'sanity_flag' instead */
   flagType?: 'hs' | 'value' | null;
   sanityRationale?: string | null;
   alternatives: AlternativeLine[];
@@ -140,6 +146,7 @@ function LowConfidenceBody({
   reviewedCount,
   onPrev,
   onSkip,
+  onAccept,
   onPick,
   onDismiss,
   onClose,
@@ -150,20 +157,22 @@ function LowConfidenceBody({
   reviewedCount?: number;
   onPrev?: () => void;
   onSkip?: () => void;
+  onAccept: (item: ReviewItem) => void;
   onPick: (item: ReviewItem, chosenCode: string) => void;
   onDismiss: (item: ReviewItem) => void;
   onClose: () => void;
 }) {
+  const t = useT();
+  const [mode, setMode] = useState<'approve' | 'override' | 'reject' | null>(null);
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState('');
-  const [reason, setReason] = useState('');
   const [manualError, setManualError] = useState('');
 
   // Reset on item change
   useEffect(() => {
+    setMode(null);
     setSelectedCode(null);
     setManualCode('');
-    setReason('');
     setManualError('');
   }, [item.id]);
 
@@ -183,28 +192,27 @@ function LowConfidenceBody({
     ? Math.round(item.currentConfidence * 100)
     : null;
 
-  const effectiveCode = manualCode.trim() || selectedCode;
+  // can_override from the fetched detail row; default true for low-confidence reasons
+  const canOverride = item.canOverride !== false;
 
-  const handleConfirm = () => {
-    if (manualCode.trim()) {
-      // Validate manual code: 10–12 digits
-      const digits = manualCode.replace(/\D/g, '');
-      if (digits.length < 10 || digits.length > 12) {
-        setManualError('Must be 10–12 digits');
-        return;
-      }
-      if (reason.trim().length < 10) {
-        setManualError('Reason must be at least 10 characters');
+  const handleSubmit = () => {
+    if (mode === 'approve') {
+      onAccept(item);
+    } else if (mode === 'override') {
+      const digits = (manualCode.trim() || (selectedCode ?? '')).replace(/\D/g, '');
+      if (digits.length !== 12) {
+        setManualError('Must be exactly 12 digits');
         return;
       }
       onPick(item, digits);
-    } else if (selectedCode) {
-      onPick(item, selectedCode);
-    } else {
-      // No selection — treat as dismiss
+    } else if (mode === 'reject') {
       onDismiss(item);
     }
   };
+
+  const submitDisabled =
+    !mode ||
+    (mode === 'override' && !(manualCode.trim() || selectedCode));
 
   const hasQueue = queueLength != null && queueIndex != null;
   const isFirst = hasQueue && queueIndex === 0;
@@ -257,36 +265,25 @@ function LowConfidenceBody({
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
 
-        {/* Merchant details card */}
+        {/* Product description */}
         <section>
           <div className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)] mb-2">
-            Merchant Details
+            {t('review_item_description')}
           </div>
           <div className="flex items-start gap-4 px-4 py-3.5 border border-[var(--line)] rounded-[10px] bg-[var(--surface)]">
-            {/* Image placeholder */}
-            <div className="w-[52px] h-[52px] rounded-[8px] bg-[var(--line-2)] flex items-center justify-center shrink-0">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[var(--ink-3)]" aria-hidden>
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <path d="M21 15l-5-5L5 21" />
-              </svg>
-            </div>
             <div className="min-w-0 flex-1">
               <div className="text-[14.5px] font-semibold text-[var(--ink)] leading-snug break-words">
                 {item.description || '—'}
               </div>
               {item.merchantCode && (
                 <div className="font-mono text-[11.5px] text-[var(--ink-3)] mt-0.5">
-                  SKU: {item.merchantCode}
+                  {t('review_ctx_merchant_code')}: {item.merchantCode}
                 </div>
               )}
               {tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="px-2.5 py-[3px] rounded-md bg-[var(--line-2)] text-[var(--ink-2)] font-mono text-[10px] uppercase tracking-[0.08em]"
-                    >
+                    <span key={tag} className="px-2.5 py-[3px] rounded-md bg-[var(--line-2)] text-[var(--ink-2)] font-mono text-[10px] uppercase tracking-[0.08em]">
                       {tag}
                     </span>
                   ))}
@@ -299,7 +296,7 @@ function LowConfidenceBody({
         {/* Current pipeline result */}
         <section>
           <div className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)] mb-2">
-            Current Pipeline Result
+            {t('review_current_code')}
           </div>
           <div className={cn(
             'px-4 py-3.5 border rounded-[10px]',
@@ -310,169 +307,144 @@ function LowConfidenceBody({
             <div className="flex items-start justify-between gap-3">
               <span className="font-mono text-[18px] font-bold tracking-[-0.01em] text-[var(--ink)] tabular-nums">
                 {item.currentCode
-                  ? item.currentCode.replace(/(\d{4})(\d{2})(\d{2})(\d{2})/, '$1.$2.$3.$4')
+                  ? item.currentCode.replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1.$2.$3.$4.$5')
                   : '—'}
               </span>
               {confidencePct != null && (
                 <div className={cn(
                   'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full',
                   'font-mono text-[10.5px] tracking-[0.08em] uppercase font-semibold shrink-0',
-                  confidencePct < 60
+                  confidencePct < 50
                     ? 'bg-[oklch(0.92_0.07_25)] text-[oklch(0.40_0.12_25)]'
-                    : confidencePct < 80
+                    : confidencePct < 75
                     ? 'bg-[oklch(0.93_0.10_60)] text-[oklch(0.40_0.15_60)]'
                     : 'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]',
                 )}>
-                  {confidencePct < 80 && (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
-                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                    </svg>
-                  )}
-                  {confidencePct}% Confidence
+                  {confidencePct}%
                 </div>
               )}
             </div>
             {item.currentLabel && (
-              <div className="text-[13px] text-[var(--ink-2)] mt-1">
-                {item.currentLabel}
-              </div>
-            )}
-            {item.sanityRationale && (
-              <div className="flex items-center gap-1.5 mt-2">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-[var(--accent-ink)] shrink-0" aria-hidden>
-                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-                <span className="text-[12.5px] text-[var(--accent-ink)]">
-                  {item.sanityRationale}
-                </span>
-              </div>
+              <div className="text-[13px] text-[var(--ink-2)] mt-1">{item.currentLabel}</div>
             )}
           </div>
         </section>
 
-        {/* Suggested alternatives */}
+        {/* Candidate list — sorted by fit then score */}
         {item.alternatives.length > 0 && (
           <section>
             <div className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)] mb-2">
-              Suggested Alternatives
+              {t('review_candidates_label')}
             </div>
             <div className="flex flex-col gap-2">
-              {item.alternatives.map((alt) => {
-                const isSelected = selectedCode === alt.code;
-                const matchPct = alt.retrieval_score != null
-                  ? Math.round(alt.retrieval_score * 100)
-                  : null;
-                const displayCode = alt.code.replace(/(\d{4})(\d{2})(\d{2})(\d{2})/, '$1.$2.$3.$4');
-
-                return (
-                  <div
-                    key={alt.code}
-                    className={cn(
-                      'px-4 py-3.5 border rounded-[10px] transition-colors duration-150 cursor-pointer',
-                      isSelected
-                        ? 'bg-[oklch(0.97_0.04_55)] border-[var(--accent)]'
-                        : 'bg-[var(--surface)] border-[var(--line)] hover:border-[var(--ink-3)]',
-                    )}
-                    onClick={() => setSelectedCode(isSelected ? null : alt.code)}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                          <span className={cn(
-                            'font-mono text-[16px] font-bold tabular-nums',
-                            isSelected ? 'text-[var(--accent-ink)]' : 'text-[var(--ink)]',
-                          )}>
-                            {displayCode}
-                          </span>
-                          {matchPct != null && (
-                            <span className={cn(
-                              'px-2 py-[3px] rounded-md font-mono text-[10px] uppercase tracking-[0.08em] font-semibold',
-                              matchPct >= 80
-                                ? 'bg-[oklch(0.92_0.06_140)] text-[oklch(0.30_0.10_140)]'
-                                : 'bg-[var(--line-2)] text-[var(--ink-3)]',
-                            )}>
-                              {matchPct}% Match
+              {[...item.alternatives]
+                .sort((a, b) => {
+                  const fitOrder = { fits: 0, partial: 1, does_not_fit: 2 } as Record<string, number>;
+                  const fa = fitOrder[a.fit ?? ''] ?? 1;
+                  const fb = fitOrder[b.fit ?? ''] ?? 1;
+                  if (fa !== fb) return fa - fb;
+                  return (b.retrieval_score ?? 0) - (a.retrieval_score ?? 0);
+                })
+                .map((alt) => {
+                  const isSelected = selectedCode === alt.code;
+                  const isCurrent = (alt as { is_current?: boolean }).is_current === true;
+                  const score = alt.retrieval_score != null ? Math.round(alt.retrieval_score * 100) : null;
+                  const displayCode = alt.code.replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1.$2.$3.$4.$5');
+                  return (
+                    <div
+                      key={alt.code}
+                      className={cn(
+                        'px-4 py-3.5 border rounded-[10px] transition-colors duration-150 cursor-pointer',
+                        isCurrent
+                          ? isSelected
+                            ? 'bg-[oklch(0.97_0.04_55)] border-[var(--accent)]'
+                            : 'bg-[oklch(0.97_0.015_55)] border-[var(--accent)]'
+                          : isSelected
+                            ? 'bg-[oklch(0.97_0.04_55)] border-[var(--accent)]'
+                            : 'bg-[var(--surface)] border-[var(--line)] hover:border-[var(--ink-3)]',
+                      )}
+                      onClick={() => {
+                        if (mode !== 'override') setMode('override');
+                        setSelectedCode(isSelected ? null : alt.code);
+                        setManualCode('');
+                        setManualError('');
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={cn('font-mono text-[15px] font-bold tabular-nums', isSelected ? 'text-[var(--accent-ink)]' : 'text-[var(--ink)]')}>
+                              {displayCode}
                             </span>
+                            {isCurrent && (
+                              <span className="px-2 py-[2px] rounded-full bg-[var(--accent)] text-white font-mono text-[9.5px] uppercase tracking-[0.08em]">
+                                {t('review_cand_current')}
+                              </span>
+                            )}
+                            {score != null && (
+                              <span className="font-mono text-[10px] text-[var(--ink-3)]">
+                                {t('review_cand_match')} {score}%
+                              </span>
+                            )}
+                          </div>
+                          {alt.description_en && (
+                            <div className="text-[12.5px] text-[var(--ink-2)] mt-1 leading-snug">{alt.description_en}</div>
                           )}
                         </div>
-                        {alt.description_en && (
-                          <div className="text-[13px] text-[var(--ink-2)] mt-1 leading-snug">
-                            {alt.description_en}
-                          </div>
-                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (mode !== 'override') setMode('override');
+                            setSelectedCode(alt.code);
+                            setManualCode('');
+                            setManualError('');
+                          }}
+                          className={cn(
+                            'shrink-0 px-3 py-1.5 rounded-[8px] text-[12.5px] font-medium transition-all duration-150',
+                            isSelected
+                              ? 'bg-[var(--accent)] text-white border border-[var(--accent)]'
+                              : 'bg-[var(--surface)] text-[var(--ink-2)] border border-[var(--line)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
+                          )}
+                        >
+                          {isSelected ? t('review_action_pick') : t('review_cand_current') === t('review_cand_current') && isCurrent ? t('review_action_pick') : t('review_action_pick')}
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedCode(alt.code);
-                        }}
-                        className={cn(
-                          'shrink-0 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium',
-                          'transition-all duration-150',
-                          isSelected
-                            ? 'bg-[var(--accent)] text-white border border-[var(--accent)]'
-                            : 'bg-[var(--surface)] text-[var(--ink-2)] border border-[var(--line)] hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
-                        )}
-                      >
-                        {isSelected ? 'Selected' : 'Use this'}
-                      </button>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </section>
         )}
 
-        {/* Manual override + reason */}
-        <section>
-          <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <div>
-              <label className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)] block mb-1.5">
-                Manual Override
-              </label>
-              <input
-                type="text"
-                value={manualCode}
-                onChange={(e) => { setManualCode(e.target.value); setManualError(''); }}
-                placeholder="e.g. 1234.56.78.90"
-                className={cn(
-                  'w-full px-3 py-2.5 rounded-[8px] font-mono text-[13.5px]',
-                  'border border-[var(--line)] bg-[var(--surface)]',
-                  'text-[var(--ink)] placeholder:text-[var(--ink-3)]',
-                  'focus:outline-none focus:border-[var(--ink-3)] transition-colors duration-150',
-                )}
-              />
+        {/* Force-override: manual code input — shown only when override is selected and canOverride */}
+        {mode === 'override' && (
+          <section>
+            <div className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)] mb-2">
+              {t('review_override_code_label') ?? 'Override code'}
             </div>
-            <div>
-              <label className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)] block mb-1.5">
-                Reason for Change{' '}
-                <span className="normal-case font-normal tracking-normal text-[oklch(0.50_0.18_25)]">*</span>
-              </label>
-              <textarea
-                value={reason}
-                onChange={(e) => { setReason(e.target.value); setManualError(''); }}
-                rows={1}
-                placeholder="Provide context (min 10 chars)…"
-                className={cn(
-                  'w-full px-3 py-2.5 rounded-[8px] text-[13px]',
-                  'border border-[var(--line)] bg-[var(--surface)]',
-                  'text-[var(--ink)] placeholder:text-[var(--ink-3)]',
-                  'focus:outline-none focus:border-[var(--ink-3)] transition-colors duration-150',
-                  'resize-none',
-                )}
-              />
-            </div>
-          </div>
-          {manualError && (
-            <p className="mt-1.5 text-[12px] text-[oklch(0.45_0.14_25)]">{manualError}</p>
-          )}
-        </section>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={12}
+              value={manualCode}
+              onChange={(e) => { setManualCode(e.target.value.replace(/\D/g, '')); setManualError(''); setSelectedCode(null); }}
+              placeholder={t('review_override_code_placeholder') ?? '12-digit HS code'}
+              className={cn(
+                'w-full max-w-[220px] px-3 py-2.5 rounded-[8px] font-mono text-[13.5px]',
+                'border border-[var(--line)] bg-[var(--surface)]',
+                'text-[var(--ink)] placeholder:text-[var(--ink-3)]',
+                'focus:outline-none focus:border-[var(--ink-3)] transition-colors duration-150',
+              )}
+            />
+            {manualError && (
+              <p className="mt-1.5 text-[12px] text-[oklch(0.45_0.14_25)]">{manualError}</p>
+            )}
+          </section>
+        )}
       </div>
 
-      {/* Footer */}
+      {/* Footer — 3 actions: Approve current | Override (if selected) | Reject */}
       <div className="flex items-center justify-between gap-3 flex-wrap px-6 py-3.5 border-t border-[var(--line)] bg-[var(--line-2)] shrink-0">
         <div className="flex items-center gap-2">
           <button
@@ -482,14 +454,13 @@ function LowConfidenceBody({
             className={cn(
               'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[8px] text-[13px]',
               'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
-              'hover:not-disabled:border-[var(--ink-3)] hover:not-disabled:text-[var(--ink)]',
               'transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed',
             )}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="rtl:rotate-180">
               <path d="M19 12H5M12 5l-7 7 7 7"/>
             </svg>
-            Previous
+            {t('review_action_prev')}
           </button>
           <button
             type="button"
@@ -500,20 +471,53 @@ function LowConfidenceBody({
               'hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-all duration-150',
             )}
           >
-            Skip
+            {t('review_action_skip')}
           </button>
         </div>
-        <button
-          type="button"
-          onClick={handleConfirm}
-          className={cn(
-            'px-5 py-2 rounded-[8px] text-[13.5px] font-semibold',
-            'bg-[var(--accent)] text-white border border-[var(--accent)]',
-            'hover:brightness-110 transition-all duration-150',
+        <div className="flex items-center gap-2">
+          {/* Reject */}
+          <button
+            type="button"
+            onClick={() => { setMode('reject'); setTimeout(() => handleSubmit(), 0); }}
+            className={cn(
+              'px-4 py-2 rounded-[8px] text-[13px] font-medium',
+              'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
+              'hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-all duration-150',
+            )}
+          >
+            {t('review_action_reject')}
+          </button>
+          {/* Override — only shown when override mode active */}
+          {mode === 'override' && canOverride && (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitDisabled}
+              className={cn(
+                'px-4 py-2 rounded-[8px] text-[13px] font-semibold',
+                'border border-[var(--accent)] bg-[var(--accent)] text-white',
+                'hover:brightness-110 transition-all duration-150',
+                'disabled:opacity-50 disabled:cursor-not-allowed disabled:brightness-100',
+              )}
+            >
+              {t('review_action_override')}
+            </button>
           )}
-        >
-          Confirm classification
-        </button>
+          {/* Approve current */}
+          {mode !== 'override' && (
+            <button
+              type="button"
+              onClick={() => onAccept(item)}
+              className={cn(
+                'px-5 py-2 rounded-[8px] text-[13.5px] font-semibold',
+                'bg-[var(--accent)] text-white border border-[var(--accent)]',
+                'hover:brightness-110 transition-all duration-150',
+              )}
+            >
+              {t('review_action_approve')}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -885,7 +889,10 @@ export default function ReviewDialog({
   if (typeof document === 'undefined') return null;
   if (!open && !item) return null;
 
-  const isValueCheck = item?.flagType === 'value';
+  // Prefer the explicit reason field; fall back to legacy flagType for backwards compat
+  const isValueCheck =
+    item?.reason === 'sanity_flag' ||
+    (item?.reason == null && item?.flagType === 'value');
 
   const overlay = (
     <div
@@ -933,6 +940,7 @@ export default function ReviewDialog({
               reviewedCount={reviewedCount}
               onPrev={onPrev}
               onSkip={onSkip}
+              onAccept={onAccept}
               onPick={onPick}
               onDismiss={onDismiss}
               onClose={handleClose}
