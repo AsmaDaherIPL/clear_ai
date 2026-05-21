@@ -500,7 +500,7 @@
   "batch_action_new_upload": "رفع MAWB جديد",
   "batch_action_declaration_bundle": "تنزيل ملفات XML قبل البيان",
   "batch_review_queue_label": "طابور المراجعة",
-  "batch_review_queue_cta": "فتح طابور الحل",
+  "batch_review_queue_cta": "حل المُعلَّمة",
   "batch_review_queue_below_threshold": "بنود أدنى من عتبة الثقة تتطلب مراجعة يدوية.",
   "batch_review_queue_breakdown": "{low_conf} ثقة منخفضة · {value_flag} احتمالية القيمة"
 }

@@ -500,7 +500,7 @@
   "batch_action_new_upload": "Upload new MAWB",
   "batch_action_declaration_bundle": "Download pre-Bayan XMLs",
   "batch_review_queue_label": "REVIEW QUEUE",
-  "batch_review_queue_cta": "Open resolve queue",
+  "batch_review_queue_cta": "Resolve flagged",
   "batch_review_queue_below_threshold": "Items below confidence threshold require manual review.",
   "batch_review_queue_breakdown": "{low_conf} low confidence · {value_flag} value plausibility"
 }
