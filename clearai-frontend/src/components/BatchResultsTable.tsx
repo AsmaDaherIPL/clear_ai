@@ -423,12 +423,22 @@ function PlausibilityCell({ item, isComplete }: { item: BatchItem; isComplete: b
  */
 function DutyCell({ item }: { item: BatchItem }) {
   const duty = (item as unknown as Record<string, unknown>).duty_info as {
-    rate?: number | null;
+    rate_percent?: number | null;
     status?: string | null;
   } | null | undefined;
 
   if (!duty) return <span className="text-[var(--ink-3)] text-[12.5px]">—</span>;
 
+  // Primary: numeric rate
+  if (duty.rate_percent != null) {
+    return (
+      <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)]">
+        {duty.rate_percent}%
+      </span>
+    );
+  }
+
+  // Fallback: status string when rate_percent is null
   if (duty.status === 'exempted') {
     return (
       <span className="font-mono text-[11.5px] text-[oklch(0.42_0.12_155)]">Exempt</span>
@@ -441,11 +451,9 @@ function DutyCell({ item }: { item: BatchItem }) {
     );
   }
 
-  if (duty.rate != null) {
+  if (duty.status) {
     return (
-      <span className="font-mono text-[12.5px] tabular-nums text-[var(--ink)]">
-        {duty.rate}%
-      </span>
+      <span className="font-mono text-[11.5px] text-[var(--ink-2)] capitalize">{duty.status}</span>
     );
   }
 
