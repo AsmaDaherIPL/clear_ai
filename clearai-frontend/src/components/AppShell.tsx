@@ -173,7 +173,7 @@ function NavRow({
         background: isActive ? '#fff1e5' : 'transparent',
         color: isActive ? '#7a3000' : '#7a6d65',
         border: 0,
-        padding: collapsed ? '12px 0' : '11px 14px',
+        padding: collapsed ? '10px 0' : '10px 12px',
         borderRadius: 10,
         display: 'flex',
         alignItems: 'center',
@@ -253,7 +253,7 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
     });
   }
 
-  const W = collapsed ? 72 : 248;
+  const W = collapsed ? 54 : 186;
 
   return (
     <TooltipProvider>
@@ -277,10 +277,10 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
       >
         {/* Header: collapse toggle only — wordmark lives in the top bar */}
         <div style={{
-          padding: '18px 0',
+          padding: '14px 10px',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
           flexShrink: 0,
         }}>
           <Tooltip delayDuration={100}>
@@ -322,7 +322,7 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
 
         {/* Nav items */}
         <nav style={{
-          padding: collapsed ? '8px 8px' : '8px 12px',
+          padding: collapsed ? '8px 6px' : '8px 10px',
           display: 'flex',
           flexDirection: 'column',
           gap: 4,
@@ -344,7 +344,7 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
         {/* Footer: user profile */}
         {authReady && (
           <div style={{
-            padding: collapsed ? '12px 8px' : '12px 14px',
+            padding: collapsed ? '12px 6px' : '12px 10px',
             borderTop: '1px solid #ede4dc',
             flexShrink: 0,
           }}>
