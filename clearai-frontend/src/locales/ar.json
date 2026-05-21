@@ -487,8 +487,6 @@
   "batch_results_title": "نتائج إعلان ما قبل البيان",
   "batch_results_subtitle_suffix": "",
   "batch_stat_items": "البنود",
-  "batch_stat_items_sub": "",
-  "batch_stat_items_sub_partial": "{pct}% تمت معالجتها",
   "batch_stat_succeeded": "ناجحة",
   "batch_stat_succeeded_sub": "",
   "batch_stat_flagged": "مُعلَّمة",

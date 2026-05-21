@@ -466,17 +466,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                       ? `${items.filter((i) => i.classification_result != null || i.error).length}/${summary.row_count}`
                       : rowCount}
                   </div>
-                  {isPolling && summary.row_count && (
-                    <div className="text-[12px] mt-1.5 text-[var(--accent-ink)]">
-                      {t('batch_stat_items_sub_partial').replace(
-                        '{pct}',
-                        Math.round(
-                          (items.filter((i) => i.classification_result != null || i.error).length /
-                            summary.row_count) * 100,
-                        ).toString(),
-                      )}
-                    </div>
-                  )}
                 </div>
 
                 {/* Succeeded */}

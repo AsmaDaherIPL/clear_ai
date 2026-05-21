@@ -487,8 +487,6 @@
   "batch_results_title": "Pre-bayan declaration results",
   "batch_results_subtitle_suffix": "",
   "batch_stat_items": "ITEMS",
-  "batch_stat_items_sub": "",
-  "batch_stat_items_sub_partial": "{pct}% processed",
   "batch_stat_succeeded": "SUCCEEDED",
   "batch_stat_succeeded_sub": "",
   "batch_stat_flagged": "FLAGGED",
