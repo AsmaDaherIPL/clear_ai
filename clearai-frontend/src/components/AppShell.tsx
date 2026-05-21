@@ -274,22 +274,14 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
           overflow: 'hidden',
         }}
       >
-        {/* Header: wordmark + collapse toggle */}
+        {/* Header: collapse toggle only — wordmark lives in the top bar */}
         <div style={{
-          padding: collapsed ? '18px 0' : '18px 18px 14px',
+          padding: '18px 0',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: collapsed ? 'center' : 'space-between',
-          gap: 8,
+          justifyContent: 'center',
           flexShrink: 0,
         }}>
-          {collapsed ? (
-            <a href="/classify" style={{ display: 'inline-flex', alignItems: 'center', outline: 'none' }}>
-              <Logo size={22} />
-            </a>
-          ) : (
-            <WordMark size={22} />
-          )}
           <Tooltip delayDuration={100}>
             <TooltipTrigger asChild>
               <button

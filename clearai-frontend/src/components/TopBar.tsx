@@ -63,25 +63,39 @@ export default function TopBar({ className }: TopBarProps) {
     >
       <div className="max-w-[1180px] mx-auto px-7 py-[18px] flex items-center justify-between gap-6">
         <a
-          href="/"
-          className="inline-flex items-center gap-2.5 font-semibold text-base tracking-tight text-[var(--ink)] no-underline"
+          href="/classify"
+          className="inline-flex items-center gap-2.5 no-underline outline-none"
+          style={{ flexShrink: 0 }}
         >
-          <svg
-            width="22"
-            height="23"
-            viewBox="0 0 60 63"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            className="flex-shrink-0"
-            aria-hidden="true"
-          >
-            <rect width="60" height="11.55" rx="2.8" fill="currentColor" />
-            <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="currentColor" fillOpacity={0.7} />
-            <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="currentColor" fillOpacity={0.4} />
-            <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="var(--accent)" />
-            <circle cx="52.125" cy="57.225" r="3.5" fill="var(--bg)" fillOpacity={0.9} />
+          {/* Full-color logo — matches sidebar WordMark exactly */}
+          <svg width="22" height={22 * (63 / 60)} viewBox="0 0 60 63" fill="none" aria-hidden xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+            <rect width="60" height="11.55" rx="2.8" fill="#15110D" />
+            <circle cx="12" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+            <circle cx="26" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+            <circle cx="40" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+            <circle cx="52" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
+            <rect x="12.75" y="17.15" width="47.25" height="11.55" rx="2.8" fill="#15110D" fillOpacity="0.7" />
+            <circle cx="25" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+            <circle cx="38" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+            <circle cx="51" cy="22.925" r="2.2" fill="#15110D" fillOpacity="0.2" />
+            <rect x="28.5" y="34.3" width="31.5" height="11.55" rx="2.8" fill="#594028" fillOpacity="0.4" />
+            <circle cx="38" cy="40.075" r="2.2" fill="#594028" fillOpacity="0.35" />
+            <circle cx="50" cy="40.075" r="2.2" fill="#594028" fillOpacity="0.35" />
+            <rect x="44.25" y="51.45" width="15.75" height="11.55" rx="2.8" fill="#b8551b" />
+            <circle cx="52.125" cy="57.225" r="2.6" fill="white" fillOpacity="0.9" />
           </svg>
-          <span>{t('brand')}</span>
+          <span
+            style={{
+              fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+              fontWeight: 700,
+              fontSize: 17,
+              letterSpacing: '-0.01em',
+              color: '#231915',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {t('brand')}
+          </span>
         </a>
 
         <div className="flex items-center gap-3">
