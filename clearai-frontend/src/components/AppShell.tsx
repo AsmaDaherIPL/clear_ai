@@ -283,7 +283,13 @@ export default function AppShell({ activePageId, children }: AppShellProps) {
           gap: 8,
           flexShrink: 0,
         }}>
-          {!collapsed && <WordMark size={22} />}
+          {collapsed ? (
+            <a href="/classify" style={{ display: 'inline-flex', alignItems: 'center', outline: 'none' }}>
+              <Logo size={22} />
+            </a>
+          ) : (
+            <WordMark size={22} />
+          )}
           <Tooltip delayDuration={100}>
             <TooltipTrigger asChild>
               <button

@@ -377,177 +377,175 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
         )}
       >
         {/* ----------------------------------------------------------------
-            Panel header — matches prototype: big title + subtitle + buttons
+            Panel header — title + subtitle only (no buttons here)
         ---------------------------------------------------------------- */}
         <div className="relative pb-5">
-          {/* Title row */}
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              {/* Big title — same as prototype "Classification results" */}
-              <h2 className="m-0 text-[36px] leading-tight font-bold tracking-[-0.02em] text-[var(--ink)]">
-                {t('batch_results_title')}
-              </h2>
-
-              {/* Subtitle */}
-              {summary && (
-                <p className="m-0 mt-1.5 text-[14px] text-[var(--ink-2)]">
-                  {(summary as unknown as Record<string, unknown>).file_name != null && (
-                    <>{String((summary as unknown as Record<string, unknown>).file_name)} · </>
-                  )}
-                  {rowCount} {rowCount === 1 ? 'item' : 'items'} · {t('batch_results_subtitle_suffix')}
-                </p>
-              )}
-            </div>
-
-            {/* Right rail — action buttons */}
-            <div className="flex items-center gap-2.5 shrink-0 pt-1">
-              {canReset && onReset && (
-                <button
-                  type="button"
-                  onClick={onReset}
-                  className={cn(
-                    'inline-flex items-center gap-2 px-4 py-2 rounded-[10px]',
-                    'border border-[var(--line)] bg-[var(--surface)]',
-                    'text-[13.5px] font-medium text-[var(--ink-2)]',
-                    'hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
-                    'transition-colors duration-150',
-                  )}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="rtl:scale-x-[-1]">
-                    <path d="M21 12a9 9 0 1 1-3-6.7" />
-                    <path d="M21 4v5h-5" />
-                  </svg>
-                  {t('batch_action_new_upload')}
-                </button>
-              )}
-
-              {/* Declaration bundle button */}
-              {runDone && (() => {
-                const xmlFiles = (downloadLinks?.files ?? []).filter((f) => f.name.endsWith('.xml'));
-                const lvFiles = xmlFiles.filter((f) => f.name.startsWith('lv/'));
-                const hvFiles = xmlFiles.filter((f) => f.name.startsWith('hv/'));
-                const hasXml = lvFiles.length > 0 || hvFiles.length > 0;
-                if (!hasXml) return null;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadBundle(state.runId!, [...lvFiles, ...hvFiles])}
-                    disabled={bundleDownloading}
-                    className={cn(
-                      'inline-flex items-center gap-2 px-4 py-2 rounded-[10px]',
-                      'bg-[var(--accent)] text-white border border-[var(--accent)]',
-                      'text-[13.5px] font-semibold',
-                      'hover:brightness-110 active:brightness-95 transition-all duration-150',
-                      'disabled:opacity-50 disabled:cursor-progress',
-                    )}
-                  >
-                    {bundleDownloading ? (
-                      <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" aria-hidden />
-                    ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                      </svg>
-                    )}
-                    {t('batch_action_declaration_bundle')}
-                  </button>
-                );
-              })()}
-
-              {isPolling && (
-                <div className="w-[22px] h-[22px] rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin" aria-hidden />
-              )}
-            </div>
+          {/* Title only — buttons have moved down to sit with the stat strip */}
+          <div className="min-w-0">
+            <h2 className="m-0 text-[36px] leading-tight font-bold tracking-[-0.02em] text-[var(--ink)]">
+              {t('batch_results_title')}
+            </h2>
+            {summary && (
+              <p className="m-0 mt-1.5 text-[14px] text-[var(--ink-2)]">
+                {(summary as unknown as Record<string, unknown>).file_name != null && (
+                  <>{String((summary as unknown as Record<string, unknown>).file_name)} · </>
+                )}
+                {rowCount} {rowCount === 1 ? 'item' : 'items'} · {t('batch_results_subtitle_suffix')}
+              </p>
+            )}
           </div>
 
           {/* ----------------------------------------------------------------
-              Stat strip — flat, no card borders, prototype-exact.
-              4 columns: Items · Succeeded · Flagged · Bayans
-              Separated by thin vertical dividers, not box borders.
+              Stat strip + action buttons on the same row.
+              Stats grow left; buttons are pinned right.
+              4 stat columns: Items · Succeeded · Flagged · Bayans
           ---------------------------------------------------------------- */}
           {summary && (
-            <div className="mt-6 flex items-stretch divide-x divide-[var(--line-2)]">
-              {/* Items */}
-              <div className="pe-8 min-w-[120px]">
-                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
-                  {t('batch_stat_items')}
-                </div>
-                <div className="text-[28px] font-bold tracking-[-0.02em] text-[var(--ink)] leading-none">
-                  {summary.row_count
-                    ? `${items.filter((i) => i.classification_result != null || i.error).length}/${summary.row_count}`
-                    : rowCount}
-                </div>
-                <div className={cn('text-[12px] mt-1.5', isPolling ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-3)]')}>
-                  {isPolling && summary.row_count
-                    ? t('batch_stat_items_sub_partial').replace(
-                        '{pct}',
-                        Math.round(
-                          (items.filter((i) => i.classification_result != null || i.error).length /
-                            summary.row_count) * 100,
-                        ).toString(),
-                      )
-                    : t('batch_stat_items_sub')}
-                </div>
-              </div>
-
-              {/* Succeeded */}
-              <div className="px-8 min-w-[120px]">
-                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
-                  {t('batch_stat_succeeded')}
-                </div>
-                <div className="text-[28px] font-bold tracking-[-0.02em] text-[oklch(0.42_0.15_140)] leading-none">
-                  {classifiedWithCode}
-                </div>
-                <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
-                  {t('batch_stat_succeeded_sub')}
-                </div>
-              </div>
-
-              {/* Flagged */}
-              <div className="px-8 min-w-[120px]">
-                <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
-                  {t('batch_stat_flagged')}
-                </div>
-                <div className="text-[28px] font-bold tracking-[-0.02em] text-[oklch(0.50_0.16_60)] leading-none">
-                  {flaggedCount}
-                </div>
-                <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
-                  {t('batch_stat_flagged_sub')}
-                </div>
-              </div>
-
-              {/* Generated Bayans */}
-              {(() => {
-                const xmlFiles = (downloadLinks?.files ?? []).filter((f) => f.name.endsWith('.xml'));
-                const lvCount = xmlFiles.filter((f) => f.name.startsWith('lv/')).length;
-                const hvCount = xmlFiles.filter((f) => f.name.startsWith('hv/')).length;
-                return (
-                  <div className="ps-8 min-w-[140px]">
-                    <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
-                      {t('batch_stat_bayans')}
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {hvCount > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[oklch(0.93_0.05_30)] text-[oklch(0.40_0.13_30)] text-[14px] font-bold font-mono">
-                          {hvCount} <span className="text-[12px] font-semibold">{t('batch_hv_label')}</span>
-                        </span>
-                      )}
-                      {lvCount > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[oklch(0.93_0.06_140)] text-[oklch(0.35_0.12_140)] text-[14px] font-bold font-mono">
-                          {lvCount} <span className="text-[12px] font-semibold">{t('batch_lv_label')}</span>
-                        </span>
-                      )}
-                      {lvCount === 0 && hvCount === 0 && (
-                        <span className="text-[24px] font-bold tracking-[-0.02em] text-[var(--ink-3)] leading-none">—</span>
-                      )}
-                    </div>
-                    <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
-                      {t('batch_stat_bayans_sub')}
-                    </div>
+            <div className="mt-6 flex items-end gap-6">
+              {/* Stat columns — left side */}
+              <div className="flex items-stretch divide-x divide-[var(--line-2)] flex-1 min-w-0">
+                {/* Items */}
+                <div className="pe-8 min-w-[110px]">
+                  <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
+                    {t('batch_stat_items')}
                   </div>
-                );
-              })()}
+                  <div className="text-[28px] font-bold tracking-[-0.02em] text-[var(--ink)] leading-none">
+                    {summary.row_count
+                      ? `${items.filter((i) => i.classification_result != null || i.error).length}/${summary.row_count}`
+                      : rowCount}
+                  </div>
+                  <div className={cn('text-[12px] mt-1.5', isPolling ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-3)]')}>
+                    {isPolling && summary.row_count
+                      ? t('batch_stat_items_sub_partial').replace(
+                          '{pct}',
+                          Math.round(
+                            (items.filter((i) => i.classification_result != null || i.error).length /
+                              summary.row_count) * 100,
+                          ).toString(),
+                        )
+                      : t('batch_stat_items_sub')}
+                  </div>
+                </div>
+
+                {/* Succeeded */}
+                <div className="px-8 min-w-[110px]">
+                  <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
+                    {t('batch_stat_succeeded')}
+                  </div>
+                  <div className="text-[28px] font-bold tracking-[-0.02em] text-[oklch(0.42_0.15_140)] leading-none">
+                    {classifiedWithCode}
+                  </div>
+                  <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
+                    {t('batch_stat_succeeded_sub')}
+                  </div>
+                </div>
+
+                {/* Flagged */}
+                <div className="px-8 min-w-[110px]">
+                  <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
+                    {t('batch_stat_flagged')}
+                  </div>
+                  <div className="text-[28px] font-bold tracking-[-0.02em] text-[oklch(0.50_0.16_60)] leading-none">
+                    {flaggedCount}
+                  </div>
+                  <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
+                    {t('batch_stat_flagged_sub')}
+                  </div>
+                </div>
+
+                {/* Generated Bayans */}
+                {(() => {
+                  const xmlFiles = (downloadLinks?.files ?? []).filter((f) => f.name.endsWith('.xml'));
+                  const lvCount = xmlFiles.filter((f) => f.name.startsWith('lv/')).length;
+                  const hvCount = xmlFiles.filter((f) => f.name.startsWith('hv/')).length;
+                  return (
+                    <div className="ps-8 min-w-[130px]">
+                      <div className="text-[10px] font-semibold tracking-[0.10em] uppercase text-[var(--ink-3)] mb-1.5">
+                        {t('batch_stat_bayans')}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {hvCount > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[oklch(0.93_0.05_30)] text-[oklch(0.40_0.13_30)] text-[14px] font-bold font-mono">
+                            {hvCount} <span className="text-[12px] font-semibold">{t('batch_hv_label')}</span>
+                          </span>
+                        )}
+                        {lvCount > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[oklch(0.93_0.06_140)] text-[oklch(0.35_0.12_140)] text-[14px] font-bold font-mono">
+                            {lvCount} <span className="text-[12px] font-semibold">{t('batch_lv_label')}</span>
+                          </span>
+                        )}
+                        {lvCount === 0 && hvCount === 0 && (
+                          <span className="text-[24px] font-bold tracking-[-0.02em] text-[var(--ink-3)] leading-none">—</span>
+                        )}
+                      </div>
+                      <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
+                        {t('batch_stat_bayans_sub')}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Action buttons — right side, vertically aligned with stat bottoms */}
+              <div className="flex items-center gap-2.5 shrink-0 pb-[2px]">
+                {canReset && onReset && (
+                  <button
+                    type="button"
+                    onClick={onReset}
+                    className={cn(
+                      'inline-flex items-center gap-2 px-4 py-2 rounded-[10px]',
+                      'border border-[var(--line)] bg-[var(--surface)]',
+                      'text-[13.5px] font-medium text-[var(--ink-2)]',
+                      'hover:border-[var(--ink-3)] hover:text-[var(--ink)]',
+                      'transition-colors duration-150',
+                    )}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="rtl:scale-x-[-1]">
+                      <path d="M21 12a9 9 0 1 1-3-6.7" />
+                      <path d="M21 4v5h-5" />
+                    </svg>
+                    {t('batch_action_new_upload')}
+                  </button>
+                )}
+
+                {/* Download pre-Bayan XMLs button */}
+                {runDone && (() => {
+                  const xmlFiles = (downloadLinks?.files ?? []).filter((f) => f.name.endsWith('.xml'));
+                  const lvFiles = xmlFiles.filter((f) => f.name.startsWith('lv/'));
+                  const hvFiles = xmlFiles.filter((f) => f.name.startsWith('hv/'));
+                  const hasXml = lvFiles.length > 0 || hvFiles.length > 0;
+                  if (!hasXml) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadBundle(state.runId!, [...lvFiles, ...hvFiles])}
+                      disabled={bundleDownloading}
+                      className={cn(
+                        'inline-flex items-center gap-2 px-4 py-2 rounded-[10px]',
+                        'bg-[var(--accent)] text-white border border-[var(--accent)]',
+                        'text-[13.5px] font-semibold',
+                        'hover:brightness-110 active:brightness-95 transition-all duration-150',
+                        'disabled:opacity-50 disabled:cursor-progress',
+                      )}
+                    >
+                      {bundleDownloading ? (
+                        <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" aria-hidden />
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                      )}
+                      {t('batch_action_declaration_bundle')}
+                    </button>
+                  );
+                })()}
+
+                {isPolling && (
+                  <div className="w-[22px] h-[22px] rounded-full border-2 border-[var(--line)] border-t-[var(--accent)] animate-spin" aria-hidden />
+                )}
+              </div>
             </div>
           )}
 
