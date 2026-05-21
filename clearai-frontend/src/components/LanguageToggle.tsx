@@ -1,34 +1,29 @@
-/** Pill button that flips locale en ↔ ar via the i18n store. */
+/**
+ * Language indicator — EN only for now. AR is display-only and non-interactive.
+ * Switching to AR is disabled until RTL launch is ready.
+ */
 
-import { useT, getLocale, setLocale, locales, type Locale } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 interface LanguageToggleProps {
   className?: string;
-  /** When false (sidebar collapsed), hides the text label. Default true. */
   showLabel?: boolean;
 }
 
-export default function LanguageToggle({ className, showLabel = true }: LanguageToggleProps) {
+export default function LanguageToggle({ className }: LanguageToggleProps) {
   const t = useT();
-  const current = getLocale();
-  const other = (current === 'en' ? 'ar' : 'en') as Locale;
-  const otherLabel = locales[other].label;
 
   return (
-    <button
-      type="button"
-      aria-label={`Switch to ${otherLabel}`}
-      onClick={() => setLocale(other)}
+    <div
       className={cn(
         'inline-flex items-center gap-1.5',
         'px-3 py-1.5 rounded-full',
         'bg-[var(--surface)] border border-[var(--line)]',
-        'text-[13px] font-medium text-[var(--ink-2)]',
-        'transition-colors duration-150',
-        'hover:bg-[var(--line-2)] hover:border-[var(--ink-3)]',
+        'text-[13px] font-medium select-none',
         className,
       )}
+      aria-label={t('langLabel')}
     >
       <svg
         viewBox="0 0 24 24"
@@ -37,13 +32,15 @@ export default function LanguageToggle({ className, showLabel = true }: Language
         strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="w-3.5 h-3.5 flex-shrink-0 opacity-70"
+        className="w-3.5 h-3.5 flex-shrink-0 opacity-50"
         aria-hidden="true"
       >
         <circle cx="12" cy="12" r="9" />
         <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
       </svg>
-      {showLabel && <span className="sidebar-label">{t('langLabel')}</span>}
-    </button>
+      <span className="text-[var(--ink)]">EN</span>
+      <span className="text-[var(--ink-3)]">/</span>
+      <span className="text-[var(--ink-3)] opacity-40">AR</span>
+    </div>
   );
 }
