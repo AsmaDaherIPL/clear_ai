@@ -285,8 +285,9 @@ function CodeBreakdownModal({ item, lineNumber, onClose }: CodeBreakdownModalPro
             onClick={onClose}
             className={cn(
               'inline-flex items-center px-4 py-2 rounded-[8px] text-[13px] font-semibold',
-              'bg-[#231915] text-white hover:bg-[#3a2a22] transition-colors duration-150',
+              'bg-[#231915] hover:bg-[#3a2a22] transition-colors duration-150',
             )}
+            style={{ color: '#ffffff' }}
           >
             {t('batch_code_breakdown_close' as TKey)}
           </button>
