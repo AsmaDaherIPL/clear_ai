@@ -145,7 +145,7 @@
   "batch_col_classified_code": "Classified Code",
   "batch_col_confidence": "Conf.",
   "batch_col_classified_code_breakdown": "Classified code breakdown",
-  "batch_col_plausibility": "Plausibility",
+  "batch_col_value_plausibility": "Value Plausibility",
   "batch_col_zatca_submission": "ZATCA Description",
   "batch_col_duty": "Duty",
   "batch_col_value_plausibility_verdict": "Value plausibility verdict",

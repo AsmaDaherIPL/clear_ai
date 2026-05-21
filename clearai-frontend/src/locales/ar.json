@@ -145,7 +145,7 @@
   "batch_col_classified_code": "رمز التصنيف",
   "batch_col_confidence": "الثقة",
   "batch_col_classified_code_breakdown": "تفاصيل التصنيف",
-  "batch_col_plausibility": "المعقولية",
+  "batch_col_value_plausibility": "معقولية القيمة",
   "batch_col_zatca_submission": "وصف زاتكا",
   "batch_col_duty": "الرسوم",
   "batch_col_value_plausibility_verdict": "تقييم معقولية القيمة",

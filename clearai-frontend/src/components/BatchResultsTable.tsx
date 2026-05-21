@@ -600,26 +600,6 @@ export default function BatchResultsTable({
       },
     },
 
-    // PLAUSIBILITY (visible by default)
-    {
-      id: 'plausibility',
-      header: t('batch_col_plausibility' as TKey),
-      enableSorting: true,
-      accessorFn: (row) => itemBucket(row, isComplete),
-      size: 110,
-      minSize: 90,
-      maxSize: 160,
-      filterFn: (row, _id, value) => {
-        const b = itemBucket(row.original, isComplete);
-        // "flagged" chip = only plausibility FLAG/BLOCK rows
-        if (value === 'flagged') return b === 'flagged' || b === 'blocked';
-        // "passed" chip = any row that has a resolved HS code (succeeded + flagged)
-        if (value === 'passed') return b === 'succeeded' || b === 'flagged' || b === 'blocked';
-        return true;
-      },
-      cell: ({ row }) => <PlausibilityCell item={row.original} isComplete={isComplete} />,
-    },
-
     // ZATCA DESCRIPTION
     {
       id: 'submission_ar',
@@ -657,6 +637,26 @@ export default function BatchResultsTable({
       minSize: 60,
       maxSize: 120,
       cell: ({ row }) => <DutyCell item={row.original} />,
+    },
+
+    // VALUE PLAUSIBILITY (moved after duty)
+    {
+      id: 'plausibility',
+      header: t('batch_col_value_plausibility' as TKey),
+      enableSorting: true,
+      accessorFn: (row) => itemBucket(row, isComplete),
+      size: 130,
+      minSize: 100,
+      maxSize: 180,
+      filterFn: (row, _id, value) => {
+        const b = itemBucket(row.original, isComplete);
+        // "flagged" chip = only plausibility FLAG/BLOCK rows
+        if (value === 'flagged') return b === 'flagged' || b === 'blocked';
+        // "passed" chip = any row that has a resolved HS code (succeeded + flagged)
+        if (value === 'passed') return b === 'succeeded' || b === 'flagged' || b === 'blocked';
+        return true;
+      },
+      cell: ({ row }) => <PlausibilityCell item={row.original} isComplete={isComplete} />,
     },
 
     // ACTIONS — eye icon always, flag icon for flagged rows
