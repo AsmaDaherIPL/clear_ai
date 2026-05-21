@@ -569,6 +569,7 @@ function ValueCheckBody({
   const canFlag = notes.trim().length >= 10;
   const hasQueue = queueLength != null && queueIndex != null;
   const isFirst = hasQueue && queueIndex === 0;
+  const isSingle = queueLength === 1;
 
   const confidencePct = item.currentConfidence != null
     ? Math.round(item.currentConfidence * 100)
@@ -637,19 +638,19 @@ function ValueCheckBody({
 
           {/* Declared value + pipeline code two-col */}
           <div
-            className="grid rounded-[10px] overflow-hidden border border-[var(--line)]"
+            className="grid rounded-[10px] border border-[var(--line)]"
             style={{ gridTemplateColumns: '1fr 1fr', gap: '1px', background: 'var(--line)' }}
           >
-            <div className="px-4 py-4 bg-[var(--surface)]">
+            <div className="px-4 py-4 bg-[var(--surface)] rounded-s-[9px]">
               <div className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)] mb-2">
                 Declared Value
               </div>
               {item.value ? (
-                <div className="flex items-baseline gap-2">
-                  <span className="font-mono text-[26px] font-bold tabular-nums text-[#A3590F] leading-none">
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="font-mono text-[26px] font-bold tabular-nums text-[#A3590F] leading-[1.2]">
                     {fmtAmount(item.value.amount)}
                   </span>
-                  <span className="font-mono text-[13px] text-[var(--ink-3)]">
+                  <span className="font-mono text-[13px] text-[var(--ink-3)] shrink-0">
                     {item.value.currency}
                   </span>
                 </div>
@@ -657,7 +658,7 @@ function ValueCheckBody({
                 <div className="text-[14px] text-[var(--ink-3)]">—</div>
               )}
             </div>
-            <div className="px-4 py-4 bg-[var(--surface)]">
+            <div className="px-4 py-4 bg-[var(--surface)] rounded-e-[9px]">
               <div className="font-mono text-[10px] uppercase tracking-[0.10em] text-[var(--ink-3)] mb-2">
                 Pipeline Code
               </div>
@@ -697,10 +698,7 @@ function ValueCheckBody({
           {/* Notes */}
           <div>
             <label className="font-mono text-[10px] text-[var(--ink-3)] tracking-[0.10em] uppercase block mb-1.5">
-              Notes{' '}
-              <span className="normal-case font-normal tracking-normal">
-                — Required if flagging (10+ chars)
-              </span>
+              Notes
             </label>
             <textarea
               value={notes}
@@ -715,14 +713,6 @@ function ValueCheckBody({
                 'resize-none',
               )}
             />
-            <div className="flex justify-end mt-1">
-              <span className={cn(
-                'font-mono text-[11px] tabular-nums',
-                notes.length > 0 && !canFlag ? 'text-[oklch(0.50_0.18_25)]' : 'text-[var(--ink-3)]',
-              )}>
-                {notes.trim().length} / 10 min for flag
-              </span>
-            </div>
           </div>
         </div>
 
@@ -745,17 +735,19 @@ function ValueCheckBody({
               </svg>
               Previous
             </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              className={cn(
-                'px-3.5 py-2 rounded-[8px] text-[13px]',
-                'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
-                'hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-all duration-150',
-              )}
-            >
-              Skip
-            </button>
+            {!isSingle && (
+              <button
+                type="button"
+                onClick={onSkip}
+                className={cn(
+                  'px-3.5 py-2 rounded-[8px] text-[13px]',
+                  'border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-2)]',
+                  'hover:border-[var(--ink-3)] hover:text-[var(--ink)] transition-all duration-150',
+                )}
+              >
+                Skip
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
