@@ -105,8 +105,6 @@ function buildBreakdown(finalCode: string | null, pathEn: string | null): Breakd
   if (digits.length >= 2) rows.push({ code: digits.slice(0, 2),  label: 'Chapter',    abbr: 'CH', description: segments[0] ?? '—' });
   if (digits.length >= 4) rows.push({ code: digits.slice(0, 4),  label: 'Heading',    abbr: 'HD', description: segments[1] ?? segments[0] ?? '—' });
   if (digits.length >= 6) rows.push({ code: digits.slice(0, 6),  label: 'Subheading', abbr: 'SH', description: segments[2] ?? segments[1] ?? '—' });
-  if (digits.length >= 8) rows.push({ code: digits.slice(0, 8),  label: 'National',   abbr: 'NT', description: segments[3] ?? segments[2] ?? '—' });
-  if (digits.length >= 10) rows.push({ code: digits.slice(0, 10), label: 'Statistical', abbr: 'ST', description: segments[4] ?? segments[3] ?? '—' });
   if (digits.length === 12) {
     rows.push({ code: digits, label: 'Tariff', abbr: 'TR', description: segments[segments.length - 1] ?? '—' });
     if (rows.length > 1 && rows[rows.length - 2].code === digits) {
@@ -286,8 +284,8 @@ function CodeBreakdownModal({ item, lineNumber, onClose }: CodeBreakdownModalPro
             type="button"
             onClick={onClose}
             className={cn(
-              'inline-flex items-center px-4 py-2 rounded-[8px] text-[13px] font-medium',
-              'bg-[var(--ink)] text-[var(--bg)] hover:opacity-85 transition-opacity',
+              'inline-flex items-center px-4 py-2 rounded-[8px] text-[13px] font-semibold',
+              'bg-[#231915] text-white hover:bg-[#3a2a22] transition-colors duration-150',
             )}
           >
             {t('batch_code_breakdown_close' as TKey)}
