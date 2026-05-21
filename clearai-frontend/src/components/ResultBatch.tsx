@@ -445,14 +445,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
             <h2 className="m-0 text-[36px] leading-tight font-bold tracking-[-0.02em] text-[var(--ink)]">
               {t('batch_results_title')}
             </h2>
-            {summary && (
-              <p className="m-0 mt-1.5 text-[14px] text-[var(--ink-2)]">
-                {(summary as unknown as Record<string, unknown>).file_name != null && (
-                  <>{String((summary as unknown as Record<string, unknown>).file_name)} · </>
-                )}
-                {rowCount} {rowCount === 1 ? 'item' : 'items'} · {t('batch_results_subtitle_suffix')}
-              </p>
-            )}
           </div>
 
           {/* ----------------------------------------------------------------
@@ -474,17 +466,17 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                       ? `${items.filter((i) => i.classification_result != null || i.error).length}/${summary.row_count}`
                       : rowCount}
                   </div>
-                  <div className={cn('text-[12px] mt-1.5', isPolling ? 'text-[var(--accent-ink)]' : 'text-[var(--ink-3)]')}>
-                    {isPolling && summary.row_count
-                      ? t('batch_stat_items_sub_partial').replace(
-                          '{pct}',
-                          Math.round(
-                            (items.filter((i) => i.classification_result != null || i.error).length /
-                              summary.row_count) * 100,
-                          ).toString(),
-                        )
-                      : t('batch_stat_items_sub')}
-                  </div>
+                  {isPolling && summary.row_count && (
+                    <div className="text-[12px] mt-1.5 text-[var(--accent-ink)]">
+                      {t('batch_stat_items_sub_partial').replace(
+                        '{pct}',
+                        Math.round(
+                          (items.filter((i) => i.classification_result != null || i.error).length /
+                            summary.row_count) * 100,
+                        ).toString(),
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Succeeded */}
@@ -495,9 +487,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                   <div className="text-[28px] font-bold tracking-[-0.02em] text-[oklch(0.42_0.15_140)] leading-none">
                     {classifiedWithCode}
                   </div>
-                  <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
-                    {t('batch_stat_succeeded_sub')}
-                  </div>
                 </div>
 
                 {/* Flagged */}
@@ -507,9 +496,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                   </div>
                   <div className="text-[28px] font-bold tracking-[-0.02em] text-[oklch(0.50_0.16_60)] leading-none">
                     {flaggedCount}
-                  </div>
-                  <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
-                    {t('batch_stat_flagged_sub')}
                   </div>
                 </div>
 
@@ -537,9 +523,6 @@ export default function ResultBatch({ visible, state, onReset, className }: Resu
                         {lvCount === 0 && hvCount === 0 && (
                           <span className="text-[24px] font-bold tracking-[-0.02em] text-[var(--ink-3)] leading-none">—</span>
                         )}
-                      </div>
-                      <div className="text-[12px] text-[var(--ink-3)] mt-1.5">
-                        {t('batch_stat_bayans_sub')}
                       </div>
                     </div>
                   );

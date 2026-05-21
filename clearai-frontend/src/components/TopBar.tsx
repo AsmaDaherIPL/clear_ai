@@ -61,13 +61,12 @@ export default function TopBar({ className }: TopBarProps) {
         className,
       )}
     >
-      <div className="max-w-[1180px] mx-auto px-7 py-[18px] flex items-center justify-between gap-6">
+      <div className="w-full px-8 py-[14px] flex items-center gap-6">
+        {/* Logo + wordmark */}
         <a
           href="/classify"
-          className="inline-flex items-center gap-2.5 no-underline outline-none"
-          style={{ flexShrink: 0 }}
+          className="inline-flex items-center gap-2.5 no-underline outline-none shrink-0"
         >
-          {/* Full-color logo — matches sidebar WordMark exactly */}
           <svg width="22" height={22 * (63 / 60)} viewBox="0 0 60 63" fill="none" aria-hidden xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
             <rect width="60" height="11.55" rx="2.8" fill="#15110D" />
             <circle cx="12" cy="5.775" r="2.2" fill="#15110D" fillOpacity="0.25" />
@@ -98,9 +97,14 @@ export default function TopBar({ className }: TopBarProps) {
           </span>
         </a>
 
-        <div className="flex items-center gap-3">
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Right group: user info + lang toggle */}
+        <div className="flex items-center gap-3 shrink-0">
+          <LanguageToggle />
           {authReady && accountName && (
-            <div className="flex items-center gap-2.5">
+            <>
               <span
                 className="text-[13px] text-[var(--ink-2)] max-w-[180px] truncate"
                 title={accountName}
@@ -114,10 +118,8 @@ export default function TopBar({ className }: TopBarProps) {
               >
                 {t('signout')}
               </button>
-            </div>
+            </>
           )}
-          {/* LanguageToggle hidden — will re-enable when i18n launch is ready */}
-          {/* <LanguageToggle /> */}
         </div>
       </div>
     </header>

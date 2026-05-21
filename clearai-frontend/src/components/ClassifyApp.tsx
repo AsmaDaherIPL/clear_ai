@@ -8,7 +8,7 @@ import ResultSingle from './ResultSingle';
 import ResultBatch from './ResultBatch';
 import Footer from './Footer';
 import { useAuthState, LoginCard } from './SignInGate';
-import { useT, getLocale, setLocale, type Locale } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import {
   api,
   ApiError,
@@ -985,8 +985,6 @@ export default function ClassifyApp({ initialMode }: ClassifyAppProps = {}) {
     return () => window.cancelAnimationFrame(raf);
   }, [phase]);
 
-  const locale = getLocale();
-
   /*
    * The classify page has two visual modes:
    *
@@ -1014,23 +1012,6 @@ export default function ClassifyApp({ initialMode }: ClassifyAppProps = {}) {
   return (
     <>
       <main className="w-full max-w-[min(95vw,1280px)] mx-auto px-8 pb-16 relative">
-
-        {/* EN / AR language toggle — fixed top-right, outside the flex-centre shell */}
-        <div className="absolute top-6 end-8 flex items-center gap-1.5 text-[13px] font-semibold z-10">
-          <button
-            type="button"
-            onClick={() => setLocale('en' as Locale)}
-            className="bg-transparent border-0 px-1 py-0.5 cursor-pointer font-[inherit] text-[inherit] transition-colors duration-[120ms]"
-            style={{ color: locale === 'en' ? '#231915' : '#a3958c' }}
-          >EN</button>
-          <span className="text-[#d9cdc2]">/</span>
-          <button
-            type="button"
-            onClick={() => setLocale('ar' as Locale)}
-            className="bg-transparent border-0 px-1 py-0.5 cursor-pointer font-[inherit] text-[inherit] transition-colors duration-[120ms]"
-            style={{ color: locale === 'ar' ? '#231915' : '#a3958c' }}
-          >AR</button>
-        </div>
 
         {/* ----------------------------------------------------------------
             Centering shell — vertically centres header + composer in idle;
