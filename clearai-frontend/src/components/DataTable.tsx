@@ -375,7 +375,7 @@ export function DataTable<T extends object>({
       {/* Toolbar: search + verdict chips                                */}
       {/* ------------------------------------------------------------- */}
       {(enableGlobalSearch || filterChips || filterExtra) && (
-        <div className="flex items-center gap-3 flex-wrap px-[22px] py-3 border-b border-[var(--line-2)]">
+        <div className="flex items-center gap-3 flex-wrap ps-[22px] pe-0 py-3 border-b border-[var(--line-2)]">
           {/* Filter chips — LEFT side (prototype order) */}
           {filterChips && (
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -418,9 +418,9 @@ export function DataTable<T extends object>({
             </div>
           )}
 
-          {/* Search — RIGHT side (prototype order) */}
+          {/* Search — RIGHT side, right edge aligned with table cell padding */}
           {enableGlobalSearch && (
-            <div className="relative ms-auto min-w-[200px] max-w-[280px]">
+            <div className="relative ms-auto me-[18px] min-w-[200px] max-w-[280px]">
               <Search
                 aria-hidden
                 className="absolute start-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--ink-3)] pointer-events-none"
