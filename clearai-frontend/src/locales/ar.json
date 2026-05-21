@@ -476,7 +476,7 @@
   "batch_title": "إنشاء بيان بيان",
   "batch_subtitle": "أسقط ملف CSV أو Excel أو JSON. سنصنّف كل سطر وفق رموز النظام المنسق ونُبرز البنود التي تتطلب مراجعة يدوية.",
   "drop_manifest_title": "أسقط بيانك هنا",
-  "drop_manifest_hint": "CSV أو Excel (.xlsx) · حتى 50 ميجابايت للملف",
+  "drop_manifest_hint": "CSV أو Excel (.xlsx) · حتى 25 ميجابايت للملف",
   "drop_csv_template": "تحميل قالب CSV",
   "batch_uploading_label": "جارٍ الرفع",
   "batch_step_upload": "رفع إلى وعاء مشفّر",
