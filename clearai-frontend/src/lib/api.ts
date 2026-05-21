@@ -856,9 +856,10 @@ export type DownloadLinks = BatchFilesList;
 
 // --- Review queue types ---
 
-export type ReviewReason = 'verdict_escalate' | 'sanity_flag' | 'low_information' | 'verifier_uncertain';
+export type ReviewReason = 'verdict_escalate' | 'sanity_flag' | 'low_confidence_band' | 'low_information' | 'verifier_uncertain';
 export type ReviewStatus = 'pending' | 'in_review' | 'resolved' | 'dismissed';
-export type ReviewDecision = 'approve' | 'override' | 'reject' | 'block_from_submission';
+export type ReviewDecision = 'approve' | 'override' | 'reject' | 'block_from_submission' | 'confirm_flag';
+export type ConfidenceBand = 'high' | 'moderate' | 'fair' | 'low' | 'no_result';
 export type CandidateFit = 'fits' | 'partial' | 'does_not_fit';
 
 export interface ReviewCandidate {
@@ -1264,7 +1265,8 @@ export const api = {
       | { decision: 'approve'; reviewer_notes?: string }
       | { decision: 'override'; reviewer_code: string; reviewer_notes?: string; force?: boolean }
       | { decision: 'reject'; reviewer_notes?: string }
-      | { decision: 'block_from_submission'; reviewer_notes: string },
+      | { decision: 'block_from_submission'; reviewer_notes: string }
+      | { decision: 'confirm_flag'; reviewer_notes?: string },
   ) =>
     request<ReviewDecisionResponse>(`/classifications/review/${encodeURIComponent(id)}`, {
       method: 'PATCH',

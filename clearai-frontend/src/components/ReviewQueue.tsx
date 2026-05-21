@@ -30,11 +30,12 @@ function relativeTime(iso: string): string {
 
 function reasonLabel(reason: ReviewReason, t: (k: Parameters<ReturnType<typeof useT>>[0]) => string): string {
   switch (reason) {
-    case 'verdict_escalate':    return t('review_reason_verdict_escalate');
-    case 'sanity_flag':         return t('review_reason_sanity_flag');
-    case 'low_information':     return t('review_reason_low_information');
-    case 'verifier_uncertain':  return t('review_reason_verifier_uncertain');
-    default:                    return reason;
+    case 'verdict_escalate':     return t('review_reason_verdict_escalate');
+    case 'sanity_flag':          return t('review_reason_sanity_flag');
+    case 'low_confidence_band':  return t('review_reason_low_confidence_band');
+    case 'low_information':      return t('review_reason_low_information');
+    case 'verifier_uncertain':   return t('review_reason_verifier_uncertain');
+    default:                     return reason;
   }
 }
 
@@ -44,6 +45,8 @@ function reasonBadgeClass(reason: ReviewReason): string {
       return 'bg-[oklch(0.93_0.07_25)] text-[oklch(0.38_0.14_25)]';
     case 'sanity_flag':
       return 'bg-[oklch(0.93_0.06_55)] text-[oklch(0.42_0.12_55)]';
+    case 'low_confidence_band':
+      return 'bg-[oklch(0.93_0.07_25)] text-[oklch(0.38_0.14_25)]';
     case 'low_information':
       return 'bg-[var(--line-2)] text-[var(--ink-3)]';
     case 'verifier_uncertain':

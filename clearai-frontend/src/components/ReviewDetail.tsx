@@ -390,7 +390,14 @@ function ActionButton({ action, selected, disabled, tooltipText, onClick, label 
 // No props — id and batch_id are read from URL query params at runtime,
 // matching the static-output Astro pattern used by TracePage.
 
-type ActionKind = 'approve' | 'override' | 'reject' | 'block_from_submission';
+type ActionKind = 'approve' | 'override' | 'reject' | 'block_from_submission' | 'confirm_flag';
+
+/** Bucket 1 (value plausibility): sanity_flag only.
+ *  Bucket 2 (low confidence): everything else.
+ */
+function isSanityFlagRow(reason: string): boolean {
+  return reason === 'sanity_flag';
+}
 
 export default function ReviewDetail() {
   const t = useT();
@@ -515,6 +522,8 @@ export default function ReviewDetail() {
 
       if (selectedAction === 'approve') {
         body = { decision: 'approve', ...(notes.trim() ? { reviewer_notes: notes.trim() } : {}) };
+      } else if (selectedAction === 'confirm_flag') {
+        body = { decision: 'confirm_flag', ...(notes.trim() ? { reviewer_notes: notes.trim() } : {}) };
       } else if (selectedAction === 'override') {
         body = {
           decision: 'override',
@@ -535,11 +544,13 @@ export default function ReviewDetail() {
       const successMsg =
         selectedAction === 'approve'
           ? t('review_success_approved')
-          : selectedAction === 'override'
-            ? t('review_success_overridden')
-            : selectedAction === 'reject'
-              ? t('review_success_rejected')
-              : t('review_success_blocked');
+          : selectedAction === 'confirm_flag'
+            ? t('review_success_flag_confirmed')
+            : selectedAction === 'override'
+              ? t('review_success_overridden')
+              : selectedAction === 'reject'
+                ? t('review_success_rejected')
+                : t('review_success_blocked');
 
       setToastMessage(successMsg);
       setShowBlockModal(false);
@@ -614,6 +625,8 @@ export default function ReviewDetail() {
     !selectedAction ||
     (selectedAction === 'override' && !overrideCode) ||
     !notesMinMet;
+
+  const isSanityFlag = row ? isSanityFlagRow(row.reason) : false;
 
   // Loading state.
   if (loading) {
@@ -723,9 +736,11 @@ export default function ReviewDetail() {
                 ? t('review_reason_verdict_escalate')
                 : row.reason === 'sanity_flag'
                   ? t('review_reason_sanity_flag')
-                  : row.reason === 'low_information'
-                    ? t('review_reason_low_information')
-                    : t('review_reason_verifier_uncertain')}
+                  : row.reason === 'low_confidence_band'
+                    ? t('review_reason_low_confidence_band')
+                    : row.reason === 'low_information'
+                      ? t('review_reason_low_information')
+                      : t('review_reason_verifier_uncertain')}
             </span>
           </div>
 
@@ -776,8 +791,8 @@ export default function ReviewDetail() {
           )}
         </div>
 
-        {/* Candidates */}
-        {sortedCandidates.length > 0 && (
+        {/* Candidates — hidden for sanity_flag rows (HS code is fine; only value is suspicious) */}
+        {sortedCandidates.length > 0 && !isSanityFlag && (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <SectionLabel>{t('review_detail_candidates')}</SectionLabel>
@@ -811,46 +826,66 @@ export default function ReviewDetail() {
           </div>
         )}
 
-        {/* Action bar */}
+        {/* Action bar — branches on flag type */}
         <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[10px] p-5 space-y-5">
           <div className="flex flex-wrap gap-2.5">
-            <ActionButton
-              action="approve"
-              selected={selectedAction === 'approve'}
-              onClick={() => setSelectedAction('approve')}
-              label={t('review_action_approve')}
-            />
-
-            <ActionButton
-              action="override"
-              selected={selectedAction === 'override'}
-              disabled={!canOverride && !forceOverride}
-              tooltipText={!canOverride ? t('review_override_high_conf_tooltip') : undefined}
-              onClick={() => {
-                if (!canOverride && !forceOverride) {
-                  // Clicking disabled override opens force-override disclosure.
-                  setSelectedAction('override');
-                  return;
-                }
-                setSelectedAction('override');
-              }}
-              label={t('review_action_override')}
-            />
-
-            <ActionButton
-              action="reject"
-              selected={selectedAction === 'reject'}
-              onClick={() => setSelectedAction('reject')}
-              label={t('review_action_reject')}
-            />
-
-            {canBlock && (
-              <ActionButton
-                action="block_from_submission"
-                selected={selectedAction === 'block_from_submission'}
-                onClick={() => setSelectedAction('block_from_submission')}
-                label={t('review_action_block')}
-              />
+            {isSanityFlag ? (
+              /* Bucket 1: value plausibility — confirm or dismiss the flag */
+              <>
+                <ActionButton
+                  action="confirm_flag"
+                  selected={selectedAction === 'confirm_flag'}
+                  onClick={() => setSelectedAction('confirm_flag')}
+                  label={t('review_action_confirm_flag')}
+                />
+                <ActionButton
+                  action="reject"
+                  selected={selectedAction === 'reject'}
+                  onClick={() => setSelectedAction('reject')}
+                  label={t('review_action_dismiss_flag')}
+                />
+                {/* Remove from declaration — advanced / destructive, shown after the primary pair */}
+                {canBlock && (
+                  <ActionButton
+                    action="block_from_submission"
+                    selected={selectedAction === 'block_from_submission'}
+                    onClick={() => setSelectedAction('block_from_submission')}
+                    label={t('review_action_block')}
+                  />
+                )}
+              </>
+            ) : (
+              /* Bucket 2: low confidence — approve current, override to candidate, or reject */
+              <>
+                <ActionButton
+                  action="approve"
+                  selected={selectedAction === 'approve'}
+                  onClick={() => setSelectedAction('approve')}
+                  label={t('review_action_approve')}
+                />
+                <ActionButton
+                  action="override"
+                  selected={selectedAction === 'override'}
+                  disabled={!canOverride && !forceOverride}
+                  tooltipText={!canOverride ? t('review_override_high_conf_tooltip') : undefined}
+                  onClick={() => setSelectedAction('override')}
+                  label={t('review_action_override')}
+                />
+                <ActionButton
+                  action="reject"
+                  selected={selectedAction === 'reject'}
+                  onClick={() => setSelectedAction('reject')}
+                  label={t('review_action_reject')}
+                />
+                {canBlock && (
+                  <ActionButton
+                    action="block_from_submission"
+                    selected={selectedAction === 'block_from_submission'}
+                    onClick={() => setSelectedAction('block_from_submission')}
+                    label={t('review_action_block')}
+                  />
+                )}
+              </>
             )}
           </div>
 
@@ -982,13 +1017,15 @@ export default function ReviewDetail() {
           >
             {submitting ? '…' : selectedAction === 'approve'
               ? t('review_action_approve')
-              : selectedAction === 'override'
-                ? t('review_action_override')
-                : selectedAction === 'reject'
-                  ? t('review_action_reject')
-                  : selectedAction === 'block_from_submission'
-                    ? t('review_action_block')
-                    : 'Submit'}
+              : selectedAction === 'confirm_flag'
+                ? t('review_action_confirm_flag')
+                : selectedAction === 'override'
+                  ? t('review_action_override')
+                  : selectedAction === 'reject'
+                    ? isSanityFlag ? t('review_action_dismiss_flag') : t('review_action_reject')
+                    : selectedAction === 'block_from_submission'
+                      ? t('review_action_block')
+                      : 'Submit'}
           </button>
         </div>
       </main>
