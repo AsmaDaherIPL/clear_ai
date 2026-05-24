@@ -178,11 +178,29 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
   }
   const t0 = Date.now();
 
+  // ---- Prompt caching ----
+  // ClearAI calls every stage (identify/pick/sanity/submission) with a
+  // large STATIC system prompt and a small DYNAMIC user payload. Marking
+  // the system prompt as ephemeral-cacheable means the first call in a
+  // batch pays the 1.25× cache-write rate, but every call after pays the
+  // 0.1× cache-hit rate on those tokens. For a 288k-row batch this drops
+  // Sonnet input cost by ~75% on the system-prompt portion.
+  //
+  // Foundry/Anthropic on Azure honours the `cache_control` field on
+  // system message blocks (same format as the direct Anthropic API).
+  // Ephemeral cache TTL is ~5 minutes; long enough to span a full batch
+  // at typical throughput.
   const body: Record<string, unknown> = {
     model,
     max_tokens: params.maxTokens ?? 1024,
     temperature: params.temperature ?? 0,
-    system: params.system,
+    system: [
+      {
+        type: 'text',
+        text: params.system,
+        cache_control: { type: 'ephemeral' },
+      },
+    ],
     messages: [{ role: 'user', content: params.user }],
   };
   if (params.tools && params.tools.length > 0) {
