@@ -74,6 +74,51 @@ function toNumber(field: CanonicalField, raw: string): number {
 }
 
 /**
+ * Country-name → ISO alpha-2 normalisation.
+ *
+ * Naqel's commercial-invoice feed sends a mix of ISO-2 codes (CN, AE, SA…)
+ * and human country names (CHINA, USA, INDIA…). Audit of pilot day-1
+ * (2026-05-17) found 95.7% of rows use names, not codes. The downstream
+ * tabadul_codes lookup is keyed by ISO-2; ZATCA itself expects ISO-2 in
+ * the rendered XML. Normalising at parse time gives every downstream
+ * stage a clean canonical form.
+ *
+ * Only common name variants we've seen in pilot data are listed. Adding a
+ * new alias is one line + a comment with the source row count.
+ */
+const COUNTRY_ALIAS_TO_ISO2: Record<string, string> = {
+  // — Country names — most-frequent first (day-1 2026-05-17 row counts)
+  CHINA: 'CN',          // 276,291 rows
+  USA: 'US',            //       3 rows
+  UK: 'GB',             //      23 rows
+  RUSSIA: 'RU',         //      60 rows
+  VIETNAM: 'VN',        //      30 rows
+  THAILAND: 'TH',       //       6 rows
+  INDIA: 'IN',          //       3 rows
+  JORDAN: 'JO',         //       3 rows
+  TURKEY: 'TR',         //       3 rows
+  // — UAE emirates (sometimes sent in lieu of country) →  AE
+  DUBAI: 'AE',          //       6 rows
+  AJMAN: 'AE',          //       6 rows
+  // — Compound shipped-via / made-in pairs. Day-1 has small counts of
+  //   `CHINA - AE` and `AE - CHINA` (9 + 3 rows). The country-of-origin is
+  //   the country of manufacture; for compounds with CHINA present, we
+  //   pick CN (the manufacture side) over AE (the shipped-from side).
+  'CHINA - AE': 'CN',
+  'AE - CHINA': 'CN',
+  // Note: `UNKNOWN` is intentionally NOT in the map. The 1 day-1 row with
+  // 'UNKNOWN' as country falls through to the lookup which will fail
+  // loud, routing the item to HITL for an operator decision.
+};
+
+function normaliseCountryOfOrigin(raw: string): string {
+  // Already-ISO-2 codes pass through untouched.
+  const v = raw.trim().toUpperCase();
+  if (v.length === 2) return v;
+  return COUNTRY_ALIAS_TO_ISO2[v] ?? v;
+}
+
+/**
  * Map a single row.
  *   row        — parsed CSV/XLSX row
  *   operator     — already-resolved OperatorConfig
@@ -142,7 +187,7 @@ export function mapRowToCanonical(
     netWeightKg: num('netWeightKg'),
 
     clientId: requireString('clientId'),
-    countryOfOrigin: requireString('countryOfOrigin'),
+    countryOfOrigin: normaliseCountryOfOrigin(requireString('countryOfOrigin')),
 
     destinationStationId: requireString('destinationStationId'),
 
