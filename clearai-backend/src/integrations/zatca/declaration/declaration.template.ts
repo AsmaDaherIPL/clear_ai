@@ -352,16 +352,55 @@ function formatNumeric(n: number, maxDecimals = 2): string {
 }
 
 function renderExportAirBL(input: RenderInput): string {
-  const first = input.items[0]!;
-  const carrierPrefix = deriveCarrierPrefix(first.canonical.waybillNo, input.config.defaultCarrierPrefix);
-  const blDate = first.canonical.invoiceDate ?? isoDate(input.now);
-  return [
-    '      <decsub:exportAirBL>',
-    `        <deccm:carrierPrefix>${xml(carrierPrefix)}</deccm:carrierPrefix>`,
-    `        <deccm:airBLNo>${xml(first.canonical.waybillNo)}</deccm:airBLNo>`,
-    `        <deccm:airBLDate>${xml(blDate)}</deccm:airBLDate>`,
-    '      </decsub:exportAirBL>',
-  ].join('\n');
+  // BL-coverage fix (2026-05-24): emit one <exportAirBL> block per
+  // DISTINCT source waybillNo. Previous behaviour took only items[0]
+  // and emitted a single block, even when the declaration bundled
+  // items from N different AWBs — that produced declarations claiming
+  // to cover 1 shipment but containing line items from up to ~25
+  // shipments. NQM26051745922 demonstrated the failure (1 BL listed
+  // vs 39 contributing AWBs in the source xlsx).
+  //
+  // Iterate in first-seen order so the XML output is deterministic
+  // and tracks the natural row order of the input. carrierPrefix and
+  // airBLDate are derived per-waybill from the row's own canonical
+  // fields, not hardcoded from items[0].
+  const seen = new Set<string>();
+  const blocks: string[] = [];
+  for (const item of input.items) {
+    const waybillNo = item.canonical.waybillNo;
+    if (!waybillNo || seen.has(waybillNo)) continue;
+    seen.add(waybillNo);
+    const carrierPrefix = deriveCarrierPrefix(waybillNo, input.config.defaultCarrierPrefix);
+    const blDate = item.canonical.invoiceDate ?? isoDate(input.now);
+    blocks.push(
+      [
+        '      <decsub:exportAirBL>',
+        `        <deccm:carrierPrefix>${xml(carrierPrefix)}</deccm:carrierPrefix>`,
+        `        <deccm:airBLNo>${xml(waybillNo)}</deccm:airBLNo>`,
+        `        <deccm:airBLDate>${xml(blDate)}</deccm:airBLDate>`,
+        '      </decsub:exportAirBL>',
+      ].join('\n'),
+    );
+  }
+  // Defensive fallback: items array is empty (shouldn't happen under
+  // normal flow — bundling drops empty bundles upstream). Emit a
+  // placeholder so the XML is still schema-valid rather than throwing.
+  if (blocks.length === 0) {
+    const first = input.items[0];
+    if (first === undefined) {
+      throw new Error('renderExportAirBL invariant: items array is empty');
+    }
+    const carrierPrefix = deriveCarrierPrefix(first.canonical.waybillNo, input.config.defaultCarrierPrefix);
+    const blDate = first.canonical.invoiceDate ?? isoDate(input.now);
+    return [
+      '      <decsub:exportAirBL>',
+      `        <deccm:carrierPrefix>${xml(carrierPrefix)}</deccm:carrierPrefix>`,
+      `        <deccm:airBLNo>${xml(first.canonical.waybillNo)}</deccm:airBLNo>`,
+      `        <deccm:airBLDate>${xml(blDate)}</deccm:airBLDate>`,
+      '      </decsub:exportAirBL>',
+    ].join('\n');
+  }
+  return blocks.join('\n');
 }
 
 function renderDeclarationDocuments(input: RenderInput): string {
