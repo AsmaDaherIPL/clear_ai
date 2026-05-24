@@ -750,7 +750,21 @@ async function attemptPick(params: {
         system: params.system,
         user: params.user,
         model: params.model,
-        maxTokens: 600,
+        // Cap was 600. NQM26051745917 metrics (2026-05-24): 88/148 calls
+        // hit ≥600 output_tokens — those are the responses cut off
+        // mid-JSON. parseVerdicts then rejects, attemptPick's parse-retry
+        // fires, two more truncated calls follow. End result was
+        // 148 metric rows for 68 rows that reached pick (2.18× factor).
+        //
+        // The retries appeared as `attempt=1, outcome=ok` because
+        // outcome_class measures transport status, not parse success —
+        // a truncated response is still HTTP 200.
+        //
+        // 8 verdicts × ~80 tokens each (rationale + GIR) + missing_attrs
+        // + JSON braces/commas = realistic max ~800. Bumping to 900 to
+        // give headroom for verbose rationales and stop the retry loop
+        // from re-paying the input-token cost.
+        maxTokens: 900,
         temperature: 0,
         timeoutMs: params.timeoutMs,
       },
