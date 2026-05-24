@@ -22,13 +22,20 @@ export interface LlmCallMetricInput {
   httpStatus: number | null;
   /** Transport LlmStatus on non-ok results; null on success. */
   errorClass: LlmStatus | null;
+  /** From Anthropic's usage.input_tokens; null when absent. */
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  /** Prompt-cache accounting (0093). Either is > 0 when caching engaged. */
+  cacheCreationInputTokens?: number | null;
+  cacheReadInputTokens?: number | null;
 }
 
 const INSERT_SQL = `
   INSERT INTO llm_call_metrics
-    (stage, model, attempt, outcome_class, latency_ms, http_status, error_class)
+    (stage, model, attempt, outcome_class, latency_ms, http_status, error_class,
+     input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens)
   VALUES
-    ($1, $2, $3, $4, $5, $6, $7)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 `;
 
 export async function writeLlmCallMetric(input: LlmCallMetricInput): Promise<void> {
@@ -45,5 +52,9 @@ export async function writeLlmCallMetric(input: LlmCallMetricInput): Promise<voi
     input.latencyMs,
     input.httpStatus,
     input.errorClass,
+    input.inputTokens ?? null,
+    input.outputTokens ?? null,
+    input.cacheCreationInputTokens ?? null,
+    input.cacheReadInputTokens ?? null,
   ]);
 }

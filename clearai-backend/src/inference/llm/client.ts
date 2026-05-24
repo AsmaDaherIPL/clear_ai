@@ -33,6 +33,18 @@ export interface LlmCallResult {
    */
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * Prompt-cache accounting (added 2026-05-24 alongside `cache_control`
+   * on system blocks). When caching is honoured by Foundry/Anthropic,
+   * exactly one of these is > 0 per call:
+   *   - cacheCreationInputTokens > 0  → first call in window; cache built;
+   *                                      billed at ~1.25× input rate
+   *   - cacheReadInputTokens > 0      → subsequent calls in window; billed
+   *                                      at ~0.1× input rate (the win)
+   * Both 0 (or undefined) means the provider didn't honour cache_control.
+   */
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
 }
 
 interface AnthropicMessageBlock {
@@ -43,6 +55,8 @@ interface AnthropicMessageBlock {
 interface AnthropicUsage {
   input_tokens?: number;
   output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
 }
 
 interface AnthropicResponse {
@@ -132,6 +146,10 @@ function finalize(
       latencyMs: result.latencyMs,
       httpStatus: extractHttpStatus(result.error),
       errorClass: result.status === 'ok' ? null : result.status,
+      inputTokens: result.inputTokens ?? null,
+      outputTokens: result.outputTokens ?? null,
+      cacheCreationInputTokens: result.cacheCreationInputTokens ?? null,
+      cacheReadInputTokens: result.cacheReadInputTokens ?? null,
     }).catch((err) => {
       // eslint-disable-next-line no-console
       console.warn(
@@ -284,6 +302,17 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
       typeof json.usage?.input_tokens === 'number' ? json.usage.input_tokens : undefined;
     const outputTokens =
       typeof json.usage?.output_tokens === 'number' ? json.usage.output_tokens : undefined;
+    // Cache accounting (2026-05-24). When Foundry honours cache_control,
+    // exactly one of these is > 0; both 0/undefined means caching is
+    // not actually engaged.
+    const cacheCreationInputTokens =
+      typeof json.usage?.cache_creation_input_tokens === 'number'
+        ? json.usage.cache_creation_input_tokens
+        : undefined;
+    const cacheReadInputTokens =
+      typeof json.usage?.cache_read_input_tokens === 'number'
+        ? json.usage.cache_read_input_tokens
+        : undefined;
     return finalize(
       {
         status: 'ok',
@@ -293,6 +322,8 @@ async function callLlmOnce(params: LlmCallParams, attempt: number): Promise<LlmC
         model,
         inputTokens,
         outputTokens,
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
       },
       params.stage,
       attempt,

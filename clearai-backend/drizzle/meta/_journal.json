@@ -652,6 +652,13 @@
       "when": 1779635000000,
       "tag": "0092_sanity_enabled_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1779640000000,
+      "tag": "0093_llm_call_metrics_tokens_and_batch",
+      "breakpoints": true
     }
   ]
 }
