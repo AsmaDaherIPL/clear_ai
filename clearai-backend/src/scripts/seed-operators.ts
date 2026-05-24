@@ -63,7 +63,11 @@ const NAQEL_MAPPINGS: ReadonlyArray<SeedMapping> = [
   { sourceColumn: 'DestinationStationID',  canonicalField: 'destinationStationId', required: true,  transform: 'trim',      defaultValue: null },
   // Consignee — fallback chains support Naqel's two header variants.
   { sourceColumn: 'ConsigneeName',         canonicalField: 'consigneeName',        required: true,  transform: 'trim',      defaultValue: null, fallbackColumns: ['Consignee'] },
-  { sourceColumn: 'ConsigneeNationalID',   canonicalField: 'consigneeNationalId',  required: true,  transform: 'trim',      defaultValue: null },
+  // consigneeNationalId is optional: ~3.5% of Naqel day-1 rows have null
+  // values, and Naqel's own LV catch-all declarations carry zero consignee
+  // fields anyway. Migration 0089 enforces this; the seed mirrors it so a
+  // fresh DB starts in the right state.
+  { sourceColumn: 'ConsigneeNationalID',   canonicalField: 'consigneeNationalId',  required: false, transform: 'trim',      defaultValue: null },
   { sourceColumn: 'Mobile',                canonicalField: 'consigneePhone',       required: true,  transform: 'trim',      defaultValue: null, fallbackColumns: ['MobileNo', 'PhoneNumber', 'Phone'] },
   // Consignee address — optional per-row override of operators.default_consignee_address.
   // Naqel hasn't shipped a sample with these columns yet; placeholder column
