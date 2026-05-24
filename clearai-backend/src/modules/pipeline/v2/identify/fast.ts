@@ -215,7 +215,19 @@ export async function runIdentifyFast(raw_description: string): Promise<Identify
       stage: 'identify_fast',
       system,
       user: trimmed,
-      model: env().LLM_MODEL_STRONG,
+      // A/B TEST (2026-05-24): swapped LLM_MODEL_STRONG (Sonnet) →
+      // LLM_MODEL (Haiku) on identify_fast. Sonnet costs ~$3/1M input
+      // vs Haiku $0.80/1M; identify_fast is the most-called Sonnet
+      // stage so this is the biggest cost lever after caching.
+      //
+      // Risk: Haiku may give up more often on ambiguous descriptions,
+      // pushing rows into identify_web_fallback (still Sonnet) which
+      // would erase the savings. Validate on NQM26051745913 +
+      // NQM26051745922 (prior Sonnet runs preserved as *-sonnet files
+      // in each batch folder) before rolling out beyond pilot.
+      //
+      // Revert: change LLM_MODEL → LLM_MODEL_STRONG and redeploy.
+      model: env().LLM_MODEL,
       maxTokens: 400,
       temperature: 0,
       timeoutMs: policy.timeoutMs,
