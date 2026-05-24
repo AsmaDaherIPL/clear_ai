@@ -638,6 +638,13 @@
       "when": 1779620000000,
       "tag": "0090_pilot_day1_bhd_fx",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1779625000000,
+      "tag": "0091_naqel_full_currency_set",
+      "breakpoints": true
     }
   ]
 }
