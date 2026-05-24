@@ -631,6 +631,13 @@
       "when": 1779615000000,
       "tag": "0089_pilot_day1_uom_and_consignee",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1779620000000,
+      "tag": "0090_pilot_day1_bhd_fx",
+      "breakpoints": true
     }
   ]
 }
