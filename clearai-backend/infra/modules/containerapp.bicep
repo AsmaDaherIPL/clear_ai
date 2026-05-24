@@ -177,6 +177,11 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'LLM_MODEL', value: 'claude-haiku-4-5-clearai-dev' }
             { name: 'LLM_MODEL_STRONG', value: 'claude-sonnet-4-6-clearai-dev' }
             { name: 'LLM_TIMEOUT_MS', value: '15000' }
+            // Per-call metric inserts. Default in env.ts is 'false' so a
+            // fresh dev env doesn't INSERT into a table that may not exist
+            // yet. Migrations 0078 (table) + 0093 (token columns) are in
+            // the ledger as of 2026-05-24, so the gate stays on here.
+            { name: 'LLM_CALL_METRICS_ENABLED', value: 'true' }
             // Embedder — Foundry-hosted text-embedding-3-large (1024 dims).
             // Migrated from the local ONNX Xenova/multilingual-e5-small (384 dims)
             // in 0057_embedding_dim_to_1024.sql. The API key is sourced from
