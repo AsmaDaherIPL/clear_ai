@@ -126,10 +126,12 @@ function isoDate(d: Date): string {
 
 /**
  * Naqel spec: TransportIDType=5 if consigneeNationalId starts with '1',
- * 3 if starts with '2'. Anything else falls back to '5' (more permissive
- * default; flagged for future spec confirmation).
+ * 3 if starts with '2'. Anything else (including null) falls back to '5'
+ * (the more permissive default). Null happens for ~3.5% of Naqel rows where
+ * the source feed never carried a national ID.
  */
-function deriveTransportIdType(consigneeNationalId: string): string {
+function deriveTransportIdType(consigneeNationalId: string | null): string {
+  if (!consigneeNationalId) return '5';
   const first = consigneeNationalId.trim().charAt(0);
   if (first === '2') return '3';
   return '5';
@@ -443,7 +445,11 @@ function renderExpressMail(input: RenderInput): string {
     '      <decsub:expressMailInfomation>',
     `        <deccm:transportType>${xml(cfg(input.config.expressTransportType))}</deccm:transportType>`,
     `        <deccm:transportIDType>${xml(transportIdType)}</deccm:transportIDType>`,
-    `        <deccm:transportID>${xml(c.consigneeNationalId)}</deccm:transportID>`,
+    // transportID is '0' when consigneeNationalId is null — matches the
+    // placeholder Naqel uses in some of its own samples where the field was
+    // unavailable. ZATCA accepts the declaration as long as the element
+    // exists, so we always emit it.
+    `        <deccm:transportID>${xml(c.consigneeNationalId ?? '0')}</deccm:transportID>`,
     `        <deccm:name>${xml(c.consigneeName)}</deccm:name>`,
     `        <deccm:addCtryCd>${xml(cfg(input.config.expressAddCountryCode))}</deccm:addCtryCd>`,
     `        <deccm:country>${xml(cfg(input.config.expressCountry))}</deccm:country>`,

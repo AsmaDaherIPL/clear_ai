@@ -197,7 +197,13 @@ export interface CanonicalLineItem {
 
   /* ---- Consignee ---- */
   consigneeName: string;
-  consigneeNationalId: string;
+  /**
+   * Nullable: ~3.5% of Naqel day-1 rows have null national IDs, and Naqel's
+   * own LV catch-all declarations omit consignee fields entirely. The renderer
+   * substitutes a placeholder ('0' for transportID, default transportIDType=5)
+   * when null. See migration 0089.
+   */
+  consigneeNationalId: string | null;
   consigneePhone: string;
   /**
    * Consignee delivery address — feeds the `<decsub:expressMailInfomation>`
@@ -226,7 +232,9 @@ export const CANONICAL_REQUIRED_FIELDS: ReadonlyArray<CanonicalField> = [
   'countryOfOrigin',
   'destinationStationId',
   'consigneeName',
-  'consigneeNationalId',
+  // consigneeNationalId removed 2026-05-24: ~3.5% of Naqel day-1 rows have
+  // null national IDs, and Naqel's own LV catch-all decls omit consignee
+  // fields entirely. Renderer substitutes a placeholder when null.
   'consigneePhone',
 ];
 

@@ -147,7 +147,11 @@ export function mapRowToCanonical(
     destinationStationId: requireString('destinationStationId'),
 
     consigneeName: requireString('consigneeName'),
-    consigneeNationalId: requireString('consigneeNationalId'),
+    // consigneeNationalId is optional — ~3.5% of Naqel day-1 rows have null
+    // values, and Naqel's own LV decls omit consignee fields entirely. When
+    // null, the renderer substitutes a placeholder transportID + default
+    // transportIDType=5 in the expressMailInfomation block.
+    consigneeNationalId: get('consigneeNationalId'),
     consigneePhone: requireString('consigneePhone'),
     consigneeAddress: buildConsigneeAddress(get),
 
