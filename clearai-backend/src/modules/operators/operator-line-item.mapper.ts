@@ -112,10 +112,16 @@ const COUNTRY_ALIAS_TO_ISO2: Record<string, string> = {
 };
 
 function normaliseCountryOfOrigin(raw: string): string {
-  // Already-ISO-2 codes pass through untouched.
   const v = raw.trim().toUpperCase();
-  if (v.length === 2) return v;
-  return COUNTRY_ALIAS_TO_ISO2[v] ?? v;
+  // Check the alias map FIRST — some 2-char values are aliases not ISO codes
+  // (notably 'UK' which is *not* the ISO-2 for United Kingdom — that's 'GB').
+  // If we early-returned on length===2, 'UK' would pass through and fail the
+  // tabadul_codes lookup downstream.
+  const alias = COUNTRY_ALIAS_TO_ISO2[v];
+  if (alias) return alias;
+  // Otherwise, any 2-char value is treated as already-ISO-2 (validated by
+  // the downstream lookup) and longer values fall through verbatim.
+  return v;
 }
 
 /**
