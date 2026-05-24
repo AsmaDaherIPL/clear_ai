@@ -13,6 +13,12 @@ import { getPool } from '../../../db/client.js';
 export interface OperatorPipelineConfig {
   /** Defaults to true when no operator_declaration_config row exists yet. */
   overridesEnabled: boolean;
+  /**
+   * When false, the orchestrator skips the sanity LLM call entirely.
+   * Default true. See migration 0092 for the motivation (sanity is ~70%
+   * of Sonnet cost per row and audit-only for LV-catch-all operators).
+   */
+  sanityEnabled: boolean;
 }
 
 export async function loadOperatorPipelineConfig(
@@ -21,8 +27,9 @@ export async function loadOperatorPipelineConfig(
   const pool = getPool();
   const r = await pool.query<{
     overrides_enabled: boolean | null;
+    sanity_enabled: boolean | null;
   }>(
-    `SELECT c.overrides_enabled
+    `SELECT c.overrides_enabled, c.sanity_enabled
        FROM operator_declaration_config c
        JOIN operators o ON o.id = c.operator_id
       WHERE o.slug = $1`,
@@ -31,5 +38,6 @@ export async function loadOperatorPipelineConfig(
   const row = r.rows[0];
   return {
     overridesEnabled: row?.overrides_enabled ?? true,
+    sanityEnabled: row?.sanity_enabled ?? true,
   };
 }

@@ -645,6 +645,13 @@
       "when": 1779625000000,
       "tag": "0091_naqel_full_currency_set",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1779635000000,
+      "tag": "0092_sanity_enabled_flag",
+      "breakpoints": true
     }
   ]
 }

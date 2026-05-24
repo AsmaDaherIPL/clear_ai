@@ -55,6 +55,19 @@ export const operatorDeclarationConfig = pgTable('operator_declaration_config', 
    */
   overridesEnabled: boolean('overrides_enabled').notNull().default(true),
 
+  /**
+   * Per-operator flag: when false, the orchestrator skips the sanity LLM
+   * call entirely (the audit-only step that flags suspicious picker
+   * outputs). Default true to preserve historical behaviour.
+   *
+   * Reason this is per-operator: sanity is the dominant Sonnet cost line
+   * (~70% of Sonnet tokens per row). For operators like Naqel that emit
+   * LV catch-all declarations anyway, sanity adds no XML-shipping signal
+   * and only inflates the bill. Other operators that produce per-item
+   * declarations may still want it.
+   */
+  sanityEnabled: boolean('sanity_enabled').notNull().default(true),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

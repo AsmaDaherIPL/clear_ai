@@ -453,9 +453,23 @@ export async function runPipeline(
   const verify = verifyClassification(pick, identify);
 
   // ---- Stages 9 + 10 in parallel: submission_description + sanity ----
+  //
+  // Sanity is gated by operator config (`sanity_enabled`). When false (e.g.
+  // Naqel), we skip the LLM call entirely and synthesise a PASS verdict so
+  // downstream routing treats the row as accepted. This trims ~70% of the
+  // Sonnet cost per row for operators that emit LV catch-all declarations
+  // and don't act on sanity FLAGs anyway. See migration 0092.
   const catalog = await lookupCatalogContext(pick.final_code);
   const cleanedForSubmission =
     identify.kind === 'clean_product' ? identify.canonical : rawDescription;
+  const sanityDisabled: SanityResult = {
+    verdict: 'PASS',
+    rationale: 'sanity disabled for operator',
+    rationale_short: 'sanity disabled for operator',
+    rationale_detail: 'sanity_enabled=false; LLM call skipped',
+    latency_ms: 0,
+    degraded: false,
+  };
   const [submission, sanity] = await Promise.all([
     generateSubmissionDescription({
       cleanedDescription: cleanedForSubmission,
@@ -468,16 +482,18 @@ export async function runPipeline(
       identityTokens:
         identify.kind === 'clean_product' ? identify.identity_tokens : [],
     }),
-    runSanity({
-      final_code: pick.final_code,
-      cleaned_description: cleanedForSubmission,
-      raw_description: rawDescription,
-      value_amount:
-        typeof item.valueAmountSar === 'number' && Number.isFinite(item.valueAmountSar)
-          ? item.valueAmountSar
-          : parsed.item.value_amount,
-      currency_code: 'SAR',
-    }),
+    opConfig.sanityEnabled
+      ? runSanity({
+          final_code: pick.final_code,
+          cleaned_description: cleanedForSubmission,
+          raw_description: rawDescription,
+          value_amount:
+            typeof item.valueAmountSar === 'number' && Number.isFinite(item.valueAmountSar)
+              ? item.valueAmountSar
+              : parsed.item.value_amount,
+          currency_code: 'SAR',
+        })
+      : Promise.resolve(sanityDisabled),
   ]);
 
   // ---- Final result assembly ----
