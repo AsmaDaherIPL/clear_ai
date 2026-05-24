@@ -100,11 +100,11 @@ async function attemptClassify(params: {
     stage: params.stage,
     system: params.system,
     user: params.user,
-    // Same verdict schema as `pick` (8 candidates × ~80 tokens +
-    // missing_attrs + JSON overhead = ~800 worst case). Cap matches
-    // pick's 900-token ceiling to avoid the truncation-driven parse-
+    // Same verdict schema as `pick` (8 candidates × ~100 tokens +
+    // missing_attrs + JSON overhead = ~1100 worst case). Cap matches
+    // pick's 1200-token ceiling to avoid the truncation-driven parse-
     // retry pattern documented on `pick`.
-    maxTokens: 900,
+    maxTokens: 1200,
     temperature: 0,
     timeoutMs: params.timeoutMs,
   }, 0);
