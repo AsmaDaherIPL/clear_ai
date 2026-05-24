@@ -14,6 +14,7 @@
  * is broken.
  */
 import { runPipeline } from '../pipeline/orchestrator.js';
+import { runWithLlmCallContext } from '../../inference/llm/call-context.js';
 import { assembleDispatchV1 } from '../pipeline/trace/dispatch-v1.js';
 import { recordClassificationEvent } from '../pipeline/events/recorder.js';
 import { enqueueHitl } from '../pipeline/review/review.js';
@@ -47,7 +48,13 @@ export async function dispatch(item: CanonicalLineItem): Promise<DispatchResult>
 
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
-  const result = await runPipeline(item, operatorSlug, itemId);
+  // Async-local context: every LLM call inside runPipeline reads this
+  // to stamp `llm_call_metrics.batch_id`. NULL is valid (single-shot
+  // dispatches). See inference/llm/call-context.ts.
+  const result = await runWithLlmCallContext(
+    { batchId: item.batchId ?? null },
+    () => runPipeline(item, operatorSlug, itemId),
+  );
   const completedAt = new Date().toISOString();
 
   const v1Response = assembleDispatchV1({

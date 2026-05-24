@@ -13,6 +13,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { runPipeline } from './orchestrator.js';
+import { runWithLlmCallContext } from '../../inference/llm/call-context.js';
 import { stampFxFields, FxRateMissingError } from './parse/enrich-fx.js';
 import {
   assembleCanonicalItem,
@@ -172,7 +173,12 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
     }
     const startedAtMs = Date.now();
     const startedAt = new Date(startedAtMs).toISOString();
-    const result = await runPipeline(item, V1_OPERATOR_SLUG, item.itemId);
+    // Single-shot route has no batch — context carries null so
+    // llm_call_metrics.batch_id is correctly NULL for these rows.
+    const result = await runWithLlmCallContext(
+      { batchId: null },
+      () => runPipeline(item, V1_OPERATOR_SLUG, item.itemId),
+    );
     const completedAt = new Date().toISOString();
 
     const v1Response = assembleDispatchV1({

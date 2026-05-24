@@ -11,6 +11,7 @@ import { env } from '../../config/env.js';
 import type { LlmFailureClass } from './breaker.js';
 import type { LlmStage } from './policy.js';
 import type { LlmStatus } from '../../modules/pipeline/shared/domain.types.js';
+import { getCurrentLlmCallContext } from './call-context.js';
 
 export interface LlmCallMetricInput {
   stage: LlmStage;
@@ -33,9 +34,10 @@ export interface LlmCallMetricInput {
 const INSERT_SQL = `
   INSERT INTO llm_call_metrics
     (stage, model, attempt, outcome_class, latency_ms, http_status, error_class,
-     input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens)
+     input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+     batch_id)
   VALUES
-    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `;
 
 export async function writeLlmCallMetric(input: LlmCallMetricInput): Promise<void> {
@@ -44,6 +46,11 @@ export async function writeLlmCallMetric(input: LlmCallMetricInput): Promise<voi
   // INSERT entirely — otherwise every LLM call would log a table-missing
   // warning. Flip LLM_CALL_METRICS_ENABLED=true after the migration runs.
   if (!env().LLM_CALL_METRICS_ENABLED) return;
+  // batch_id is read from the AsyncLocalStorage context set by the
+  // orchestrator entry. NULL when the call wasn't dispatched from a
+  // batch row (e.g. single-shot /classifications, ad-hoc scripts) —
+  // same semantics as the column's nullable definition in 0093.
+  const ctx = getCurrentLlmCallContext();
   await getPool().query(INSERT_SQL, [
     input.stage,
     input.model,
@@ -56,5 +63,6 @@ export async function writeLlmCallMetric(input: LlmCallMetricInput): Promise<voi
     input.outputTokens ?? null,
     input.cacheCreationInputTokens ?? null,
     input.cacheReadInputTokens ?? null,
+    ctx?.batchId ?? null,
   ]);
 }
