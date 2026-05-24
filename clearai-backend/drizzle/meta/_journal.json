@@ -582,6 +582,55 @@
       "when": 1779320000000,
       "tag": "0087_pr6_hitl_observability",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1778900300000,
+      "tag": "0079_hitl_queue_reason_widen",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1778900400000,
+      "tag": "0080_reviewer_block_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1778900500000,
+      "tag": "0081_hitl_decision_widen",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1778900600000,
+      "tag": "0082_zatca_lv_invoice_cap",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1778900700000,
+      "tag": "0083_sanity_verdict_drop_block",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1779320100000,
+      "tag": "0088_pr15_low_confidence_band",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1779615000000,
+      "tag": "0089_pilot_day1_uom_and_consignee",
+      "breakpoints": true
     }
   ]
 }
