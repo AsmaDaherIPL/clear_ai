@@ -215,19 +215,19 @@ export async function runIdentifyFast(raw_description: string): Promise<Identify
       stage: 'identify_fast',
       system,
       user: trimmed,
-      // A/B TEST (2026-05-24): swapped LLM_MODEL_STRONG (Sonnet) →
-      // LLM_MODEL (Haiku) on identify_fast. Sonnet costs ~$3/1M input
-      // vs Haiku $0.80/1M; identify_fast is the most-called Sonnet
-      // stage so this is the biggest cost lever after caching.
+      // Sonnet (LLM_MODEL_STRONG), not Haiku. A/B test on 2026-05-24
+      // swapped this to LLM_MODEL (Haiku) and validated against
+      // NQM26051745922 (29 rows): Haiku returns `family_chapter: null`
+      // on most clean_product rows even when it correctly identifies
+      // the canonical noun. That breaks the family_chapter retrieval
+      // arm and pushes picker outputs into wrong chapters (gaming
+      // controllers → 8471 instead of 9504). Web_fallback escalation
+      // also ~doubled (10% → 28%) which erased the savings since
+      // web_fallback is Sonnet+web_search.
       //
-      // Risk: Haiku may give up more often on ambiguous descriptions,
-      // pushing rows into identify_web_fallback (still Sonnet) which
-      // would erase the savings. Validate on NQM26051745913 +
-      // NQM26051745922 (prior Sonnet runs preserved as *-sonnet files
-      // in each batch folder) before rolling out beyond pilot.
-      //
-      // Revert: change LLM_MODEL → LLM_MODEL_STRONG and redeploy.
-      model: env().LLM_MODEL,
+      // Net: Haiku saves ~$1.2k on the fast lane but spends $2-3k
+      // extra on the web lane → net cost increase. Reverted.
+      model: env().LLM_MODEL_STRONG,
       maxTokens: 400,
       temperature: 0,
       timeoutMs: policy.timeoutMs,
