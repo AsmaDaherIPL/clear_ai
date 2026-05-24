@@ -29,6 +29,26 @@ export async function listPendingItems(batchId: string): Promise<BatchItemRow[]>
     .orderBy(batchItems.rowIndex);
 }
 
+/**
+ * Every row in the batch regardless of status. Used by the
+ * classifications.json writer so the dump reflects 100% of the input
+ * rows — including blocked / failed / pending_infra — not just the
+ * happy-path succeeded+flagged.
+ *
+ * The prior writer mistakenly used listPendingItems(), thinking it
+ * covered non-success states; it doesn't (the name + filter only ever
+ * returned `status='pending'`, which is empty after Phase 1 completes).
+ * That bug silently dropped ~50% of rows from NQM26051745946's dump
+ * before this function existed. See dedicated commit message.
+ */
+export async function listAllItemsByBatch(batchId: string): Promise<BatchItemRow[]> {
+  return db()
+    .select()
+    .from(batchItems)
+    .where(eq(batchItems.batchId, batchId))
+    .orderBy(batchItems.rowIndex);
+}
+
 /** Optimistic transition pending -> classifying for a single item. */
 export async function markItemClassifying(itemId: string): Promise<void> {
   await db()

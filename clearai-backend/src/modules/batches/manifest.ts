@@ -1,7 +1,7 @@
 import { getBlobClient } from '../../storage/blob.client.js';
 import { classificationsKey, runIndexKey } from '../../storage/blob.paths.js';
 import { listClassifiedItems } from './filings/declaration.repository.js';
-import { listPendingItems } from './classification/classification.repository.js';
+import { listAllItemsByBatch } from './classification/classification.repository.js';
 import { getBatch } from './batch.repository.js';
 import { getOperatorById } from '../operators/operator.repository.js';
 
@@ -25,10 +25,10 @@ export async function writeClassificationsJson(batchId: string): Promise<void> {
   const run = await getBatch(batchId);
   if (!run.blobPrefix) return;
 
-  // Union both lists: listClassifiedItems is post-Phase-1 only
-  // (succeeded/flagged), listPendingItems also covers blocked/failed.
+  // See run-index.ts for the rationale — same fix applied here for the
+  // parallel manifest.json writer (kept in sync with classifications.json).
   const succeededOrFlagged = await listClassifiedItems(batchId);
-  const all = await listPendingItems(batchId);
+  const all = await listAllItemsByBatch(batchId);
 
   const byId = new Map<string, unknown>();
   for (const r of all) byId.set(r.id, r);

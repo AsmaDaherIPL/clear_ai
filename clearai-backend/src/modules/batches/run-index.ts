@@ -13,7 +13,7 @@
 import { getBlobClient } from '../../storage/blob.client.js';
 import { classificationsKey, runIndexKey } from '../../storage/blob.paths.js';
 import { listClassifiedItems } from './filings/declaration.repository.js';
-import { listPendingItems } from './classification/classification.repository.js';
+import { listAllItemsByBatch } from './classification/classification.repository.js';
 import { getBatch } from './batch.repository.js';
 import { getOperatorById } from '../operators/operator.repository.js';
 
@@ -42,10 +42,18 @@ export async function writeClassificationsJson(batchId: string): Promise<void> {
   const run = await getBatch(batchId);
   if (!run.blobPrefix) return;
 
-  // Union both lists: listClassifiedItems is post-Phase-1 only
-  // (succeeded/flagged), listPendingItems also covers blocked/failed.
+  // listAllItemsByBatch returns every row regardless of status, so the
+  // dump reflects 100% of input rows (succeeded / flagged / blocked /
+  // failed / pending_infra). listClassifiedItems supplies the richer
+  // post-Phase-1 view (with declaration linkage); we layer it on top so
+  // succeeded/flagged rows carry their fully-enriched payload.
+  //
+  // Prior implementation used listPendingItems() here, which filters
+  // status='pending' — empty by the time the writer runs — so non-
+  // success rows silently dropped from the JSON. NQM26051745946
+  // (2026-05-24) lost 239/498 rows that way.
   const succeededOrFlagged = await listClassifiedItems(batchId);
-  const all = await listPendingItems(batchId);
+  const all = await listAllItemsByBatch(batchId);
 
   const byId = new Map<string, unknown>();
   for (const r of all) byId.set(r.id, r);
