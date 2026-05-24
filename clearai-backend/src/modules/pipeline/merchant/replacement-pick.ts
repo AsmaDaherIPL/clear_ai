@@ -100,7 +100,7 @@ async function attemptClassify(params: {
     stage: params.stage,
     system: params.system,
     user: params.user,
-    maxTokens: 1500,
+    maxTokens: 600,
     temperature: 0,
     timeoutMs: params.timeoutMs,
   }, 0);

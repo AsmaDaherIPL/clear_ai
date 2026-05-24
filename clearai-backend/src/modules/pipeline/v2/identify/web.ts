@@ -248,7 +248,7 @@ export async function runIdentifyWeb(
       system,
       user: userPayload,
       model: env().LLM_MODEL_STRONG,
-      maxTokens: 1500,
+      maxTokens: 600,
       temperature: 0,
       timeoutMs: policy.timeoutMs,
       // One web search per fallback call. The model decides whether to

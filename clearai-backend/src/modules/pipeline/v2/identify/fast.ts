@@ -216,7 +216,7 @@ export async function runIdentifyFast(raw_description: string): Promise<Identify
       system,
       user: trimmed,
       model: env().LLM_MODEL_STRONG,
-      maxTokens: 1500,
+      maxTokens: 400,
       temperature: 0,
       timeoutMs: policy.timeoutMs,
       // NO tools — this is the fast pass. Cost saving + latency saving

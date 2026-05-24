@@ -750,7 +750,7 @@ async function attemptPick(params: {
         system: params.system,
         user: params.user,
         model: params.model,
-        maxTokens: 1500,
+        maxTokens: 600,
         temperature: 0,
         timeoutMs: params.timeoutMs,
       },
