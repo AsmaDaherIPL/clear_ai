@@ -99,16 +99,34 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
     let bundleIndex = 0;
     for (const bundle of bundles) {
       // Source rows that should appear in <exportAirBL> for this
-      // bundle. Match on rawRow.ManifestFile so HITL-failed rows from
-      // the same manifest are included (their awbId is null so the
-      // AWB-aware bundler couldn't pick them up). Fall back to bundle
-      // items when the manifest filename isn't accessible.
+      // bundle. HITL-failed rows still represent shipments physically
+      // on the flight; we want their AWBs in the LV bundle's BL list
+      // (they're definitionally LV — no classified value means they
+      // don't trip the HV threshold, and the LV catch-all is the
+      // appropriate filing target until a human resolves them).
+      //
+      // For HV bundles: keep the items-derived BL list. HV filings are
+      // one-shipment-per-declaration; adding HITL AWBs would
+      // misrepresent the declaration's coverage.
       const manifestFiles = collectManifestFiles(bundle.items);
+      const isLv = bundle.strategy === 'LV_BUNDLED';
       const allBlSources =
-        manifestFiles.size > 0
+        isLv && manifestFiles.size > 0
           ? allBatchRows.filter((r) => {
               const mf = readManifestFile(r);
-              return mf !== null && manifestFiles.has(mf);
+              if (mf === null || !manifestFiles.has(mf)) return false;
+              // Exclude rows that belong to a different bundle (the HV
+              // path). A row qualifies for this LV bundle's BL list
+              // either because it IS in bundle.items (already classified
+              // and bundled here) or because it's HITL-failed
+              // (status='failed' / 'pending_infra' / 'blocked' — these
+              // rows have no awbId and weren't picked up by bundleByAwb,
+              // but they belong on the LV filing for the same manifest).
+              if (bundle.items.some((bi) => bi.id === r.id)) return true;
+              // HITL-failed and similar non-success states have no
+              // finalCode set. Classified-but-routed-to-HV rows have a
+              // finalCode and are excluded from this LV bundle.
+              return r.finalCode === null || r.finalCode === undefined;
             })
           : bundle.items;
       const xml = renderDeclarationXml({
@@ -149,12 +167,16 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
 
     let bundleIndex = 0;
     for (const bundle of bundles) {
+      // Same LV-only HITL inclusion rule as the AWB-aware path above.
       const manifestFiles = collectManifestFiles(bundle.items);
+      const isLv = bundle.strategy === 'LV_BUNDLED';
       const allBlSources =
-        manifestFiles.size > 0
+        isLv && manifestFiles.size > 0
           ? allBatchRows.filter((r) => {
               const mf = readManifestFile(r);
-              return mf !== null && manifestFiles.has(mf);
+              if (mf === null || !manifestFiles.has(mf)) return false;
+              if (bundle.items.some((bi) => bi.id === r.id)) return true;
+              return r.finalCode === null || r.finalCode === undefined;
             })
           : bundle.items;
       const xml = renderDeclarationXml({
