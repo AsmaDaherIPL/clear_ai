@@ -15,6 +15,7 @@ import {
   listClassifiedItems,
   recordDeclaration,
 } from './declaration.repository.js';
+import { listAllItemsByBatch } from '../classification/classification.repository.js';
 import type { PhaseDeclarationSummary } from './declaration.types.js';
 import { resolve as resolveOperator } from '../../operators/operator-config.registry.js';
 import { getOperatorById } from '../../operators/operator.repository.js';
@@ -52,6 +53,11 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
   }
   const lookups = await getLookupsByOperatorIdWithMetadata(operator.id);
   const items = await listClassifiedItems(batchId);
+  // All rows in the batch regardless of classification status. Used by
+  // the renderer to populate <exportAirBL> with HITL-failed AWBs too —
+  // those represent shipments physically on the flight even though no
+  // classifiable <item> was emitted for them.
+  const allBatchRows = await listAllItemsByBatch(batchId);
 
   const [thresholds, config] = await Promise.all([
     loadThresholds(),
@@ -92,6 +98,19 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
 
     let bundleIndex = 0;
     for (const bundle of bundles) {
+      // Source rows that should appear in <exportAirBL> for this
+      // bundle. Match on rawRow.ManifestFile so HITL-failed rows from
+      // the same manifest are included (their awbId is null so the
+      // AWB-aware bundler couldn't pick them up). Fall back to bundle
+      // items when the manifest filename isn't accessible.
+      const manifestFiles = collectManifestFiles(bundle.items);
+      const allBlSources =
+        manifestFiles.size > 0
+          ? allBatchRows.filter((r) => {
+              const mf = readManifestFile(r);
+              return mf !== null && manifestFiles.has(mf);
+            })
+          : bundle.items;
       const xml = renderDeclarationXml({
         operator: {
           slug: operator.slug,
@@ -101,6 +120,7 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
         config,
         bundleStrategy: bundle.strategy,
         items: bundle.items,
+        allBlSources,
         lookups,
         now,
       });
@@ -129,6 +149,14 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
 
     let bundleIndex = 0;
     for (const bundle of bundles) {
+      const manifestFiles = collectManifestFiles(bundle.items);
+      const allBlSources =
+        manifestFiles.size > 0
+          ? allBatchRows.filter((r) => {
+              const mf = readManifestFile(r);
+              return mf !== null && manifestFiles.has(mf);
+            })
+          : bundle.items;
       const xml = renderDeclarationXml({
         operator: {
           slug: operator.slug,
@@ -138,6 +166,7 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
         config,
         bundleStrategy: bundle.strategy,
         items: bundle.items,
+        allBlSources,
         lookups,
         now,
       });
@@ -220,4 +249,33 @@ function buildAwbsForBundling(
     });
   }
   return out;
+}
+
+/**
+ * Pull `rawRow.ManifestFile` from a BatchItemRow when present. rawRow
+ * is the verbatim source row preserved at ingest. Returns null when
+ * the field isn't there (legacy rows pre-hierarchy, or non-Naqel
+ * operators that don't carry a ManifestFile column).
+ */
+function readManifestFile(row: BatchItemRow): string | null {
+  const raw = row.rawRow as Record<string, unknown> | null | undefined;
+  if (!raw) return null;
+  const v = raw['ManifestFile'];
+  if (typeof v !== 'string' || v.length === 0) return null;
+  return v;
+}
+
+/**
+ * Collect the distinct ManifestFile values from a bundle's items.
+ * Used to scope the per-bundle <exportAirBL> source set so HITL-
+ * failed rows from the same manifest can be included without
+ * cross-pollinating from other manifests in the batch.
+ */
+function collectManifestFiles(items: ReadonlyArray<BatchItemRow>): Set<string> {
+  const set = new Set<string>();
+  for (const it of items) {
+    const mf = readManifestFile(it);
+    if (mf !== null) set.add(mf);
+  }
+  return set;
 }

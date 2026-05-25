@@ -355,18 +355,23 @@ function renderExportAirBL(input: RenderInput): string {
   // BL-coverage fix (2026-05-24): emit one <exportAirBL> block per
   // DISTINCT source waybillNo. Previous behaviour took only items[0]
   // and emitted a single block, even when the declaration bundled
-  // items from N different AWBs — that produced declarations claiming
-  // to cover 1 shipment but containing line items from up to ~25
-  // shipments. NQM26051745922 demonstrated the failure (1 BL listed
-  // vs 39 contributing AWBs in the source xlsx).
+  // items from N different AWBs.
+  //
+  // BL roster source preference:
+  //   1. `allBlSources` when provided — includes HITL-failed rows so
+  //      the declaration's BL list reflects what's physically on the
+  //      flight, not just what classified successfully.
+  //   2. fallback to `items` for callers that haven't been updated to
+  //      pass allBlSources (legacy path, tests).
   //
   // Iterate in first-seen order so the XML output is deterministic
   // and tracks the natural row order of the input. carrierPrefix and
   // airBLDate are derived per-waybill from the row's own canonical
   // fields, not hardcoded from items[0].
+  const blSource = input.allBlSources ?? input.items;
   const seen = new Set<string>();
   const blocks: string[] = [];
-  for (const item of input.items) {
+  for (const item of blSource) {
     const waybillNo = item.canonical.waybillNo;
     if (!waybillNo || seen.has(waybillNo)) continue;
     seen.add(waybillNo);

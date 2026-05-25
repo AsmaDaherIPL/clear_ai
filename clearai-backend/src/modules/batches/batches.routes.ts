@@ -21,6 +21,8 @@ import {
   handlePatchBatch,
   mapBatchError,
 } from './batch.controller.js';
+import { runDeclarationPhase } from './filings/declaration.runner.js';
+import { writeClassificationsJson, writeRunIndexJson } from './run-index.js';
 import {
   handleListAwbsByManifest,
   handleListItemsByAwb,
@@ -147,6 +149,115 @@ export async function batchesRoutes(app: FastifyInstance, opts?: BatchesRoutesOp
       const mapped = mapBatchError(err);
       if (mapped) return reply.code(mapped.statusCode).send(mapped.body);
       throw err;
+    }
+  });
+
+  // -------------------------------------------------------------------
+  // Admin: rebuild declarations for an already-classified batch
+  // -------------------------------------------------------------------
+  // POST /batches/:id/rebuild-declarations
+  //
+  // Re-runs Phase 2 (declaration rendering) against an existing batch
+  // WITHOUT re-running Phase 1 (classification). Use when a renderer
+  // bug fix has shipped and the existing classifications.json still
+  // represents valid pipeline output, but the rendered LV/HV XMLs
+  // need to be regenerated against the corrected template.
+  //
+  // Steps:
+  //   1. Verify the batch exists and Phase 1 has already completed
+  //      (classification_status='completed') — otherwise classifications.json
+  //      is incomplete or absent and re-rendering would produce empty XMLs.
+  //   2. Delete the existing batch_filings rows + filing_awbs joins for
+  //      the batch (FK relationship would otherwise block re-insert).
+  //   3. Delete the existing LV/HV XML blobs from storage so the new
+  //      run's XMLs don't share a directory with orphan files.
+  //   4. Re-run renderDeclarationPhase(batchId) — same code path the
+  //      original Phase 2 took, just invoked standalone.
+  //   5. Regenerate run-index.json + classifications.json so the
+  //      output is internally consistent.
+  //
+  // Does NOT trigger any LLM calls, dispatch(), or ZATCA submission.
+  app.post<{ Params: { id: string } }>('/batches/:id/rebuild-declarations', async (req, reply) => {
+    const idParse = UuidV7Schema.safeParse(req.params.id);
+    if (!idParse.success) {
+      return reply.code(400).send({ error: { code: 'invalid_id', message: 'id must be a UUIDv7.' } });
+    }
+    const batchId = idParse.data;
+
+    const pool = getPool();
+    // 1. Verify the batch is past Phase 1.
+    const rRow = await pool.query<{
+      id: string;
+      mode: string;
+      classification_status: string | null;
+      blob_prefix: string | null;
+    }>(
+      `SELECT id, mode, classification_status, blob_prefix FROM batches WHERE id = $1 LIMIT 1`,
+      [batchId],
+    );
+    if (rRow.rowCount === 0) {
+      return reply.code(404).send({ error: { code: 'not_found', message: 'batch not found' } });
+    }
+    const row = rRow.rows[0]!;
+    if (row.classification_status !== 'completed') {
+      return reply.code(409).send({
+        error: {
+          code: 'classification_incomplete',
+          message: `Cannot rebuild declarations: classification_status=${row.classification_status}. Phase 1 must be completed first.`,
+        },
+      });
+    }
+    if (row.mode !== 'classify_and_declare') {
+      return reply.code(409).send({
+        error: {
+          code: 'mode_not_declare',
+          message: `Batch mode is ${row.mode}; declarations only exist for classify_and_declare batches.`,
+        },
+      });
+    }
+
+    // 2. Delete existing filing rows + joins.
+    await pool.query(
+      `DELETE FROM filing_awbs WHERE filing_id IN (SELECT id FROM batch_filings WHERE batch_id = $1)`,
+      [batchId],
+    );
+    await pool.query(`DELETE FROM batch_filings WHERE batch_id = $1`, [batchId]);
+
+    // 3. Delete existing LV/HV XML blobs. Leave classifications.json and
+    //    run-index.json in place — we'll rewrite them in step 5.
+    if (row.blob_prefix) {
+      const blob = getBlobClient();
+      const allBlobs = await blob.list(row.blob_prefix);
+      const lvHvBlobs = allBlobs.filter(
+        (b) => b.key.endsWith('.xml') && (b.key.includes('/lv/') || b.key.includes('/hv/')),
+      );
+      for (const b of lvHvBlobs) {
+        try {
+          await blob.delete(b.key);
+        } catch {
+          // Best-effort — a single leftover blob isn't fatal; the
+          // post-rebuild listing will show stale entries but the new
+          // run-index.json points only to the freshly written set.
+        }
+      }
+    }
+
+    // 4. Re-run Phase 2.
+    try {
+      const summary = await runDeclarationPhase(batchId);
+      // 5. Regenerate the run-side index files.
+      await writeClassificationsJson(batchId);
+      await writeRunIndexJson(batchId);
+      return reply.code(200).send({
+        batch_id: batchId,
+        bundleCount: summary.bundleCount,
+        durationMs: summary.durationMs,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(500).send({
+        error: { code: 'rebuild_failed', message: msg },
+      });
     }
   });
 
