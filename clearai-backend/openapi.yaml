@@ -1068,6 +1068,50 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /batches/{id}/rebuild-declarations:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+
+    post:
+      operationId: rebuild-batch-declarations
+      tags: [batches]
+      summary: Re-run Phase 2 (declaration rendering) on an already-classified batch
+      description: |
+        Regenerates LV/HV XMLs against the current renderer template
+        WITHOUT re-running classification or making any LLM calls.
+        Deletes existing batch_filings rows and LV/HV blobs, then
+        invokes runDeclarationPhase. Use after shipping a renderer-only
+        fix to refresh existing pilot output cheaply.
+
+        Returns 409 when the batch hasn't completed Phase 1
+        (`classification_status != 'completed'`) or when the batch
+        mode is `classify_only` (no declarations to regenerate).
+      security:
+        - apimSharedSecret: []
+          entraJwt: ['api://clearai-backend/.default']
+      responses:
+        '200':
+          description: Declarations regenerated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [batch_id, bundleCount, durationMs]
+                properties:
+                  batch_id: { type: string }
+                  bundleCount: { type: integer }
+                  durationMs: { type: integer }
+        '404':
+          description: No batch with that id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Phase 1 not completed, or batch mode is not classify_and_declare.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /batches/{id}/files:
     parameters:
       - $ref: '#/components/parameters/BatchId'
