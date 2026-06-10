@@ -53,11 +53,36 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
   }
   const lookups = await getLookupsByOperatorIdWithMetadata(operator.id);
   const items = await listClassifiedItems(batchId);
-  // All rows in the batch regardless of classification status. Used by
-  // the renderer to populate <exportAirBL> with HITL-failed AWBs too —
-  // those represent shipments physically on the flight even though no
-  // classifiable <item> was emitted for them.
+  // All rows in the batch regardless of classification status.
   const allBatchRows = await listAllItemsByBatch(batchId);
+
+  // AWB-completeness gate (2026-06-10). A customs declaration for a
+  // shipment (AWB) must cover ALL of that shipment's items. If ANY item
+  // in an AWB lacks a final code — status failed / blocked / pending_infra
+  // (i.e. it escalated to HITL with no code) — the WHOLE AWB is held: no
+  // declaration is emitted for it (neither HV standalone nor parked in
+  // the LV catch-all) until a human resolves the unclassified item.
+  //
+  // `flagged` does NOT block: a flagged item has a code and only carries
+  // a sanity/value-plausibility warning, which is audit-only and
+  // non-blocking (see rule_sanity_is_audit_only). succeeded + flagged are
+  // the only "declaration-ready" states.
+  //
+  // Failed rows retain their awb_id (verified 2026-06-10), so the
+  // grouping is by awbId directly.
+  const READY_STATES = new Set(['succeeded', 'flagged']);
+  const incompleteAwbIds = new Set<string>();
+  for (const row of allBatchRows) {
+    const awbId = row.awbId;
+    if (awbId === null || awbId === undefined) continue;
+    if (!READY_STATES.has(row.status)) incompleteAwbIds.add(awbId);
+  }
+  if (incompleteAwbIds.size > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[declaration] holding ${incompleteAwbIds.size} AWB(s) with unresolved HITL items — no declaration until resolved`,
+    );
+  }
 
   const [thresholds, config] = await Promise.all([
     loadThresholds(),
@@ -88,7 +113,12 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
   if (hasAwbLinkage) {
     // ── PR3 path: group items by awb_id, hand to bundleByAwb ──
     const awbRows = await listAwbsByBatch(batchId);
-    const awbsForBundling = buildAwbsForBundling(awbRows, items);
+    // Hold incomplete AWBs: their classified items are excluded from
+    // bundling so no declaration is emitted for the shipment.
+    const completeItems = items.filter(
+      (it) => it.awbId === null || it.awbId === undefined || !incompleteAwbIds.has(it.awbId),
+    );
+    const awbsForBundling = buildAwbsForBundling(awbRows, completeItems);
 
     const bundles = bundleByAwb(awbsForBundling, {
       hvThresholdSar: thresholds.ZATCA_HV_THRESHOLD_SAR,
@@ -115,17 +145,19 @@ export async function runDeclarationPhase(batchId: string): Promise<PhaseDeclara
           ? allBatchRows.filter((r) => {
               const mf = readManifestFile(r);
               if (mf === null || !manifestFiles.has(mf)) return false;
-              // Exclude rows that belong to a different bundle (the HV
-              // path). A row qualifies for this LV bundle's BL list
-              // either because it IS in bundle.items (already classified
-              // and bundled here) or because it's HITL-failed
-              // (status='failed' / 'pending_infra' / 'blocked' — these
-              // rows have no awbId and weren't picked up by bundleByAwb,
-              // but they belong on the LV filing for the same manifest).
+              // AWB-completeness gate: a row whose AWB has ANY unresolved
+              // HITL item is HELD entirely — it must NOT appear in the LV
+              // bundle's BL list. The whole shipment waits for resolution.
+              if (r.awbId !== null && r.awbId !== undefined && incompleteAwbIds.has(r.awbId)) {
+                return false;
+              }
+              // A row qualifies for this LV bundle's BL list when it IS in
+              // bundle.items (classified and bundled here).
               if (bundle.items.some((bi) => bi.id === r.id)) return true;
-              // HITL-failed and similar non-success states have no
-              // finalCode set. Classified-but-routed-to-HV rows have a
-              // finalCode and are excluded from this LV bundle.
+              // Previously HITL-failed no-code rows were parked here; with
+              // the completeness gate above they're already excluded, so
+              // this only catches code-less rows whose AWB is otherwise
+              // complete (shouldn't happen, but harmless).
               return r.finalCode === null || r.finalCode === undefined;
             })
           : bundle.items;
