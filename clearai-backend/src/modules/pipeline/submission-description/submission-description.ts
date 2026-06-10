@@ -72,25 +72,37 @@ function equalsLeaf(generated: string, leafAr: string | null): boolean {
  *   (b) different from the leaf verbatim (extra prefix word)
  *   (c) tied to the actual item (not a synthetic placeholder)
  *
- * If catalog leaf Arabic is missing, falls back to the path-Ar leaf
- * segment, then to a synthetic "<token> منتج" string.
+ * MUST be pure Arabic (no Latin, no digits) to match the ZATCA
+ * convention the LLM path enforces — see prompts/submission-description.md.
+ * The old version prepended an English token from cleanedDescription to
+ * force differentiation from the leaf; that injected Latin into the XML.
+ *
+ * Differentiation strategy, Arabic-only, in priority order:
+ *   1. Combine the broader path-Ar category with the leaf-Ar
+ *      (`<path-leaf> — <leaf>`) when both exist and differ — keeps it
+ *      distinct from the bare leaf while staying pure Arabic.
+ *   2. Otherwise return the leaf-Ar (or path-Ar leaf) as-is. A fallback
+ *      that equals the leaf is acceptable: it is valid pure Arabic, far
+ *      better than leaf + a Latin word.
+ *   3. Last resort: the generic Arabic noun `منتج` ("product").
  */
-function buildFallback(cleanedDescription: string, leafAr: string | null, pathAr: string | null): string {
-  const STOP = new Set(['a', 'an', 'the', 'of', 'for', 'with', 'and', 'or', 'is', 'in', 'on']);
-  const token = cleanedDescription
-    .split(/[\s,;]+/)
-    .map((t) => t.trim())
-    .find((t) => t.length >= 2 && !STOP.has(t.toLowerCase())) ?? cleanedDescription.trim();
-
-  const anchor = (leafAr && normalize(leafAr)) || (() => {
+function buildFallback(_cleanedDescription: string, leafAr: string | null, pathAr: string | null): string {
+  const leaf = leafAr ? normalize(leafAr) : '';
+  const pathLeaf = (() => {
     if (!pathAr) return '';
     const parts = pathAr.split('>').map((p) => p.trim()).filter(Boolean);
-    return parts[parts.length - 1] ?? '';
+    return normalize(parts[parts.length - 1] ?? '');
   })();
 
-  const prefix = token.slice(0, 60);
-  const tail = anchor || 'منتج';
-  return normalize(`${prefix} ${tail}`).slice(0, MAX_CHARS);
+  // Prefer leaf; differentiate with the path category when it adds signal.
+  if (leaf) {
+    if (pathLeaf && pathLeaf !== leaf) {
+      return normalize(`${leaf} — ${pathLeaf}`).slice(0, MAX_CHARS);
+    }
+    return leaf.slice(0, MAX_CHARS);
+  }
+  if (pathLeaf) return pathLeaf.slice(0, MAX_CHARS);
+  return 'منتج';
 }
 
 export interface GenerateSubmissionParams {
