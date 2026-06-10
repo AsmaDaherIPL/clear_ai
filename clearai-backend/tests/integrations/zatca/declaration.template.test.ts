@@ -310,10 +310,13 @@ describe('renderDeclarationXml — escaping + errors', () => {
     expect(() => renderDeclarationXml(baseInput([]))).toThrowError(ZatcaRenderError);
   });
 
-  it('rejects HV_STANDALONE bundles with multiple items', () => {
-    expect(() => renderDeclarationXml(baseInput([row(), row()], 'HV_STANDALONE'))).toThrowError(
-      ZatcaRenderError,
-    );
+  it('renders HV_STANDALONE bundles with multiple items', () => {
+    // HV is a per-shipment decision: an HV AWB carries ALL its items in one
+    // declaration regardless of count. Naqel confirms (NQD26051967682 has 2
+    // items). Surfaced by the 2026-05-18 HV pilot (AWB 407426862, 4 items).
+    const xml = renderDeclarationXml(baseInput([row(), row()], 'HV_STANDALONE'));
+    const itemBlocks = (xml.match(/<decsub:items>/g) ?? []).length;
+    expect(itemBlocks).toBe(2);
   });
 
   it('throws when both canonical.consigneeAddress and operator.defaultConsigneeAddress are missing', () => {

@@ -55,7 +55,10 @@ import { buildDocRefNo } from './doc-id.js';
  *   missing_lookup          — tabadul_codes / operator_lookups row absent
  *   missing_consignee_address — neither canonical row nor operator default
  *   empty_bundle            — render called with zero items
- *   bad_bundle_strategy     — HV_STANDALONE bundle with !=1 items
+ *   bad_bundle_strategy     — (retired 2026-06-10) formerly: HV_STANDALONE
+ *                             with !=1 items. HV declarations may now carry
+ *                             N items. Code kept in the union for back-compat
+ *                             with any persisted error rows.
  *   render_error            — any other render-time invariant violation
  */
 export type ZatcaRenderErrorCode =
@@ -514,13 +517,17 @@ export function renderDeclarationXml(input: RenderInput): string {
   if (input.items.length === 0) {
     throw new ZatcaRenderError('cannot render declaration with zero items', 'empty_bundle');
   }
-  if (input.bundleStrategy === 'HV_STANDALONE' && input.items.length !== 1) {
-    throw new ZatcaRenderError(
-      'HV_STANDALONE bundles must contain exactly one item',
-      'bad_bundle_strategy',
-      { strategy: 'HV_STANDALONE', actualItemCount: String(input.items.length) },
-    );
-  }
+  // 2026-06-10: removed the "HV_STANDALONE must have exactly 1 item" guard.
+  // HV/LV is a per-SHIPMENT (AWB) decision: an AWB whose summed value >
+  // threshold goes HV, and ALL of that AWB's items belong in its single
+  // HV declaration — regardless of item count. The bundler (bundleByAwb)
+  // already groups every HV AWB's items into one HV_STANDALONE bundle, and
+  // the renderer's renderInvoiceItems()/totalNoItems/invoiceCost machinery
+  // already handles N items. The old 1-item guard contradicted the bundler
+  // and rejected legitimate multi-item HV shipments. Naqel's own filings
+  // confirm multi-item HV is valid (e.g. NQD26051967682 carries 2 items in
+  // one HV declaration). Surfaced by the 2026-05-18 HV pilot on AWBs
+  // 407426862 (4 items) and 279312459 (2 items).
 
   const docRefNo = buildDocRefNo({
     prefix: input.config.docRefPrefix ?? undefined,
