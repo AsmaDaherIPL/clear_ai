@@ -709,8 +709,8 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
       } | null = null;
 
       if (decision === 'override') {
-        const itemRes = await client.query<{ final_code: string | null; pipeline_final_code: string | null }>(
-          `SELECT final_code, pipeline_final_code
+        const itemRes = await client.query<{ final_code: string | null; pipeline_final_code: string | null; status: string; goods_description_ar: string | null }>(
+          `SELECT final_code, pipeline_final_code, status, goods_description_ar
              FROM batch_items
             WHERE id = $1
             FOR UPDATE`,
@@ -720,19 +720,57 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
           const row = itemRes.rows[0]!;
           const preservePipeline = row.pipeline_final_code === null && row.final_code !== null;
 
-          await client.query(
-            `UPDATE batch_items
-                SET final_code = $2,
-                    final_code_source = 'reviewer_override',
-                    pipeline_final_code = COALESCE(pipeline_final_code, $3),
-                    updated_at = now()
-              WHERE id = $1`,
-            [
-              queueRow.item_id,
-              reviewer_code!,
-              preservePipeline ? row.final_code : null,
-            ],
-          );
+          // Two override shapes:
+          //   1. Row already classified (status succeeded/flagged, has a
+          //      code): just swap the code. status + goods_description_ar
+          //      stay valid against the consistency CHECKs.
+          //   2. Row escalated with NO code (status failed/blocked/
+          //      pending_infra, final_code NULL): the reviewer is supplying
+          //      the FIRST code. The CHECKs require that whenever final_code
+          //      is set, status ∈ {succeeded,flagged} AND goods_description_ar
+          //      is non-null. So we must also flip status→succeeded and
+          //      populate the Arabic description. Previously the handler
+          //      patched only final_code and the row violated
+          //      batch_items_final_code_status_consistency_chk (HV pilot,
+          //      2026-06-10 — resolving COSMETICS escalations 500'd).
+          const wasNoCode = !(row.status === 'succeeded' || row.status === 'flagged');
+
+          if (wasNoCode) {
+            // Source the Arabic goods description from the ZATCA catalog
+            // leaf for the reviewer's code. Pure Arabic by construction —
+            // matches the Arabic-only rule the LLM path enforces. Falls
+            // back to a generic noun if the code isn't in the catalog
+            // (force-override of an off-catalog code).
+            const leafRes = await client.query<{ description_ar: string | null }>(
+              `SELECT description_ar FROM zatca_hs_codes WHERE code = $1 LIMIT 1`,
+              [reviewer_code!],
+            );
+            const leafAr = leafRes.rows[0]?.description_ar ?? null;
+            const goodsAr = (leafAr && leafAr.trim()) || 'منتج';
+
+            await client.query(
+              `UPDATE batch_items
+                  SET final_code = $2,
+                      final_code_source = 'reviewer_override',
+                      pipeline_final_code = COALESCE(pipeline_final_code, $3),
+                      status = 'succeeded',
+                      goods_description_ar = $4,
+                      error = NULL,
+                      updated_at = now()
+                WHERE id = $1`,
+              [queueRow.item_id, reviewer_code!, preservePipeline ? row.final_code : null, goodsAr],
+            );
+          } else {
+            await client.query(
+              `UPDATE batch_items
+                  SET final_code = $2,
+                      final_code_source = 'reviewer_override',
+                      pipeline_final_code = COALESCE(pipeline_final_code, $3),
+                      updated_at = now()
+                WHERE id = $1`,
+              [queueRow.item_id, reviewer_code!, preservePipeline ? row.final_code : null],
+            );
+          }
 
           itemPatched = {
             item_id: queueRow.item_id,
